@@ -40,6 +40,24 @@ def test_stock_price_history_contract() -> None:
     assert {"date", "close"}.issubset(payload["points"][0])
 
 
+def test_rs_ranking_contract() -> None:
+    response = client.get("/api/v1/stocks/ratings/rs")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert isinstance(payload["rows"], list)
+    if payload["rows"]:
+        assert {"ticker", "rating", "percentile", "date"}.issubset(payload["rows"][0])
+
+
+def test_stock_rs_detail_contract() -> None:
+    response = client.get("/api/v1/stocks/NVDA/rs")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert isinstance(payload["found"], bool)
+
+
 def test_portfolio_import_dry_run_contract() -> None:
     response = client.post(
         "/api/v1/portfolio/imports/positions",

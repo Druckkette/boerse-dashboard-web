@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Query
 
-from app.schemas import PriceHistoryResponse
+from app.schemas import PriceHistoryResponse, RsRatingDetailResponse, RsRatingRankingResponse
 from app.services.prices import PriceRange, get_price_history
+from app.services.relative_strength import get_relative_strength_for_ticker, get_relative_strength_ranking
 
 
 router = APIRouter()
+
+
+@router.get("/ratings/rs", response_model=RsRatingRankingResponse)
+def relative_strength_ranking(limit: int = Query(default=100, ge=1, le=500)) -> RsRatingRankingResponse:
+    return get_relative_strength_ranking(limit=limit)
 
 
 @router.get("/{ticker}/prices", response_model=PriceHistoryResponse)
@@ -13,3 +19,8 @@ def stock_prices(
     range: PriceRange = Query(default="1y", pattern="^(1m|3m|6m|1y|2y|5y)$"),
 ) -> PriceHistoryResponse:
     return get_price_history(ticker, range_key=range)
+
+
+@router.get("/{ticker}/rs", response_model=RsRatingDetailResponse)
+def stock_relative_strength(ticker: str) -> RsRatingDetailResponse:
+    return get_relative_strength_for_ticker(ticker)

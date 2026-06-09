@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+import pytest
+
+from app.domain.stocks.relative_strength import ClosePoint
+from app.repositories.relative_strength import RsRatingRow, RsRatingWrite
+from app.services import relative_strength as service
+
+
+def test_refresh_relative_strength_uses_cached_prices_and_persists(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored: list[RsRatingWrite] = []
+
+    def fake_load_cached_prices(tickers: list[str], *, start_date: date):
+        assert "SPY" in tickers
+        assert start_date < date.today()
+        return {
+            "SPY": _series(0.0010),
+            "NVDA": _series(0.0022),
+            "MSFT": _series(0.0012),
+            "PLTR": _series(0.0003),
+        }
+
+    def fake_upsert(rows: list[RsRatingWrite]) -> int:
+        stored.extend(rows)
+        return len(rows)
+
+    def fake_latest(*, limit: int = 100, source: str | None = None):
+        return [
+            RsRatingRow(
+                ticker=row.ticker,
+                name=row.ticker,
+                date=row.date,
+                rating=row.rating,
+                score=row.score,
+                percentile=row.percentile,
+                method=row.method,
+                source=row.source,
+                universe_size=row.universe_size,
+                metadata_json=row.metadata_json,
+            )
+            for row in sorted(stored, key=lambda item: item.rating, reverse=True)[:limit]
+        ]
+
+    monkeypatch.setattr(service.market_repository, "load_cached_prices", fake_load_cached_prices)
+    monkeypatch.setattr(service.rs_repository, "upsert_rs_ratings", fake_upsert)
+    monkeypatch.setattr(service.rs_repository, "list_latest_rs_ratings", fake_latest)
+
+    result = service.refresh_relative_strength_ratings(tickers=["NVDA", "MSFT", "PLTR"], benchmark_ticker="SPY")
+
+    assert result["ok"] is True
+    assert result["records_written"] == 3
+    assert result["top"][0]["ticker"] == "NVDA"
+    assert stored[0].source == "computed"
+
+
+def _series(daily_growth: float, *, days: int = 320) -> list[ClosePoint]:
+    start = date(2025, 1, 1)
+    price = 100.0
+    points: list[ClosePoint] = []
+    for offset in range(days):
+        price *= 1 + daily_growth
+        points.append(ClosePoint(date=start + timedelta(days=offset), close=price))
+    return points

@@ -99,7 +99,18 @@ curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
 ```
 
 `refresh_prices` loads the starter universe plus the volatility tickers `SPY`, `^VIX` and `VIXY`.
-When it is done, calculate breadth and market-risk snapshots:
+When it is done, calculate relative-strength ratings from the cached bars:
+
+```bash
+curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"refresh_relative_strength","payload":{"mode":"manual","lookback_days":430}}'
+```
+
+`/stocks/ratings/rs` and `/stocks/<ticker>/rs` read the persisted `rs_ratings` table. They do not
+run yfinance or Pandas recomputes in the click path.
+
+Then calculate breadth and market-risk snapshots:
 
 ```bash
 curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \

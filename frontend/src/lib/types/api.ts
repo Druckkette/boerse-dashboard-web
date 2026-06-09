@@ -166,6 +166,39 @@ export type PriceHistory = {
   points: PriceBarPoint[];
 };
 
+export type RsRatingItem = {
+  ticker: string;
+  name: string;
+  date: string;
+  rating?: number | null;
+  score?: number | null;
+  percentile?: number | null;
+  method: string;
+  source: string;
+  universe_size: number;
+  ret_1m?: number | null;
+  ret_3m?: number | null;
+  ret_6m?: number | null;
+  ret_12m?: number | null;
+  excess_return_3m?: number | null;
+  excess_return_6m?: number | null;
+  excess_return_12m?: number | null;
+  near_high_52w?: boolean | null;
+  new_high_52w?: boolean | null;
+};
+
+export type RsRatingRanking = {
+  as_of: string;
+  source: "database" | "missing";
+  rows: RsRatingItem[];
+};
+
+export type RsRatingDetail = {
+  found: boolean;
+  source: "database" | "missing";
+  item?: RsRatingItem | null;
+};
+
 export type SellRankingRow = {
   ticker: string;
   name: string;

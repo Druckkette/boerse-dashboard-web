@@ -1,5 +1,6 @@
 import { StatusChip } from "@/components/ui/status-chip";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
+import { StockRsPanel } from "@/features/stocks/stock-rs-panel";
 
 export default async function StockDetailPage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;
@@ -19,6 +20,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
         <StockPricePanel ticker={clean} title="Price" />
         <StockPricePanel ticker="SPY" title="Benchmark" />
       </div>
+      <StockRsPanel ticker={clean} />
     </div>
   );
 }

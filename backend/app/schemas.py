@@ -114,6 +114,39 @@ class PriceHistoryResponse(BaseModel):
     points: list[PriceBarPoint]
 
 
+class RsRatingItem(BaseModel):
+    ticker: str
+    name: str = ""
+    date: str
+    rating: int | None = Field(default=None, ge=1, le=99)
+    score: float | None = None
+    percentile: float | None = Field(default=None, ge=0, le=100)
+    method: str = ""
+    source: str = ""
+    universe_size: int = 0
+    ret_1m: float | None = None
+    ret_3m: float | None = None
+    ret_6m: float | None = None
+    ret_12m: float | None = None
+    excess_return_3m: float | None = None
+    excess_return_6m: float | None = None
+    excess_return_12m: float | None = None
+    near_high_52w: bool | None = None
+    new_high_52w: bool | None = None
+
+
+class RsRatingRankingResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "missing"]
+    rows: list[RsRatingItem]
+
+
+class RsRatingDetailResponse(BaseModel):
+    found: bool
+    source: Literal["database", "missing"]
+    item: RsRatingItem | None = None
+
+
 class PortfolioPosition(BaseModel):
     ticker: str
     name: str

@@ -11,6 +11,8 @@ import type {
   PortfolioImportResponse,
   PortfolioPosition,
   PortfolioSnapshot,
+  RsRatingDetail,
+  RsRatingRanking,
   SellEvaluation,
   SellManualInput,
   SellMetrics,
@@ -63,6 +65,8 @@ export const api = {
   freshness: () => getJson<Freshness>("/freshness"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
     getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),
+  rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),
+  stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   portfolioPositions: async () => {
     const payload = await getJson<{ positions: PortfolioPosition[] }>("/portfolio/positions");
     return payload.positions;
