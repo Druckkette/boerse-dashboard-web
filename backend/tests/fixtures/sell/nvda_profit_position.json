@@ -1,0 +1,10 @@
+{
+  "ticker": "NVDA",
+  "scenario": "profit",
+  "description": "Synthetic profitable position with trend intact and a partial profit-taking signal.",
+  "expected": {
+    "status": "Halten",
+    "recommendation_label": "TEILVERKAUF",
+    "minimum_health_score": 65
+  }
+}

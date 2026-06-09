@@ -1,0 +1,10 @@
+{
+  "ticker": "PLTR",
+  "scenario": "losing",
+  "description": "Synthetic losing position below key moving averages with defensive exit pressure.",
+  "expected": {
+    "status": "Verkaufen",
+    "recommendation_label": "KOMPLETTVERKAUF",
+    "minimum_recommendation_percent": 75
+  }
+}

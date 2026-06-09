@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-boerse_dashboard}
+      POSTGRES_USER: ${POSTGRES_USER:-boerse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boerse} -d ${POSTGRES_DB:-boerse_dashboard}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: "no"
+    profiles: ["migrate"]
+    env_file:
+      - .env.nas
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.nas
+    environment:
+      APP_ENV: nas
+      BACKEND_CACHE_DIR: /app/.cache
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - backend_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.nas
+    environment:
+      APP_ENV: nas
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      BACKEND_CACHE_DIR: /app/.cache
+    command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default"]
+    volumes:
+      - backend_cache:/app/.cache
+      - worker_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.nas
+    environment:
+      APP_ENV: nas
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.nas
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_cache:
+  worker_logs:

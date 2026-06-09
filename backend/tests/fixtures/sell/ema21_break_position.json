@@ -1,0 +1,10 @@
+{
+  "ticker": "EMAB",
+  "scenario": "ema21_break",
+  "description": "Synthetic winner that breaks below the 21 EMA after an advance.",
+  "expected": {
+    "status": "Verkaufen",
+    "minimum_days_under_ema21": 3,
+    "minimum_recommendation_percent": 50
+  }
+}

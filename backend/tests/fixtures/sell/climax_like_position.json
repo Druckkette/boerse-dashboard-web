@@ -1,0 +1,9 @@
+{
+  "ticker": "CLMX",
+  "scenario": "climax",
+  "description": "Synthetic extended winner with late-stage volume and overextension characteristics.",
+  "expected": {
+    "recommendation_label": "KOMPLETTVERKAUF",
+    "minimum_recommendation_percent": 75
+  }
+}

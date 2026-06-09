@@ -1,0 +1,130 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-boerse_dashboard}
+      POSTGRES_USER: ${POSTGRES_USER:-boerse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boerse}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boerse} -d ${POSTGRES_DB:-boerse_dashboard}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    profiles: ["migrate"]
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://boerse:boerse@postgres:5432/boerse_dashboard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://boerse:boerse@postgres:5432/boerse_dashboard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      BACKEND_CACHE_DIR: /app/.cache
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://boerse:boerse@postgres:5432/boerse_dashboard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      BACKEND_CACHE_DIR: /app/.cache
+    command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default"]
+    volumes:
+      - backend_cache:/app/.cache
+      - worker_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://boerse:boerse@postgres:5432/boerse_dashboard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.frontend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_cache:
+  worker_logs:

@@ -1,0 +1,185 @@
+"use client";
+
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
+  useReactTable
+} from "@tanstack/react-table";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowUpDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { KpiCard } from "@/components/ui/kpi-card";
+import { StatusChip } from "@/components/ui/status-chip";
+import { api } from "@/lib/api/client";
+import type { PendingStatus, SellRankingRow } from "@/lib/types/api";
+
+const toneByStatus: Record<SellRankingRow["status"], "good" | "neutral" | "warning" | "bad"> = {
+  Halten: "good",
+  Beobachten: "warning",
+  Verkaufen: "bad"
+};
+
+const toneByPending: Record<PendingStatus, "good" | "neutral" | "warning" | "bad"> = {
+  halten: "good",
+  in_bestaetigung: "warning",
+  snoozed: "neutral",
+  scharf: "bad"
+};
+
+export default function SellMonitorPage() {
+  const router = useRouter();
+  const { data, isLoading } = useQuery({ queryKey: ["sell-ranking"], queryFn: api.sellRanking });
+  const rows = data ?? [];
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "recommendation_pct", desc: true }
+  ]);
+
+  const columns = useMemo<ColumnDef<SellRankingRow>[]>(
+    () => [
+      {
+        accessorKey: "ticker",
+        header: "Position",
+        cell: ({ row }) => (
+          <div>
+            <div className="font-semibold">{row.original.ticker}</div>
+            <div className="text-xs text-[#a0a7b4]">{row.original.name}</div>
+          </div>
+        )
+      },
+      {
+        accessorKey: "pnl_pct",
+        header: "P&L",
+        cell: ({ getValue }) => {
+          const value = Number(getValue());
+          return (
+            <span className={value >= 0 ? "text-emerald-300" : "text-rose-300"}>
+              {value.toFixed(1)}%
+            </span>
+          );
+        }
+      },
+      {
+        accessorKey: "health_score",
+        header: "Health",
+        cell: ({ getValue }) => `${Number(getValue()).toFixed(1)}`
+      },
+      {
+        accessorKey: "recommendation_pct",
+        header: "Empfehlung",
+        cell: ({ getValue }) => `${Number(getValue())}%`
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => (
+          <StatusChip tone={toneByStatus[row.original.status]}>{row.original.status}</StatusChip>
+        )
+      },
+      {
+        accessorKey: "pending_status",
+        header: "State",
+        cell: ({ row }) => (
+          <StatusChip tone={toneByPending[row.original.pending_status]}>
+            {row.original.pending_status}
+          </StatusChip>
+        )
+      },
+      {
+        accessorKey: "primary_signal",
+        header: "Signal",
+        cell: ({ row }) => (
+          <div className="max-w-[360px] truncate text-[#d8dde6]" title={row.original.primary_signal}>
+            {row.original.primary_signal}
+          </div>
+        )
+      }
+    ],
+    []
+  );
+
+  // TanStack Table intentionally returns function-heavy table instances.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel()
+  });
+
+  const sellCount = rows.filter((row) => row.status === "Verkaufen").length;
+  const watchCount = rows.filter((row) => row.status === "Beobachten").length;
+  const maxRecommendation = rows.reduce((max, row) => Math.max(max, row.recommendation_pct), 0);
+  const averageHealth =
+    rows.length > 0 ? rows.reduce((sum, row) => sum + row.health_score, 0) / rows.length : 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Sell Monitor</h1>
+          <p className="mt-1 text-sm text-[#a0a7b4]">
+            Ranking aus der extrahierten Sell-Engine, ohne Jobs im Click-Pfad.
+          </p>
+        </div>
+        <StatusChip tone={isLoading ? "warning" : "good"}>
+          {isLoading ? "lädt" : `${rows.length} Positionen`}
+        </StatusChip>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard item={{ label: "Verkaufen", value: String(sellCount), detail: "aktive Exit-Fälle", tone: sellCount > 0 ? "bad" : "good" }} />
+        <KpiCard item={{ label: "Beobachten", value: String(watchCount), detail: "Review nötig", tone: watchCount > 0 ? "warning" : "neutral" }} />
+        <KpiCard item={{ label: "Max Empfehlung", value: `${maxRecommendation}%`, detail: "höchste aktuelle Tranche", tone: maxRecommendation >= 75 ? "bad" : "warning" }} />
+        <KpiCard item={{ label: "Ø Health", value: averageHealth.toFixed(1), detail: "Score über Ranking", tone: averageHealth >= 65 ? "good" : averageHealth >= 40 ? "warning" : "bad" }} />
+      </div>
+
+      <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
+        <div className="max-h-[560px] overflow-auto">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
+            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th key={header.id} className="border-b border-[#2d333d] px-4 py-3 font-medium">
+                      {header.isPlaceholder ? null : (
+                        <button
+                          className="inline-flex items-center gap-2 text-left uppercase"
+                          type="button"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <ArrowUpDown size={13} className="text-[#77808f]" />
+                        </button>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
+                  onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-4 py-3">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

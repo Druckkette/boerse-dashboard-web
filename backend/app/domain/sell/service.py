@@ -1,0 +1,513 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import date
+from functools import lru_cache
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from app.domain.sell.metrics import build_sell_decision_metrics_payload
+from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision
+from app.domain.sell.schemas import (
+    ManualInputResponse,
+    SellEvaluationRequest,
+    SellEvaluationResponse,
+    SellHealthScore,
+    SellManualInput,
+    SellMetricsApiResponse,
+    SellMetricsPayload,
+    SellMetricsRequest,
+    SellPositionRankingItem,
+    SellRankingResponse,
+    SellRecommendationState,
+    SellSignal,
+    SnoozeRequest,
+    SnoozeResponse,
+    TrancheLogEntry,
+    TrancheLogResponse,
+    default_snoozed_until,
+)
+
+
+_SYNTHETIC_END_DATE = date(2026, 6, 5)
+_SYNTHETIC_PERIODS = 280
+
+_POSITION_CATALOG: dict[str, dict[str, Any]] = {
+    "NVDA": {
+        "name": "NVIDIA",
+        "buy_price": 100.0,
+        "shares": 12.0,
+        "scenario": "profit",
+        "market_environment": "Bullisch",
+        "industry_group_status": "Stark",
+    },
+    "PLTR": {
+        "name": "Palantir",
+        "buy_price": 70.0,
+        "shares": 20.0,
+        "scenario": "losing",
+        "market_environment": "Unsicher",
+        "industry_group_status": "Neutral",
+    },
+    "EMAB": {
+        "name": "EMA21 Break Setup",
+        "buy_price": 100.0,
+        "shares": 10.0,
+        "scenario": "ema21_break",
+        "market_environment": "Unsicher",
+        "industry_group_status": "Neutral",
+    },
+    "CLMX": {
+        "name": "Climax Winner",
+        "buy_price": 80.0,
+        "shares": 8.0,
+        "scenario": "climax",
+        "market_environment": "Bullisch",
+        "industry_group_status": "Neutral",
+    },
+}
+
+_MANUAL_INPUTS: dict[str, SellManualInput] = {}
+_TRANCHE_LOG: dict[str, list[TrancheLogEntry]] = {}
+_RECOMMENDATION_STATE: dict[str, SellRecommendationState] = {}
+
+
+def get_sell_metrics_for_position(
+    ticker: str,
+    request: SellMetricsRequest | None = None,
+) -> SellMetricsApiResponse:
+    """Return sell metrics for one position.
+
+    Current implementation uses deterministic fixture-like OHLC data. The function boundary is
+    intentionally repository-friendly so a later price cache can replace the data source.
+    """
+    clean_ticker = _clean_ticker(ticker)
+    payload = _build_metrics_payload(request or _default_metrics_request(clean_ticker))
+    manual = _manual_for_payload(clean_ticker, payload)
+    health = _health_from_payload(payload, manual)
+    metrics = _payload_metrics(payload)
+
+    return SellMetricsApiResponse(
+        ticker=clean_ticker,
+        as_of=str(payload.get("as_of") or ""),
+        current_price=_round_metric(metrics.get("current_price")),
+        pnl_pct=_round_metric(metrics.get("pnl_pct")),
+        ema21=_round_metric(metrics.get("ema21")),
+        sma50=_round_metric(metrics.get("sma50")),
+        sma200=_round_metric(metrics.get("sma200")),
+        atr14=_round_metric(metrics.get("atr14")),
+        days_under_ema21=int(metrics.get("days_under_ema21") or 0),
+        distribution_days_25=int(metrics.get("distribution_days_25") or 0),
+        rs_trend=_api_rs_trend(health.rs_trend),
+        health=health,
+        manual_defaults=_json_safe(payload.get("manual_defaults", {})),
+        auto_checkboxes=_json_safe(payload.get("auto_checkboxes", {})),
+        raw_payload=_metrics_payload_schema(payload),
+    )
+
+
+def evaluate_position_sell_decision(
+    ticker: str,
+    request: SellEvaluationRequest | None = None,
+) -> SellEvaluationResponse:
+    response = _evaluate_position_sell_decision(ticker, request, persist_state=True)
+    _RECOMMENDATION_STATE[_clean_ticker(ticker)] = response.next_recommendation_state
+    return response
+
+
+def get_sell_position_ranking() -> SellRankingResponse:
+    rows: list[SellPositionRankingItem] = []
+    for ticker, context in _POSITION_CATALOG.items():
+        metrics_response = get_sell_metrics_for_position(ticker)
+        evaluation = _evaluate_position_sell_decision(ticker, None, persist_state=False)
+        primary_signal = _primary_signal_label(evaluation)
+        rows.append(
+            SellPositionRankingItem(
+                ticker=ticker,
+                name=str(context["name"]),
+                pnl_pct=float(metrics_response.pnl_pct or 0.0),
+                health_score=float(metrics_response.health.health_score),
+                recommendation_pct=int(evaluation.recommendation_percent),
+                status=_ranking_status(metrics_response.health.status, evaluation.recommendation_percent),
+                reason=evaluation.explanation_short,
+                pending_status=evaluation.pending_status,
+                primary_signal=primary_signal,
+            )
+        )
+    rows.sort(
+        key=lambda row: (
+            {"Verkaufen": 0, "Beobachten": 1, "Halten": 2}.get(row.status, 3),
+            -row.recommendation_pct,
+            row.health_score,
+        )
+    )
+    return SellRankingResponse(rows=rows)
+
+
+def update_manual_sell_inputs(ticker: str, manual: SellManualInput) -> ManualInputResponse:
+    clean_ticker = _clean_ticker(ticker)
+    stored = manual.model_copy(update={"ticker": clean_ticker})
+    _MANUAL_INPUTS[clean_ticker] = stored
+    return ManualInputResponse(manual=stored)
+
+
+def create_tranche_log_entry(ticker: str, entry: TrancheLogEntry) -> TrancheLogResponse:
+    clean_ticker = _clean_ticker(ticker)
+    stored = entry.model_copy(update={"ticker": clean_ticker, "source": entry.source or "api"})
+    _TRANCHE_LOG.setdefault(clean_ticker, []).append(stored)
+    return TrancheLogResponse(entry=stored, tranche_log=list(_TRANCHE_LOG[clean_ticker]))
+
+
+def snooze_sell_signal(ticker: str, request: SnoozeRequest) -> SnoozeResponse:
+    clean_ticker = _clean_ticker(ticker)
+    previous = _RECOMMENDATION_STATE.get(clean_ticker, SellRecommendationState())
+    state = previous.model_copy(
+        update={
+            "snoozed_until": default_snoozed_until(request.days),
+            "snoozed_pct": request.snoozed_pct,
+        }
+    )
+    _RECOMMENDATION_STATE[clean_ticker] = state
+    return SnoozeResponse(state=state)
+
+
+def clear_sell_engine_state() -> None:
+    """Test helper for the in-memory repository implementation."""
+    _MANUAL_INPUTS.clear()
+    _TRANCHE_LOG.clear()
+    _RECOMMENDATION_STATE.clear()
+
+
+def _evaluate_position_sell_decision(
+    ticker: str,
+    request: SellEvaluationRequest | None,
+    *,
+    persist_state: bool,
+) -> SellEvaluationResponse:
+    clean_ticker = _clean_ticker(ticker)
+    payload = _build_metrics_payload(_default_metrics_request(clean_ticker))
+    manual = _resolve_manual(clean_ticker, payload, request.manual if request else None)
+    tranche_log = request.tranche_log if request and request.tranche_log is not None else _TRANCHE_LOG.get(clean_ticker, [])
+    recommendation_state = (
+        request.recommendation_state
+        if request and request.recommendation_state is not None
+        else _RECOMMENDATION_STATE.get(clean_ticker)
+    )
+
+    raw = evaluate_sell_decision(
+        payload,
+        _manual_to_rule_dict(manual),
+        _tranche_log_to_rule_dicts(tranche_log, clean_ticker),
+        recommendation_state.model_dump(mode="json") if recommendation_state else None,
+    )
+    health = _health_from_payload(payload, manual)
+    next_state = SellRecommendationState.model_validate(raw.get("next_recommendation_state") or {})
+
+    response = SellEvaluationResponse(
+        ticker=clean_ticker,
+        recommendation_label=raw.get("recommendation_label", "HALTEN"),
+        display_label=str(raw.get("display_label") or "HALTEN"),
+        regime=str(raw.get("regime") or ""),
+        sell_now_percent=int(raw.get("sell_now_percent") or 0),
+        recommendation_percent=int(raw.get("recommendation_percent") or 0),
+        target_total_sold_percent=int(raw.get("target_total_sold_percent") or 0),
+        already_sold_percent=float(raw.get("already_sold_percent") or 0.0),
+        remaining_after_sale_percent=float(raw.get("remaining_after_sale_percent") or 100.0),
+        pending_status=raw.get("pending_status", "halten"),
+        explanation_short=str(raw.get("explanation_short") or ""),
+        stop_price=_round_metric(raw.get("stop_price")),
+        next_tranche_trigger_price=_round_metric(raw.get("next_tranche_trigger_price")),
+        full_exit_price=_round_metric(raw.get("full_exit_price")),
+        add_again_condition=str(raw.get("add_again_condition") or ""),
+        sell_mode=str(raw.get("sell_mode") or ""),
+        sell_style=str(raw.get("sell_style") or ""),
+        killer_signals=_signals_from_raw(raw.get("killer_signals"), "killer"),
+        tranche_signals=_signals_from_raw(raw.get("tranche_signals"), "tranche"),
+        warning_signals=_signals_from_raw(raw.get("warning_signals"), "warning"),
+        watch_signals=_signals_from_raw(raw.get("watch_signals"), "watch"),
+        book_references=_json_safe(raw.get("book_references") or {}),
+        next_recommendation_state=next_state,
+        health=health,
+        manual=manual,
+        tranche_log=list(tranche_log),
+    )
+    if persist_state:
+        _RECOMMENDATION_STATE[clean_ticker] = next_state
+    return response
+
+
+def _default_metrics_request(ticker: str) -> SellMetricsRequest:
+    clean_ticker = _clean_ticker(ticker)
+    context = _position_context(clean_ticker)
+    dates = _price_dates()
+    return SellMetricsRequest(
+        ticker=clean_ticker,
+        buy_date=dates[-170].date(),
+        buy_price=float(context["buy_price"]),
+        shares=float(context["shares"]),
+        benchmark_ticker="SPY",
+        currency="USD",
+        pivot_date=dates[-170].date(),
+        scenario=str(context["scenario"]),
+    )
+
+
+def _position_context(ticker: str) -> dict[str, Any]:
+    clean_ticker = _clean_ticker(ticker)
+    if clean_ticker in _POSITION_CATALOG:
+        return _POSITION_CATALOG[clean_ticker]
+    return {
+        "name": clean_ticker,
+        "buy_price": 100.0,
+        "shares": 1.0,
+        "scenario": "profit",
+        "market_environment": "Unsicher",
+        "industry_group_status": "Neutral",
+    }
+
+
+def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
+    context = _position_context(request.ticker)
+    is_catalog_default = (
+        request.ticker in _POSITION_CATALOG
+        and request.scenario == context["scenario"]
+        and float(request.buy_price) == float(context["buy_price"])
+        and float(request.shares) == float(context["shares"])
+    )
+    if is_catalog_default:
+        return deepcopy(_cached_metrics_payload(request.ticker))
+    price_frame = _build_price_frame(request.scenario or "profit")
+    benchmark_frame = _build_price_frame("benchmark")
+    return build_sell_decision_metrics_payload(
+        ticker=request.ticker,
+        buy_date=request.buy_date,
+        buy_price=request.buy_price,
+        shares=request.shares,
+        price_frame=price_frame,
+        benchmark_frame=benchmark_frame,
+        benchmark_ticker=request.benchmark_ticker,
+        currency=request.currency,
+        pivot_date=request.pivot_date,
+    )
+
+
+@lru_cache(maxsize=64)
+def _cached_metrics_payload(ticker: str) -> dict[str, Any]:
+    request = _default_metrics_request(ticker)
+    price_frame = _build_price_frame(request.scenario or "profit")
+    benchmark_frame = _build_price_frame("benchmark")
+    return build_sell_decision_metrics_payload(
+        ticker=request.ticker,
+        buy_date=request.buy_date,
+        buy_price=request.buy_price,
+        shares=request.shares,
+        price_frame=price_frame,
+        benchmark_frame=benchmark_frame,
+        benchmark_ticker=request.benchmark_ticker,
+        currency=request.currency,
+        pivot_date=request.pivot_date,
+    )
+
+
+def _build_price_frame(scenario: str) -> pd.DataFrame:
+    dates = _price_dates()
+    close = _close_curve(scenario, len(dates))
+    idx = np.arange(len(dates), dtype=float)
+    open_ = close * (1 + 0.004 * np.sin(idx / 4.0))
+    high = np.maximum(open_, close) * (1.012 + 0.003 * np.cos(idx / 8.0))
+    low = np.minimum(open_, close) * (0.988 - 0.002 * np.sin(idx / 6.0))
+    volume = 1_000_000 * (1 + 0.12 * np.sin(idx / 9.0) + 0.04 * np.cos(idx / 3.0))
+
+    if scenario == "losing":
+        volume[-30:] *= np.linspace(1.2, 1.8, 30)
+    elif scenario == "ema21_break":
+        volume[-8:] *= np.linspace(1.1, 1.7, 8)
+    elif scenario == "climax":
+        volume[-6:] *= [1.2, 1.4, 2.2, 2.8, 2.0, 2.5]
+
+    return pd.DataFrame(
+        {
+            "Open": open_,
+            "High": high,
+            "Low": low,
+            "Close": close,
+            "Volume": np.maximum(volume, 100_000),
+        },
+        index=dates,
+    )
+
+
+def _close_curve(scenario: str, periods: int) -> np.ndarray:
+    if scenario == "benchmark":
+        curve = np.linspace(380, 430, periods)
+        curve[-20:] = np.linspace(curve[-21], 432, 20)
+        return curve
+    if scenario == "losing":
+        curve = np.linspace(86, 61, periods)
+        curve[-15:] = np.linspace(curve[-16] * 0.98, 58.2, 15)
+        return curve
+    if scenario == "ema21_break":
+        curve = np.concatenate(
+            [
+                np.linspace(82, 132, periods - 28),
+                np.linspace(135, 123, 18),
+                np.linspace(121, 118.5, 10),
+            ]
+        )
+        return curve[:periods]
+    if scenario == "climax":
+        curve = np.linspace(72, 144, periods)
+        curve[-8:] = [145, 149, 154, 162, 171, 166, 169, 174]
+        return curve
+    curve = np.linspace(82, 134, periods)
+    curve[-18:] = np.linspace(curve[-19], 138, 18)
+    return curve
+
+
+def _price_dates() -> pd.DatetimeIndex:
+    return pd.bdate_range(end=pd.Timestamp(_SYNTHETIC_END_DATE), periods=_SYNTHETIC_PERIODS)
+
+
+def _manual_for_payload(ticker: str, payload: dict[str, Any]) -> SellManualInput:
+    return _resolve_manual(ticker, payload, None)
+
+
+def _resolve_manual(
+    ticker: str,
+    payload: dict[str, Any],
+    request_manual: SellManualInput | None,
+) -> SellManualInput:
+    clean_ticker = _clean_ticker(ticker)
+    if request_manual is not None:
+        return request_manual.model_copy(update={"ticker": clean_ticker})
+    if clean_ticker in _MANUAL_INPUTS:
+        return _MANUAL_INPUTS[clean_ticker]
+    context = _position_context(clean_ticker)
+    defaults = payload.get("manual_defaults") if isinstance(payload, dict) else {}
+    auto = payload.get("auto_checkboxes") if isinstance(payload, dict) else {}
+    return SellManualInput(
+        ticker=clean_ticker,
+        pivot=_round_metric((defaults or {}).get("pivot")),
+        low_day_1=_round_metric((defaults or {}).get("low_day_1")),
+        low_day_0=_round_metric((defaults or {}).get("low_day_0")),
+        market_environment=str(context["market_environment"]),
+        industry_group_status=str(context["industry_group_status"]),
+        strength_checkboxes=dict((auto or {}).get("strength_checkboxes") or {}),
+        warning_checkboxes=dict((auto or {}).get("warning_checkboxes") or {}),
+    )
+
+
+def _health_from_payload(payload: dict[str, Any], manual: SellManualInput) -> SellHealthScore:
+    raw = compute_sell_health_score(payload, _manual_to_rule_dict(manual))
+    return SellHealthScore.model_validate(_json_safe(raw))
+
+
+def _manual_to_rule_dict(manual: SellManualInput) -> dict[str, Any]:
+    return manual.model_dump(mode="json")
+
+
+def _tranche_log_to_rule_dicts(entries: list[TrancheLogEntry], ticker: str) -> list[dict[str, Any]]:
+    clean_ticker = _clean_ticker(ticker)
+    out: list[dict[str, Any]] = []
+    for entry in entries:
+        raw = entry.model_copy(update={"ticker": clean_ticker}).model_dump(mode="json")
+        raw["tranche_percent"] = raw.get("pct", 0)
+        out.append(raw)
+    return out
+
+
+def _signals_from_raw(raw_signals: Any, severity: str) -> list[SellSignal]:
+    if not isinstance(raw_signals, list):
+        return []
+    return [_signal_from_raw(raw, severity) for raw in raw_signals if isinstance(raw, dict)]
+
+
+def _signal_from_raw(raw: dict[str, Any], severity: str) -> SellSignal:
+    return SellSignal(
+        id=str(raw.get("id") or raw.get("name") or ""),
+        label=str(raw.get("label") or raw.get("name") or ""),
+        contribution_percent=int(raw.get("contribution_percent") or raw.get("tranche_pct") or 0),
+        signal_date=str(raw.get("signal_date") or ""),
+        event_note=str(raw.get("event_note") or raw.get("begruendung") or ""),
+        sell_mode=str(raw.get("sell_mode") or ""),
+        sell_style=str(raw.get("sell_style") or ""),
+        strategy_key=str(raw.get("strategy_key") or ""),
+        severity=severity,
+        book_reference=str(raw.get("book_reference") or raw.get("buch_verweis") or ""),
+    )
+
+
+def _metrics_payload_schema(payload: dict[str, Any]) -> SellMetricsPayload:
+    clean = {key: _json_safe(value) for key, value in payload.items() if key != "ohlc_frames"}
+    clean["ohlc_frames"] = payload.get("ohlc_frames", {})
+    return SellMetricsPayload.model_validate(clean)
+
+
+def _payload_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    metrics = payload.get("metrics") if isinstance(payload, dict) else {}
+    return metrics if isinstance(metrics, dict) else {}
+
+
+def _primary_signal_label(evaluation: SellEvaluationResponse) -> str:
+    for group in (
+        evaluation.killer_signals,
+        evaluation.tranche_signals,
+        evaluation.warning_signals,
+        evaluation.watch_signals,
+    ):
+        if group:
+            return group[0].label
+    return "Keine aktiven Verkaufssignale"
+
+
+def _ranking_status(health_status: str, recommendation_percent: int) -> str:
+    if recommendation_percent >= 75:
+        return "Verkaufen"
+    if recommendation_percent > 0:
+        return "Beobachten"
+    return health_status
+
+
+def _api_rs_trend(value: str) -> str:
+    if value == "seitwärts":
+        return "seitwaerts"
+    if value in {"hoch", "runter", "seitwaerts"}:
+        return value
+    return "seitwaerts"
+
+
+def _round_metric(value: Any, ndigits: int = 2) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(parsed):
+        return None
+    return round(parsed, ndigits)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        parsed = float(value)
+        return parsed if np.isfinite(parsed) else None
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def _clean_ticker(ticker: str) -> str:
+    return str(ticker or "").upper().strip()
