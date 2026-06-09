@@ -30,6 +30,22 @@ def test_stock_price_history_contract() -> None:
     assert {"date", "close"}.issubset(payload["points"][0])
 
 
+def test_portfolio_import_dry_run_contract() -> None:
+    response = client.post(
+        "/api/v1/portfolio/imports/positions",
+        json={
+            "file_name": "positions.csv",
+            "content": "Ticker,Shares,Entry_Price\nNVDA,12,91.2\n",
+            "dry_run": True,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["dry_run"] is True
+    assert payload["positions"][0]["ticker"] == "NVDA"
+
+
 def test_sell_metrics_contract() -> None:
     response = client.get("/api/v1/sell/PLTR/metrics")
     assert response.status_code == 200

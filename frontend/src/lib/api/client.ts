@@ -7,6 +7,8 @@ import type {
   MarketOverview,
   PriceHistory,
   PriceRange,
+  PortfolioImportRequest,
+  PortfolioImportResponse,
   PortfolioPosition,
   PortfolioSnapshot,
   SellEvaluation,
@@ -64,6 +66,8 @@ export const api = {
     return payload.positions;
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
+  importPortfolioPositions: (body: PortfolioImportRequest) =>
+    postJson<PortfolioImportResponse>("/portfolio/imports/positions", body),
   sellRanking: async () => {
     const payload = await getJson<{ rows: SellRankingRow[] }>("/sell/positions/ranking");
     return payload.rows;

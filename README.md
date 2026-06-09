@@ -109,6 +109,31 @@ curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
 `/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
 yet, they return fallback data rather than blocking the UI.
 
+## Portfolio Import
+
+Open `http://NAS-IP-ODER-HOSTNAME:3000/portfolio/imports` and import a CSV position snapshot.
+Preview and persistence are separate actions.
+
+Required columns:
+
+- `Ticker`
+- `Shares`
+- `Entry_Price`
+
+Optional columns:
+
+- `Name`
+- `Current_Price`
+- `Currency`
+- `Buy_Date`
+- `Broker`
+- `Account`
+- `Note`
+
+German aliases such as `Stück`, `Einstandskurs`, `Währung` and `Kaufdatum` are accepted. If
+`Current_Price` is present, it is stored as a `portfolio_import` price bar so the portfolio view can
+show a realistic valuation before the next yfinance refresh.
+
 ## GHCR Publishing
 
 `.github/workflows/docker-publish.yml` publishes on push to `main`:

@@ -100,6 +100,39 @@ class PortfolioPositionsResponse(BaseModel):
     positions: list[PortfolioPosition]
 
 
+class PortfolioImportRow(BaseModel):
+    ticker: str
+    name: str = ""
+    shares: float
+    entry_price: float
+    current_price: float | None = None
+    currency: str = "EUR"
+    buy_date: str | None = None
+    broker: str = ""
+    account: str = ""
+    note: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PortfolioImportRequest(BaseModel):
+    source: str = "csv_positions"
+    file_name: str = "positions.csv"
+    content: str
+    dry_run: bool = True
+    replace_open_positions: bool = False
+
+
+class PortfolioImportResponse(BaseModel):
+    ok: bool
+    dry_run: bool
+    import_id: str | None = None
+    rows_total: int
+    rows_imported: int
+    positions: list[PortfolioImportRow]
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PortfolioSnapshotResponse(BaseModel):
     as_of: str
     total_value: float

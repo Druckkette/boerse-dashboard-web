@@ -74,6 +74,39 @@ export type PortfolioSnapshot = {
   positions: PortfolioPosition[];
 };
 
+export type PortfolioImportRow = {
+  ticker: string;
+  name: string;
+  shares: number;
+  entry_price: number;
+  current_price?: number | null;
+  currency: string;
+  buy_date?: string | null;
+  broker: string;
+  account: string;
+  note: string;
+  warnings: string[];
+};
+
+export type PortfolioImportRequest = {
+  source?: string;
+  file_name: string;
+  content: string;
+  dry_run: boolean;
+  replace_open_positions: boolean;
+};
+
+export type PortfolioImportResponse = {
+  ok: boolean;
+  dry_run: boolean;
+  import_id?: string | null;
+  rows_total: number;
+  rows_imported: number;
+  positions: PortfolioImportRow[];
+  errors: string[];
+  warnings: string[];
+};
+
 export type PriceRange = "1m" | "3m" | "6m" | "1y" | "2y" | "5y";
 
 export type PriceBarPoint = {
