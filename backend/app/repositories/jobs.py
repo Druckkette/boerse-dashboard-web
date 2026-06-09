@@ -127,6 +127,18 @@ def mark_cancelled(job_id: str, *, message: str = "Job wurde abgebrochen.") -> J
     )
 
 
+def mark_skipped(job_id: str, *, message: str, result: dict | None = None) -> Job | None:
+    return update_job(
+        job_id,
+        status="skipped",
+        progress=100,
+        current_step="Übersprungen",
+        message=message,
+        result_json=result or {},
+        finished_at=_utcnow(),
+    )
+
+
 def is_cancelled(job_id: str) -> bool:
     job = get_job(job_id)
     return bool(job and job.status == "cancelled")

@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.schemas import BreadthResponse, MarketOverviewResponse
-from app.services.dummy_data import get_breadth, get_market_overview
+from app.services.market import get_breadth, get_market_overview
 
 
 router = APIRouter()
@@ -15,4 +15,3 @@ def market_overview() -> MarketOverviewResponse:
 @router.get("/breadth", response_model=BreadthResponse)
 def market_breadth() -> BreadthResponse:
     return get_breadth()
-

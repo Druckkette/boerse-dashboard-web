@@ -87,6 +87,28 @@ Use a private `.env` on the NAS for database passwords, API keys and future noti
 
 Detailed NAS operations, backup and rollback notes are in `docs/nas-deployment.md`.
 
+## Market Data Bootstrap
+
+After the NAS containers are running, populate the market cache through worker jobs. The API and
+frontend stay usable while these jobs run.
+
+```bash
+curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"refresh_prices","payload":{"mode":"manual","range":"1y"}}'
+```
+
+When `refresh_prices` is done, calculate breadth snapshots:
+
+```bash
+curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"refresh_breadth","payload":{"mode":"manual","lookback_days":370}}'
+```
+
+`/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
+yet, they return fallback data rather than blocking the UI.
+
 ## GHCR Publishing
 
 `.github/workflows/docker-publish.yml` publishes on push to `main`:
