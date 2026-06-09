@@ -57,6 +57,38 @@ class BreadthResponse(BaseModel):
     points: list[BreadthPoint]
 
 
+class VolatilityStatusCard(BaseModel):
+    title: str
+    status: str
+    detail: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class VolatilityPoint(BaseModel):
+    date: str
+    spx_close: float | None = None
+    spx_ret_5d: float | None = None
+    vix_close: float | None = None
+    vix_ret_5d: float | None = None
+    vix_pct_rank_252: float | None = None
+    vix_regime: str
+    vixy_close: float | None = None
+    vixy_ret_5d: float | None = None
+    vixy_state: str
+    vixy_stress_confirmation: bool
+    vixy_carry_decay: bool
+    vol_regime: str
+    fragile_rally: bool
+
+
+class VolatilityResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "missing"]
+    regime: str
+    status_cards: list[VolatilityStatusCard]
+    points: list[VolatilityPoint]
+
+
 class PriceBarPoint(BaseModel):
     date: str
     open: float | None = None

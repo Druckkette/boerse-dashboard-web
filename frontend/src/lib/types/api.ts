@@ -35,6 +35,38 @@ export type Breadth = {
   points: BreadthPoint[];
 };
 
+export type VolatilityStatusCard = {
+  title: string;
+  status: string;
+  detail: string;
+  tone: Tone;
+};
+
+export type VolatilityPoint = {
+  date: string;
+  spx_close?: number | null;
+  spx_ret_5d?: number | null;
+  vix_close?: number | null;
+  vix_ret_5d?: number | null;
+  vix_pct_rank_252?: number | null;
+  vix_regime: string;
+  vixy_close?: number | null;
+  vixy_ret_5d?: number | null;
+  vixy_state: string;
+  vixy_stress_confirmation: boolean;
+  vixy_carry_decay: boolean;
+  vol_regime: string;
+  fragile_rally: boolean;
+};
+
+export type Volatility = {
+  as_of: string;
+  source: "database" | "missing";
+  regime: string;
+  status_cards: VolatilityStatusCard[];
+  points: VolatilityPoint[];
+};
+
 export type ServiceFreshness = {
   name: string;
   status: "fresh" | "stale" | "missing";

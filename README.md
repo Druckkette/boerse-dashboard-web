@@ -98,7 +98,8 @@ curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
   -d '{"type":"refresh_prices","payload":{"mode":"manual","range":"1y"}}'
 ```
 
-When `refresh_prices` is done, calculate breadth snapshots:
+`refresh_prices` loads the starter universe plus the volatility tickers `SPY`, `^VIX` and `VIXY`.
+When it is done, calculate breadth and market-risk snapshots:
 
 ```bash
 curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \

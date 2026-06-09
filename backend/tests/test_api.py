@@ -20,6 +20,16 @@ def test_market_overview_contract() -> None:
     assert isinstance(payload["kpis"], list)
 
 
+def test_market_volatility_contract() -> None:
+    response = client.get("/api/v1/market/volatility")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert payload["regime"]
+    assert isinstance(payload["status_cards"], list)
+    assert isinstance(payload["points"], list)
+
+
 def test_stock_price_history_contract() -> None:
     response = client.get("/api/v1/stocks/NVDA/prices?range=3m")
     assert response.status_code == 200

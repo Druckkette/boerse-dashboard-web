@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.workers.celery_app import celery_app
 from app.repositories import jobs as job_repository
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
 
-DEFAULT_PRICE_REFRESH_TICKERS = DEFAULT_MARKET_UNIVERSE_TICKERS
+DEFAULT_PRICE_REFRESH_TICKERS = list(dict.fromkeys([*DEFAULT_MARKET_UNIVERSE_TICKERS, *VOLATILITY_TICKERS]))
 
 
 @celery_app.task(bind=True, name="refresh_prices")

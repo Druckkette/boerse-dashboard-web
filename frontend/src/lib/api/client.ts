@@ -15,7 +15,8 @@ import type {
   SellManualInput,
   SellMetrics,
   SellRankingRow,
-  TrancheLogEntry
+  TrancheLogEntry,
+  Volatility
 } from "@/lib/types/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
@@ -58,6 +59,7 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 export const api = {
   marketOverview: () => getJson<MarketOverview>("/market/overview"),
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
+  marketVolatility: () => getJson<Volatility>("/market/volatility"),
   freshness: () => getJson<Freshness>("/freshness"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
     getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),

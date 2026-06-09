@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY, DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.domain.market.volatility import (
+    VOLATILITY_TICKERS,
+    compute_volatility_dashboard,
+    summarize_volatility_points,
+)
 from app.repositories import market as market_repository
 from app.repositories.market import (
     BreadthDailyWrite,
@@ -12,7 +18,7 @@ from app.repositories.market import (
     MarketRepositoryUnavailable,
     MarketSnapshotWrite,
 )
-from app.schemas import BreadthPoint, BreadthResponse, KpiCard, MarketOverviewResponse
+from app.schemas import BreadthPoint, BreadthResponse, KpiCard, MarketOverviewResponse, VolatilityPoint, VolatilityResponse, VolatilityStatusCard
 from app.services.dummy_data import get_breadth as get_dummy_breadth
 from app.services.dummy_data import get_market_overview as get_dummy_market_overview
 
@@ -87,6 +93,22 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
     )
 
 
+def get_volatility(*, limit: int = 180) -> VolatilityResponse:
+    try:
+        points = _cached_volatility_points(limit=limit)
+    except MarketRepositoryUnavailable:
+        points = []
+    summary = summarize_volatility_points(points)
+    source = "database" if points else "missing"
+    return VolatilityResponse(
+        as_of=points[-1].date if points else date.today().isoformat(),
+        source=source,
+        regime=str(summary.get("regime") or "Nicht berechnet"),
+        status_cards=[VolatilityStatusCard.model_validate(item) for item in summary.get("status_cards", [])],
+        points=[VolatilityPoint.model_validate(asdict(point)) for point in points],
+    )
+
+
 def refresh_market_breadth(
     *,
     tickers: list[str] | None = None,
@@ -129,7 +151,9 @@ def refresh_market_breadth(
         for point in computed
     ]
     rows_written = market_repository.upsert_breadth_daily(writes)
-    snapshot = build_market_snapshot(computed[-1])
+    volatility_points = _cached_volatility_points(limit=180)
+    volatility_summary = summarize_volatility_points(volatility_points)
+    snapshot = build_market_snapshot(computed[-1], volatility_summary=volatility_summary)
     market_repository.upsert_market_snapshot(snapshot)
     return {
         "ok": True,
@@ -142,6 +166,7 @@ def refresh_market_breadth(
         "snapshot_date": computed[-1].date.isoformat(),
         "coverage_ratio": computed[-1].coverage_ratio,
         "phase": snapshot.ampel_phase,
+        "volatility_regime": snapshot.volatility_regime,
     }
 
 
@@ -239,9 +264,10 @@ def compute_breadth_series(
     return computed
 
 
-def build_market_snapshot(point: BreadthComputationPoint) -> MarketSnapshotWrite:
+def build_market_snapshot(point: BreadthComputationPoint, volatility_summary: dict | None = None) -> MarketSnapshotWrite:
     pct_50 = point.pct_above_50sma or 0
     pct_200 = point.pct_above_200sma or 0
+    volatility_regime = str((volatility_summary or {}).get("regime") or "Nicht berechnet")
     warning_count = 0
     warning_count += int(pct_50 < 45)
     warning_count += int(pct_200 < 45)
@@ -249,6 +275,7 @@ def build_market_snapshot(point: BreadthComputationPoint) -> MarketSnapshotWrite
     warning_count += int(point.decliners > point.advancers)
     warning_count += int(point.new_lows > point.new_highs)
     warning_count += int(point.coverage_ratio < 0.65)
+    warning_count += int(volatility_regime in {"Risk Off bestätigt", "Kurzer Volatilitätsschock", "Fragile Rally"})
 
     if warning_count >= 4 or (pct_50 < 40 and pct_200 < 40):
         phase = "rot"
@@ -261,7 +288,7 @@ def build_market_snapshot(point: BreadthComputationPoint) -> MarketSnapshotWrite
         breadth_mode = "rueckenwind"
 
     metrics = {
-        "action": _action_for_phase(phase),
+        "action": _action_for_market_state(phase, breadth_mode, volatility_regime, warning_count),
         "coverage_ratio": point.coverage_ratio,
         "universe_size": point.universe_size,
         "covered_count": point.covered_count,
@@ -273,11 +300,13 @@ def build_market_snapshot(point: BreadthComputationPoint) -> MarketSnapshotWrite
         "pct_above_20sma": point.pct_above_20sma,
         "pct_above_50sma": point.pct_above_50sma,
         "pct_above_200sma": point.pct_above_200sma,
+        "volatility": volatility_summary or {},
         "kpis": [
             _kpi_dict("Breite 50-SMA", _format_pct(point.pct_above_50sma), "über 50-SMA", _tone_for_pct(point.pct_above_50sma)),
             _kpi_dict("Breite 200-SMA", _format_pct(point.pct_above_200sma), "über 200-SMA", _tone_for_pct(point.pct_above_200sma)),
             _kpi_dict("McClellan", f"{point.mcclellan:+.1f}", "A/D Momentum", "good" if point.mcclellan >= 0 else "warning"),
             _kpi_dict("Coverage", _format_pct(point.coverage_ratio * 100), f"{point.covered_count}/{point.universe_size}", "good" if point.coverage_ratio >= 0.8 else "warning"),
+            _kpi_dict("Vol Regime", volatility_regime, "VIX/VIXY", _tone_for_volatility_regime(volatility_regime)),
         ],
     }
     return MarketSnapshotWrite(
@@ -285,9 +314,15 @@ def build_market_snapshot(point: BreadthComputationPoint) -> MarketSnapshotWrite
         ampel_phase=phase,
         warning_count=warning_count,
         breadth_mode=breadth_mode,
-        volatility_regime="Nicht berechnet",
+        volatility_regime=volatility_regime,
         metrics_json=metrics,
     )
+
+
+def _cached_volatility_points(*, limit: int = 180):
+    start_date = date.today() - timedelta(days=900)
+    series = market_repository.load_cached_prices(VOLATILITY_TICKERS, start_date=start_date)
+    return compute_volatility_dashboard(series, limit=limit)
 
 
 def _normalize_tickers(tickers: list[str]) -> list[str]:
@@ -320,6 +355,24 @@ def _action_for_phase(phase: str) -> str:
     return "Marktdaten prüfen und keine großen Risikoänderungen ohne frische Breitenwerte vornehmen."
 
 
+def _action_for_market_state(phase: str, breadth_mode: str, volatility_regime: str, warning_count: int) -> str:
+    if phase == "rot":
+        return "Defensiv bleiben, neue Käufe stark filtern und bestehende Risiken kritisch prüfen."
+    if volatility_regime == "Risk Off bestätigt":
+        return "Volatilität bestätigt Stress. Risiko reduzieren und keine aggressiven Neueinstiege."
+    if breadth_mode == "schutz":
+        return "Marktbreite im Schutzmodus. Positionsgrößen klein halten und Cash optional erhöhen."
+    if warning_count >= 4:
+        return f"{warning_count} Warnzeichen aktiv. Defensive Haltung trotz laufender Ampelphase."
+    if phase == "gelb":
+        return "Wachsam bleiben, Positionsgrößen kontrollieren und Breakouts nur selektiv handeln."
+    if phase == "aufwaertstrend":
+        return "MA-Ordnung bestätigt. Führende Aktien beobachten und Risiko schrittweise erhöhen."
+    if phase == "gruen":
+        return "Konstruktiv bleiben, Qualitäts-Setups bevorzugen und Stops diszipliniert nachziehen."
+    return _action_for_phase(phase)
+
+
 def _kpis_from_metrics(metrics: dict) -> list[KpiCard]:
     raw_kpis = metrics.get("kpis")
     if isinstance(raw_kpis, list) and raw_kpis:
@@ -346,6 +399,16 @@ def _tone_for_pct(value: float | None) -> str:
     if value >= 35:
         return "warning"
     return "bad"
+
+
+def _tone_for_volatility_regime(regime: str) -> str:
+    if regime == "Risk Off bestätigt":
+        return "bad"
+    if regime in {"Kurzer Volatilitätsschock", "Fragile Rally"}:
+        return "warning"
+    if regime == "Risk On / ruhig":
+        return "good"
+    return "neutral"
 
 
 def _format_pct(value: float | None) -> str:
