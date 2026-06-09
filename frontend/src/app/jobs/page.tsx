@@ -23,27 +23,27 @@ const refreshSequence: {
 }[] = [
   {
     type: "refresh_prices",
-    label: "1. Prices",
-    description: "OHLC-Cache für Portfolio, Market, RS und Sell-Monitor füllen.",
-    payload: { mode: "manual", range: "1y" }
+    label: "1. Market Prices",
+    description: "OHLC-Cache für Market- und Volatility-Ticker füllen.",
+    payload: { mode: "manual", range: "1y", preset: "all" }
+  },
+  {
+    type: "refresh_breadth",
+    label: "2. Market Breadth",
+    description: "Marktbreite und MarketSnapshot aus dem Price Cache vorberechnen.",
+    payload: { mode: "manual", lookback_days: 370 }
   },
   {
     type: "refresh_relative_strength",
-    label: "2. RS Ratings",
+    label: "3. RS Ratings",
     description: "Relative Stärke aus gecachten Kursen berechnen.",
     payload: { mode: "manual", lookback_days: 430 }
   },
   {
     type: "position_atr_monitor",
-    label: "3. Positionsmonitor",
+    label: "4. Positionsmonitor",
     description: "Offene Positionen gegen Price Cache und Sell-Engine prüfen.",
     payload: { mode: "manual" }
-  },
-  {
-    type: "refresh_breadth",
-    label: "4. Market Breadth",
-    description: "Marktbreite und MarketSnapshot vorberechnen.",
-    payload: { mode: "manual", lookback_days: 370 }
   }
 ];
 
@@ -143,7 +143,7 @@ export default function JobsPage() {
             className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={Boolean(activeJob) || startMutation.isPending}
             type="button"
-            onClick={() => startMutation.mutate({ type: selectedType, payload: { mode: "manual" } })}
+            onClick={() => startMutation.mutate({ type: selectedType, payload: defaultPayloadForJob(selectedType) })}
           >
             <Play size={16} />
             {startMutation.isPending ? "Startet" : "Starten"}
@@ -306,4 +306,11 @@ function formatDate(value: string) {
 
 function latestJobForType(jobs: Job[], type: JobType) {
   return jobs.find((job) => job.job_type === type);
+}
+
+function defaultPayloadForJob(type: JobType): Record<string, unknown> {
+  if (type === "refresh_prices") return { mode: "manual", range: "1y", preset: "all" };
+  if (type === "refresh_breadth") return { mode: "manual", lookback_days: 370 };
+  if (type === "refresh_relative_strength") return { mode: "manual", lookback_days: 430 };
+  return { mode: "manual" };
 }

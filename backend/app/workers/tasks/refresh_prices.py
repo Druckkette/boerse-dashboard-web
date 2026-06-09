@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.domain.market.volatility import VOLATILITY_TICKERS
-from app.workers.celery_app import celery_app
 from app.repositories import jobs as job_repository
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
+from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
 
+PriceRefreshPreset = Literal["all", "market_core", "volatility"]
 DEFAULT_PRICE_REFRESH_TICKERS = list(dict.fromkeys([*DEFAULT_MARKET_UNIVERSE_TICKERS, *VOLATILITY_TICKERS]))
+PRICE_REFRESH_PRESETS: dict[PriceRefreshPreset, list[str]] = {
+    "all": DEFAULT_PRICE_REFRESH_TICKERS,
+    "market_core": DEFAULT_MARKET_UNIVERSE_TICKERS,
+    "volatility": VOLATILITY_TICKERS,
+}
 
 
 @celery_app.task(bind=True, name="refresh_prices")
@@ -18,13 +26,21 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
     if job is None:
         job = job_repository.create_job("refresh_prices", payload, requested_by=str(payload.get("source") or "scheduler"))
 
-    tickers = _normalize_tickers(payload.get("tickers") or DEFAULT_PRICE_REFRESH_TICKERS)
+    preset = _normalize_preset(payload.get("preset") or payload.get("universe") or "all")
+    explicit_tickers = payload.get("tickers")
+    tickers = _normalize_tickers(explicit_tickers if explicit_tickers else PRICE_REFRESH_PRESETS[preset])
     range_key = _normalize_range(payload.get("range") or "1y")
+    fail_fast = bool(payload.get("fail_fast") or False)
     result: dict = {
         "ok": False,
         "job_type": "refresh_prices",
         "range": range_key,
+        "preset": preset,
         "tickers": tickers,
+        "ticker_count": len(tickers),
+        "success_count": 0,
+        "failure_count": 0,
+        "failed_tickers": [],
         "records_seen": 0,
         "records_written": 0,
         "items": [],
@@ -43,13 +59,44 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
                 message=f"{ticker}: tägliche OHLC-Bars werden aktualisiert.",
                 result=result,
             )
-            item = refresh_price_cache_for_ticker(ticker, range_key=range_key)
+            try:
+                item = refresh_price_cache_for_ticker(ticker, range_key=range_key)
+            except Exception as exc:
+                item = {
+                    "ticker": ticker,
+                    "ok": False,
+                    "records_seen": 0,
+                    "records_written": 0,
+                    "error_message": f"{type(exc).__name__}: {exc}",
+                    "source": "yfinance",
+                }
+                result["failure_count"] += 1
+                result["failed_tickers"].append(ticker)
+                result["items"].append(item)
+                if fail_fast:
+                    raise
+                continue
+
+            item["ok"] = True
             result["items"].append(item)
+            result["success_count"] += 1
             result["records_seen"] += int(item.get("records_seen") or 0)
             result["records_written"] += int(item.get("records_written") or 0)
 
-        result["ok"] = True
-        job_repository.mark_done(job.job_id, result=result, message="Price-Cache aktualisiert.")
+        result["ok"] = result["failure_count"] == 0 and result["success_count"] > 0
+        result["partial"] = result["success_count"] > 0 and result["failure_count"] > 0
+        if result["success_count"] == 0:
+            job_repository.mark_failed(
+                job.job_id,
+                error_message="Kein Ticker konnte aktualisiert werden.",
+                result=result,
+            )
+            return result
+
+        message = "Price-Cache aktualisiert."
+        if result["failure_count"]:
+            message = f"Price-Cache teilweise aktualisiert; {result['failure_count']} Ticker fehlgeschlagen."
+        job_repository.mark_done(job.job_id, result=result, message=message)
         return result
     except JobCancelled:
         job_repository.mark_cancelled(job.job_id)
@@ -76,3 +123,10 @@ def _normalize_range(value: object) -> PriceRange:
     if clean in {"1m", "3m", "6m", "1y", "2y", "5y"}:
         return clean  # type: ignore[return-value]
     return "1y"
+
+
+def _normalize_preset(value: object) -> PriceRefreshPreset:
+    clean = str(value).strip().lower()
+    if clean in PRICE_REFRESH_PRESETS:
+        return clean  # type: ignore[return-value]
+    return "all"
