@@ -112,7 +112,12 @@ yet, they return fallback data rather than blocking the UI.
 ## Portfolio Import
 
 Open `http://NAS-IP-ODER-HOSTNAME:3000/portfolio/imports` and import a CSV position snapshot.
-Preview and persistence are separate actions.
+The CSV is selected or dropped in the browser and sent to the backend API; no file has to be copied
+to a NAS folder. Preview and persistence are separate actions.
+
+After saving, `/portfolio` reads the imported positions from Postgres and `/sell-monitor` uses those
+positions for ranking. The built-in demo portfolio is only used while the database has no imported
+open positions.
 
 Required columns:
 

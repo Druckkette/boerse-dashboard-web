@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
+from app.domain.sell import service as sell_service
 from app.domain.sell.schemas import SnoozeRequest, TrancheLogEntry
 from app.domain.sell.service import (
     clear_sell_engine_state,
     create_tranche_log_entry,
     evaluate_position_sell_decision,
     get_sell_metrics_for_position,
+    get_sell_position_ranking,
     snooze_sell_signal,
 )
+from app.repositories.portfolio import PortfolioPositionRow
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "sell"
@@ -104,3 +108,31 @@ def test_snooze_state_changes_pending_status() -> None:
 
     assert after.pending_status == "snoozed"
     assert after.next_recommendation_state.snoozed_pct == 100
+
+
+def test_sell_ranking_prefers_imported_portfolio_positions(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        PortfolioPositionRow(
+            ticker="AAPL",
+            name="Apple",
+            shares=3,
+            entry_price=100,
+            current_price=130,
+            currency="USD",
+            buy_date=date(2025, 1, 15),
+            broker="Test",
+            account="Main",
+        )
+    ]
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", lambda *args, **kwargs: [])
+
+    ranking = get_sell_position_ranking()
+    metrics = get_sell_metrics_for_position("AAPL")
+    evaluation = evaluate_position_sell_decision("AAPL")
+
+    assert [row.ticker for row in ranking.rows] == ["AAPL"]
+    assert ranking.rows[0].name == "Apple"
+    assert metrics.current_price == pytest.approx(130, abs=0.01)
+    assert metrics.pnl_pct == pytest.approx(30, abs=0.01)
+    assert evaluation.ticker == "AAPL"

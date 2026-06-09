@@ -29,6 +29,10 @@ from app.domain.sell.schemas import (
     TrancheLogResponse,
     default_snoozed_until,
 )
+from app.repositories import portfolio as portfolio_repository
+from app.repositories import prices as prices_repository
+from app.repositories.portfolio import PortfolioPositionRow, PortfolioRepositoryUnavailable
+from app.repositories.prices import PriceRepositoryUnavailable
 
 
 _SYNTHETIC_END_DATE = date(2026, 6, 5)
@@ -119,9 +123,19 @@ def evaluate_position_sell_decision(
 
 def get_sell_position_ranking() -> SellRankingResponse:
     rows: list[SellPositionRankingItem] = []
-    for ticker, context in _POSITION_CATALOG.items():
-        metrics_response = get_sell_metrics_for_position(ticker)
-        evaluation = _evaluate_position_sell_decision(ticker, None, persist_state=False)
+    for context in _ranking_contexts():
+        ticker = str(context["ticker"])
+        metrics_request = context.get("metrics_request")
+        metrics_response = get_sell_metrics_for_position(
+            ticker,
+            metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
+        )
+        evaluation = _evaluate_position_sell_decision(
+            ticker,
+            None,
+            persist_state=False,
+            metrics_request=metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
+        )
         primary_signal = _primary_signal_label(evaluation)
         rows.append(
             SellPositionRankingItem(
@@ -185,9 +199,10 @@ def _evaluate_position_sell_decision(
     request: SellEvaluationRequest | None,
     *,
     persist_state: bool,
+    metrics_request: SellMetricsRequest | None = None,
 ) -> SellEvaluationResponse:
     clean_ticker = _clean_ticker(ticker)
-    payload = _build_metrics_payload(_default_metrics_request(clean_ticker))
+    payload = _build_metrics_payload(metrics_request or _default_metrics_request(clean_ticker))
     manual = _resolve_manual(clean_ticker, payload, request.manual if request else None)
     tranche_log = request.tranche_log if request and request.tranche_log is not None else _TRANCHE_LOG.get(clean_ticker, [])
     recommendation_state = (
@@ -240,6 +255,9 @@ def _evaluate_position_sell_decision(
 
 def _default_metrics_request(ticker: str) -> SellMetricsRequest:
     clean_ticker = _clean_ticker(ticker)
+    portfolio_row = _portfolio_position_context(clean_ticker)
+    if portfolio_row is not None:
+        return _metrics_request_from_portfolio_row(portfolio_row)
     context = _position_context(clean_ticker)
     dates = _price_dates()
     return SellMetricsRequest(
@@ -252,6 +270,71 @@ def _default_metrics_request(ticker: str) -> SellMetricsRequest:
         pivot_date=dates[-170].date(),
         scenario=str(context["scenario"]),
     )
+
+
+def _ranking_contexts() -> list[dict[str, Any]]:
+    portfolio_rows = _portfolio_positions()
+    if portfolio_rows:
+        return [
+            {
+                "ticker": row.ticker,
+                "name": row.name or row.ticker,
+                "metrics_request": _metrics_request_from_portfolio_row(row),
+            }
+            for row in portfolio_rows
+        ]
+    return [
+        {
+            "ticker": ticker,
+            "name": context["name"],
+            "metrics_request": None,
+        }
+        for ticker, context in _POSITION_CATALOG.items()
+    ]
+
+
+def _portfolio_positions() -> list[PortfolioPositionRow]:
+    try:
+        return portfolio_repository.list_open_positions()
+    except PortfolioRepositoryUnavailable:
+        return []
+
+
+def _portfolio_position_context(ticker: str) -> PortfolioPositionRow | None:
+    clean_ticker = _clean_ticker(ticker)
+    for row in _portfolio_positions():
+        if _clean_ticker(row.ticker) == clean_ticker:
+            return row
+    return None
+
+
+def _metrics_request_from_portfolio_row(row: PortfolioPositionRow) -> SellMetricsRequest:
+    dates = _price_dates()
+    buy_date = row.buy_date or dates[-170].date()
+    current_price = _finite_float(row.current_price, row.entry_price)
+    return SellMetricsRequest(
+        ticker=row.ticker,
+        buy_date=buy_date,
+        buy_price=row.entry_price,
+        shares=row.shares,
+        current_price=current_price,
+        benchmark_ticker="SPY",
+        currency=row.currency or "USD",
+        pivot_date=buy_date,
+        scenario=_scenario_for_portfolio_row(row),
+    )
+
+
+def _scenario_for_portfolio_row(row: PortfolioPositionRow) -> str:
+    current_price = _finite_float(row.current_price, row.entry_price) or row.entry_price
+    pnl_pct = (current_price / row.entry_price - 1) * 100 if row.entry_price else 0
+    if pnl_pct <= -8:
+        return "losing"
+    if pnl_pct <= -3:
+        return "ema21_break"
+    if pnl_pct >= 70:
+        return "climax"
+    return "profit"
 
 
 def _position_context(ticker: str) -> dict[str, Any]:
@@ -271,15 +354,21 @@ def _position_context(ticker: str) -> dict[str, Any]:
 def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
     context = _position_context(request.ticker)
     is_catalog_default = (
-        request.ticker in _POSITION_CATALOG
+        request.current_price is None
+        and request.ticker in _POSITION_CATALOG
         and request.scenario == context["scenario"]
         and float(request.buy_price) == float(context["buy_price"])
         and float(request.shares) == float(context["shares"])
     )
     if is_catalog_default:
         return deepcopy(_cached_metrics_payload(request.ticker))
-    price_frame = _build_price_frame(request.scenario or "profit")
-    benchmark_frame = _build_price_frame("benchmark")
+    price_frame = _price_frame_from_cache(request.ticker)
+    if len(price_frame) < 80:
+        price_frame = _build_price_frame(request.scenario or "profit")
+        price_frame = _scale_price_frame_to_last_close(price_frame, request.current_price)
+    benchmark_frame = _price_frame_from_cache(request.benchmark_ticker)
+    if len(benchmark_frame) < 80:
+        benchmark_frame = _build_price_frame("benchmark")
     return build_sell_decision_metrics_payload(
         ticker=request.ticker,
         buy_date=request.buy_date,
@@ -291,6 +380,47 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
         currency=request.currency,
         pivot_date=request.pivot_date,
     )
+
+
+def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
+    try:
+        bars = prices_repository.list_price_bars(ticker)
+    except PriceRepositoryUnavailable:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for bar in bars:
+        close = _finite_float(bar.close)
+        if close is None:
+            continue
+        open_price = _finite_float(bar.open, close) or close
+        rows.append(
+            {
+                "Date": pd.Timestamp(bar.date),
+                "Open": open_price,
+                "High": _finite_float(bar.high, max(open_price, close)) or max(open_price, close),
+                "Low": _finite_float(bar.low, min(open_price, close)) or min(open_price, close),
+                "Close": close,
+                "Volume": _finite_float(bar.volume, 1_000_000.0) or 1_000_000.0,
+            }
+        )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).drop_duplicates(subset=["Date"], keep="last").set_index("Date").sort_index()
+
+
+def _scale_price_frame_to_last_close(frame: pd.DataFrame, current_price: float | None) -> pd.DataFrame:
+    target = _finite_float(current_price)
+    if frame.empty or target is None:
+        return frame
+    last_close = _finite_float(frame["Close"].iloc[-1] if "Close" in frame else None)
+    if last_close is None or last_close <= 0:
+        return frame
+    scaled = frame.copy()
+    factor = target / last_close
+    for column in ("Open", "High", "Low", "Close"):
+        if column in scaled:
+            scaled[column] = pd.to_numeric(scaled[column], errors="coerce") * factor
+    return scaled
 
 
 @lru_cache(maxsize=64)
@@ -488,6 +618,16 @@ def _round_metric(value: Any, ndigits: int = 2) -> float | None:
     if not np.isfinite(parsed):
         return None
     return round(parsed, ndigits)
+
+
+def _finite_float(value: Any, default: float | None = None) -> float | None:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if np.isfinite(parsed) else default
 
 
 def _json_safe(value: Any) -> Any:

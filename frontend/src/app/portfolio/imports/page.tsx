@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileText, Save, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { PortfolioImportResponse, PortfolioImportRow } from "@/lib/types/api";
@@ -17,6 +17,7 @@ export default function PortfolioImportsPage() {
   const [fileName, setFileName] = useState("positions.csv");
   const [content, setContent] = useState(sampleCsv);
   const [replaceOpenPositions, setReplaceOpenPositions] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [lastResult, setLastResult] = useState<PortfolioImportResponse | null>(null);
 
   const previewMutation = useMutation({
@@ -42,10 +43,11 @@ export default function PortfolioImportsPage() {
       setLastResult(result);
       queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
       queryClient.invalidateQueries({ queryKey: ["portfolio-positions"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
     }
   });
 
-  const result = saveMutation.data ?? lastResult;
+  const result = lastResult;
   const parsedValue = useMemo(() => {
     const positions = result?.positions ?? [];
     return positions.reduce((sum, row) => sum + row.shares * (row.current_price ?? row.entry_price), 0);
@@ -59,13 +61,19 @@ export default function PortfolioImportsPage() {
     setLastResult(null);
   }
 
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    handleFile(event.dataTransfer.files?.[0] ?? null);
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col justify-between gap-4 rounded border border-[#2d333d] bg-[#171a20] p-5 md:flex-row md:items-start">
         <div>
           <h1 className="text-2xl font-semibold">Portfolio Imports</h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-            CSV-Positionen als bewusstes Snapshot-Update importieren. Vorschau und Speichern sind getrennt.
+            CSV-Positionen direkt im Browser importieren. Es wird keine Datei auf der NAS abgelegt.
           </p>
         </div>
         <StatusChip tone={result?.ok ? "good" : result ? "bad" : "neutral"}>
@@ -83,7 +91,22 @@ export default function PortfolioImportsPage() {
             <Upload className="text-emerald-300" size={20} />
           </div>
 
-          <label className="block rounded border border-dashed border-[#4b5563] bg-[#111419] p-5 text-center text-sm transition hover:border-emerald-300/50">
+          <label
+            className={[
+              "block rounded border border-dashed bg-[#111419] p-5 text-center text-sm transition",
+              dragActive ? "border-emerald-300 bg-emerald-300/10" : "border-[#4b5563] hover:border-emerald-300/50"
+            ].join(" ")}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={handleDrop}
+          >
             <input
               accept=".csv,text/csv,text/plain"
               className="sr-only"
@@ -91,7 +114,7 @@ export default function PortfolioImportsPage() {
               onChange={(event) => handleFile(event.target.files?.[0] ?? null)}
             />
             <FileText className="mx-auto mb-3 text-[#a0a7b4]" />
-            <span className="font-medium">CSV auswählen</span>
+            <span className="font-medium">CSV auswählen oder hier ablegen</span>
             <span className="mt-1 block text-xs text-[#a0a7b4]">{fileName}</span>
           </label>
 

@@ -53,6 +53,7 @@ class SellMetricsRequest(BaseModel):
     buy_date: date
     buy_price: float = Field(gt=0)
     shares: float = Field(ge=0)
+    current_price: float | None = Field(default=None, gt=0)
     benchmark_ticker: str = "SPY"
     currency: str = "USD"
     pivot_date: date | None = None
