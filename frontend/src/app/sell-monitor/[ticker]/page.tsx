@@ -116,6 +116,8 @@ export default function SellMonitorTickerPage() {
       : (evaluation.data?.recommendation_percent ?? 0) > 0
         ? "warning"
         : "good";
+  const priceDataSource = dataSourceFromMetrics(metrics.data?.raw_payload.metrics, "price_data_source");
+  const benchmarkDataSource = dataSourceFromMetrics(metrics.data?.raw_payload.metrics, "benchmark_data_source");
 
   return (
     <div className="space-y-5">
@@ -135,15 +137,19 @@ export default function SellMonitorTickerPage() {
             <StatusChip tone={evaluation.data ? toneByPending[evaluation.data.pending_status] : "neutral"}>
               {evaluation.data?.display_label ?? "loading"}
             </StatusChip>
+            <StatusChip tone={toneForDataSource(priceDataSource)}>
+              {labelForDataSource(priceDataSource)}
+            </StatusChip>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <KpiCard item={{ label: "Health Score", value: health ? health.health_score.toFixed(1) : "-", detail: health?.rs_trend ?? "RS Trend", tone: health ? toneByStatus[health.status] : "neutral" }} />
         <KpiCard item={{ label: "Empfehlung", value: `${evaluation.data?.sell_now_percent ?? 0}%`, detail: evaluation.data?.regime ?? "Regime", tone: recommendationTone }} />
         <KpiCard item={{ label: "P&L", value: formatPct(metrics.data?.pnl_pct), detail: "seit Kauf", tone: (metrics.data?.pnl_pct ?? 0) >= 0 ? "good" : "bad" }} />
         <KpiCard item={{ label: "ATR14", value: formatNumber(metrics.data?.atr14), detail: `x ${atrMultiple.toFixed(1)} lokal`, tone: "neutral" }} />
+        <KpiCard item={{ label: "Datenquelle", value: labelForDataSource(priceDataSource), detail: `Benchmark: ${labelForDataSource(benchmarkDataSource)}`, tone: toneForDataSource(priceDataSource) }} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
@@ -417,4 +423,23 @@ function formatPct(value?: number | null) {
 
 function formatCurrency(value?: number | null) {
   return value == null ? "-" : value.toFixed(2);
+}
+
+function dataSourceFromMetrics(metrics?: Record<string, unknown>, key?: string) {
+  const value = key ? metrics?.[key] : undefined;
+  return typeof value === "string" ? value : "";
+}
+
+function labelForDataSource(value: string) {
+  if (value === "database") return "Price Cache";
+  if (value === "synthetic_fallback") return "Fallback";
+  if (value === "synthetic_fixture") return "Fixture";
+  return "unbekannt";
+}
+
+function toneForDataSource(value: string): "good" | "neutral" | "warning" | "bad" {
+  if (value === "database") return "good";
+  if (value === "synthetic_fixture") return "neutral";
+  if (value === "synthetic_fallback") return "warning";
+  return "neutral";
 }

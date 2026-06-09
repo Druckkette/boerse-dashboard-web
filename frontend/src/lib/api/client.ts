@@ -21,10 +21,18 @@ import type {
   Volatility
 } from "@/lib/types/api";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+function getApiBaseUrl() {
+  if (configuredApiBaseUrl) return configuredApiBaseUrl;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
+  }
+  return "http://localhost:8000/api/v1";
+}
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     headers: { "Content-Type": "application/json" },
     cache: "no-store"
   });
@@ -35,7 +43,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function patchJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -47,7 +55,7 @@ async function patchJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body)

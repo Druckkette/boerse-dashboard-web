@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, RotateCw, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDashed, Play, RotateCw, XCircle } from "lucide-react";
 import { useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -13,6 +13,38 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking" },
   { type: "refresh_sec13f", label: "13F / SEC", description: "Institutionelle Artefakte, selten starten" },
   { type: "position_atr_monitor", label: "ATR Monitor", description: "Offene Positionen prüfen" }
+];
+
+const refreshSequence: {
+  type: JobType;
+  label: string;
+  description: string;
+  payload: Record<string, unknown>;
+}[] = [
+  {
+    type: "refresh_prices",
+    label: "1. Prices",
+    description: "OHLC-Cache für Portfolio, Market, RS und Sell-Monitor füllen.",
+    payload: { mode: "manual", range: "1y" }
+  },
+  {
+    type: "refresh_relative_strength",
+    label: "2. RS Ratings",
+    description: "Relative Stärke aus gecachten Kursen berechnen.",
+    payload: { mode: "manual", lookback_days: 430 }
+  },
+  {
+    type: "position_atr_monitor",
+    label: "3. Positionsmonitor",
+    description: "Offene Positionen gegen Price Cache und Sell-Engine prüfen.",
+    payload: { mode: "manual" }
+  },
+  {
+    type: "refresh_breadth",
+    label: "4. Market Breadth",
+    description: "Marktbreite und MarketSnapshot vorberechnen.",
+    payload: { mode: "manual", lookback_days: 370 }
+  }
 ];
 
 const statusTone: Record<JobStatus, "good" | "neutral" | "warning" | "bad"> = {
@@ -27,6 +59,7 @@ const statusTone: Record<JobStatus, "good" | "neutral" | "warning" | "bad"> = {
 export default function JobsPage() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<JobType>("refresh_prices");
+  const [startingType, setStartingType] = useState<JobType | null>(null);
   const { data, isFetching, refetch } = useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs,
@@ -36,7 +69,11 @@ export default function JobsPage() {
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
 
   const startMutation = useMutation({
-    mutationFn: () => api.startJob({ type: selectedType, payload: { mode: "manual" } }),
+    mutationFn: ({ type, payload }: { type: JobType; payload: Record<string, unknown> }) => {
+      setStartingType(type);
+      return api.startJob({ type, payload });
+    },
+    onSettled: () => setStartingType(null),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
   });
 
@@ -63,6 +100,13 @@ export default function JobsPage() {
           Aktualisieren
         </button>
       </div>
+
+      <RefreshSequence
+        activeJob={activeJob}
+        jobs={jobs}
+        onStart={(type, payload) => startMutation.mutate({ type, payload })}
+        startingType={startingType}
+      />
 
       <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -99,7 +143,7 @@ export default function JobsPage() {
             className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={Boolean(activeJob) || startMutation.isPending}
             type="button"
-            onClick={() => startMutation.mutate()}
+            onClick={() => startMutation.mutate({ type: selectedType, payload: { mode: "manual" } })}
           >
             <Play size={16} />
             {startMutation.isPending ? "Startet" : "Starten"}
@@ -123,6 +167,69 @@ export default function JobsPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+function RefreshSequence({
+  activeJob,
+  jobs,
+  onStart,
+  startingType
+}: {
+  activeJob?: Job;
+  jobs: Job[];
+  onStart: (type: JobType, payload: Record<string, unknown>) => void;
+  startingType: JobType | null;
+}) {
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Empfohlene Refresh-Reihenfolge</h2>
+          <div className="text-sm text-[#a0a7b4]">
+            Für NAS-Betrieb nacheinander starten; parallele schwere Jobs bleiben gesperrt.
+          </div>
+        </div>
+        <StatusChip tone={activeJob ? "warning" : "good"}>
+          {activeJob ? `läuft: ${activeJob.job_type}` : "sequenz bereit"}
+        </StatusChip>
+      </div>
+      <div className="grid gap-3 xl:grid-cols-4">
+        {refreshSequence.map((step) => {
+          const latest = latestJobForType(jobs, step.type);
+          const done = latest?.status === "done";
+          const running = latest?.status === "running" || latest?.status === "queued";
+          return (
+            <div key={step.type} className="rounded border border-[#2d333d] bg-[#111419] p-4">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">{step.label}</div>
+                  <div className="mt-1 text-xs leading-5 text-[#a0a7b4]">{step.description}</div>
+                </div>
+                {done ? <CheckCircle2 size={18} className="text-emerald-300" /> : <CircleDashed size={18} className="text-[#77808f]" />}
+              </div>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <StatusChip tone={latest ? statusTone[latest.status] : "neutral"}>
+                  {latest?.status ?? "nie gelaufen"}
+                </StatusChip>
+                {latest?.finished_at && (
+                  <span className="text-xs text-[#77808f]">{formatDate(latest.finished_at)}</span>
+                )}
+              </div>
+              <button
+                className="inline-flex w-full items-center justify-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={Boolean(activeJob) || startingType === step.type || running}
+                type="button"
+                onClick={() => onStart(step.type, step.payload)}
+              >
+                <Play size={15} />
+                {startingType === step.type ? "Startet" : running ? "aktiv" : "Starten"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -195,4 +302,8 @@ function formatDate(value: string) {
     dateStyle: "short",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function latestJobForType(jobs: Job[], type: JobType) {
+  return jobs.find((job) => job.job_type === type);
 }
