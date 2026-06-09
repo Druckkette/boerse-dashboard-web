@@ -16,8 +16,22 @@ def test_market_overview_contract() -> None:
     response = client.get("/api/v1/market/overview")
     assert response.status_code == 200
     payload = response.json()
+    assert payload["source"] in {"database", "synthetic_fixture", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
     assert payload["phase_label"]
     assert isinstance(payload["kpis"], list)
+
+
+def test_market_breadth_contract() -> None:
+    response = client.get("/api/v1/market/breadth")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "synthetic_fixture", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
+    assert isinstance(payload["coverage_ratio"], int | float)
+    assert isinstance(payload["points"], list)
+    if payload["points"]:
+        assert {"date", "advancers", "decliners", "pct_above_50sma"}.issubset(payload["points"][0])
 
 
 def test_market_volatility_contract() -> None:

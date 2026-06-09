@@ -53,6 +53,9 @@ def get_market_overview() -> MarketOverviewResponse:
     metrics = snapshot.metrics_json or {}
     return MarketOverviewResponse(
         as_of=snapshot.date.isoformat(),
+        source="database",
+        data_status=_data_status_for_date(snapshot.date),
+        message=_market_snapshot_message(snapshot.date, metrics),
         phase=_normalize_phase(snapshot.ampel_phase),
         phase_label=_phase_label(snapshot.ampel_phase),
         action=str(metrics.get("action") or _action_for_phase(snapshot.ampel_phase)),
@@ -88,6 +91,9 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
     return BreadthResponse(
         as_of=points[-1].date,
         universe=universe,
+        source="database",
+        data_status=_data_status_for_date(rows[-1].date),
+        message=_breadth_message(rows[-1].date, latest_meta),
         coverage_ratio=float(latest_meta.get("coverage_ratio") or 0),
         points=points,
     )
@@ -415,6 +421,37 @@ def _format_pct(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.1f}%"
+
+
+def _data_status_for_date(value: date) -> str:
+    age_days = (date.today() - value).days
+    if age_days < 0:
+        return "fresh"
+    if age_days <= 3:
+        return "fresh"
+    if age_days <= 10:
+        return "stale"
+    return "stale"
+
+
+def _market_snapshot_message(snapshot_date: date, metrics: dict) -> str:
+    status = _data_status_for_date(snapshot_date)
+    coverage = float(metrics.get("coverage_ratio") or 0)
+    prefix = "MarketSnapshot aus Postgres"
+    if status == "stale":
+        prefix = "MarketSnapshot ist älter"
+    return f"{prefix}; Coverage {_format_pct(coverage * 100)}. Bei Bedarf refresh_prices und refresh_breadth starten."
+
+
+def _breadth_message(breadth_date: date, metadata: dict) -> str:
+    status = _data_status_for_date(breadth_date)
+    covered = int(metadata.get("covered_count") or 0)
+    universe_size = int(metadata.get("universe_size") or 0)
+    coverage = float(metadata.get("coverage_ratio") or 0)
+    prefix = "Breitenwerte aus Postgres"
+    if status == "stale":
+        prefix = "Breitenwerte sind älter"
+    return f"{prefix}; Coverage {_format_pct(coverage * 100)} ({covered}/{universe_size})."
 
 
 def _pct(count: int, total: int) -> float | None:

@@ -20,6 +20,9 @@ from app.schemas import (
 def get_market_overview() -> MarketOverviewResponse:
     return MarketOverviewResponse(
         as_of="2026-06-05",
+        source="synthetic_fixture",
+        data_status="fallback",
+        message="Synthetische Fixture-Daten. Price-Refresh und Market-Breadth-Job ausführen, um echte Snapshots zu sehen.",
         phase="gruen",
         phase_label="Grün",
         action="Konstruktiv bleiben, aber neue Käufe nur bei hoher Qualität.",
@@ -52,6 +55,9 @@ def get_breadth() -> BreadthResponse:
     return BreadthResponse(
         as_of=points[-1].date,
         universe="us_common_stocks_v3",
+        source="synthetic_fixture",
+        data_status="fallback",
+        message="Synthetische Fixture-Daten. refresh_prices und refresh_breadth ausführen, um echte Breitenwerte zu berechnen.",
         coverage_ratio=0.86,
         points=points,
     )

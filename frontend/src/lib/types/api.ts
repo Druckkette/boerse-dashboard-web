@@ -9,6 +9,9 @@ export type KpiCard = {
 
 export type MarketOverview = {
   as_of: string;
+  source: "database" | "synthetic_fixture" | "missing";
+  data_status: "fresh" | "stale" | "missing" | "fallback";
+  message: string;
   phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
   phase_label: string;
   action: string;
@@ -31,6 +34,9 @@ export type BreadthPoint = {
 export type Breadth = {
   as_of: string;
   universe: string;
+  source: "database" | "synthetic_fixture" | "missing";
+  data_status: "fresh" | "stale" | "missing" | "fallback";
+  message: string;
   coverage_ratio: number;
   points: BreadthPoint[];
 };

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
+import { labelForSource, labelForStatus, toneForStatus } from "./data-status";
 
 export function BreadthChartPanel() {
   const query = useQuery({
@@ -16,7 +17,7 @@ export function BreadthChartPanel() {
     <LineChartCard
       caption={
         breadth
-          ? `${breadth.universe}, Coverage ${(breadth.coverage_ratio * 100).toFixed(0)}%, Stand ${breadth.as_of}`
+          ? `${breadth.universe}, Coverage ${(breadth.coverage_ratio * 100).toFixed(0)}%, Stand ${breadth.as_of}. ${breadth.message}`
           : "A/D- und SMA-Breitenwerte aus dem Market-Backend"
       }
       error={query.error}
@@ -36,7 +37,8 @@ export function BreadthChartPanel() {
           formatter: (value) => `${value.toFixed(1)}%`
         }
       ]}
-      statusLabel={breadth ? "Breadth API" : "lädt"}
+      statusLabel={breadth ? `${labelForSource(breadth.source)} · ${labelForStatus(breadth.data_status)}` : "lädt"}
+      statusTone={breadth ? toneForStatus(breadth.data_status) : "neutral"}
       title="Market Breadth"
     />
   );

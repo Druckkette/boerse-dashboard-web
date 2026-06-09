@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { labelForSource, toneForSource } from "./data-status";
 
 export function VolatilityPanel() {
   const query = useQuery({
@@ -44,8 +45,8 @@ export function VolatilityPanel() {
             formatter: (value) => value.toFixed(1)
           }
         ]}
-        statusLabel={volatility?.source === "database" ? "Volatility API" : "Cache fehlt"}
-        statusTone={volatility?.source === "database" ? "good" : "warning"}
+        statusLabel={volatility ? labelForSource(volatility.source) : "lädt"}
+        statusTone={volatility ? toneForSource(volatility.source) : "neutral"}
         title="Volatility"
       />
 

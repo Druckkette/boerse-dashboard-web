@@ -31,6 +31,9 @@ class KpiCard(BaseModel):
 
 class MarketOverviewResponse(BaseModel):
     as_of: str
+    source: Literal["database", "synthetic_fixture", "missing"]
+    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    message: str = ""
     phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
     phase_label: str
     action: str
@@ -53,6 +56,9 @@ class BreadthPoint(BaseModel):
 class BreadthResponse(BaseModel):
     as_of: str
     universe: str
+    source: Literal["database", "synthetic_fixture", "missing"]
+    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    message: str = ""
     coverage_ratio: float
     points: list[BreadthPoint]
 
