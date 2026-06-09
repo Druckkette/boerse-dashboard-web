@@ -121,6 +121,18 @@ curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
 `/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
 yet, they return fallback data rather than blocking the UI.
 
+After importing a portfolio and filling the Price Cache, run the positions monitor to precompute
+Sell-Monitor state for open positions:
+
+```bash
+curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"position_atr_monitor","payload":{"mode":"manual"}}'
+```
+
+The monitor evaluates open imported positions against cached bars, stores recommendation state and
+reports ATR/health/signal status through the Jobs page. It does not run yfinance in the request path.
+
 ## Portfolio Import
 
 Open `http://NAS-IP-ODER-HOSTNAME:3000/portfolio/imports` and import a CSV position snapshot.

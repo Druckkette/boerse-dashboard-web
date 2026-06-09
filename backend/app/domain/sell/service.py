@@ -31,6 +31,7 @@ from app.domain.sell.schemas import (
 )
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
+from app.repositories import sell_state as sell_state_repository
 from app.repositories.portfolio import PortfolioPositionRow, PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 
@@ -73,11 +74,6 @@ _POSITION_CATALOG: dict[str, dict[str, Any]] = {
     },
 }
 
-_MANUAL_INPUTS: dict[str, SellManualInput] = {}
-_TRANCHE_LOG: dict[str, list[TrancheLogEntry]] = {}
-_RECOMMENDATION_STATE: dict[str, SellRecommendationState] = {}
-
-
 def get_sell_metrics_for_position(
     ticker: str,
     request: SellMetricsRequest | None = None,
@@ -117,7 +113,6 @@ def evaluate_position_sell_decision(
     request: SellEvaluationRequest | None = None,
 ) -> SellEvaluationResponse:
     response = _evaluate_position_sell_decision(ticker, request, persist_state=True)
-    _RECOMMENDATION_STATE[_clean_ticker(ticker)] = response.next_recommendation_state
     return response
 
 
@@ -163,35 +158,91 @@ def get_sell_position_ranking() -> SellRankingResponse:
 def update_manual_sell_inputs(ticker: str, manual: SellManualInput) -> ManualInputResponse:
     clean_ticker = _clean_ticker(ticker)
     stored = manual.model_copy(update={"ticker": clean_ticker})
-    _MANUAL_INPUTS[clean_ticker] = stored
+    stored = sell_state_repository.upsert_manual_input(stored)
     return ManualInputResponse(manual=stored)
 
 
 def create_tranche_log_entry(ticker: str, entry: TrancheLogEntry) -> TrancheLogResponse:
     clean_ticker = _clean_ticker(ticker)
     stored = entry.model_copy(update={"ticker": clean_ticker, "source": entry.source or "api"})
-    _TRANCHE_LOG.setdefault(clean_ticker, []).append(stored)
-    return TrancheLogResponse(entry=stored, tranche_log=list(_TRANCHE_LOG[clean_ticker]))
+    stored = sell_state_repository.create_tranche_log_entry(stored)
+    return TrancheLogResponse(entry=stored, tranche_log=sell_state_repository.list_tranche_log(clean_ticker))
 
 
 def snooze_sell_signal(ticker: str, request: SnoozeRequest) -> SnoozeResponse:
     clean_ticker = _clean_ticker(ticker)
-    previous = _RECOMMENDATION_STATE.get(clean_ticker, SellRecommendationState())
+    previous = sell_state_repository.get_recommendation_state(clean_ticker) or SellRecommendationState()
     state = previous.model_copy(
         update={
             "snoozed_until": default_snoozed_until(request.days),
             "snoozed_pct": request.snoozed_pct,
         }
     )
-    _RECOMMENDATION_STATE[clean_ticker] = state
+    sell_state_repository.upsert_recommendation_state(clean_ticker, state)
     return SnoozeResponse(state=state)
 
 
 def clear_sell_engine_state() -> None:
     """Test helper for the in-memory repository implementation."""
-    _MANUAL_INPUTS.clear()
-    _TRANCHE_LOG.clear()
-    _RECOMMENDATION_STATE.clear()
+    sell_state_repository.clear_memory_sell_state()
+
+
+def monitor_open_positions(tickers: list[str] | None = None) -> dict[str, Any]:
+    """Evaluate all open positions using cached sell metrics and persist recommendation state."""
+
+    allowed = set(_clean_ticker(ticker) for ticker in tickers or [] if _clean_ticker(ticker))
+    portfolio_rows = [
+        row for row in _portfolio_positions()
+        if not allowed or _clean_ticker(row.ticker) in allowed
+    ]
+    if not portfolio_rows:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Keine offenen importierten Positionen gefunden.",
+            "records_seen": 0,
+            "records_written": 0,
+            "items": [],
+        }
+
+    items: list[dict[str, Any]] = []
+    for row in portfolio_rows:
+        metrics_request = _metrics_request_from_portfolio_row(row)
+        metrics = get_sell_metrics_for_position(row.ticker, metrics_request)
+        evaluation = _evaluate_position_sell_decision(
+            row.ticker,
+            None,
+            persist_state=True,
+            metrics_request=metrics_request,
+        )
+        price_source = str(metrics.raw_payload.metrics.get("price_data_source") or "")
+        atr_pct = None
+        if metrics.atr14 is not None and metrics.current_price:
+            atr_pct = metrics.atr14 / metrics.current_price * 100
+        items.append(
+            {
+                "ticker": row.ticker,
+                "name": row.name,
+                "as_of": metrics.as_of,
+                "price_data_source": price_source,
+                "current_price": metrics.current_price,
+                "pnl_pct": metrics.pnl_pct,
+                "atr14": metrics.atr14,
+                "atr_pct": _round_metric(atr_pct),
+                "health_score": metrics.health.health_score,
+                "status": metrics.health.status,
+                "recommendation_percent": evaluation.recommendation_percent,
+                "pending_status": evaluation.pending_status,
+                "primary_signal": _primary_signal_label(evaluation),
+            }
+        )
+
+    return {
+        "ok": True,
+        "records_seen": len(portfolio_rows),
+        "records_written": len(items),
+        "items": items,
+    }
 
 
 def _evaluate_position_sell_decision(
@@ -204,11 +255,15 @@ def _evaluate_position_sell_decision(
     clean_ticker = _clean_ticker(ticker)
     payload = _build_metrics_payload(metrics_request or _default_metrics_request(clean_ticker))
     manual = _resolve_manual(clean_ticker, payload, request.manual if request else None)
-    tranche_log = request.tranche_log if request and request.tranche_log is not None else _TRANCHE_LOG.get(clean_ticker, [])
+    tranche_log = (
+        request.tranche_log
+        if request and request.tranche_log is not None
+        else sell_state_repository.list_tranche_log(clean_ticker)
+    )
     recommendation_state = (
         request.recommendation_state
         if request and request.recommendation_state is not None
-        else _RECOMMENDATION_STATE.get(clean_ticker)
+        else sell_state_repository.get_recommendation_state(clean_ticker)
     )
 
     raw = evaluate_sell_decision(
@@ -249,7 +304,7 @@ def _evaluate_position_sell_decision(
         tranche_log=list(tranche_log),
     )
     if persist_state:
-        _RECOMMENDATION_STATE[clean_ticker] = next_state
+        sell_state_repository.upsert_recommendation_state(clean_ticker, next_state)
     return response
 
 
@@ -362,14 +417,21 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
     )
     if is_catalog_default:
         return deepcopy(_cached_metrics_payload(request.ticker))
+
     price_frame = _price_frame_from_cache(request.ticker)
+    price_data_source = "database"
     if len(price_frame) < 80:
         price_frame = _build_price_frame(request.scenario or "profit")
         price_frame = _scale_price_frame_to_last_close(price_frame, request.current_price)
+        price_data_source = "synthetic_fallback"
+
     benchmark_frame = _price_frame_from_cache(request.benchmark_ticker)
+    benchmark_data_source = "database"
     if len(benchmark_frame) < 80:
         benchmark_frame = _build_price_frame("benchmark")
-    return build_sell_decision_metrics_payload(
+        benchmark_data_source = "synthetic_fallback"
+
+    payload = build_sell_decision_metrics_payload(
         ticker=request.ticker,
         buy_date=request.buy_date,
         buy_price=request.buy_price,
@@ -380,6 +442,10 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
         currency=request.currency,
         pivot_date=request.pivot_date,
     )
+    if isinstance(payload.get("metrics"), dict):
+        payload["metrics"]["price_data_source"] = price_data_source
+        payload["metrics"]["benchmark_data_source"] = benchmark_data_source
+    return payload
 
 
 def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
@@ -428,7 +494,7 @@ def _cached_metrics_payload(ticker: str) -> dict[str, Any]:
     request = _default_metrics_request(ticker)
     price_frame = _build_price_frame(request.scenario or "profit")
     benchmark_frame = _build_price_frame("benchmark")
-    return build_sell_decision_metrics_payload(
+    payload = build_sell_decision_metrics_payload(
         ticker=request.ticker,
         buy_date=request.buy_date,
         buy_price=request.buy_price,
@@ -439,6 +505,10 @@ def _cached_metrics_payload(ticker: str) -> dict[str, Any]:
         currency=request.currency,
         pivot_date=request.pivot_date,
     )
+    if isinstance(payload.get("metrics"), dict):
+        payload["metrics"]["price_data_source"] = "synthetic_fixture"
+        payload["metrics"]["benchmark_data_source"] = "synthetic_fixture"
+    return payload
 
 
 def _build_price_frame(scenario: str) -> pd.DataFrame:
@@ -512,8 +582,9 @@ def _resolve_manual(
     clean_ticker = _clean_ticker(ticker)
     if request_manual is not None:
         return request_manual.model_copy(update={"ticker": clean_ticker})
-    if clean_ticker in _MANUAL_INPUTS:
-        return _MANUAL_INPUTS[clean_ticker]
+    stored_manual = sell_state_repository.get_manual_input(clean_ticker)
+    if stored_manual is not None:
+        return stored_manual
     context = _position_context(clean_ticker)
     defaults = payload.get("manual_defaults") if isinstance(payload, dict) else {}
     auto = payload.get("auto_checkboxes") if isinstance(payload, dict) else {}

@@ -1,6 +1,9 @@
 import pytest
+from datetime import date
+from types import SimpleNamespace
 
 from app.repositories.portfolio import PortfolioImportResult
+from app.repositories.portfolio import PortfolioPositionRow
 from app.schemas import PortfolioImportRequest
 from app.services import portfolio as portfolio_service
 from app.services.portfolio import parse_positions_csv
@@ -58,3 +61,43 @@ def test_portfolio_import_uses_repository_on_save(monkeypatch: pytest.MonkeyPatc
     assert captured["file_name"] == "website-upload.csv"
     assert captured["replace_open_positions"] is True
     assert captured["rows"][0].ticker == "AAPL"
+
+
+def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        PortfolioPositionRow(
+            ticker="AAPL",
+            name="Apple",
+            shares=3,
+            entry_price=100,
+            current_price=130,
+            currency="USD",
+            buy_date=date(2025, 1, 15),
+            broker="Test",
+            account="Main",
+        )
+    ]
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker: _price_bars())
+
+    positions = portfolio_service.get_portfolio_positions()
+    snapshot = portfolio_service.get_portfolio_snapshot()
+
+    assert positions[0].atr_pct > 0
+    assert snapshot.portfolio_atr_pct == pytest.approx(positions[0].atr_pct)
+    assert snapshot.kpis[-1].label == "Portfolio ATR"
+
+
+def _price_bars(periods: int = 40):
+    return [
+        SimpleNamespace(
+            date=date.fromordinal(date(2026, 1, 1).toordinal() + offset),
+            open=100 + offset,
+            high=102 + offset,
+            low=98 + offset,
+            close=100 + offset,
+            adj_close=100 + offset,
+            volume=1_000_000,
+        )
+        for offset in range(periods)
+    ]

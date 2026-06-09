@@ -4,8 +4,12 @@ import csv
 from datetime import UTC, datetime
 from io import StringIO
 
+import pandas as pd
+
 from app.repositories import portfolio as portfolio_repository
+from app.repositories import prices as prices_repository
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
+from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import (
     KpiCard,
     PortfolioImportRequest,
@@ -47,6 +51,7 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
     for row in rows:
         market_value = row.current_price * row.shares
         pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
+        atr_pct = _atr_pct_for_ticker(row.ticker)
         positions.append(
             PortfolioPosition(
                 ticker=row.ticker,
@@ -57,9 +62,9 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
                 market_value=market_value,
                 pnl_pct=pnl_pct,
                 weight_pct=market_value / invested * 100 if invested else 0,
-                atr_pct=0,
+                atr_pct=atr_pct,
                 beta=1,
-                status=_status_for_pnl(pnl_pct),
+                status=_status_for_position(pnl_pct, atr_pct),
             )
         )
     return positions
@@ -77,20 +82,26 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
     invested = sum(position.market_value for position in positions)
     cash = 0.0
     total = invested + cash
+    portfolio_atr_pct = sum(position.weight_pct * position.atr_pct for position in positions) / 100 if positions else 0
     return PortfolioSnapshotResponse(
         as_of=datetime.now(UTC).isoformat(),
         total_value=total,
         invested_value=invested,
         cash_balance=cash,
         cash_ratio_pct=0,
-        portfolio_atr_pct=0,
+        portfolio_atr_pct=portfolio_atr_pct,
         beta_balancer=1,
         max_depot_loss_pct=sum(position.weight_pct * 0.08 for position in positions) / 100,
         kpis=[
             KpiCard(label="Depotwert", value=f"{total:,.0f} EUR", detail="aus Import", tone="neutral"),
             KpiCard(label="Positionen", value=str(len(positions)), detail="offen", tone="good"),
             KpiCard(label="Gewinner", value=str(sum(1 for row in positions if row.pnl_pct >= 0)), detail="P&L >= 0", tone="good"),
-            KpiCard(label="Risiko", value="Basis", detail="ATR folgt mit Price Cache", tone="neutral"),
+            KpiCard(
+                label="Portfolio ATR",
+                value=f"{portfolio_atr_pct:.2f}%",
+                detail="gewichtet aus Price Cache" if portfolio_atr_pct else "Price Cache fehlt",
+                tone=_tone_for_portfolio_atr(portfolio_atr_pct),
+            ),
         ],
         positions=positions,
     )
@@ -217,14 +228,61 @@ def parse_positions_csv(content: str) -> PortfolioCsvParseResult:
     return PortfolioCsvParseResult(positions=positions, rows_total=rows_total, errors=errors, warnings=warnings)
 
 
-def _status_for_pnl(pnl_pct: float) -> str:
+def _status_for_position(pnl_pct: float, atr_pct: float) -> str:
     if pnl_pct <= -8:
         return "sell"
     if pnl_pct <= -4:
         return "risk"
+    if atr_pct >= 6:
+        return "watch"
     if pnl_pct >= 25:
         return "watch"
     return "ok"
+
+
+def _atr_pct_for_ticker(ticker: str) -> float:
+    try:
+        rows = prices_repository.list_price_bars(ticker)
+    except PriceRepositoryUnavailable:
+        rows = []
+    if len(rows) < 15:
+        return 0.0
+
+    frame_rows = []
+    for row in rows:
+        if row.close is None:
+            continue
+        close = float(row.close)
+        open_price = float(row.open) if row.open is not None else close
+        high = float(row.high) if row.high is not None else max(open_price, close)
+        low = float(row.low) if row.low is not None else min(open_price, close)
+        frame_rows.append({"date": row.date, "high": high, "low": low, "close": close})
+    if len(frame_rows) < 15:
+        return 0.0
+
+    frame = pd.DataFrame(frame_rows).drop_duplicates(subset=["date"], keep="last").sort_values("date")
+    high = pd.to_numeric(frame["high"], errors="coerce")
+    low = pd.to_numeric(frame["low"], errors="coerce")
+    close = pd.to_numeric(frame["close"], errors="coerce")
+    prev_close = close.shift(1)
+    true_range = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    atr14 = true_range.rolling(14, min_periods=14).mean().dropna()
+    last_close = close.dropna().iloc[-1] if not close.dropna().empty else None
+    if atr14.empty or not last_close or last_close <= 0:
+        return 0.0
+    return float(round(float(atr14.iloc[-1]) / float(last_close) * 100, 2))
+
+
+def _tone_for_portfolio_atr(value: float) -> str:
+    if value <= 0:
+        return "neutral"
+    if value <= 2.5:
+        return "good"
+    if value <= 4:
+        return "neutral"
+    if value <= 6:
+        return "warning"
+    return "bad"
 
 
 def _sniff_dialect(content: str) -> csv.Dialect:
