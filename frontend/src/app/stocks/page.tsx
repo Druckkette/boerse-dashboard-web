@@ -11,7 +11,7 @@ export default function StocksPage() {
           <h1 className="text-2xl font-semibold">Stocks</h1>
           <p className="mt-1 text-sm text-[#a0a7b4]">Screening, Vergleich und Detailanalyse werden hier angebunden.</p>
         </div>
-        <StatusChip tone="neutral">Dummy universe</StatusChip>
+        <StatusChip tone="neutral">Price API ready</StatusChip>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((ticker) => (
@@ -25,4 +25,3 @@ export default function StocksPage() {
     </div>
   );
 }
-

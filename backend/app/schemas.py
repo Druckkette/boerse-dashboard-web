@@ -57,6 +57,31 @@ class BreadthResponse(BaseModel):
     points: list[BreadthPoint]
 
 
+class PriceBarPoint(BaseModel):
+    date: str
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float
+    adj_close: float | None = None
+    volume: float | None = None
+
+
+class PriceHistoryResponse(BaseModel):
+    ticker: str
+    name: str = ""
+    currency: str = "USD"
+    range: Literal["1m", "3m", "6m", "1y", "2y", "5y"]
+    source: Literal["database", "synthetic_fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    as_of: str
+    first_date: str | None = None
+    last_date: str | None = None
+    last_close: float | None = None
+    change_pct: float | None = None
+    points: list[PriceBarPoint]
+
+
 class PortfolioPosition(BaseModel):
     ticker: str
     name: str

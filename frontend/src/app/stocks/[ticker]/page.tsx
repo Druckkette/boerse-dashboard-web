@@ -1,5 +1,5 @@
-import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { StatusChip } from "@/components/ui/status-chip";
+import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 
 export default async function StockDetailPage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;
@@ -16,10 +16,9 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
         </div>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <ChartPlaceholder title={`${clean} Price`} caption="Kurschart-Platzhalter" />
-        <ChartPlaceholder title={`${clean} Relative Strength`} caption="RS-Linie-Platzhalter" />
+        <StockPricePanel ticker={clean} title="Price" />
+        <StockPricePanel ticker="SPY" title="Benchmark" />
       </div>
     </div>
   );
 }
-

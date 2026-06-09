@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellOff, Minus, Plus, Save } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
+import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { api } from "@/lib/api/client";
 import type { PendingStatus, SellManualInput, SellSignal } from "@/lib/types/api";
 
@@ -197,7 +197,7 @@ export default function SellMonitorTickerPage() {
             </div>
           </section>
 
-          <ChartPlaceholder title={`${ticker} Sell Context`} caption="Preis, MAs und Signalmarker werden später mit Lightweight Charts gerendert" />
+          <StockPricePanel ticker={ticker} title="Sell Context" />
 
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
             <h2 className="mb-4 text-base font-semibold">Hauptgründe</h2>

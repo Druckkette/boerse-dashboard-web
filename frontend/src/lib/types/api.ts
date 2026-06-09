@@ -18,6 +18,23 @@ export type MarketOverview = {
   kpis: KpiCard[];
 };
 
+export type BreadthPoint = {
+  date: string;
+  advancers: number;
+  decliners: number;
+  ad_line: number;
+  mcclellan: number;
+  pct_above_50sma: number;
+  pct_above_200sma: number;
+};
+
+export type Breadth = {
+  as_of: string;
+  universe: string;
+  coverage_ratio: number;
+  points: BreadthPoint[];
+};
+
 export type ServiceFreshness = {
   name: string;
   status: "fresh" | "stale" | "missing";
@@ -55,6 +72,33 @@ export type PortfolioSnapshot = {
   max_depot_loss_pct: number;
   kpis: KpiCard[];
   positions: PortfolioPosition[];
+};
+
+export type PriceRange = "1m" | "3m" | "6m" | "1y" | "2y" | "5y";
+
+export type PriceBarPoint = {
+  date: string;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  close: number;
+  adj_close?: number | null;
+  volume?: number | null;
+};
+
+export type PriceHistory = {
+  ticker: string;
+  name: string;
+  currency: string;
+  range: PriceRange;
+  source: "database" | "synthetic_fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback";
+  as_of: string;
+  first_date?: string | null;
+  last_date?: string | null;
+  last_close?: number | null;
+  change_pct?: number | null;
+  points: PriceBarPoint[];
 };
 
 export type SellRankingRow = {

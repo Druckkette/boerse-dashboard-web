@@ -1,9 +1,12 @@
 import type {
   AppSettings,
+  Breadth,
   Freshness,
   Job,
   JobType,
   MarketOverview,
+  PriceHistory,
+  PriceRange,
   PortfolioPosition,
   PortfolioSnapshot,
   SellEvaluation,
@@ -52,7 +55,10 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 
 export const api = {
   marketOverview: () => getJson<MarketOverview>("/market/overview"),
+  marketBreadth: () => getJson<Breadth>("/market/breadth"),
   freshness: () => getJson<Freshness>("/freshness"),
+  stockPrices: (ticker: string, range: PriceRange = "1y") =>
+    getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),
   portfolioPositions: async () => {
     const payload = await getJson<{ positions: PortfolioPosition[] }>("/portfolio/positions");
     return payload.positions;

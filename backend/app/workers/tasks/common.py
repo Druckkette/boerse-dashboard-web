@@ -64,3 +64,7 @@ def run_skeleton_job(
 def _raise_if_cancelled(job_id: str) -> None:
     if job_repository.is_cancelled(job_id):
         raise JobCancelled(f"Job {job_id} wurde abgebrochen.")
+
+
+def raise_if_cancelled(job_id: str) -> None:
+    _raise_if_cancelled(job_id)

@@ -16,6 +16,7 @@ dependencies = [
     "redis>=5.2.0",
     "sqlalchemy>=2.0.36",
     "uvicorn[standard]>=0.34.0",
+    "yfinance>=0.2.63",
 ]
 
 [project.optional-dependencies]
