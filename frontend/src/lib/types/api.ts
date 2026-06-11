@@ -388,6 +388,34 @@ export type StockAssessment = {
   warnings: string[];
 };
 
+export type Institutional13FTrendItem = {
+  ticker: string;
+  cusip: string;
+  report_period: string;
+  previous_period?: string | null;
+  holder_count: number;
+  previous_holder_count?: number | null;
+  holder_count_delta?: number | null;
+  large_holder_count?: number | null;
+  previous_large_holder_count?: number | null;
+  large_holder_delta?: number | null;
+  total_value_usd?: number | null;
+  previous_total_value_usd?: number | null;
+  total_value_delta_pct?: number | null;
+  total_shares?: number | null;
+  previous_total_shares?: number | null;
+  total_shares_delta_pct?: number | null;
+  trend: "positive" | "negative" | "neutral" | "new" | "missing";
+  source_url: string;
+};
+
+export type Institutional13FTrend = {
+  ticker: string;
+  source: "database" | "missing";
+  as_of: string;
+  item?: Institutional13FTrendItem | null;
+};
+
 export type SellRankingRow = {
   ticker: string;
   name: string;

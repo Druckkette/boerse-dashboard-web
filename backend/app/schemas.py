@@ -254,6 +254,40 @@ class StockAssessmentResponse(BaseModel):
     warnings: list[str]
 
 
+class Institutional13FTrendItem(BaseModel):
+    ticker: str
+    cusip: str
+    report_period: str
+    previous_period: str | None = None
+    holder_count: int
+    previous_holder_count: int | None = None
+    holder_count_delta: int | None = None
+    large_holder_count: int | None = None
+    previous_large_holder_count: int | None = None
+    large_holder_delta: int | None = None
+    total_value_usd: float | None = None
+    previous_total_value_usd: float | None = None
+    total_value_delta_pct: float | None = None
+    total_shares: float | None = None
+    previous_total_shares: float | None = None
+    total_shares_delta_pct: float | None = None
+    trend: Literal["positive", "negative", "neutral", "new", "missing"] = "missing"
+    source_url: str = ""
+
+
+class Institutional13FTrendResponse(BaseModel):
+    ticker: str
+    source: Literal["database", "missing"]
+    as_of: str
+    item: Institutional13FTrendItem | None = None
+
+
+class Institutional13FRankingResponse(BaseModel):
+    source: Literal["database", "missing"]
+    as_of: str
+    rows: list[Institutional13FTrendItem]
+
+
 class PortfolioPosition(BaseModel):
     ticker: str
     name: str

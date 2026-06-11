@@ -1,4 +1,5 @@
 import { StatusChip } from "@/components/ui/status-chip";
+import { Institutional13FPanel } from "@/features/stocks/institutional-13f-panel";
 import { StockAssessmentPanel } from "@/features/stocks/stock-assessment-panel";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { StockRsPanel } from "@/features/stocks/stock-rs-panel";
@@ -18,6 +19,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
         </div>
       </div>
       <StockAssessmentPanel ticker={clean} />
+      <Institutional13FPanel ticker={clean} />
       <div className="grid gap-4 xl:grid-cols-2">
         <StockPricePanel ticker={clean} title="Price" />
         <StockPricePanel ticker="SPY" title="Benchmark" />
