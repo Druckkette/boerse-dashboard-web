@@ -11,6 +11,7 @@ import {
   ListChecks,
   Search,
   Settings,
+  Shield,
   Upload
 } from "lucide-react";
 import Link from "next/link";
@@ -20,6 +21,7 @@ import { ReactNode } from "react";
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/market", label: "Market", icon: Gauge },
+  { href: "/sectors", label: "Sectors", icon: Shield },
   { href: "/stocks", label: "Stocks", icon: Search },
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness },
   { href: "/portfolio/imports", label: "Imports", icon: Upload },

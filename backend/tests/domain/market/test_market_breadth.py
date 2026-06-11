@@ -5,7 +5,7 @@ import pytest
 from app.domain.market.ampel import TrendAmpelPoint
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketPricePoint
-from app.services.market import build_market_snapshot, compute_breadth_series
+from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking
 
 
 def test_compute_breadth_series_is_reproducible() -> None:
@@ -128,6 +128,23 @@ def test_volatility_dashboard_returns_empty_without_benchmark() -> None:
     points = compute_volatility_dashboard(series)
 
     assert points == []
+
+
+def test_sector_ranking_orders_latest_daily_return() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "XLK": _series("XLK", start, [100, 101, 104, 108, 115]),
+        "XLP": _series("XLP", start, [100, 101, 101.5, 102, 102.2]),
+        "XLE": _series("XLE", start, [100, 98, 96, 94, 90]),
+    }
+
+    rows, history = compute_sector_ranking(series, mode="daily", periods=4)
+
+    assert rows[0].ticker == "XLK"
+    assert rows[0].rank == 1
+    assert rows[-1].ticker == "XLE"
+    assert rows[0].return_5d_pct is None
+    assert {point.ticker for point in history} == {"XLK", "XLP", "XLE"}
 
 
 def _series(ticker: str, start: date, closes: list[float]) -> list[MarketPricePoint]:

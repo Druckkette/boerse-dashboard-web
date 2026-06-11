@@ -105,8 +105,9 @@ or when you want to load a different universe or longer history. Normal updates 
 by scheduler/worker jobs.
 
 `refresh_prices` loads the starter universe plus the volatility tickers `SPY`, `^VIX` and `VIXY`.
-With a custom universe, the UI also includes the RS benchmark and volatility tickers in the price
-refresh so market overview and RS calculations have the required support data.
+It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also includes
+the RS benchmark and volatility tickers in the price refresh so market overview and RS calculations
+have the required support data.
 
 `/stocks/ratings/rs` and `/stocks/<ticker>/rs` read the persisted `rs_ratings` table. They do not
 run yfinance or Pandas recomputes in the click path.

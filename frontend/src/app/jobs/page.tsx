@@ -24,7 +24,7 @@ const statusTone: Record<JobStatus, "good" | "neutral" | "warning" | "bad"> = {
   cancelled: "neutral"
 };
 
-type PricePreset = "all" | "market_core" | "volatility" | "custom";
+type PricePreset = "all" | "market_core" | "volatility" | "sector" | "custom";
 
 type MarketDataBootstrapConfig = {
   pricePreset: PricePreset;
@@ -210,6 +210,7 @@ function RefreshSequence({
             <option value="all">Starter + Volatility</option>
             <option value="market_core">Starter-Universum</option>
             <option value="volatility">Nur SPY, VIX, VIXY</option>
+            <option value="sector">Nur Sektor-ETFs</option>
             <option value="custom">Eigene Tickerliste</option>
           </select>
         </label>
@@ -507,7 +508,7 @@ function clampNumber(value: number, min: number, max: number, fallback: number) 
 
 function normalizeBootstrapConfig(value: unknown): MarketDataBootstrapConfig {
   const raw = value && typeof value === "object" ? (value as Partial<MarketDataBootstrapConfig>) : {};
-  const pricePreset = ["all", "market_core", "volatility", "custom"].includes(String(raw.pricePreset))
+  const pricePreset = ["all", "market_core", "volatility", "sector", "custom"].includes(String(raw.pricePreset))
     ? (raw.pricePreset as PricePreset)
     : defaultBootstrapConfig.pricePreset;
   const priceRange = ["1m", "3m", "6m", "1y", "2y", "5y"].includes(String(raw.priceRange))

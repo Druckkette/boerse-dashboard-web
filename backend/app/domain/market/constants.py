@@ -28,3 +28,19 @@ DEFAULT_MARKET_UNIVERSE_TICKERS = [
     "PG",
     "WMT",
 ]
+
+SECTOR_ETFS = {
+    "XLK": "Technology",
+    "XLV": "Health Care",
+    "XLF": "Financials",
+    "XLI": "Industrials",
+    "XLP": "Consumer Staples",
+    "XLY": "Consumer Discretionary",
+    "XLE": "Energy",
+    "XLB": "Materials",
+    "XLC": "Communication Services",
+    "XLU": "Utilities",
+    "XLRE": "Real Estate",
+}
+
+SECTOR_ETF_TICKERS = list(SECTOR_ETFS.keys())

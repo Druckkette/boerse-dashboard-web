@@ -88,6 +88,36 @@ export type Volatility = {
   points: VolatilityPoint[];
 };
 
+export type SectorRankingRow = {
+  ticker: string;
+  name: string;
+  rank: number;
+  return_pct: number;
+  return_1d_pct?: number | null;
+  return_5d_pct?: number | null;
+  return_20d_pct?: number | null;
+};
+
+export type SectorRankingPoint = {
+  date: string;
+  ticker: string;
+  name: string;
+  rank: number;
+  return_pct: number;
+};
+
+export type SectorRanking = {
+  as_of: string;
+  source: "database" | "missing" | "synthetic_fixture";
+  data_status: "fresh" | "stale" | "missing" | "fallback";
+  mode: "daily" | "weekly";
+  message: string;
+  rows: SectorRankingRow[];
+  top: SectorRankingRow[];
+  bottom: SectorRankingRow[];
+  history: SectorRankingPoint[];
+};
+
 export type ServiceFreshness = {
   name: string;
   status: "fresh" | "stale" | "missing";

@@ -110,6 +110,36 @@ class VolatilityResponse(BaseModel):
     points: list[VolatilityPoint]
 
 
+class SectorRankingRow(BaseModel):
+    ticker: str
+    name: str
+    rank: int
+    return_pct: float
+    return_1d_pct: float | None = None
+    return_5d_pct: float | None = None
+    return_20d_pct: float | None = None
+
+
+class SectorRankingPoint(BaseModel):
+    date: str
+    ticker: str
+    name: str
+    rank: int
+    return_pct: float
+
+
+class SectorRankingResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "missing", "synthetic_fixture"]
+    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    mode: Literal["daily", "weekly"]
+    message: str = ""
+    rows: list[SectorRankingRow]
+    top: list[SectorRankingRow]
+    bottom: list[SectorRankingRow]
+    history: list[SectorRankingPoint]
+
+
 class PriceBarPoint(BaseModel):
     date: str
     open: float | None = None

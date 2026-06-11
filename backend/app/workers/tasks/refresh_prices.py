@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS, SECTOR_ETF_TICKERS
 from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.repositories import jobs as job_repository
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
@@ -10,12 +10,15 @@ from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
 
-PriceRefreshPreset = Literal["all", "market_core", "volatility"]
-DEFAULT_PRICE_REFRESH_TICKERS = list(dict.fromkeys([*DEFAULT_MARKET_UNIVERSE_TICKERS, *VOLATILITY_TICKERS]))
+PriceRefreshPreset = Literal["all", "market_core", "volatility", "sector"]
+DEFAULT_PRICE_REFRESH_TICKERS = list(
+    dict.fromkeys([*DEFAULT_MARKET_UNIVERSE_TICKERS, *VOLATILITY_TICKERS, *SECTOR_ETF_TICKERS])
+)
 PRICE_REFRESH_PRESETS: dict[PriceRefreshPreset, list[str]] = {
     "all": DEFAULT_PRICE_REFRESH_TICKERS,
     "market_core": DEFAULT_MARKET_UNIVERSE_TICKERS,
     "volatility": VOLATILITY_TICKERS,
+    "sector": SECTOR_ETF_TICKERS,
 }
 
 

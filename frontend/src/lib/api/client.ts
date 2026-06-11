@@ -13,6 +13,7 @@ import type {
   PortfolioSnapshot,
   RsRatingDetail,
   RsRatingRanking,
+  SectorRanking,
   SellEvaluation,
   SellManualInput,
   SellMetrics,
@@ -70,6 +71,8 @@ export const api = {
   marketOverview: () => getJson<MarketOverview>("/market/overview"),
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
+  marketSectors: (mode: "daily" | "weekly" = "daily", periods = 15) =>
+    getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
   freshness: () => getJson<Freshness>("/freshness"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
     getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),

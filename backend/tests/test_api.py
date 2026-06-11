@@ -47,6 +47,19 @@ def test_market_volatility_contract() -> None:
     assert isinstance(payload["points"], list)
 
 
+def test_market_sectors_contract() -> None:
+    response = client.get("/api/v1/market/sectors?mode=daily&periods=10")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "synthetic_fixture", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
+    assert payload["mode"] == "daily"
+    assert isinstance(payload["rows"], list)
+    assert isinstance(payload["history"], list)
+    if payload["rows"]:
+        assert {"ticker", "name", "rank", "return_pct"}.issubset(payload["rows"][0])
+
+
 def test_stock_price_history_contract() -> None:
     response = client.get("/api/v1/stocks/NVDA/prices?range=3m")
     assert response.status_code == 200

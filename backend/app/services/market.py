@@ -5,8 +5,13 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY, DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
+from app.domain.market.constants import (
+    DEFAULT_MARKET_UNIVERSE_KEY,
+    DEFAULT_MARKET_UNIVERSE_TICKERS,
+    SECTOR_ETFS,
+    SECTOR_ETF_TICKERS,
+)
 from app.domain.market.regime import MarketRegimeInput, classify_market_regime
 from app.domain.market.volatility import (
     VOLATILITY_TICKERS,
@@ -27,6 +32,9 @@ from app.schemas import (
     KpiCard,
     MarketOverviewResponse,
     MarketTrendAmpel,
+    SectorRankingPoint,
+    SectorRankingResponse,
+    SectorRankingRow,
     VolatilityPoint,
     VolatilityResponse,
     VolatilityStatusCard,
@@ -129,6 +137,48 @@ def get_volatility(*, limit: int = 180) -> VolatilityResponse:
         regime=str(summary.get("regime") or "Nicht berechnet"),
         status_cards=[VolatilityStatusCard.model_validate(item) for item in summary.get("status_cards", [])],
         points=[VolatilityPoint.model_validate(asdict(point)) for point in points],
+    )
+
+
+def get_sector_ranking(*, mode: str = "daily", periods: int = 15) -> SectorRankingResponse:
+    clean_mode = "weekly" if mode == "weekly" else "daily"
+    lookback_days = 210 if clean_mode == "weekly" else 90
+    start_date = date.today() - timedelta(days=lookback_days)
+    try:
+        series = market_repository.load_cached_prices(SECTOR_ETF_TICKERS, start_date=start_date)
+    except MarketRepositoryUnavailable:
+        series = {}
+
+    rows, history = compute_sector_ranking(
+        series,
+        mode=clean_mode,
+        periods=periods,
+    )
+    if not rows:
+        return SectorRankingResponse(
+            as_of=date.today().isoformat(),
+            source="missing",
+            data_status="missing",
+            mode=clean_mode,
+            message="Keine Sektor-ETF-Preise im Cache. Starte refresh_prices mit Preset sector oder all.",
+            rows=[],
+            top=[],
+            bottom=[],
+            history=[],
+        )
+
+    as_of = max(point.date for points in series.values() for point in points).isoformat()
+    status = _data_status_for_date(date.fromisoformat(as_of))
+    return SectorRankingResponse(
+        as_of=as_of,
+        source="database",
+        data_status=status,
+        mode=clean_mode,
+        message=f"Sektor-Ranking aus gecachten SPDR-Sektor-ETFs; Modus {clean_mode}.",
+        rows=rows,
+        top=rows[:3],
+        bottom=list(reversed(rows[-3:])),
+        history=history,
     )
 
 
@@ -292,6 +342,87 @@ def compute_breadth_series(
         )
 
     return computed
+
+
+def compute_sector_ranking(
+    series: Mapping[str, list[MarketPricePoint]],
+    *,
+    mode: str = "daily",
+    periods: int = 15,
+) -> tuple[list[SectorRankingRow], list[SectorRankingPoint]]:
+    close_by_ticker = {
+        ticker: {point.date: point.close for point in sorted(points, key=lambda item: item.date)}
+        for ticker, points in series.items()
+        if ticker in SECTOR_ETFS and len(points) >= 2
+    }
+    if not close_by_ticker:
+        return [], []
+
+    all_dates = sorted({item_date for closes in close_by_ticker.values() for item_date in closes})
+    if len(all_dates) < 2:
+        return [], []
+
+    aligned: dict[str, list[float | None]] = {}
+    for ticker, closes in close_by_ticker.items():
+        previous: float | None = None
+        values: list[float | None] = []
+        for current_date in all_dates:
+            if current_date in closes:
+                previous = closes[current_date]
+            values.append(previous)
+        if sum(value is not None for value in values) >= 2:
+            aligned[ticker] = values
+
+    period_returns: list[tuple[date, dict[str, float]]] = []
+    step = 5 if mode == "weekly" else 1
+    for index in range(step, len(all_dates)):
+        current_returns: dict[str, float] = {}
+        for ticker, values in aligned.items():
+            current = values[index]
+            previous = values[index - step]
+            if current is None or previous is None or previous <= 0:
+                continue
+            current_returns[ticker] = (current / previous - 1) * 100
+        if current_returns:
+            period_returns.append((all_dates[index], current_returns))
+
+    if not period_returns:
+        return [], []
+
+    latest_date, latest_returns = period_returns[-1]
+    rows = [
+        SectorRankingRow(
+            ticker=ticker,
+            name=SECTOR_ETFS[ticker],
+            rank=rank,
+            return_pct=return_pct,
+            return_1d_pct=_trailing_return(aligned[ticker], 1),
+            return_5d_pct=_trailing_return(aligned[ticker], 5),
+            return_20d_pct=_trailing_return(aligned[ticker], 20),
+        )
+        for rank, (ticker, return_pct) in enumerate(
+            sorted(latest_returns.items(), key=lambda item: item[1], reverse=True),
+            start=1,
+        )
+    ]
+
+    history: list[SectorRankingPoint] = []
+    for current_date, returns in period_returns[-max(1, min(60, periods)) :]:
+        for rank, (ticker, return_pct) in enumerate(
+            sorted(returns.items(), key=lambda item: item[1], reverse=True),
+            start=1,
+        ):
+            history.append(
+                SectorRankingPoint(
+                    date=current_date.isoformat(),
+                    ticker=ticker,
+                    name=SECTOR_ETFS.get(ticker, ticker),
+                    rank=rank,
+                    return_pct=return_pct,
+                )
+            )
+
+    return rows, history
 
 
 def build_market_snapshot(
@@ -509,3 +640,13 @@ def _ema(value: float, *, previous: float | None, period: int) -> float:
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
+
+
+def _trailing_return(values: list[float | None], periods: int) -> float | None:
+    if len(values) <= periods:
+        return None
+    current = values[-1]
+    previous = values[-1 - periods]
+    if current is None or previous is None or previous <= 0:
+        return None
+    return (current / previous - 1) * 100
