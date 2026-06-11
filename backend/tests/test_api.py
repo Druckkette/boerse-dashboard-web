@@ -88,6 +88,20 @@ def test_stock_rs_detail_contract() -> None:
     assert isinstance(payload["found"], bool)
 
 
+def test_stock_assessment_contract() -> None:
+    response = client.get("/api/v1/stocks/NVDA/assessment")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ticker"] == "NVDA"
+    assert payload["source"] in {"database", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing"}
+    assert {"overall", "technical", "fundamental", "moving_averages", "chart_behavior"}.issubset(
+        payload["scores"]
+    )
+    assert isinstance(payload["checks"], list)
+    assert isinstance(payload["chart_signals"], list)
+
+
 def test_portfolio_import_dry_run_contract() -> None:
     response = client.post(
         "/api/v1/portfolio/imports/positions",

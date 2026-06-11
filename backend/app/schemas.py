@@ -198,6 +198,62 @@ class RsRatingDetailResponse(BaseModel):
     item: RsRatingItem | None = None
 
 
+class StockAssessmentCheck(BaseModel):
+    category: Literal["fundamental", "technical", "trend", "risk"]
+    label: str
+    passed: bool
+    detail: str
+    severity: Literal["info", "warning", "critical"] = "info"
+
+
+class StockAssessmentSignal(BaseModel):
+    category: Literal["positive", "negative", "neutral"]
+    label: str
+    detail: str = ""
+
+
+class StockAssessmentScores(BaseModel):
+    overall: int = Field(ge=0, le=100)
+    technical: float = Field(ge=0, le=100)
+    fundamental: float = Field(ge=0, le=100)
+    moving_averages: float = Field(ge=0, le=100)
+    chart_behavior: int = Field(ge=0, le=100)
+
+
+class StockAssessmentMetrics(BaseModel):
+    last_close: float | None = None
+    change_pct: float | None = None
+    atr_pct: float | None = None
+    volume_ratio_50d: float | None = None
+    dollar_volume_mio: float | None = None
+    cmf_20: float | None = None
+    drawdown_52w_pct: float | None = None
+    distance_sma10_pct: float | None = None
+    distance_ema21_pct: float | None = None
+    distance_sma50_pct: float | None = None
+    distance_sma200_pct: float | None = None
+    rs_rating: int | None = Field(default=None, ge=1, le=99)
+    rs_percentile: float | None = Field(default=None, ge=0, le=100)
+
+
+class StockAssessmentResponse(BaseModel):
+    ticker: str
+    as_of: str
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "stale", "missing"]
+    message: str
+    verdict_label: str
+    verdict_tone: Literal["good", "neutral", "warning", "bad"]
+    verdict_text: str
+    fundamentals_available: bool
+    scores: StockAssessmentScores
+    metrics: StockAssessmentMetrics
+    checks: list[StockAssessmentCheck]
+    chart_signals: list[StockAssessmentSignal]
+    drivers: list[str]
+    warnings: list[str]
+
+
 class PortfolioPosition(BaseModel):
     ticker: str
     name: str

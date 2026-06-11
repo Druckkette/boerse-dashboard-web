@@ -250,6 +250,62 @@ export type RsRatingDetail = {
   item?: RsRatingItem | null;
 };
 
+export type StockAssessmentCheck = {
+  category: "fundamental" | "technical" | "trend" | "risk";
+  label: string;
+  passed: boolean;
+  detail: string;
+  severity: "info" | "warning" | "critical";
+};
+
+export type StockAssessmentSignal = {
+  category: "positive" | "negative" | "neutral";
+  label: string;
+  detail: string;
+};
+
+export type StockAssessmentScores = {
+  overall: number;
+  technical: number;
+  fundamental: number;
+  moving_averages: number;
+  chart_behavior: number;
+};
+
+export type StockAssessmentMetrics = {
+  last_close?: number | null;
+  change_pct?: number | null;
+  atr_pct?: number | null;
+  volume_ratio_50d?: number | null;
+  dollar_volume_mio?: number | null;
+  cmf_20?: number | null;
+  drawdown_52w_pct?: number | null;
+  distance_sma10_pct?: number | null;
+  distance_ema21_pct?: number | null;
+  distance_sma50_pct?: number | null;
+  distance_sma200_pct?: number | null;
+  rs_rating?: number | null;
+  rs_percentile?: number | null;
+};
+
+export type StockAssessment = {
+  ticker: string;
+  as_of: string;
+  source: "database" | "missing";
+  data_status: "fresh" | "stale" | "missing";
+  message: string;
+  verdict_label: string;
+  verdict_tone: Tone;
+  verdict_text: string;
+  fundamentals_available: boolean;
+  scores: StockAssessmentScores;
+  metrics: StockAssessmentMetrics;
+  checks: StockAssessmentCheck[];
+  chart_signals: StockAssessmentSignal[];
+  drivers: string[];
+  warnings: string[];
+};
+
 export type SellRankingRow = {
   ticker: string;
   name: string;
