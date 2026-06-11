@@ -5,6 +5,7 @@ from app.schemas import (
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
     PortfolioCashFlowsResponse,
+    PortfolioCurveResponse,
     PortfolioImportRequest,
     PortfolioImportResponse,
     PortfolioImportHistoryResponse,
@@ -21,6 +22,7 @@ from app.services.portfolio import (
     create_portfolio_cash_flow,
     delete_portfolio_position,
     get_portfolio_cash_flows,
+    get_portfolio_curve,
     get_portfolio_import_history,
     get_portfolio_positions,
     get_portfolio_snapshot,
@@ -84,6 +86,11 @@ def sell_position(ticker: str, payload: PortfolioSellRequest) -> PortfolioSellRe
 @router.get("/snapshot", response_model=PortfolioSnapshotResponse)
 def snapshot() -> PortfolioSnapshotResponse:
     return get_portfolio_snapshot()
+
+
+@router.get("/curve", response_model=PortfolioCurveResponse)
+def curve(days: int = Query(default=370, ge=30, le=2500)) -> PortfolioCurveResponse:
+    return get_portfolio_curve(days=days)
 
 
 @router.get("/transactions", response_model=PortfolioTransactionsResponse)

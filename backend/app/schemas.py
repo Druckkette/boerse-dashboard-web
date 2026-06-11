@@ -468,6 +468,24 @@ class PortfolioSnapshotResponse(BaseModel):
     positions: list[PortfolioPosition]
 
 
+class PortfolioCurvePoint(BaseModel):
+    date: str
+    depot_value: float
+    positions_value: float
+    cash: float
+    portfolio_index: float
+    portfolio_index_sma10: float | None = None
+    portfolio_index_sma21: float | None = None
+
+
+class PortfolioCurveResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "missing"]
+    message: str = ""
+    points: list[PortfolioCurvePoint]
+
+
 class SellRankingRow(BaseModel):
     ticker: str
     name: str

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 
 import pandas as pd
@@ -16,6 +16,8 @@ from app.schemas import (
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
     PortfolioCashFlowsResponse,
+    PortfolioCurvePoint,
+    PortfolioCurveResponse,
     PortfolioImportRequest,
     PortfolioImportResponse,
     PortfolioImportHistoryItem,
@@ -139,6 +141,97 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
             ),
         ],
         positions=positions,
+    )
+
+
+def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
+    try:
+        rows = portfolio_repository.list_open_positions()
+        cash = portfolio_repository.get_cash_balance()
+    except PortfolioRepositoryUnavailable:
+        rows = []
+        cash = 0.0
+    if not rows:
+        return PortfolioCurveResponse(
+            as_of=datetime.now(UTC).date().isoformat(),
+            source="missing",
+            data_status="missing",
+            message="Keine offenen Positionen für die Depotkurve.",
+            points=[],
+        )
+
+    start_date = date.today() - timedelta(days=max(30, min(2500, days)))
+    series_map: dict[str, pd.Series] = {}
+    for row in rows:
+        try:
+            price_rows = prices_repository.list_price_bars(row.ticker, start_date=start_date)
+        except PriceRepositoryUnavailable:
+            price_rows = []
+        points = [
+            (pd.Timestamp(price.date), float(price.close))
+            for price in price_rows
+            if price.close is not None
+        ]
+        if points:
+            series = pd.Series(
+                [item[1] for item in points],
+                index=pd.DatetimeIndex([item[0] for item in points]),
+                dtype=float,
+            ).sort_index()
+            series_map[row.ticker] = series[~series.index.duplicated(keep="last")]
+
+    if not series_map:
+        return PortfolioCurveResponse(
+            as_of=datetime.now(UTC).date().isoformat(),
+            source="missing",
+            data_status="missing",
+            message="Für die offenen Positionen fehlen Price-Bars im Cache.",
+            points=[],
+        )
+
+    all_dates = sorted(set().union(*(series.index for series in series_map.values())))
+    frame = pd.DataFrame(index=pd.DatetimeIndex(all_dates))
+    for row in rows:
+        series = series_map.get(row.ticker)
+        if series is None:
+            continue
+        frame[row.ticker] = series.reindex(frame.index).ffill()
+
+    points: list[PortfolioCurvePoint] = []
+    index_values: list[float] = []
+    for timestamp, values in frame.iterrows():
+        positions_value = 0.0
+        for row in rows:
+            close = values.get(row.ticker)
+            if pd.notna(close):
+                positions_value += float(close) * row.shares
+        depot_value = positions_value + cash
+        if depot_value <= 0:
+            continue
+        if not index_values:
+            base = depot_value
+        portfolio_index = depot_value / base * 100
+        index_values.append(portfolio_index)
+        sma10 = float(pd.Series(index_values).rolling(10, min_periods=10).mean().iloc[-1]) if len(index_values) >= 10 else None
+        sma21 = float(pd.Series(index_values).rolling(21, min_periods=21).mean().iloc[-1]) if len(index_values) >= 21 else None
+        points.append(
+            PortfolioCurvePoint(
+                date=timestamp.date().isoformat(),
+                depot_value=round(depot_value, 2),
+                positions_value=round(positions_value, 2),
+                cash=round(cash, 2),
+                portfolio_index=round(portfolio_index, 2),
+                portfolio_index_sma10=round(sma10, 2) if sma10 is not None else None,
+                portfolio_index_sma21=round(sma21, 2) if sma21 is not None else None,
+            )
+        )
+
+    return PortfolioCurveResponse(
+        as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
+        source="database",
+        data_status="fresh",
+        message="Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand.",
+        points=points,
     )
 
 

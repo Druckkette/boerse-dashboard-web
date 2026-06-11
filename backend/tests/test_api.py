@@ -142,6 +142,15 @@ def test_portfolio_cash_flows_contract() -> None:
     assert isinstance(payload["cash_balance"], int | float)
 
 
+def test_portfolio_curve_contract() -> None:
+    response = client.get("/api/v1/portfolio/curve")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert payload["data_status"] in {"fresh", "missing"}
+    assert isinstance(payload["points"], list)
+
+
 def test_portfolio_import_history_contract() -> None:
     response = client.get("/api/v1/portfolio/imports")
     assert response.status_code == 200

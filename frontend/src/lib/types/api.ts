@@ -166,6 +166,24 @@ export type PortfolioSnapshot = {
   positions: PortfolioPosition[];
 };
 
+export type PortfolioCurvePoint = {
+  date: string;
+  depot_value: number;
+  positions_value: number;
+  cash: number;
+  portfolio_index: number;
+  portfolio_index_sma10?: number | null;
+  portfolio_index_sma21?: number | null;
+};
+
+export type PortfolioCurve = {
+  as_of: string;
+  source: "database" | "missing";
+  data_status: "fresh" | "missing";
+  message: string;
+  points: PortfolioCurvePoint[];
+};
+
 export type PortfolioPositionWriteRequest = {
   ticker: string;
   name?: string;

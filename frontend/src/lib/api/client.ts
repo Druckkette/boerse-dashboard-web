@@ -10,6 +10,7 @@ import type {
   PriceRange,
   PortfolioCashFlow,
   PortfolioCashFlowRequest,
+  PortfolioCurve,
   PortfolioImportHistoryItem,
   PortfolioImportRequest,
   PortfolioImportResponse,
@@ -93,6 +94,7 @@ export const api = {
     return payload.positions;
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
+  portfolioCurve: (days = 370) => getJson<PortfolioCurve>(`/portfolio/curve?days=${days}`),
   upsertPortfolioPosition: async (body: PortfolioPositionWriteRequest) => {
     const payload = await postJson<{ position: PortfolioPosition }>("/portfolio/positions", body);
     return payload.position;
