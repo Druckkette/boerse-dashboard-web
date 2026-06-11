@@ -2,9 +2,10 @@ from datetime import date, timedelta
 
 import pytest
 
+from app.domain.market.ampel import TrendAmpelPoint
+from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketPricePoint
 from app.services.market import build_market_snapshot, compute_breadth_series
-from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 
 
 def test_compute_breadth_series_is_reproducible() -> None:
@@ -85,6 +86,39 @@ def test_market_snapshot_includes_volatility_warning() -> None:
     assert snapshot.volatility_regime == "Risk Off bestätigt"
     assert snapshot.metrics_json["volatility"]["regime"] == "Risk Off bestätigt"
     assert snapshot.metrics_json["kpis"][-1]["label"] == "Vol Regime"
+
+
+def test_market_snapshot_uses_trend_ampel_when_available() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "AAA": _series("AAA", start, [100 + index * 0.5 for index in range(220)]),
+        "BBB": _series("BBB", start, [80 + index * 0.4 for index in range(220)]),
+        "CCC": _series("CCC", start, [50 + index * 0.3 for index in range(220)]),
+    }
+    trend_point = TrendAmpelPoint(
+        date="2025-08-12",
+        phase="aufwaertstrend",
+        close=550.0,
+        ema21=532.0,
+        sma50=510.0,
+        sma200=470.0,
+        pct_change=1.2,
+        closing_range=0.82,
+        dist_count_25=1,
+        anchor_date="2025-07-18",
+        floor_mark=498.5,
+        startschuss_low=515.2,
+        startschuss_bonus=True,
+    )
+
+    latest = compute_breadth_series(series, universe="test_universe", universe_size=3)[-1]
+    snapshot = build_market_snapshot(latest, trend_point=trend_point, trend_ticker="SPY")
+
+    assert snapshot.ampel_phase == "aufwaertstrend"
+    assert snapshot.metrics_json["breadth_phase"] == "gruen"
+    assert snapshot.metrics_json["trend_ampel"]["ticker"] == "SPY"
+    assert snapshot.metrics_json["trend_ampel"]["phase_label"] == "Aufwärtstrend"
+    assert "Trend-Ampel Aufwärtstrend" in snapshot.metrics_json["action"]
 
 
 def test_volatility_dashboard_returns_empty_without_benchmark() -> None:

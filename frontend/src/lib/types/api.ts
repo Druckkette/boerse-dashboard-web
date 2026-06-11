@@ -7,6 +7,20 @@ export type KpiCard = {
   tone: Tone;
 };
 
+export type MarketTrendAmpel = {
+  ticker: string;
+  as_of: string;
+  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  phase_label: string;
+  close?: number | null;
+  anchor_date?: string | null;
+  floor_mark?: number | null;
+  startschuss_low?: number | null;
+  startschuss_bonus?: boolean | null;
+  dist_count_25: number;
+  source: "database" | "missing" | "synthetic_fixture";
+};
+
 export type MarketOverview = {
   as_of: string;
   source: "database" | "synthetic_fixture" | "missing";
@@ -18,6 +32,7 @@ export type MarketOverview = {
   warning_count: number;
   breadth_mode: "schutz" | "wachsam" | "rueckenwind";
   volatility_regime: string;
+  trend_ampel?: MarketTrendAmpel | null;
   kpis: KpiCard[];
 };
 

@@ -19,6 +19,17 @@ class MarketPricePoint:
 
 
 @dataclass(frozen=True)
+class MarketOhlcvPoint:
+    ticker: str
+    date: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+@dataclass(frozen=True)
 class BreadthDailyWrite:
     universe: str
     date: date
@@ -76,6 +87,51 @@ def load_cached_prices(tickers: Iterable[str], *, start_date: date) -> dict[str,
             MarketPricePoint(ticker=str(ticker), date=bar_date, close=float(close))
         )
     return {ticker: points for ticker, points in series.items() if points}
+
+
+def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint]:
+    clean = ticker.strip().upper()
+    if not clean:
+        return []
+
+    try:
+        with SessionLocal() as db:
+            rows = db.execute(
+                select(
+                    Instrument.ticker,
+                    PriceBar.date,
+                    PriceBar.open,
+                    PriceBar.high,
+                    PriceBar.low,
+                    PriceBar.close,
+                    PriceBar.volume,
+                )
+                .join(PriceBar, PriceBar.instrument_id == Instrument.id)
+                .where(
+                    Instrument.ticker == clean,
+                    PriceBar.date >= start_date,
+                    PriceBar.close.is_not(None),
+                )
+                .order_by(PriceBar.date.asc())
+            ).all()
+    except SQLAlchemyError as exc:
+        raise MarketRepositoryUnavailable(str(exc)) from exc
+
+    points: list[MarketOhlcvPoint] = []
+    for row_ticker, bar_date, open_, high, low, close, volume in rows:
+        close_value = float(close)
+        points.append(
+            MarketOhlcvPoint(
+                ticker=str(row_ticker),
+                date=bar_date,
+                open=float(open_ if open_ is not None else close_value),
+                high=float(high if high is not None else close_value),
+                low=float(low if low is not None else close_value),
+                close=close_value,
+                volume=float(volume or 0),
+            )
+        )
+    return points
 
 
 def upsert_breadth_daily(points: Iterable[BreadthDailyWrite]) -> int:

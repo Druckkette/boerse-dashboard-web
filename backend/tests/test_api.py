@@ -19,6 +19,9 @@ def test_market_overview_contract() -> None:
     assert payload["source"] in {"database", "synthetic_fixture", "missing"}
     assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
     assert payload["phase_label"]
+    assert payload["trend_ampel"] is None or {"ticker", "phase", "phase_label", "as_of"}.issubset(
+        payload["trend_ampel"]
+    )
     assert isinstance(payload["kpis"], list)
 
 

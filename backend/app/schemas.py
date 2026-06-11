@@ -29,6 +29,20 @@ class KpiCard(BaseModel):
     tone: Literal["good", "neutral", "warning", "bad"]
 
 
+class MarketTrendAmpel(BaseModel):
+    ticker: str
+    as_of: str
+    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    phase_label: str
+    close: float | None = None
+    anchor_date: str | None = None
+    floor_mark: float | None = None
+    startschuss_low: float | None = None
+    startschuss_bonus: bool | None = None
+    dist_count_25: int = 0
+    source: Literal["database", "missing", "synthetic_fixture"] = "database"
+
+
 class MarketOverviewResponse(BaseModel):
     as_of: str
     source: Literal["database", "synthetic_fixture", "missing"]
@@ -40,6 +54,7 @@ class MarketOverviewResponse(BaseModel):
     warning_count: int
     breadth_mode: Literal["schutz", "wachsam", "rueckenwind"]
     volatility_regime: str
+    trend_ampel: MarketTrendAmpel | None = None
     kpis: list[KpiCard]
 
 

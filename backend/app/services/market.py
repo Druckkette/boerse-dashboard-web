@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY, DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
 from app.domain.market.regime import MarketRegimeInput, classify_market_regime
 from app.domain.market.volatility import (
     VOLATILITY_TICKERS,
@@ -15,13 +16,26 @@ from app.domain.market.volatility import (
 from app.repositories import market as market_repository
 from app.repositories.market import (
     BreadthDailyWrite,
+    MarketOhlcvPoint,
     MarketPricePoint,
     MarketRepositoryUnavailable,
     MarketSnapshotWrite,
 )
-from app.schemas import BreadthPoint, BreadthResponse, KpiCard, MarketOverviewResponse, VolatilityPoint, VolatilityResponse, VolatilityStatusCard
+from app.schemas import (
+    BreadthPoint,
+    BreadthResponse,
+    KpiCard,
+    MarketOverviewResponse,
+    MarketTrendAmpel,
+    VolatilityPoint,
+    VolatilityResponse,
+    VolatilityStatusCard,
+)
 from app.services.dummy_data import get_breadth as get_dummy_breadth
 from app.services.dummy_data import get_market_overview as get_dummy_market_overview
+
+
+MARKET_TREND_BENCHMARK = "SPY"
 
 
 @dataclass(frozen=True)
@@ -52,6 +66,7 @@ def get_market_overview() -> MarketOverviewResponse:
         return get_dummy_market_overview()
 
     metrics = snapshot.metrics_json or {}
+    trend_ampel = _trend_ampel_from_metrics(metrics)
     return MarketOverviewResponse(
         as_of=snapshot.date.isoformat(),
         source="database",
@@ -63,6 +78,7 @@ def get_market_overview() -> MarketOverviewResponse:
         warning_count=snapshot.warning_count,
         breadth_mode=_normalize_breadth_mode(snapshot.breadth_mode),
         volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
+        trend_ampel=trend_ampel,
         kpis=_kpis_from_metrics(metrics),
     )
 
@@ -160,7 +176,13 @@ def refresh_market_breadth(
     rows_written = market_repository.upsert_breadth_daily(writes)
     volatility_points = _cached_volatility_points(limit=180)
     volatility_summary = summarize_volatility_points(volatility_points)
-    snapshot = build_market_snapshot(computed[-1], volatility_summary=volatility_summary)
+    trend_point = _latest_cached_trend_ampel_point(MARKET_TREND_BENCHMARK, lookback_days=lookback_days)
+    snapshot = build_market_snapshot(
+        computed[-1],
+        volatility_summary=volatility_summary,
+        trend_point=trend_point,
+        trend_ticker=MARKET_TREND_BENCHMARK,
+    )
     market_repository.upsert_market_snapshot(snapshot)
     return {
         "ok": True,
@@ -173,6 +195,7 @@ def refresh_market_breadth(
         "snapshot_date": computed[-1].date.isoformat(),
         "coverage_ratio": computed[-1].coverage_ratio,
         "phase": snapshot.ampel_phase,
+        "trend_phase": trend_point.phase if trend_point else None,
         "volatility_regime": snapshot.volatility_regime,
     }
 
@@ -271,7 +294,13 @@ def compute_breadth_series(
     return computed
 
 
-def build_market_snapshot(point: BreadthComputationPoint, volatility_summary: dict | None = None) -> MarketSnapshotWrite:
+def build_market_snapshot(
+    point: BreadthComputationPoint,
+    volatility_summary: dict | None = None,
+    *,
+    trend_point: TrendAmpelPoint | None = None,
+    trend_ticker: str = MARKET_TREND_BENCHMARK,
+) -> MarketSnapshotWrite:
     volatility_regime = str((volatility_summary or {}).get("regime") or "Nicht berechnet")
     regime = classify_market_regime(
         MarketRegimeInput(
@@ -290,14 +319,37 @@ def build_market_snapshot(point: BreadthComputationPoint, volatility_summary: di
             volatility_summary=volatility_summary or {},
         )
     )
+    trend_ampel = _trend_ampel_metrics(trend_point, ticker=trend_ticker)
+    metrics = {
+        **regime.metrics,
+        "breadth_phase": regime.phase,
+        "trend_ampel": trend_ampel,
+    }
+    if trend_point is not None:
+        metrics["action"] = _combined_market_action(
+            trend_phase=trend_point.phase,
+            breadth_action=regime.action,
+            breadth_mode=regime.breadth_mode,
+            volatility_regime=volatility_regime,
+        )
+
     return MarketSnapshotWrite(
         date=point.date,
-        ampel_phase=regime.phase,
+        ampel_phase=trend_point.phase if trend_point is not None else regime.phase,
         warning_count=regime.warning_count,
         breadth_mode=regime.breadth_mode,
         volatility_regime=volatility_regime,
-        metrics_json=regime.metrics,
+        metrics_json=metrics,
     )
+
+
+def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> TrendAmpelPoint | None:
+    start_date = date.today() - timedelta(days=max(250, min(2000, lookback_days)))
+    bars = market_repository.load_cached_ohlcv(ticker, start_date=start_date)
+    if len(bars) < 2:
+        return None
+    points = compute_trend_ampel([_trend_bar_from_ohlcv(point) for point in bars])
+    return points[-1] if points else None
 
 
 def _cached_volatility_points(*, limit: int = 180):
@@ -323,7 +375,13 @@ def _normalize_breadth_mode(value: str) -> str:
 
 
 def _phase_label(phase: str) -> str:
-    return {"rot": "Rot", "gelb": "Gelb", "gruen": "Grün"}.get(phase, "Neutral")
+    return {
+        "rot": "Rot",
+        "gelb": "Gelb",
+        "gruen": "Grün",
+        "aufwaertstrend": "Aufwärtstrend",
+        "neutral": "Neutral",
+    }.get(phase, "Neutral")
 
 
 def _action_for_phase(phase: str) -> str:
@@ -346,6 +404,59 @@ def _kpis_from_metrics(metrics: dict) -> list[KpiCard]:
         KpiCard(label="McClellan", value=f"{float(metrics.get('mcclellan') or 0):+.1f}", detail="A/D Momentum", tone="neutral"),
         KpiCard(label="New Highs/Lows", value=f"{metrics.get('new_highs', 0)}/{metrics.get('new_lows', 0)}", detail="52W Proxy", tone="neutral"),
     ]
+
+
+def _trend_bar_from_ohlcv(point: MarketOhlcvPoint) -> TrendAmpelBar:
+    return TrendAmpelBar(
+        date=point.date,
+        open=point.open,
+        high=point.high,
+        low=point.low,
+        close=point.close,
+        volume=point.volume,
+    )
+
+
+def _trend_ampel_metrics(point: TrendAmpelPoint | None, *, ticker: str) -> dict:
+    if point is None:
+        return {"ticker": ticker, "source": "missing", "message": "Keine Benchmark-OHLCV-Daten im Cache."}
+    return {
+        "ticker": ticker,
+        "source": "database",
+        "as_of": point.date,
+        "phase": point.phase,
+        "phase_label": _phase_label(point.phase),
+        "close": point.close,
+        "anchor_date": point.anchor_date,
+        "floor_mark": point.floor_mark,
+        "startschuss_low": point.startschuss_low,
+        "startschuss_bonus": point.startschuss_bonus,
+        "dist_count_25": point.dist_count_25,
+    }
+
+
+def _trend_ampel_from_metrics(metrics: dict) -> MarketTrendAmpel | None:
+    raw = metrics.get("trend_ampel")
+    if not isinstance(raw, dict) or raw.get("source") == "missing":
+        return None
+    return MarketTrendAmpel.model_validate(raw)
+
+
+def _combined_market_action(
+    *,
+    trend_phase: str,
+    breadth_action: str,
+    breadth_mode: str,
+    volatility_regime: str,
+) -> str:
+    trend_action = _action_for_phase(trend_phase)
+    if trend_phase == "rot":
+        return f"Trend-Ampel Rot. {trend_action}"
+    if volatility_regime == "Risk Off bestätigt":
+        return f"Trend-Ampel {_phase_label(trend_phase)}; Volatilität bestätigt Stress. Risiko nicht erhöhen."
+    if breadth_mode == "schutz":
+        return f"Trend-Ampel {_phase_label(trend_phase)}; Marktbreite im Schutzmodus. {breadth_action}"
+    return f"Trend-Ampel {_phase_label(trend_phase)}. {breadth_action}"
 
 
 def _format_pct(value: float | None) -> str:
