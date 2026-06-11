@@ -1,0 +1,31 @@
+{
+  "name": "protective_breadth",
+  "source_reference": [
+    "old app.py::_market_action_and_tone",
+    "old app.py::render_breadth"
+  ],
+  "input": {
+    "pct_above_20sma": 31.0,
+    "pct_above_50sma": 34.0,
+    "pct_above_200sma": 36.0,
+    "mcclellan": -62.0,
+    "advancers": 310,
+    "decliners": 690,
+    "new_highs": 12,
+    "new_lows": 96,
+    "coverage_ratio": 0.88,
+    "universe_size": 1000,
+    "covered_count": 880,
+    "volatility_regime": "Neutral",
+    "volatility_summary": {
+      "regime": "Neutral"
+    }
+  },
+  "expected": {
+    "phase": "rot",
+    "breadth_mode": "schutz",
+    "warning_count": 5,
+    "action_contains": "Defensiv",
+    "kpi_labels": ["Breite 50-SMA", "Breite 200-SMA", "McClellan", "Coverage", "Vol Regime"]
+  }
+}

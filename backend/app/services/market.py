@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY, DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.domain.market.regime import MarketRegimeInput, classify_market_regime
 from app.domain.market.volatility import (
     VOLATILITY_TICKERS,
     compute_volatility_dashboard,
@@ -271,57 +272,31 @@ def compute_breadth_series(
 
 
 def build_market_snapshot(point: BreadthComputationPoint, volatility_summary: dict | None = None) -> MarketSnapshotWrite:
-    pct_50 = point.pct_above_50sma or 0
-    pct_200 = point.pct_above_200sma or 0
     volatility_regime = str((volatility_summary or {}).get("regime") or "Nicht berechnet")
-    warning_count = 0
-    warning_count += int(pct_50 < 45)
-    warning_count += int(pct_200 < 45)
-    warning_count += int(point.mcclellan < 0)
-    warning_count += int(point.decliners > point.advancers)
-    warning_count += int(point.new_lows > point.new_highs)
-    warning_count += int(point.coverage_ratio < 0.65)
-    warning_count += int(volatility_regime in {"Risk Off bestätigt", "Kurzer Volatilitätsschock", "Fragile Rally"})
-
-    if warning_count >= 4 or (pct_50 < 40 and pct_200 < 40):
-        phase = "rot"
-        breadth_mode = "schutz"
-    elif warning_count >= 2 or pct_50 < 50:
-        phase = "gelb"
-        breadth_mode = "wachsam"
-    else:
-        phase = "gruen"
-        breadth_mode = "rueckenwind"
-
-    metrics = {
-        "action": _action_for_market_state(phase, breadth_mode, volatility_regime, warning_count),
-        "coverage_ratio": point.coverage_ratio,
-        "universe_size": point.universe_size,
-        "covered_count": point.covered_count,
-        "advancers": point.advancers,
-        "decliners": point.decliners,
-        "new_highs": point.new_highs,
-        "new_lows": point.new_lows,
-        "mcclellan": point.mcclellan,
-        "pct_above_20sma": point.pct_above_20sma,
-        "pct_above_50sma": point.pct_above_50sma,
-        "pct_above_200sma": point.pct_above_200sma,
-        "volatility": volatility_summary or {},
-        "kpis": [
-            _kpi_dict("Breite 50-SMA", _format_pct(point.pct_above_50sma), "über 50-SMA", _tone_for_pct(point.pct_above_50sma)),
-            _kpi_dict("Breite 200-SMA", _format_pct(point.pct_above_200sma), "über 200-SMA", _tone_for_pct(point.pct_above_200sma)),
-            _kpi_dict("McClellan", f"{point.mcclellan:+.1f}", "A/D Momentum", "good" if point.mcclellan >= 0 else "warning"),
-            _kpi_dict("Coverage", _format_pct(point.coverage_ratio * 100), f"{point.covered_count}/{point.universe_size}", "good" if point.coverage_ratio >= 0.8 else "warning"),
-            _kpi_dict("Vol Regime", volatility_regime, "VIX/VIXY", _tone_for_volatility_regime(volatility_regime)),
-        ],
-    }
+    regime = classify_market_regime(
+        MarketRegimeInput(
+            pct_above_20sma=point.pct_above_20sma,
+            pct_above_50sma=point.pct_above_50sma,
+            pct_above_200sma=point.pct_above_200sma,
+            mcclellan=point.mcclellan,
+            advancers=point.advancers,
+            decliners=point.decliners,
+            new_highs=point.new_highs,
+            new_lows=point.new_lows,
+            coverage_ratio=point.coverage_ratio,
+            universe_size=point.universe_size,
+            covered_count=point.covered_count,
+            volatility_regime=volatility_regime,
+            volatility_summary=volatility_summary or {},
+        )
+    )
     return MarketSnapshotWrite(
         date=point.date,
-        ampel_phase=phase,
-        warning_count=warning_count,
-        breadth_mode=breadth_mode,
+        ampel_phase=regime.phase,
+        warning_count=regime.warning_count,
+        breadth_mode=regime.breadth_mode,
         volatility_regime=volatility_regime,
-        metrics_json=metrics,
+        metrics_json=regime.metrics,
     )
 
 
@@ -361,24 +336,6 @@ def _action_for_phase(phase: str) -> str:
     return "Marktdaten prüfen und keine großen Risikoänderungen ohne frische Breitenwerte vornehmen."
 
 
-def _action_for_market_state(phase: str, breadth_mode: str, volatility_regime: str, warning_count: int) -> str:
-    if phase == "rot":
-        return "Defensiv bleiben, neue Käufe stark filtern und bestehende Risiken kritisch prüfen."
-    if volatility_regime == "Risk Off bestätigt":
-        return "Volatilität bestätigt Stress. Risiko reduzieren und keine aggressiven Neueinstiege."
-    if breadth_mode == "schutz":
-        return "Marktbreite im Schutzmodus. Positionsgrößen klein halten und Cash optional erhöhen."
-    if warning_count >= 4:
-        return f"{warning_count} Warnzeichen aktiv. Defensive Haltung trotz laufender Ampelphase."
-    if phase == "gelb":
-        return "Wachsam bleiben, Positionsgrößen kontrollieren und Breakouts nur selektiv handeln."
-    if phase == "aufwaertstrend":
-        return "MA-Ordnung bestätigt. Führende Aktien beobachten und Risiko schrittweise erhöhen."
-    if phase == "gruen":
-        return "Konstruktiv bleiben, Qualitäts-Setups bevorzugen und Stops diszipliniert nachziehen."
-    return _action_for_phase(phase)
-
-
 def _kpis_from_metrics(metrics: dict) -> list[KpiCard]:
     raw_kpis = metrics.get("kpis")
     if isinstance(raw_kpis, list) and raw_kpis:
@@ -389,32 +346,6 @@ def _kpis_from_metrics(metrics: dict) -> list[KpiCard]:
         KpiCard(label="McClellan", value=f"{float(metrics.get('mcclellan') or 0):+.1f}", detail="A/D Momentum", tone="neutral"),
         KpiCard(label="New Highs/Lows", value=f"{metrics.get('new_highs', 0)}/{metrics.get('new_lows', 0)}", detail="52W Proxy", tone="neutral"),
     ]
-
-
-def _kpi_dict(label: str, value: str, detail: str, tone: str) -> dict:
-    return {"label": label, "value": value, "detail": detail, "tone": tone}
-
-
-def _tone_for_pct(value: float | None) -> str:
-    if value is None:
-        return "neutral"
-    if value >= 60:
-        return "good"
-    if value >= 45:
-        return "neutral"
-    if value >= 35:
-        return "warning"
-    return "bad"
-
-
-def _tone_for_volatility_regime(regime: str) -> str:
-    if regime == "Risk Off bestätigt":
-        return "bad"
-    if regime in {"Kurzer Volatilitätsschock", "Fragile Rally"}:
-        return "warning"
-    if regime == "Risk On / ruhig":
-        return "good"
-    return "neutral"
 
 
 def _format_pct(value: float | None) -> str:

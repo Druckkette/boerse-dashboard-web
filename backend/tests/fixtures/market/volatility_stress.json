@@ -1,0 +1,39 @@
+{
+  "name": "volatility_stress",
+  "source_reference": [
+    "old app.py::_market_action_and_tone",
+    "old app.py::summarize_volatility_state"
+  ],
+  "input": {
+    "pct_above_20sma": 66.0,
+    "pct_above_50sma": 64.0,
+    "pct_above_200sma": 61.0,
+    "mcclellan": 18.0,
+    "advancers": 560,
+    "decliners": 440,
+    "new_highs": 54,
+    "new_lows": 24,
+    "coverage_ratio": 0.9,
+    "universe_size": 1000,
+    "covered_count": 900,
+    "volatility_regime": "Risk Off bestätigt",
+    "volatility_summary": {
+      "regime": "Risk Off bestätigt",
+      "status_cards": [
+        {
+          "title": "Vol Regime",
+          "status": "Risk Off bestätigt",
+          "detail": "VIX und VIXY ziehen gleichzeitig an",
+          "tone": "bad"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "phase": "gruen",
+    "breadth_mode": "rueckenwind",
+    "warning_count": 1,
+    "action_contains": "Volatilität bestätigt Stress",
+    "kpi_labels": ["Breite 50-SMA", "Breite 200-SMA", "McClellan", "Coverage", "Vol Regime"]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "constructive_market",
+  "source_reference": [
+    "old app.py::_market_action_and_tone",
+    "old app.py::render_breadth"
+  ],
+  "input": {
+    "pct_above_20sma": 72.0,
+    "pct_above_50sma": 68.0,
+    "pct_above_200sma": 63.0,
+    "mcclellan": 42.5,
+    "advancers": 620,
+    "decliners": 380,
+    "new_highs": 85,
+    "new_lows": 18,
+    "coverage_ratio": 0.92,
+    "universe_size": 1000,
+    "covered_count": 920,
+    "volatility_regime": "Neutral",
+    "volatility_summary": {
+      "regime": "Neutral"
+    }
+  },
+  "expected": {
+    "phase": "gruen",
+    "breadth_mode": "rueckenwind",
+    "warning_count": 0,
+    "action_contains": "Konstruktiv",
+    "kpi_labels": ["Breite 50-SMA", "Breite 200-SMA", "McClellan", "Coverage", "Vol Regime"]
+  }
+}
