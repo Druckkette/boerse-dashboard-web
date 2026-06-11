@@ -1,0 +1,9 @@
+{
+  "scenario": "startschuss_to_green",
+  "expected": {
+    "final_phase": "gruen",
+    "phase_path_contains": ["rot", "gelb", "gruen"],
+    "anchor_date_present": true,
+    "startschuss_low_present": true
+  }
+}

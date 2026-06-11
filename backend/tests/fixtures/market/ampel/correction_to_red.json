@@ -1,0 +1,9 @@
+{
+  "scenario": "correction_to_red",
+  "expected": {
+    "final_phase": "rot",
+    "phase_path_contains": ["rot"],
+    "anchor_date_present": false,
+    "startschuss_low_present": false
+  }
+}
