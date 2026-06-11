@@ -89,49 +89,36 @@ Detailed NAS operations, backup and rollback notes are in `docs/nas-deployment.m
 
 ## Market Data Bootstrap
 
-After the NAS containers are running, populate the market cache through worker jobs. The API and
-frontend stay usable while these jobs run.
+After the NAS containers are running, populate the market cache through the dashboard UI. Open
+`http://NAS-IP-ODER-HOSTNAME:3000/jobs`, use **Marktdaten initial laden**, set the desired range,
+lookback windows and optional custom ticker list, then start the jobs in this order:
 
-```bash
-curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"refresh_prices","payload":{"mode":"manual","range":"1y"}}'
-```
+1. `Market Prices`
+2. `Market Breadth`
+3. `RS Ratings`
+4. `Positionsmonitor` after importing a portfolio
+
+The UI stores these bootstrap values in the browser so you do not have to retype them on the next
+visit from the same browser. The market data itself is stored in the Postgres Docker volume. You
+only need to repeat the full bootstrap when the database volume is empty, after a deliberate reset,
+or when you want to load a different universe or longer history. Normal updates should be handled
+by scheduler/worker jobs.
 
 `refresh_prices` loads the starter universe plus the volatility tickers `SPY`, `^VIX` and `VIXY`.
-When it is done, calculate relative-strength ratings from the cached bars:
-
-```bash
-curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"refresh_relative_strength","payload":{"mode":"manual","lookback_days":430}}'
-```
+With a custom universe, the UI also includes the RS benchmark and volatility tickers in the price
+refresh so market overview and RS calculations have the required support data.
 
 `/stocks/ratings/rs` and `/stocks/<ticker>/rs` read the persisted `rs_ratings` table. They do not
 run yfinance or Pandas recomputes in the click path.
 
-Then calculate breadth and market-risk snapshots:
-
-```bash
-curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"refresh_breadth","payload":{"mode":"manual","lookback_days":370}}'
-```
-
 `/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
 yet, they return fallback data rather than blocking the UI.
 
-After importing a portfolio and filling the Price Cache, run the positions monitor to precompute
-Sell-Monitor state for open positions:
-
-```bash
-curl -X POST "http://NAS-IP-ODER-HOSTNAME:8000/api/v1/jobs" \
-  -H "Content-Type: application/json" \
-  -d '{"type":"position_atr_monitor","payload":{"mode":"manual"}}'
-```
-
 The monitor evaluates open imported positions against cached bars, stores recommendation state and
 reports ATR/health/signal status through the Jobs page. It does not run yfinance in the request path.
+
+The same jobs can still be started through `POST /api/v1/jobs` for automation, but manual NAS
+operation should use the dashboard.
 
 ## Portfolio Import
 
