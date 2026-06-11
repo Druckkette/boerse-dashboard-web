@@ -4,10 +4,13 @@ import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
+  SortingState,
   useReactTable
 } from "@tanstack/react-table";
+import { ArrowUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { PortfolioPosition } from "@/lib/types/api";
 
@@ -20,6 +23,7 @@ const statusTone: Record<PortfolioPosition["status"], "good" | "neutral" | "warn
 
 export function PositionTable({ positions }: { positions: PortfolioPosition[] }) {
   const router = useRouter();
+  const [sorting, setSorting] = useState<SortingState>([{ id: "market_value", desc: true }]);
   const columns = useMemo<ColumnDef<PortfolioPosition>[]>(
     () => [
       {
@@ -50,6 +54,18 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         }
       },
       {
+        accessorKey: "pnl_abs",
+        header: "P&L EUR",
+        cell: ({ getValue }) => {
+          const value = Number(getValue());
+          return (
+            <span className={value >= 0 ? "text-emerald-300" : "text-rose-300"}>
+              {value.toLocaleString("de-DE", { maximumFractionDigits: 0 })} EUR
+            </span>
+          );
+        }
+      },
+      {
         accessorKey: "weight_pct",
         header: "Gewicht",
         cell: ({ getValue }) => `${Number(getValue()).toFixed(1)}%`
@@ -58,6 +74,14 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         accessorKey: "atr_pct",
         header: "ATR",
         cell: ({ getValue }) => `${Number(getValue()).toFixed(1)}%`
+      },
+      {
+        accessorKey: "stop_pct",
+        header: "Stopp",
+        cell: ({ getValue }) => {
+          const value = getValue();
+          return typeof value === "number" ? `${value.toFixed(1)}%` : "-";
+        }
       },
       {
         accessorKey: "status",
@@ -75,6 +99,9 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
   const table = useReactTable({
     data: positions,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel()
   });
 
@@ -87,7 +114,18 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th key={header.id} className="border-b border-[#2d333d] px-4 py-3 font-medium">
-                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.column.getCanSort() ? (
+                      <button
+                        className="inline-flex items-center gap-1 text-left hover:text-white"
+                        type="button"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        <ArrowUpDown size={13} />
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
                   </th>
                 ))}
               </tr>
@@ -111,7 +149,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         </table>
       </div>
       <div className="border-t border-[#2d333d] px-4 py-2 text-xs text-[#a0a7b4]">
-        TanStack Table vorbereitet; Virtualisierung wird bei großen Datenmengen ergänzt.
+        Sortierbare TanStack Table; Virtualisierung wird bei sehr großen Depots ergänzt.
       </div>
     </div>
   );

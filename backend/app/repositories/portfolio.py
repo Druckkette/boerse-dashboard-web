@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.models import ImportBatch, Instrument, Position, PriceBar
+from app.db.models import CashFlow, ImportBatch, Instrument, Position, PriceBar, Transaction
 from app.db.session import SessionLocal
 from app.schemas import PortfolioImportRow
 
@@ -20,8 +20,92 @@ class PortfolioPositionRow:
     current_price: float
     currency: str
     buy_date: date | None
+    pivot_tag: date | None = None
+    stop_pct: float | None = None
+    stop_price: float | None = None
+    broker: str = ""
+    account: str = ""
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class PortfolioPositionWrite:
+    ticker: str
+    name: str
+    shares: float
+    entry_price: float
+    current_price: float | None
+    currency: str
+    buy_date: date | None
+    pivot_tag: date | None
+    stop_pct: float | None
     broker: str
     account: str
+    note: str
+    record_transaction: bool
+
+
+@dataclass(frozen=True)
+class PortfolioSellWrite:
+    ticker: str
+    shares: float
+    price: float
+    date: date
+    currency: str
+    fees: float
+    tax: float
+    note: str
+
+
+@dataclass(frozen=True)
+class PortfolioTransactionRow:
+    id: str
+    ticker: str
+    date: date
+    transaction_type: str
+    shares: float
+    price: float | None
+    fees: float
+    tax: float
+    gross_amount: float | None
+    net_amount: float | None
+    currency: str
+    broker: str
+    external_id: str
+
+
+@dataclass(frozen=True)
+class PortfolioCashFlowWrite:
+    date: date
+    amount: float
+    flow_type: str
+    currency: str
+    broker: str
+    note: str
+
+
+@dataclass(frozen=True)
+class PortfolioCashFlowRow:
+    id: str
+    date: date
+    amount: float
+    flow_type: str
+    currency: str
+    broker: str
+    note: str
+
+
+@dataclass(frozen=True)
+class PortfolioImportHistoryRow:
+    id: str
+    source: str
+    file_name: str
+    status: str
+    rows_total: int
+    rows_imported: int
+    error_message: str
+    created_at: datetime
+    finished_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -66,11 +150,250 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                         current_price=float(latest_price or position.buy_price),
                         currency=position.currency or "EUR",
                         buy_date=position.buy_date,
+                        pivot_tag=position.pivot_tag,
+                        stop_pct=position.stop_pct,
+                        stop_price=_position_stop_price(position),
                         broker=position.broker or "",
                         account=position.account or "",
+                        note=position.note or "",
                     )
                 )
             return rows
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
+    clean = write.ticker.strip().upper()
+    if not clean:
+        raise PortfolioRepositoryUnavailable("Ticker must not be empty")
+
+    try:
+        with SessionLocal() as db:
+            instrument = _get_or_create_instrument(
+                db,
+                ticker=clean,
+                name=write.name or clean,
+                currency=write.currency,
+            )
+            position = db.scalars(
+                select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
+            ).first()
+            previous_shares = float(position.shares) if position is not None else 0.0
+            if position is None:
+                position = Position(
+                    instrument_id=instrument.id,
+                    ticker=clean,
+                    shares=write.shares,
+                    buy_price=write.entry_price,
+                    buy_date=write.buy_date,
+                    pivot_tag=write.pivot_tag,
+                    stop_pct=write.stop_pct,
+                    currency=write.currency,
+                    broker=write.broker,
+                    account=write.account,
+                    note=write.note,
+                )
+                db.add(position)
+                db.flush()
+            else:
+                position.instrument_id = instrument.id
+                position.shares = write.shares
+                position.buy_price = write.entry_price
+                position.buy_date = write.buy_date
+                position.pivot_tag = write.pivot_tag
+                position.stop_pct = write.stop_pct
+                position.currency = write.currency
+                position.broker = write.broker
+                position.account = write.account
+                position.note = write.note
+
+            if write.current_price is not None and write.current_price > 0:
+                _upsert_import_price_bar(db, instrument.id, write.current_price)
+
+            delta_shares = max(float(write.shares) - previous_shares, 0.0)
+            if write.record_transaction and delta_shares > 0:
+                _add_transaction(
+                    db,
+                    position=position,
+                    instrument=instrument,
+                    transaction_type="buy",
+                    transaction_date=write.buy_date or date.today(),
+                    shares=delta_shares,
+                    price=write.entry_price,
+                    fees=0.0,
+                    tax=0.0,
+                    currency=write.currency,
+                    note=write.note,
+                )
+
+            db.commit()
+            return _position_to_row(db, position)
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def close_position(ticker: str) -> bool:
+    clean = ticker.strip().upper()
+    try:
+        with SessionLocal() as db:
+            position = db.scalars(
+                select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
+            ).first()
+            if position is None:
+                return False
+            position.is_open = False
+            position.closed_at = datetime.now(UTC)
+            db.commit()
+            return True
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def sell_position(write: PortfolioSellWrite) -> tuple[PortfolioPositionRow | None, PortfolioTransactionRow]:
+    clean = write.ticker.strip().upper()
+    try:
+        with SessionLocal() as db:
+            position = db.scalars(
+                select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
+            ).first()
+            if position is None:
+                raise PortfolioRepositoryUnavailable(f"Offene Position {clean} nicht gefunden")
+            if write.shares > float(position.shares):
+                raise PortfolioRepositoryUnavailable("Verkaufsmenge ist größer als die offene Position")
+
+            instrument = db.get(Instrument, position.instrument_id) if position.instrument_id else None
+            if instrument is None:
+                instrument = _get_or_create_instrument(
+                    db,
+                    ticker=clean,
+                    name=clean,
+                    currency=write.currency,
+                )
+                position.instrument_id = instrument.id
+
+            transaction = _add_transaction(
+                db,
+                position=position,
+                instrument=instrument,
+                transaction_type="sell",
+                transaction_date=write.date,
+                shares=write.shares,
+                price=write.price,
+                fees=write.fees,
+                tax=write.tax,
+                currency=write.currency,
+                note=write.note,
+            )
+            remaining = max(float(position.shares) - write.shares, 0.0)
+            if remaining <= 1e-9:
+                position.shares = 0
+                position.is_open = False
+                position.closed_at = datetime.now(UTC)
+                remaining_row = None
+            else:
+                position.shares = remaining
+                remaining_row = None
+            db.flush()
+            if position.is_open:
+                remaining_row = _position_to_row(db, position)
+            transaction_row = _transaction_to_row(transaction)
+            db.commit()
+            return remaining_row, transaction_row
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def list_transactions(*, limit: int = 250) -> list[PortfolioTransactionRow]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(Transaction)
+                .order_by(Transaction.date.desc(), Transaction.created_at.desc())
+                .limit(max(1, min(1000, limit)))
+            ).all()
+            return [_transaction_to_row(row) for row in rows]
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def add_cash_flow(write: PortfolioCashFlowWrite) -> PortfolioCashFlowRow:
+    try:
+        with SessionLocal() as db:
+            row = CashFlow(
+                date=write.date,
+                amount=write.amount,
+                flow_type=write.flow_type,
+                currency=write.currency,
+                broker=write.broker,
+                note=write.note,
+            )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return _cash_flow_to_row(row)
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def list_cash_flows(*, limit: int = 250) -> list[PortfolioCashFlowRow]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(CashFlow)
+                .order_by(CashFlow.date.desc(), CashFlow.created_at.desc())
+                .limit(max(1, min(1000, limit)))
+            ).all()
+            return [_cash_flow_to_row(row) for row in rows]
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def get_cash_balance() -> float:
+    try:
+        with SessionLocal() as db:
+            cash_flows = db.scalars(select(CashFlow)).all()
+            transactions = db.scalars(select(Transaction)).all()
+            balance = 0.0
+            for flow in cash_flows:
+                amount = float(flow.amount or 0)
+                if flow.flow_type == "withdrawal":
+                    balance -= amount
+                else:
+                    balance += amount
+            for tx in transactions:
+                net = float(tx.net_amount or 0)
+                if tx.transaction_type == "buy":
+                    balance -= abs(net)
+                elif tx.transaction_type == "sell":
+                    balance += abs(net)
+            return round(balance, 2)
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def list_import_history(*, limit: int = 100) -> list[PortfolioImportHistoryRow]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(ImportBatch)
+                .order_by(ImportBatch.created_at.desc())
+                .limit(max(1, min(500, limit)))
+            ).all()
+            return [
+                PortfolioImportHistoryRow(
+                    id=row.id,
+                    source=row.source,
+                    file_name=row.file_name,
+                    status=row.status,
+                    rows_total=row.rows_total,
+                    rows_imported=row.rows_imported,
+                    error_message=row.error_message or "",
+                    created_at=row.created_at,
+                    finished_at=row.finished_at,
+                )
+                for row in rows
+            ]
     except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
@@ -174,6 +497,128 @@ def _parse_date(value: str | None) -> date | None:
         except ValueError:
             pass
     return None
+
+
+def _get_or_create_instrument(db, *, ticker: str, name: str, currency: str) -> Instrument:
+    instrument = db.scalars(select(Instrument).where(Instrument.ticker == ticker)).first()
+    if instrument is None:
+        instrument = Instrument(
+            ticker=ticker,
+            yahoo_symbol=ticker,
+            name=name or ticker,
+            currency=currency or "EUR",
+        )
+        db.add(instrument)
+        db.flush()
+    else:
+        instrument.name = name or instrument.name or ticker
+        instrument.currency = currency or instrument.currency
+    return instrument
+
+
+def _position_to_row(db, position: Position) -> PortfolioPositionRow:
+    instrument = db.get(Instrument, position.instrument_id) if position.instrument_id else None
+    latest_price = None
+    if instrument is not None:
+        latest_price = db.scalars(
+            select(PriceBar.close)
+            .where(PriceBar.instrument_id == instrument.id, PriceBar.close.is_not(None))
+            .order_by(PriceBar.date.desc())
+            .limit(1)
+        ).first()
+    return PortfolioPositionRow(
+        ticker=position.ticker,
+        name=(instrument.name if instrument and instrument.name else position.ticker),
+        shares=float(position.shares),
+        entry_price=float(position.buy_price),
+        current_price=float(latest_price or position.buy_price),
+        currency=position.currency or "EUR",
+        buy_date=position.buy_date,
+        pivot_tag=position.pivot_tag,
+        stop_pct=position.stop_pct,
+        stop_price=_position_stop_price(position),
+        broker=position.broker or "",
+        account=position.account or "",
+        note=position.note or "",
+    )
+
+
+def _position_stop_price(position: Position) -> float | None:
+    if position.stop_pct is None or position.buy_price is None:
+        return None
+    return float(position.buy_price) * (1 - float(position.stop_pct) / 100)
+
+
+def _add_transaction(
+    db,
+    *,
+    position: Position,
+    instrument: Instrument,
+    transaction_type: str,
+    transaction_date: date,
+    shares: float,
+    price: float,
+    fees: float,
+    tax: float,
+    currency: str,
+    note: str,
+) -> Transaction:
+    gross = float(shares) * float(price)
+    if transaction_type == "buy":
+        net = gross + float(fees or 0) + float(tax or 0)
+    elif transaction_type == "sell":
+        net = gross - float(fees or 0) - float(tax or 0)
+    else:
+        net = gross
+    transaction = Transaction(
+        position_id=position.id,
+        instrument_id=instrument.id,
+        ticker=position.ticker,
+        date=transaction_date,
+        transaction_type=transaction_type,
+        shares=float(shares),
+        price=float(price),
+        fees=float(fees or 0),
+        tax=float(tax or 0),
+        gross_amount=gross,
+        net_amount=net,
+        currency=currency,
+        broker=position.broker or "",
+        raw_json={"note": note} if note else {},
+    )
+    db.add(transaction)
+    db.flush()
+    return transaction
+
+
+def _transaction_to_row(row: Transaction) -> PortfolioTransactionRow:
+    return PortfolioTransactionRow(
+        id=row.id,
+        ticker=row.ticker,
+        date=row.date,
+        transaction_type=row.transaction_type,
+        shares=float(row.shares or 0),
+        price=float(row.price) if row.price is not None else None,
+        fees=float(row.fees or 0),
+        tax=float(row.tax or 0),
+        gross_amount=float(row.gross_amount) if row.gross_amount is not None else None,
+        net_amount=float(row.net_amount) if row.net_amount is not None else None,
+        currency=row.currency or "EUR",
+        broker=row.broker or "",
+        external_id=row.external_id or "",
+    )
+
+
+def _cash_flow_to_row(row: CashFlow) -> PortfolioCashFlowRow:
+    return PortfolioCashFlowRow(
+        id=row.id,
+        date=row.date,
+        amount=float(row.amount),
+        flow_type=row.flow_type,
+        currency=row.currency,
+        broker=row.broker or "",
+        note=row.note or "",
+    )
 
 
 def _upsert_import_price_bar(db, instrument_id: str, close: float) -> None:

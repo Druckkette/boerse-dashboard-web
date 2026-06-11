@@ -118,6 +118,28 @@ def test_portfolio_import_dry_run_contract() -> None:
     assert payload["positions"][0]["ticker"] == "NVDA"
 
 
+def test_portfolio_transactions_contract() -> None:
+    response = client.get("/api/v1/portfolio/transactions")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload["transactions"], list)
+
+
+def test_portfolio_cash_flows_contract() -> None:
+    response = client.get("/api/v1/portfolio/cash-flows")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload["cash_flows"], list)
+    assert isinstance(payload["cash_balance"], int | float)
+
+
+def test_portfolio_import_history_contract() -> None:
+    response = client.get("/api/v1/portfolio/imports")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload["imports"], list)
+
+
 def test_sell_metrics_contract() -> None:
     response = client.get("/api/v1/sell/PLTR/metrics")
     assert response.status_code == 200

@@ -7,10 +7,16 @@ import type {
   MarketOverview,
   PriceHistory,
   PriceRange,
+  PortfolioCashFlow,
+  PortfolioCashFlowRequest,
+  PortfolioImportHistoryItem,
   PortfolioImportRequest,
   PortfolioImportResponse,
   PortfolioPosition,
+  PortfolioPositionWriteRequest,
+  PortfolioSellRequest,
   PortfolioSnapshot,
+  PortfolioTransaction,
   RsRatingDetail,
   RsRatingRanking,
   SectorRanking,
@@ -85,6 +91,36 @@ export const api = {
     return payload.positions;
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
+  upsertPortfolioPosition: async (body: PortfolioPositionWriteRequest) => {
+    const payload = await postJson<{ position: PortfolioPosition }>("/portfolio/positions", body);
+    return payload.position;
+  },
+  deletePortfolioPosition: (ticker: string) =>
+    fetch(`${getApiBaseUrl()}/portfolio/positions/${ticker}`, { method: "DELETE" }).then((response) => {
+      if (!response.ok) throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      return response.json() as Promise<{ ticker: string; closed: boolean }>;
+    }),
+  sellPortfolioPosition: async (ticker: string, body: PortfolioSellRequest) => {
+    const payload = await postJson<{
+      ticker: string;
+      remaining_position?: PortfolioPosition | null;
+      transaction: PortfolioTransaction;
+      cash_balance: number;
+    }>(`/portfolio/positions/${ticker}/sell`, body);
+    return payload;
+  },
+  portfolioTransactions: async (limit = 250) => {
+    const payload = await getJson<{ transactions: PortfolioTransaction[] }>(`/portfolio/transactions?limit=${limit}`);
+    return payload.transactions;
+  },
+  portfolioCashFlows: () =>
+    getJson<{ cash_flows: PortfolioCashFlow[]; cash_balance: number }>("/portfolio/cash-flows"),
+  createPortfolioCashFlow: (body: PortfolioCashFlowRequest) =>
+    postJson<{ cash_flow: PortfolioCashFlow; cash_balance: number }>("/portfolio/cash-flows", body),
+  portfolioImportHistory: async (limit = 100) => {
+    const payload = await getJson<{ imports: PortfolioImportHistoryItem[] }>(`/portfolio/imports?limit=${limit}`);
+    return payload.imports;
+  },
   importPortfolioPositions: (body: PortfolioImportRequest) =>
     postJson<PortfolioImportResponse>("/portfolio/imports/positions", body),
   sellRanking: async () => {

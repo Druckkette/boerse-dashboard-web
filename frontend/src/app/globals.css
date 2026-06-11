@@ -39,7 +39,20 @@ select {
   font: inherit;
 }
 
+.input-dark {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: #111419;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+}
+
+.input-dark:focus {
+  border-color: rgba(110, 231, 183, 0.65);
+  outline: none;
+}
+
 ::selection {
   background: rgba(45, 212, 191, 0.28);
 }
-

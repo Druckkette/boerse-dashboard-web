@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from io import StringIO
 
 import pandas as pd
@@ -12,11 +12,24 @@ from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import (
     KpiCard,
+    PortfolioCashFlow,
+    PortfolioCashFlowRequest,
+    PortfolioCashFlowResponse,
+    PortfolioCashFlowsResponse,
     PortfolioImportRequest,
     PortfolioImportResponse,
+    PortfolioImportHistoryItem,
+    PortfolioImportHistoryResponse,
     PortfolioImportRow,
     PortfolioPosition,
+    PortfolioPositionDeleteResponse,
+    PortfolioPositionWriteRequest,
+    PortfolioPositionWriteResponse,
     PortfolioSnapshotResponse,
+    PortfolioSellRequest,
+    PortfolioSellResponse,
+    PortfolioTransaction,
+    PortfolioTransactionsResponse,
 )
 from app.services.dummy_data import get_portfolio_positions as get_dummy_portfolio_positions
 from app.services.dummy_data import get_portfolio_snapshot as get_dummy_portfolio_snapshot
@@ -51,6 +64,7 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
     for row in rows:
         market_value = row.current_price * row.shares
         pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
+        pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
         atr_pct = _atr_pct_for_ticker(row.ticker)
         positions.append(
             PortfolioPosition(
@@ -65,6 +79,15 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
                 atr_pct=atr_pct,
                 beta=1,
                 status=_status_for_position(pnl_pct, atr_pct),
+                pnl_abs=pnl_abs,
+                currency=row.currency,
+                buy_date=row.buy_date.isoformat() if row.buy_date else None,
+                pivot_tag=row.pivot_tag.isoformat() if row.pivot_tag else None,
+                stop_pct=row.stop_pct,
+                stop_price=row.stop_price,
+                broker=row.broker,
+                account=row.account,
+                note=row.note,
             )
         )
     return positions
@@ -80,22 +103,34 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
 
     positions = get_portfolio_positions()
     invested = sum(position.market_value for position in positions)
-    cash = 0.0
+    try:
+        cash = portfolio_repository.get_cash_balance()
+    except PortfolioRepositoryUnavailable:
+        cash = 0.0
     total = invested + cash
     portfolio_atr_pct = sum(position.weight_pct * position.atr_pct for position in positions) / 100 if positions else 0
+    total_pnl_abs = sum(position.pnl_abs for position in positions)
+    cost_basis = sum(position.entry_price * position.shares for position in positions)
+    total_pnl_pct = total_pnl_abs / cost_basis * 100 if cost_basis else 0.0
     return PortfolioSnapshotResponse(
         as_of=datetime.now(UTC).isoformat(),
         total_value=total,
         invested_value=invested,
         cash_balance=cash,
-        cash_ratio_pct=0,
+        cash_ratio_pct=cash / total * 100 if total else 0,
         portfolio_atr_pct=portfolio_atr_pct,
         beta_balancer=1,
         max_depot_loss_pct=sum(position.weight_pct * 0.08 for position in positions) / 100,
         kpis=[
             KpiCard(label="Depotwert", value=f"{total:,.0f} EUR", detail="aus Import", tone="neutral"),
             KpiCard(label="Positionen", value=str(len(positions)), detail="offen", tone="good"),
-            KpiCard(label="Gewinner", value=str(sum(1 for row in positions if row.pnl_pct >= 0)), detail="P&L >= 0", tone="good"),
+            KpiCard(
+                label="Unrealisiert",
+                value=f"{total_pnl_abs:+,.0f} EUR",
+                detail=f"{total_pnl_pct:+.1f}% ggü. Einstand",
+                tone="good" if total_pnl_abs >= 0 else "bad",
+            ),
+            KpiCard(label="Cashquote", value=f"{cash / total * 100:.1f}%" if total else "0.0%", detail=f"{cash:,.0f} EUR", tone="neutral"),
             KpiCard(
                 label="Portfolio ATR",
                 value=f"{portfolio_atr_pct:.2f}%",
@@ -104,6 +139,115 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
             ),
         ],
         positions=positions,
+    )
+
+
+def upsert_portfolio_position(payload: PortfolioPositionWriteRequest) -> PortfolioPositionWriteResponse:
+    write = portfolio_repository.PortfolioPositionWrite(
+        ticker=payload.ticker,
+        name=payload.name,
+        shares=payload.shares,
+        entry_price=payload.entry_price,
+        current_price=payload.current_price,
+        currency=payload.currency.upper(),
+        buy_date=_parse_date(payload.buy_date),
+        pivot_tag=_parse_date(payload.pivot_tag),
+        stop_pct=payload.stop_pct,
+        broker=payload.broker,
+        account=payload.account,
+        note=payload.note,
+        record_transaction=payload.record_transaction,
+    )
+    row = portfolio_repository.upsert_position(write)
+    return PortfolioPositionWriteResponse(position=_position_from_row(row, invested=row.current_price * row.shares))
+
+
+def delete_portfolio_position(ticker: str) -> PortfolioPositionDeleteResponse:
+    clean = ticker.strip().upper()
+    return PortfolioPositionDeleteResponse(ticker=clean, closed=portfolio_repository.close_position(clean))
+
+
+def sell_portfolio_position(ticker: str, payload: PortfolioSellRequest) -> PortfolioSellResponse:
+    clean = ticker.strip().upper()
+    row, transaction = portfolio_repository.sell_position(
+        portfolio_repository.PortfolioSellWrite(
+            ticker=clean,
+            shares=payload.shares,
+            price=payload.price,
+            date=_parse_date(payload.date) or date.today(),
+            currency=payload.currency.upper(),
+            fees=payload.fees,
+            tax=payload.tax,
+            note=payload.note,
+        )
+    )
+    cash_balance = portfolio_repository.get_cash_balance()
+    return PortfolioSellResponse(
+        ticker=clean,
+        remaining_position=_position_from_row(row, invested=row.current_price * row.shares) if row else None,
+        transaction=_transaction_schema(transaction),
+        cash_balance=cash_balance,
+    )
+
+
+def get_portfolio_transactions(limit: int = 250) -> PortfolioTransactionsResponse:
+    try:
+        rows = portfolio_repository.list_transactions(limit=limit)
+    except PortfolioRepositoryUnavailable:
+        rows = []
+    return PortfolioTransactionsResponse(transactions=[_transaction_schema(row) for row in rows])
+
+
+def get_portfolio_cash_flows(limit: int = 250) -> PortfolioCashFlowsResponse:
+    try:
+        rows = portfolio_repository.list_cash_flows(limit=limit)
+        cash_balance = portfolio_repository.get_cash_balance()
+    except PortfolioRepositoryUnavailable:
+        rows = []
+        cash_balance = 0.0
+    return PortfolioCashFlowsResponse(
+        cash_flows=[_cash_flow_schema(row) for row in rows],
+        cash_balance=cash_balance,
+    )
+
+
+def create_portfolio_cash_flow(payload: PortfolioCashFlowRequest) -> PortfolioCashFlowResponse:
+    row = portfolio_repository.add_cash_flow(
+        portfolio_repository.PortfolioCashFlowWrite(
+            date=_parse_date(payload.date) or date.today(),
+            amount=payload.amount,
+            flow_type=payload.flow_type,
+            currency=payload.currency.upper(),
+            broker=payload.broker,
+            note=payload.note,
+        )
+    )
+    return PortfolioCashFlowResponse(
+        cash_flow=_cash_flow_schema(row),
+        cash_balance=portfolio_repository.get_cash_balance(),
+    )
+
+
+def get_portfolio_import_history(limit: int = 100) -> PortfolioImportHistoryResponse:
+    try:
+        rows = portfolio_repository.list_import_history(limit=limit)
+    except PortfolioRepositoryUnavailable:
+        rows = []
+    return PortfolioImportHistoryResponse(
+        imports=[
+            PortfolioImportHistoryItem(
+                id=row.id,
+                source=row.source,
+                file_name=row.file_name,
+                status=row.status,
+                rows_total=row.rows_total,
+                rows_imported=row.rows_imported,
+                error_message=row.error_message,
+                created_at=row.created_at,
+                finished_at=row.finished_at,
+            )
+            for row in rows
+        ]
     )
 
 
@@ -134,6 +278,65 @@ def import_portfolio_positions(payload: PortfolioImportRequest) -> PortfolioImpo
         rows_imported=result.rows_imported,
         positions=parse_result.positions,
         warnings=parse_result.warnings,
+    )
+
+
+def _position_from_row(row: portfolio_repository.PortfolioPositionRow, *, invested: float) -> PortfolioPosition:
+    market_value = row.current_price * row.shares
+    pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
+    pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
+    atr_pct = _atr_pct_for_ticker(row.ticker)
+    return PortfolioPosition(
+        ticker=row.ticker,
+        name=row.name,
+        shares=row.shares,
+        entry_price=row.entry_price,
+        current_price=row.current_price,
+        market_value=market_value,
+        pnl_pct=pnl_pct,
+        weight_pct=market_value / invested * 100 if invested else 100,
+        atr_pct=atr_pct,
+        beta=1,
+        status=_status_for_position(pnl_pct, atr_pct),
+        pnl_abs=pnl_abs,
+        currency=row.currency,
+        buy_date=row.buy_date.isoformat() if row.buy_date else None,
+        pivot_tag=row.pivot_tag.isoformat() if row.pivot_tag else None,
+        stop_pct=row.stop_pct,
+        stop_price=row.stop_price,
+        broker=row.broker,
+        account=row.account,
+        note=row.note,
+    )
+
+
+def _transaction_schema(row: portfolio_repository.PortfolioTransactionRow) -> PortfolioTransaction:
+    return PortfolioTransaction(
+        id=row.id,
+        ticker=row.ticker,
+        date=row.date.isoformat(),
+        transaction_type=row.transaction_type,
+        shares=row.shares,
+        price=row.price,
+        fees=row.fees,
+        tax=row.tax,
+        gross_amount=row.gross_amount,
+        net_amount=row.net_amount,
+        currency=row.currency,
+        broker=row.broker,
+        external_id=row.external_id,
+    )
+
+
+def _cash_flow_schema(row: portfolio_repository.PortfolioCashFlowRow) -> PortfolioCashFlow:
+    return PortfolioCashFlow(
+        id=row.id,
+        date=row.date.isoformat(),
+        amount=row.amount,
+        flow_type=row.flow_type,
+        currency=row.currency,
+        broker=row.broker,
+        note=row.note,
     )
 
 
@@ -317,3 +520,20 @@ def _parse_number(value: str) -> float | None:
         return float(clean)
     except ValueError:
         return None
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    try:
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.notna(parsed):
+            return parsed.date()
+    except Exception:
+        return None
+    return None

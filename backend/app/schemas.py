@@ -266,10 +266,126 @@ class PortfolioPosition(BaseModel):
     atr_pct: float
     beta: float
     status: Literal["ok", "watch", "risk", "sell"]
+    pnl_abs: float = 0
+    currency: str = "EUR"
+    buy_date: str | None = None
+    pivot_tag: str | None = None
+    stop_pct: float | None = None
+    stop_price: float | None = None
+    broker: str = ""
+    account: str = ""
+    note: str = ""
 
 
 class PortfolioPositionsResponse(BaseModel):
     positions: list[PortfolioPosition]
+
+
+class PortfolioPositionWriteRequest(BaseModel):
+    ticker: str
+    name: str = ""
+    shares: float = Field(gt=0)
+    entry_price: float = Field(gt=0)
+    current_price: float | None = Field(default=None, gt=0)
+    currency: str = "EUR"
+    buy_date: str | None = None
+    pivot_tag: str | None = None
+    stop_pct: float | None = Field(default=7.0, gt=0, le=50)
+    broker: str = ""
+    account: str = ""
+    note: str = ""
+    record_transaction: bool = True
+
+
+class PortfolioPositionWriteResponse(BaseModel):
+    position: PortfolioPosition
+
+
+class PortfolioPositionDeleteResponse(BaseModel):
+    ticker: str
+    closed: bool
+
+
+class PortfolioTransaction(BaseModel):
+    id: str
+    ticker: str
+    date: str
+    transaction_type: Literal["buy", "sell", "fee", "dividend", "interest", "tax", "other"] | str
+    shares: float
+    price: float | None = None
+    fees: float = 0
+    tax: float = 0
+    gross_amount: float | None = None
+    net_amount: float | None = None
+    currency: str = "EUR"
+    broker: str = ""
+    external_id: str = ""
+
+
+class PortfolioTransactionsResponse(BaseModel):
+    transactions: list[PortfolioTransaction]
+
+
+class PortfolioSellRequest(BaseModel):
+    shares: float = Field(gt=0)
+    price: float = Field(gt=0)
+    date: str | None = None
+    currency: str = "EUR"
+    fees: float = 0
+    tax: float = 0
+    note: str = ""
+
+
+class PortfolioSellResponse(BaseModel):
+    ticker: str
+    remaining_position: PortfolioPosition | None = None
+    transaction: PortfolioTransaction
+    cash_balance: float
+
+
+class PortfolioCashFlow(BaseModel):
+    id: str
+    date: str
+    amount: float
+    flow_type: Literal["deposit", "withdrawal", "dividend", "interest", "tax", "fee", "other"] | str
+    currency: str = "EUR"
+    broker: str = ""
+    note: str = ""
+
+
+class PortfolioCashFlowRequest(BaseModel):
+    date: str | None = None
+    amount: float = Field(gt=0)
+    flow_type: Literal["deposit", "withdrawal", "dividend", "interest", "tax", "fee", "other"]
+    currency: str = "EUR"
+    broker: str = ""
+    note: str = ""
+
+
+class PortfolioCashFlowResponse(BaseModel):
+    cash_flow: PortfolioCashFlow
+    cash_balance: float
+
+
+class PortfolioCashFlowsResponse(BaseModel):
+    cash_flows: list[PortfolioCashFlow]
+    cash_balance: float
+
+
+class PortfolioImportHistoryItem(BaseModel):
+    id: str
+    source: str
+    file_name: str
+    status: str
+    rows_total: int
+    rows_imported: int
+    error_message: str = ""
+    created_at: datetime
+    finished_at: datetime | None = None
+
+
+class PortfolioImportHistoryResponse(BaseModel):
+    imports: list[PortfolioImportHistoryItem]
 
 
 class PortfolioImportRow(BaseModel):

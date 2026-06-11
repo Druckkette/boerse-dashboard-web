@@ -142,6 +142,15 @@ export type PortfolioPosition = {
   atr_pct: number;
   beta: number;
   status: "ok" | "watch" | "risk" | "sell";
+  pnl_abs: number;
+  currency: string;
+  buy_date?: string | null;
+  pivot_tag?: string | null;
+  stop_pct?: number | null;
+  stop_price?: number | null;
+  broker: string;
+  account: string;
+  note: string;
 };
 
 export type PortfolioSnapshot = {
@@ -155,6 +164,79 @@ export type PortfolioSnapshot = {
   max_depot_loss_pct: number;
   kpis: KpiCard[];
   positions: PortfolioPosition[];
+};
+
+export type PortfolioPositionWriteRequest = {
+  ticker: string;
+  name?: string;
+  shares: number;
+  entry_price: number;
+  current_price?: number | null;
+  currency?: string;
+  buy_date?: string | null;
+  pivot_tag?: string | null;
+  stop_pct?: number | null;
+  broker?: string;
+  account?: string;
+  note?: string;
+  record_transaction?: boolean;
+};
+
+export type PortfolioTransaction = {
+  id: string;
+  ticker: string;
+  date: string;
+  transaction_type: string;
+  shares: number;
+  price?: number | null;
+  fees: number;
+  tax: number;
+  gross_amount?: number | null;
+  net_amount?: number | null;
+  currency: string;
+  broker: string;
+  external_id: string;
+};
+
+export type PortfolioSellRequest = {
+  shares: number;
+  price: number;
+  date?: string | null;
+  currency?: string;
+  fees?: number;
+  tax?: number;
+  note?: string;
+};
+
+export type PortfolioCashFlow = {
+  id: string;
+  date: string;
+  amount: number;
+  flow_type: "deposit" | "withdrawal" | "dividend" | "interest" | "tax" | "fee" | "other" | string;
+  currency: string;
+  broker: string;
+  note: string;
+};
+
+export type PortfolioCashFlowRequest = {
+  date?: string | null;
+  amount: number;
+  flow_type: "deposit" | "withdrawal" | "dividend" | "interest" | "tax" | "fee" | "other";
+  currency?: string;
+  broker?: string;
+  note?: string;
+};
+
+export type PortfolioImportHistoryItem = {
+  id: string;
+  source: string;
+  file_name: string;
+  status: string;
+  rows_total: number;
+  rows_imported: number;
+  error_message: string;
+  created_at: string;
+  finished_at?: string | null;
 };
 
 export type PortfolioImportRow = {
