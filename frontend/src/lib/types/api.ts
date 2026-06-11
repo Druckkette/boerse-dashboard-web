@@ -537,6 +537,13 @@ export type AppSettings = {
   atr_threshold: number;
   position_monitor_enabled: boolean;
   position_monitor_interval_minutes: number;
+  position_monitor_threshold_atr: number;
+  position_monitor_atr_period: number;
+  position_monitor_lookback_days: number;
+  position_monitor_cooldown_hours: number;
+  position_monitor_reference: "high_since_buy" | "close_since_buy" | "entry_price";
+  pushover_enabled: boolean;
+  pushover_configured: boolean;
   rs_rating_source: "csv_latest" | "computed";
   data_jobs_enabled: boolean;
 };

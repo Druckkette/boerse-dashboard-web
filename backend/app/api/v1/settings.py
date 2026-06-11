@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.schemas import AppSettings, SettingsPatch
-from app.services.dummy_data import get_settings_dummy, update_settings_dummy
+from app.services.settings import get_app_settings, update_app_settings
 
 
 router = APIRouter()
@@ -9,10 +9,9 @@ router = APIRouter()
 
 @router.get("", response_model=AppSettings)
 def read_settings() -> AppSettings:
-    return get_settings_dummy()
+    return get_app_settings()
 
 
 @router.patch("", response_model=AppSettings)
 def patch_settings(payload: SettingsPatch) -> AppSettings:
-    return update_settings_dummy(payload)
-
+    return update_app_settings(payload)
