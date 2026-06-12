@@ -53,8 +53,12 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Universe symbol rescue: persisted Yahoo-symbol overrides for stored universe members,
   `/market/universe/mappings` review/update API and Jobs-page mapping workflow for failed
   price refreshes.
+- Universe mapping parity hardening: stale manual overrides for renamed/delisted symbols
+  are kept in storage but no longer counted in current mapping review results; class-share
+  examples are covered by dedicated market fixtures.
 
 ## Open Gaps
 
-- Market parity:
-  - Broader fixture coverage for real-world delisted/renamed symbols from stored universes.
+- No feature gap from the last tracked Streamlit-parity audit is currently open in this
+  document. Next work should focus on end-to-end validation with a real depot export,
+  real NAS data volumes and production hardening.

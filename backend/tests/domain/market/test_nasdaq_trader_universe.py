@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from app.data_sources.nasdaq_trader import parse_nasdaq_listed_text, parse_otherlisted_text
 from app.repositories import universes as universe_repository
 from app.services.universes import get_universe_symbol_mappings, resolve_universe_price_symbols
+
+
+FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "market" / "universe"
 
 
 def test_parse_nasdaq_listed_filters_non_common_rows() -> None:
@@ -74,6 +80,42 @@ def test_universe_mapping_review_counts_manual_overrides(monkeypatch) -> None:
     assert review.ignored_count == 1
     assert review.unmapped_count == 2
     assert review.unmapped_sample == ["AAPL", "BF-B"]
+
+
+def test_universe_mapping_review_ignores_stale_delisted_and_renamed_overrides(monkeypatch) -> None:
+    fixture = json.loads((FIXTURE_DIR / "symbol_edge_cases.json").read_text())
+
+    monkeypatch.setattr(
+        universe_repository,
+        "list_universe_tickers",
+        lambda key, limit: fixture["members"],
+    )
+    monkeypatch.setattr(
+        universe_repository,
+        "list_symbol_mappings",
+        lambda key, limit: [
+            universe_repository.UniverseSymbolMappingRow(
+                universe_key=key,
+                source_ticker=row["source_ticker"],
+                yahoo_symbol=row["yahoo_symbol"],
+                status=row["status"],
+                source=row["source"],
+                note=row["note"],
+                confidence=1.0,
+                updated_at=None,
+            )
+            for row in fixture["mappings"]
+        ],
+    )
+
+    review = get_universe_symbol_mappings()
+
+    assert review.member_count == 5
+    assert review.mapped_count == 2
+    assert review.ignored_count == 0
+    assert review.unmapped_count == 3
+    assert [item.source_ticker for item in review.mappings] == ["BRK-B", "BF-B"]
+    assert review.unmapped_sample == ["AAPL", "META", "GOOG"]
 
 
 def test_resolve_universe_price_symbols_uses_yahoo_aliases(monkeypatch) -> None:

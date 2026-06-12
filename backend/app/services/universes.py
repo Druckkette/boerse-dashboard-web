@@ -79,10 +79,12 @@ def get_universe_symbol_mappings(
         source = "fallback"
         member_tickers = DEFAULT_MARKET_UNIVERSE_TICKERS
 
-    mapped_by_source = {row.source_ticker.upper(): row for row in mapping_rows}
+    current_members = {ticker.upper() for ticker in member_tickers}
+    current_mapping_rows = [row for row in mapping_rows if row.source_ticker.upper() in current_members]
+    mapped_by_source = {row.source_ticker.upper(): row for row in current_mapping_rows}
     unmapped = [ticker for ticker in member_tickers if ticker.upper() not in mapped_by_source]
-    mapped_count = sum(1 for row in mapping_rows if row.status == "active" and row.yahoo_symbol)
-    ignored_count = sum(1 for row in mapping_rows if row.status == "ignored")
+    mapped_count = sum(1 for row in current_mapping_rows if row.status == "active" and row.yahoo_symbol)
+    ignored_count = sum(1 for row in current_mapping_rows if row.status == "ignored")
     return UniverseSymbolMappingReviewResponse(
         source=source,
         as_of=datetime.now(UTC).date().isoformat(),
@@ -91,7 +93,7 @@ def get_universe_symbol_mappings(
         mapped_count=mapped_count,
         ignored_count=ignored_count,
         unmapped_count=len(unmapped),
-        mappings=[_mapping_item(row) for row in mapping_rows],
+        mappings=[_mapping_item(row) for row in current_mapping_rows],
         unmapped_sample=unmapped[:80],
     )
 

@@ -1,0 +1,33 @@
+{
+  "members": ["AAPL", "META", "GOOG", "BRK-B", "BF-B"],
+  "mappings": [
+    {
+      "source_ticker": "FB",
+      "yahoo_symbol": "META",
+      "status": "active",
+      "source": "manual",
+      "note": "stale rename override"
+    },
+    {
+      "source_ticker": "TWTR",
+      "yahoo_symbol": "",
+      "status": "ignored",
+      "source": "manual",
+      "note": "stale delisted symbol"
+    },
+    {
+      "source_ticker": "BRK-B",
+      "yahoo_symbol": "BRK-B",
+      "status": "active",
+      "source": "manual",
+      "note": "class share"
+    },
+    {
+      "source_ticker": "BF-B",
+      "yahoo_symbol": "BF-B",
+      "status": "active",
+      "source": "manual",
+      "note": "class share"
+    }
+  ]
+}
