@@ -44,8 +44,6 @@ from app.schemas import (
     VolatilityResponse,
     VolatilityStatusCard,
 )
-from app.services.dummy_data import get_breadth as get_dummy_breadth
-from app.services.dummy_data import get_market_overview as get_dummy_market_overview
 
 
 MARKET_TREND_BENCHMARK = "SPY"
@@ -83,7 +81,7 @@ def get_market_overview() -> MarketOverviewResponse:
         snapshot = None
 
     if snapshot is None:
-        return get_dummy_market_overview()
+        return _missing_market_overview()
 
     metrics = snapshot.metrics_json or {}
     trend_ampel = _trend_ampel_from_metrics(metrics)
@@ -110,7 +108,7 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         rows = []
 
     if not rows:
-        return get_dummy_breadth()
+        return _missing_breadth(universe)
 
     points = [
         BreadthPoint(
@@ -133,6 +131,40 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         message=_breadth_message(rows[-1].date, latest_meta),
         coverage_ratio=float(latest_meta.get("coverage_ratio") or 0),
         points=points,
+    )
+
+
+def _missing_market_overview() -> MarketOverviewResponse:
+    return MarketOverviewResponse(
+        as_of=date.today().isoformat(),
+        source="missing",
+        data_status="missing",
+        message="Keine Market-Snapshots im Cache. Starte Marktdaten, Market Breadth und RS Ratings über die Jobs-Seite.",
+        phase="neutral",
+        phase_label="Nicht berechnet",
+        action="Marktdaten initial laden, bevor Marktampel und Risikoanalyse bewertet werden.",
+        warning_count=0,
+        breadth_mode="wachsam",
+        volatility_regime="Nicht berechnet",
+        trend_ampel=None,
+        kpis=[
+            KpiCard(label="S&P 500", value="-", detail="Price Cache fehlt", tone="neutral"),
+            KpiCard(label="Nasdaq", value="-", detail="Price Cache fehlt", tone="neutral"),
+            KpiCard(label="Breadth", value="-", detail="Breadth-Job fehlt", tone="warning"),
+            KpiCard(label="Volatilität", value="-", detail="Volatilitätsdaten fehlen", tone="warning"),
+        ],
+    )
+
+
+def _missing_breadth(universe: str) -> BreadthResponse:
+    return BreadthResponse(
+        as_of=date.today().isoformat(),
+        universe=universe,
+        source="missing",
+        data_status="missing",
+        message="Keine Breadth-Werte im Cache. Starte zuerst refresh_prices und danach refresh_breadth.",
+        coverage_ratio=0.0,
+        points=[],
     )
 
 
