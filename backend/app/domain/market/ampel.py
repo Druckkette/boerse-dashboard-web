@@ -36,6 +36,38 @@ class TrendAmpelPoint:
     floor_mark: float | None
     startschuss_low: float | None
     startschuss_bonus: bool | None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    volume: float | None = None
+    sma10: float | None = None
+    atr21: float | None = None
+    atr_pct: float | None = None
+    vol_sma50: float | None = None
+    dist_21ema: float | None = None
+    dist_10sma_pct: float | None = None
+    dist_50sma_pct: float | None = None
+    dist_200sma_pct: float | None = None
+    high_52w: float | None = None
+    dist_52w_pct: float | None = None
+    ma_order: bool | None = None
+    low_above_21: bool | None = None
+    low_above_50: bool | None = None
+    low_above_200: bool | None = None
+    consec_low_above_21: int = 0
+    consec_low_above_50: int = 0
+    consec_low_above_200: int = 0
+    ema21_held: bool | None = None
+    sma50_held: bool | None = None
+    sma200_held: bool | None = None
+    intraday_reversal_down: bool | None = None
+    intraday_reversal_up: bool | None = None
+    neg_reversals_10d: int = 0
+    pos_reversals_10d: int = 0
+    low_cr_5d: int = 0
+    up_vol_declining: bool | None = None
+    is_distribution: bool | None = None
+    is_stall: bool | None = None
 
 
 def compute_trend_ampel(bars: Sequence[TrendAmpelBar | Mapping[str, Any]]) -> list[TrendAmpelPoint]:
@@ -66,6 +98,36 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
         (df["Close"] - df["Low"]) / daily_range,
         0.5,
     )
+    df["Dist_21EMA"] = (df["Close"] - df["EMA21"]) / df["ATR21"]
+    df["Dist_50SMA_pct"] = (df["Close"] - df["SMA50"]) / df["SMA50"] * 100
+    df["Dist_200SMA_pct"] = (df["Close"] - df["SMA200"]) / df["SMA200"] * 100
+    df["Dist_10SMA_pct"] = (df["Close"] - df["SMA10"]) / df["SMA10"] * 100
+    df["High_52w"] = df["High"].rolling(252, min_periods=1).max()
+    df["Dist_52w_pct"] = (df["Close"] - df["High_52w"]) / df["High_52w"] * 100
+    df["MA_Order"] = (df["EMA21"] > df["SMA50"]) & (df["SMA50"] > df["SMA200"])
+    df["Low_above_21"] = df["Low"] > df["EMA21"]
+    df["Low_above_50"] = df["Low"] > df["SMA50"]
+    df["Low_above_200"] = df["Low"] > df["SMA200"]
+    df["Consec_Low_above_21"] = _consecutive_true(df["Low_above_21"])
+    df["Consec_Low_above_50"] = _consecutive_true(df["Low_above_50"])
+    df["Consec_Low_above_200"] = _consecutive_true(df["Low_above_200"])
+    df["EMA21_held"] = df["Close"] > df["EMA21"]
+    df["SMA50_held"] = df["Close"] > df["SMA50"]
+    df["SMA200_held"] = df["Close"] > df["SMA200"]
+    previous_close = df["Close"].shift(1)
+    df["Intraday_Reversal_Down"] = (df["Open"] > previous_close) & (df["Close"] < df["Open"])
+    df["Intraday_Reversal_Up"] = (df["Open"] < previous_close) & (df["Close"] > df["Open"])
+    df["Neg_Reversals_10d"] = (
+        df["Intraday_Reversal_Down"].rolling(10, min_periods=1).sum().fillna(0).astype(int)
+    )
+    df["Pos_Reversals_10d"] = (
+        df["Intraday_Reversal_Up"].rolling(10, min_periods=1).sum().fillna(0).astype(int)
+    )
+    df["Low_CR"] = df["Closing_Range"] < 0.25
+    df["Low_CR_5d"] = df["Low_CR"].rolling(5, min_periods=1).sum().fillna(0).astype(int)
+    df["Up_Vol_Declining"] = (df["Close"] > df["Close"].shift(5)) & (
+        df["Volume"].diff().rolling(5).max() < 0
+    )
     return df
 
 
@@ -82,7 +144,7 @@ def detect_distribution_days(frame: pd.DataFrame) -> pd.DataFrame:
         & (df["Volume"] >= previous_volume * 0.95)
         & (df["Closing_Range"] < 0.5)
     ).fillna(False)
-    df["Dist_Count_25"] = _count_active_distribution_days(df["Is_Distribution"], df["Close"])
+    df["Dist_Count_25"] = df["Is_Distribution"].rolling(25, min_periods=1).sum().fillna(0).astype(int)
     return df
 
 
@@ -268,6 +330,38 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         floor_mark=_safe_float(row.get("Floor_Mark")),
         startschuss_low=_safe_float(row.get("Startschuss_Low")),
         startschuss_bonus=_safe_bool(row.get("Startschuss_Bonus")),
+        open=_safe_float(row.get("Open")),
+        high=_safe_float(row.get("High")),
+        low=_safe_float(row.get("Low")),
+        volume=_safe_float(row.get("Volume")),
+        sma10=_safe_float(row.get("SMA10")),
+        atr21=_safe_float(row.get("ATR21")),
+        atr_pct=_safe_float(row.get("ATR_pct")),
+        vol_sma50=_safe_float(row.get("Vol_SMA50")),
+        dist_21ema=_safe_float(row.get("Dist_21EMA")),
+        dist_10sma_pct=_safe_float(row.get("Dist_10SMA_pct")),
+        dist_50sma_pct=_safe_float(row.get("Dist_50SMA_pct")),
+        dist_200sma_pct=_safe_float(row.get("Dist_200SMA_pct")),
+        high_52w=_safe_float(row.get("High_52w")),
+        dist_52w_pct=_safe_float(row.get("Dist_52w_pct")),
+        ma_order=_safe_bool(row.get("MA_Order")),
+        low_above_21=_safe_bool(row.get("Low_above_21")),
+        low_above_50=_safe_bool(row.get("Low_above_50")),
+        low_above_200=_safe_bool(row.get("Low_above_200")),
+        consec_low_above_21=_safe_int(row.get("Consec_Low_above_21")),
+        consec_low_above_50=_safe_int(row.get("Consec_Low_above_50")),
+        consec_low_above_200=_safe_int(row.get("Consec_Low_above_200")),
+        ema21_held=_safe_bool(row.get("EMA21_held")),
+        sma50_held=_safe_bool(row.get("SMA50_held")),
+        sma200_held=_safe_bool(row.get("SMA200_held")),
+        intraday_reversal_down=_safe_bool(row.get("Intraday_Reversal_Down")),
+        intraday_reversal_up=_safe_bool(row.get("Intraday_Reversal_Up")),
+        neg_reversals_10d=_safe_int(row.get("Neg_Reversals_10d")),
+        pos_reversals_10d=_safe_int(row.get("Pos_Reversals_10d")),
+        low_cr_5d=_safe_int(row.get("Low_CR_5d")),
+        up_vol_declining=_safe_bool(row.get("Up_Vol_Declining")),
+        is_distribution=_safe_bool(row.get("Is_Distribution")),
+        is_stall=_safe_bool(row.get("Is_Stall")),
     )
 
 
@@ -314,6 +408,15 @@ def _ema(series: pd.Series, window: int) -> pd.Series:
     return pd.to_numeric(series, errors="coerce").ewm(span=window, adjust=False).mean()
 
 
+def _consecutive_true(series: pd.Series) -> pd.Series:
+    values = series.fillna(False).astype(bool).to_numpy()
+    output = np.zeros(len(values), dtype=int)
+    for index, value in enumerate(values):
+        if value:
+            output[index] = output[index - 1] + 1 if index > 0 else 1
+    return pd.Series(output, index=series.index, dtype="int64")
+
+
 def _atr(frame: pd.DataFrame, window: int = 21) -> pd.Series:
     high = pd.to_numeric(frame["High"], errors="coerce")
     low = pd.to_numeric(frame["Low"], errors="coerce")
@@ -348,6 +451,15 @@ def _safe_bool(value: Any) -> bool | None:
     if value is None or pd.isna(value):
         return None
     return bool(value)
+
+
+def _safe_int(value: Any) -> int:
+    if value is None or pd.isna(value):
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _safe_str(value: Any) -> str | None:

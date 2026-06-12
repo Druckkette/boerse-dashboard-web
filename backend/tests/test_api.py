@@ -144,6 +144,22 @@ def test_market_overview_contract() -> None:
     assert isinstance(payload["kpis"], list)
 
 
+def test_market_ampel_contract() -> None:
+    response = client.get("/api/v1/market/ampel?ticker=SPY&days=90")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
+    assert payload["ticker"] == "SPY"
+    assert {"mode", "tone", "action", "reasons"}.issubset(payload["hero"])
+    assert {"phase", "label", "reason", "action", "tone"}.issubset(payload["phase_info"])
+    assert isinstance(payload["lights"], list)
+    assert isinstance(payload["change_cards"], list)
+    assert isinstance(payload["distance_tiles"], list)
+    assert isinstance(payload["warning_checks"], list)
+    assert isinstance(payload["chart_points"], list)
+
+
 def test_market_breadth_contract() -> None:
     response = client.get("/api/v1/market/breadth")
     assert response.status_code == 200

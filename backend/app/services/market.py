@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -30,6 +30,16 @@ from app.schemas import (
     BreadthPoint,
     BreadthResponse,
     KpiCard,
+    MarketAmpelChangeCard,
+    MarketAmpelChartMarker,
+    MarketAmpelChartPoint,
+    MarketAmpelCycle,
+    MarketAmpelDistanceTile,
+    MarketAmpelHero,
+    MarketAmpelLight,
+    MarketAmpelPhaseInfo,
+    MarketAmpelResponse,
+    MarketAmpelWarningCheck,
     MarketDiagnosticCheck,
     MarketDiagnosticsResponse,
     MarketIntermarketItem,
@@ -47,6 +57,11 @@ from app.schemas import (
 
 
 MARKET_TREND_BENCHMARK = "SPY"
+MARKET_AMPEL_INDEXES = {
+    "SPY": "S&P 500",
+    "QQQ": "Nasdaq 100",
+    "IWM": "Russell 2000",
+}
 INTERMARKET_INDEXES = {
     "SPY": "S&P 500",
     "QQQ": "Nasdaq 100",
@@ -98,6 +113,131 @@ def get_market_overview() -> MarketOverviewResponse:
         volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
         trend_ampel=trend_ampel,
         kpis=_kpis_from_metrics(metrics),
+    )
+
+
+def get_market_ampel(
+    *,
+    ticker: str = MARKET_TREND_BENCHMARK,
+    days: int = 90,
+) -> MarketAmpelResponse:
+    clean_ticker = _normalize_ampel_ticker(ticker)
+    clean_days = max(30, min(240, int(days)))
+    start_date = date.today() - timedelta(days=max(320, clean_days + 280))
+    try:
+        bars = market_repository.load_cached_ohlcv(clean_ticker, start_date=start_date)
+    except MarketRepositoryUnavailable:
+        bars = []
+
+    if len(bars) < 2:
+        return _missing_market_ampel(clean_ticker)
+
+    points = compute_trend_ampel([_trend_bar_from_ohlcv(point) for point in bars])
+    if not points:
+        return _missing_market_ampel(clean_ticker)
+
+    overview = get_market_overview()
+    volatility = get_volatility()
+    intermarket = _cached_intermarket_divergence()
+    rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
+    return build_market_ampel_response(
+        ticker=clean_ticker,
+        name=MARKET_AMPEL_INDEXES.get(clean_ticker, clean_ticker),
+        points=points,
+        days=clean_days,
+        overview=overview,
+        volatility=volatility,
+        intermarket=intermarket,
+        rotation_groups=rotation_groups,
+        defensive_lead=defensive_lead,
+        defensive_spread_pct=defensive_spread,
+    )
+
+
+def build_market_ampel_response(
+    *,
+    ticker: str,
+    name: str,
+    points: Sequence[TrendAmpelPoint],
+    days: int,
+    overview: MarketOverviewResponse,
+    volatility: VolatilityResponse,
+    intermarket: list[MarketIntermarketItem],
+    rotation_groups: list[MarketSectorRotationGroup],
+    defensive_lead: bool | None,
+    defensive_spread_pct: float | None,
+) -> MarketAmpelResponse:
+    latest = points[-1]
+    previous = points[-2] if len(points) >= 2 else None
+    anchor_date, floor_mark, startschuss_low = _last_cycle_markers(points, latest)
+    vix_regime = _volatility_card_status(volatility, "VIX Regime")
+    warning_checks = _build_ampel_warning_checks(
+        points=points,
+        latest=latest,
+        intermarket=intermarket,
+        defensive_lead=defensive_lead,
+        defensive_spread_pct=defensive_spread_pct,
+        index_name=name,
+    )
+    warning_count = sum(1 for item in warning_checks if item.active_warning)
+    mode, hero_tone, action = _legacy_market_action_and_tone(
+        latest.phase,
+        warning_count,
+        overview.breadth_mode,
+        vix_regime,
+    )
+    phase_info = _ampel_phase_info(
+        latest,
+        anchor_date=anchor_date,
+        floor_mark=floor_mark,
+        startschuss_low=startschuss_low,
+    )
+    chart_points = _ampel_chart_points(points[-days:])
+    return MarketAmpelResponse(
+        as_of=latest.date,
+        ticker=ticker,
+        name=name,
+        source="database",
+        data_status=_data_status_for_date(date.fromisoformat(latest.date)),
+        message="Marktampel aus gecachten OHLCV-Bars. Keine Live-yfinance-Berechnung im Request-Pfad.",
+        warning_count=warning_count,
+        breadth_mode=overview.breadth_mode,
+        volatility_regime=volatility.regime,
+        vix_regime=vix_regime,
+        hero=MarketAmpelHero(
+            mode=mode,
+            tone=hero_tone,
+            action=action,
+            reasons=_ampel_reasons(
+                latest,
+                warning_count=warning_count,
+                breadth_mode=overview.breadth_mode,
+                vix_regime=vix_regime,
+                anchor_date=anchor_date,
+                floor_mark=floor_mark,
+                startschuss_low=startschuss_low,
+            ),
+        ),
+        phase_info=phase_info,
+        lights=_ampel_lights(latest.phase),
+        cycle=_ampel_cycle(
+            latest,
+            anchor_date=anchor_date,
+            floor_mark=floor_mark,
+            startschuss_low=startschuss_low,
+        ),
+        change_cards=_ampel_change_cards(
+            latest=latest,
+            previous=previous,
+            warning_count=warning_count,
+            breadth_mode=overview.breadth_mode,
+            volatility=volatility,
+            index_name=name,
+        ),
+        distance_tiles=_ampel_distance_tiles(latest, index_name=name),
+        warning_checks=warning_checks,
+        chart_points=chart_points,
+        chart_markers=_ampel_chart_markers(chart_points, latest, anchor_date=anchor_date, floor_mark=floor_mark),
     )
 
 
@@ -904,6 +1044,719 @@ def _format_optional_pct(value: float | None) -> str:
         return "n/a"
     return f"{value:+.1f}%"
 
+
+def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
+    today = date.today().isoformat()
+    return MarketAmpelResponse(
+        as_of=today,
+        ticker=ticker,
+        name=MARKET_AMPEL_INDEXES.get(ticker, ticker),
+        source="missing",
+        data_status="missing",
+        message=(
+            f"Keine gecachten OHLCV-Bars für {ticker}. Starte auf der Jobs-Seite refresh_prices "
+            "mit Preset all oder market_core."
+        ),
+        warning_count=0,
+        breadth_mode="wachsam",
+        volatility_regime="Nicht berechnet",
+        vix_regime="n/a",
+        hero=MarketAmpelHero(
+            mode="Nicht berechnet",
+            tone="neutral",
+            action="Price-Cache laden, danach Marktampel erneut öffnen.",
+            reasons=["Keine Benchmark-Kurse im Cache.", "Die API führt keine Live-yfinance-Ladung im Klickpfad aus."],
+        ),
+        phase_info=MarketAmpelPhaseInfo(
+            phase="neutral",
+            label="NEUTRAL",
+            reason="Keine ausreichenden Kursdaten für die Trendwende-Ampel.",
+            action="Marktdaten laden.",
+            tone="neutral",
+        ),
+        lights=_ampel_lights("neutral"),
+        cycle=MarketAmpelCycle(diagnostics=["Keine Kursdaten im Cache"]),
+        change_cards=[],
+        distance_tiles=[],
+        warning_checks=[],
+        chart_points=[],
+        chart_markers=[],
+    )
+
+
+def _normalize_ampel_ticker(value: str) -> str:
+    clean = str(value or "").strip().upper()
+    if clean in MARKET_AMPEL_INDEXES:
+        return clean
+    if clean in {"S&P 500", "SP500", "^GSPC", "^SPX"}:
+        return "SPY"
+    if clean in {"NASDAQ", "NASDAQ COMPOSITE", "^IXIC", "NDX"}:
+        return "QQQ"
+    if clean in {"RUSSELL", "RUSSELL 2000", "^RUT"}:
+        return "IWM"
+    return MARKET_TREND_BENCHMARK
+
+
+def _last_cycle_markers(points: Sequence[TrendAmpelPoint], latest: TrendAmpelPoint) -> tuple[str | None, float | None, float | None]:
+    anchor_date = latest.anchor_date or next((point.anchor_date for point in reversed(points) if point.anchor_date), None)
+    floor_mark = latest.floor_mark
+    if floor_mark is None:
+        floor_mark = next((point.floor_mark for point in reversed(points) if point.floor_mark is not None), None)
+    startschuss_low = latest.startschuss_low
+    if startschuss_low is None:
+        startschuss_low = next((point.startschuss_low for point in reversed(points) if point.startschuss_low is not None), None)
+    return anchor_date, floor_mark, startschuss_low
+
+
+def _legacy_market_action_and_tone(
+    phase: str,
+    warning_count: int,
+    breadth_mode: str,
+    vix_regime: str,
+) -> tuple[str, str, str]:
+    clean_phase = str(phase or "").lower()
+    clean_breadth = str(breadth_mode or "").lower()
+    clean_vol = str(vix_regime or "").lower()
+    if clean_phase == "rot" or warning_count >= 3 or clean_breadth == "schutz" or clean_vol == "stress":
+        if clean_phase == "rot":
+            message = "Ampel rot. Risiko reduzieren, keine aggressiven Neueinstiege und bestehende Positionen kritisch prüfen."
+        elif clean_vol == "stress":
+            message = "Volatilität im Stress-Regime. Defensive Haltung - kein Neukauf trotz Ampelphase."
+        elif clean_breadth == "schutz":
+            message = "Marktbreite im Schutzmodus. Risiko reduzieren - keine aggressiven Neueinstiege."
+        else:
+            message = f"{warning_count} Warnzeichen aktiv. Defensive Haltung - Risiko reduzieren trotz laufender Ampelphase."
+        return "Defensiv", "bad", message
+    if clean_phase == "gelb":
+        if warning_count <= 2 and clean_breadth != "schutz" and clean_vol not in {"stress", "risk"}:
+            return (
+                "Startschuss",
+                "warning",
+                "Startschuss aktiv. Erste Pilotpositionen sind erlaubt, aber nur selektiv und mit enger Risikokontrolle über das Startschuss-Tief.",
+            )
+        return (
+            "Startschuss",
+            "warning",
+            "Startschuss erkannt, aber Umfeld noch nicht frei. Nur kleine Testpositionen und keine Aggressivität.",
+        )
+    if clean_phase == "gruen":
+        if warning_count <= 2 and clean_breadth != "schutz":
+            return (
+                "Frühe Bestätigung",
+                "good",
+                "Startschuss bestätigt. Gute Setups sind erlaubt und Risiko kann vorsichtig erhöht werden.",
+            )
+        return "Frühe Bestätigung", "warning", "Ampel grün, aber Umfeld gemischt. Nur selektiv aufstocken."
+    if clean_phase == "aufwaertstrend":
+        return (
+            "Offensiv",
+            "good",
+            "MA-Ordnung bestätigt. Markt konstruktiv, führende Aktien beobachten und Risiko schrittweise erhöhen.",
+        )
+    if warning_count >= 2 or clean_breadth == "neutral" or clean_vol in {"risk", "vorsicht"}:
+        return "Neutral", "warning", "Selektiv bleiben. Nur A-Setups und eher kleine Einstiege."
+    return "Konstruktiv", "good", "Markt konstruktiv. Führende Aktien beobachten und Risiko schrittweise erhöhen."
+
+
+def _ampel_phase_info(
+    latest: TrendAmpelPoint,
+    *,
+    anchor_date: str | None,
+    floor_mark: float | None,
+    startschuss_low: float | None,
+) -> MarketAmpelPhaseInfo:
+    phase = latest.phase
+    if phase == "rot":
+        reason = (
+            f"Substanzielle Korrektur läuft. Ankertag: {anchor_date}. Bodenmarke: {_format_number(floor_mark)}."
+            if anchor_date and floor_mark is not None
+            else "Substanzielle Korrektur läuft. Warte auf Ankertag, also den ersten positiven Schluss."
+        )
+        return MarketAmpelPhaseInfo(
+            phase=phase,
+            label="ROT - Abwarten",
+            reason=reason,
+            action="Nicht kaufen. Beobachte den Markt auf Stabilisierung.",
+            tone="bad",
+        )
+    if phase == "gelb":
+        reason = (
+            f"Startschuss erkannt. Ankertag: {anchor_date}. Validierungslinie: {_format_number(startschuss_low)}."
+            if anchor_date and startschuss_low is not None
+            else "Startschuss aktiv."
+        )
+        return MarketAmpelPhaseInfo(
+            phase=phase,
+            label="GELB - Startschuss",
+            reason=reason,
+            action="Erste Positionen eröffnen, aber nur mit klarem Setup und kleiner Größe.",
+            tone="warning",
+        )
+    if phase == "gruen":
+        reason = (
+            f"Startschuss hält. Kurs bleibt über dem Startschuss-Tief {_format_number(startschuss_low)}."
+            if startschuss_low is not None
+            else "Startschuss bestätigt."
+        )
+        return MarketAmpelPhaseInfo(
+            phase=phase,
+            label="GRÜN - Bestätigung",
+            reason=reason,
+            action="Frühe Bestätigungsphase. Exponierung vorsichtig aufbauen.",
+            tone="good",
+        )
+    if phase == "aufwaertstrend":
+        return MarketAmpelPhaseInfo(
+            phase=phase,
+            label="AUFWÄRTSTREND",
+            reason="MA-Ordnung bestätigt: 21-EMA > 50-SMA > 200-SMA. Ampel-Zyklus abgeschlossen.",
+            action="Offensiv handeln. Viele kleine Positionen und beste Läufer aufstocken.",
+            tone="good",
+        )
+    return MarketAmpelPhaseInfo(
+        phase="neutral",
+        label="NEUTRAL",
+        reason="Keine substanzielle Korrektur erkannt. Die Trendwende-Ampel ist nicht aktiv.",
+        action="Normale Marktbeobachtung. Ampel greift erst bei substanziellem Drawdown.",
+        tone="neutral",
+    )
+
+
+def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
+    active_key = "gruen" if phase == "aufwaertstrend" else phase
+    rules = {
+        "rot": "ROT wird aktiv bei Drawdown von mehr als 10% vom jüngsten Hoch oder Schlusskurs unter der 50-SMA bei mindestens 4 Distribution Days im 25-Tage-Fenster.",
+        "gelb": "GELB wird aktiv, wenn nach einem Ankertag frühestens ab Tag 5 ein Startschuss auftritt: mindestens +1,0%, Volumen über Vortag und kein Unterschreiten der Bodenmarke intraday.",
+        "gruen": "GRÜN wird aktiv, wenn der Startschuss hält und nach GELB mehr als 2 weitere Handelstage vergehen, ohne dass das Startschuss-Tief per Schlusskurs gebrochen wird.",
+        "aufwaertstrend": "AUFWÄRTSTREND wird aktiv, wenn die grüne Phase mindestens 10 Tage Bestand hatte, der Index über der 200-SMA liegt und 21-EMA > 50-SMA > 200-SMA gilt.",
+    }
+    lights = [
+        MarketAmpelLight(key="rot", label="ROT", active=active_key == "rot", rule=rules["rot"], tone="bad"),
+        MarketAmpelLight(key="gelb", label="GELB", active=active_key == "gelb", rule=rules["gelb"], tone="warning"),
+        MarketAmpelLight(
+            key="gruen",
+            label="GRÜN" if phase != "aufwaertstrend" else "AUFWÄRTSTREND",
+            active=active_key == "gruen",
+            rule=rules["aufwaertstrend"] if phase == "aufwaertstrend" else rules["gruen"],
+            tone="good",
+        ),
+    ]
+    if phase == "neutral":
+        return [item.model_copy(update={"active": False}) for item in lights]
+    return lights
+
+
+def _ampel_cycle(
+    latest: TrendAmpelPoint,
+    *,
+    anchor_date: str | None,
+    floor_mark: float | None,
+    startschuss_low: float | None,
+) -> MarketAmpelCycle:
+    close = latest.close
+    diagnostics = []
+    if not anchor_date:
+        diagnostics.append("Kein aktiver Ankertag")
+    if floor_mark is None:
+        diagnostics.append("Bodenmarke noch nicht gesetzt")
+    if startschuss_low is None:
+        diagnostics.append("Startschuss-Tief noch nicht gesetzt")
+    return MarketAmpelCycle(
+        anchor_date=anchor_date,
+        floor_mark=floor_mark,
+        floor_distance_pct=_safe_pct_change(close, floor_mark),
+        startschuss_low=startschuss_low,
+        startschuss_distance_pct=_safe_pct_change(close, startschuss_low),
+        startschuss_bonus=latest.startschuss_bonus,
+        ma_order=latest.ma_order,
+        diagnostics=diagnostics,
+    )
+
+
+def _ampel_reasons(
+    latest: TrendAmpelPoint,
+    *,
+    warning_count: int,
+    breadth_mode: str,
+    vix_regime: str,
+    anchor_date: str | None,
+    floor_mark: float | None,
+    startschuss_low: float | None,
+) -> list[str]:
+    return [
+        _ampel_reason_line(latest, anchor_date=anchor_date, floor_mark=floor_mark, startschuss_low=startschuss_low),
+        f"Aktive Warnzeichen: {warning_count}",
+        f"Abstand zur 50-SMA: {_format_optional_pct(latest.dist_50sma_pct)}",
+        f"Equal-Weight-Modus: {breadth_mode.capitalize()}",
+        f"VIX-Regime: {vix_regime}",
+    ][:4]
+
+
+def _ampel_reason_line(
+    latest: TrendAmpelPoint,
+    *,
+    anchor_date: str | None,
+    floor_mark: float | None,
+    startschuss_low: float | None,
+) -> str:
+    if latest.phase == "gelb":
+        if anchor_date and startschuss_low is not None:
+            return f"Trendwende-Ampel: GELB - Startschuss aktiv seit {anchor_date} · Startschuss-Tief {_format_number(startschuss_low)}"
+        return "Trendwende-Ampel: GELB - Startschuss aktiv"
+    if latest.phase == "gruen":
+        if startschuss_low is not None:
+            return f"Trendwende-Ampel: GRÜN - Startschuss bestätigt · Absicherung über {_format_number(startschuss_low)}"
+        return "Trendwende-Ampel: GRÜN - Startschuss bestätigt"
+    if latest.phase == "aufwaertstrend":
+        return "Trendwende-Ampel: AUFWÄRTSTREND - MA-Ordnung bestätigt"
+    if latest.phase == "rot":
+        if floor_mark is not None:
+            return f"Trendwende-Ampel: ROT - Korrektur aktiv · Floor-Marke {_format_number(floor_mark)}"
+        return "Trendwende-Ampel: ROT - Korrektur aktiv"
+    return "Trendwende-Ampel: NEUTRAL - kein aktiver Zyklus"
+
+
+def _ampel_change_cards(
+    *,
+    latest: TrendAmpelPoint,
+    previous: TrendAmpelPoint | None,
+    warning_count: int,
+    breadth_mode: str,
+    volatility: VolatilityResponse,
+    index_name: str,
+) -> list[MarketAmpelChangeCard]:
+    cards: list[MarketAmpelChangeCard] = []
+    if latest.pct_change is not None:
+        cards.append(
+            MarketAmpelChangeCard(
+                title=f"Heute {index_name}",
+                value=f"{latest.pct_change:+.2f}%",
+                detail=f"Schlusskurs {_format_number(latest.close)}",
+                detail2=f"Index Stand: {_format_date_de(latest.date)}",
+                detail3=f"52W-Hoch: {_format_optional_pct(latest.dist_52w_pct)}",
+                tone="good" if latest.pct_change >= 0 else "bad",
+                arrow="up" if latest.pct_change >= 0 else "down",
+            )
+        )
+    dist_now = latest.dist_count_25
+    dist_prev = previous.dist_count_25 if previous else dist_now
+    delta = dist_now - dist_prev
+    quality = "Gut" if dist_now < 4 else ("Häufung" if dist_now < 6 else "Kritisch")
+    cards.append(
+        MarketAmpelChangeCard(
+            title="Distribution",
+            value=f"{dist_now} aktive Dist.-Tage",
+            detail=f"Gegenüber gestern: {delta:+d}" if delta else "Gegenüber gestern: unverändert",
+            tone="good" if dist_now < 4 else ("warning" if dist_now < 6 else "bad"),
+            quality=quality,
+        )
+    )
+    previous_label = _ampel_phase_label(previous.phase if previous else "")
+    phase_label = _ampel_phase_label(latest.phase)
+    if latest.phase == "gelb":
+        detail = (
+            f"Startschuss-Tief {_format_number(latest.startschuss_low)} · {warning_count} Warnzeichen"
+            if latest.startschuss_low is not None
+            else f"Startschuss aktiv · {warning_count} Warnzeichen"
+        )
+    elif latest.phase == "gruen":
+        detail = f"Startschuss bestätigt · {warning_count} Warnzeichen"
+    else:
+        detail = (
+            f"Wechsel von {previous_label} auf {phase_label}"
+            if previous_label != phase_label
+            else f"Unverändert seit gestern · {warning_count} Warnzeichen"
+        )
+    cards.append(
+        MarketAmpelChangeCard(
+            title="Trendwende-Ampel",
+            value=phase_label,
+            detail=detail,
+            tone=_tone_for_phase(latest.phase),
+        )
+    )
+    vol_latest = volatility.points[-1] if volatility.points else None
+    if vol_latest is not None:
+        cards.append(
+            MarketAmpelChangeCard(
+                title="Volatilität",
+                value=f"VIX {vol_latest.vix_close:.1f}" if vol_latest.vix_close is not None else "VIX n/a",
+                detail=f"Regime: {vol_latest.vix_regime}",
+                detail2=f"VIX Stand: {_format_date_de(vol_latest.date)}" if vol_latest.vix_close is not None else None,
+                tone=_tone_for_vix_regime(vol_latest.vix_regime),
+            )
+        )
+    cards.append(
+        MarketAmpelChangeCard(
+            title="Breite",
+            value=breadth_mode.capitalize(),
+            detail="Equal-Weight als Bestätigung des Indextrends",
+            tone=_tone_for_breadth_mode(breadth_mode),
+        )
+    )
+    return cards[:4]
+
+
+def _ampel_distance_tiles(latest: TrendAmpelPoint, *, index_name: str) -> list[MarketAmpelDistanceTile]:
+    d50_threshold = 7.0 if "Nasdaq" in index_name else 5.0
+    tiles = []
+    if latest.dist_21ema is None:
+        tiles.append(_distance_tile("21-EMA Abstand", "-", "-", "neutral", "Kurzfristiger Abstand in ATR-Einheiten"))
+    elif latest.dist_21ema < 0:
+        tiles.append(
+            _distance_tile(
+                "21-EMA Abstand",
+                f"{latest.dist_21ema:.1f} ATR",
+                "Darunter",
+                "bad",
+                "Kurzfristiger Abstand in ATR-Einheiten",
+            )
+        )
+    elif latest.dist_21ema > 3.0:
+        tiles.append(
+            _distance_tile(
+                "21-EMA Abstand",
+                f"{latest.dist_21ema:.1f} ATR",
+                "Überdehnt",
+                "warning",
+                "Kurzfristiger Abstand in ATR-Einheiten",
+            )
+        )
+    else:
+        tiles.append(
+            _distance_tile(
+                "21-EMA Abstand",
+                f"{latest.dist_21ema:.1f} ATR",
+                "OK",
+                "good",
+                "Kurzfristiger Abstand in ATR-Einheiten",
+            )
+        )
+
+    tiles.append(_sma_distance_tile("10-SMA", latest.dist_10sma_pct, "Sehr kurzfristiger Trendabstand"))
+    if latest.dist_50sma_pct is None:
+        tiles.append(_distance_tile("50-SMA", "-", "-", "neutral", "Mittelfristiger Trendabstand"))
+    elif latest.dist_50sma_pct < 0:
+        tiles.append(
+            _distance_tile(
+                "50-SMA",
+                f"{latest.dist_50sma_pct:+.1f}%",
+                "Darunter",
+                "bad",
+                "Mittelfristiger Trendabstand",
+            )
+        )
+    elif latest.dist_50sma_pct > d50_threshold:
+        tiles.append(
+            _distance_tile(
+                "50-SMA",
+                f"{latest.dist_50sma_pct:+.1f}%",
+                "Überdehnt",
+                "warning",
+                f"Schwelle {d50_threshold:.0f}% für {index_name}",
+            )
+        )
+    else:
+        tiles.append(
+            _distance_tile(
+                "50-SMA",
+                f"{latest.dist_50sma_pct:+.1f}%",
+                "OK",
+                "good",
+                "Mittelfristiger Trendabstand",
+            )
+        )
+    tiles.append(_sma_distance_tile("200-SMA", latest.dist_200sma_pct, "Langfristiger Trendabstand"))
+    return tiles
+
+
+def _build_ampel_warning_checks(
+    *,
+    points: Sequence[TrendAmpelPoint],
+    latest: TrendAmpelPoint,
+    intermarket: list[MarketIntermarketItem],
+    defensive_lead: bool | None,
+    defensive_spread_pct: float | None,
+    index_name: str,
+) -> list[MarketAmpelWarningCheck]:
+    checks: list[MarketAmpelWarningCheck] = []
+    neg_reversals = latest.neg_reversals_10d
+    pos_reversals = latest.pos_reversals_10d
+    checks.append(
+        _ampel_warning_check(
+            "Bärische Intraday-Umkehrungen (10T)",
+            neg_reversals < 3,
+            f"{neg_reversals} neg. / {pos_reversals} pos. Umkehrungen",
+            neg_reversals >= 3,
+        )
+    )
+    low_cr_5d = latest.low_cr_5d
+    checks.append(
+        _ampel_warning_check(
+            "Closing Range Häufung (5T)",
+            low_cr_5d < 3,
+            f"{low_cr_5d}/5 Tage Schluss im unteren 25%",
+            low_cr_5d >= 3,
+        )
+    )
+    stall_10d = sum(1 for point in points[-10:] if point.is_stall)
+    checks.append(
+        _ampel_warning_check("Stau-Tage (10T)", stall_10d < 3, f"{stall_10d} Stau-Tage", stall_10d >= 3)
+    )
+    dist_count = latest.dist_count_25
+    checks.append(
+        _ampel_warning_check(
+            "Distributionstage (25T)",
+            dist_count < 4,
+            f"{dist_count} Dist.-Tage (Schwelle: 4)",
+            dist_count >= 4,
+        )
+    )
+    d50_threshold = 7.0 if "Nasdaq" in index_name else 5.0
+    if latest.dist_50sma_pct is not None:
+        d50_warning = latest.dist_50sma_pct > d50_threshold or latest.dist_50sma_pct < 0
+        checks.append(
+            _ampel_warning_check(
+                "50-SMA Abstand",
+                not d50_warning,
+                f"{latest.dist_50sma_pct:+.1f}% ({'über' if latest.dist_50sma_pct > 0 else 'unter'} 50-SMA, Schwelle: {d50_threshold:.0f}%)",
+                d50_warning,
+            )
+        )
+    if latest.dist_21ema is not None:
+        under_21 = latest.dist_21ema < 0
+        over_21 = latest.dist_21ema > 3.0
+        checks.append(
+            _ampel_warning_check(
+                "Kurs unter 21-EMA",
+                not under_21,
+                f"{latest.dist_21ema:.1f} ATR unter 21-EMA" if under_21 else f"{latest.dist_21ema:.1f} ATR über 21-EMA",
+                under_21,
+            )
+        )
+        checks.append(
+            _ampel_warning_check(
+                "Überdehnt über 21-EMA (>3 ATR)",
+                not over_21,
+                f"{latest.dist_21ema:.1f} ATR über 21-EMA",
+                over_21,
+            )
+        )
+    under_200 = latest.sma200 is not None and latest.close is not None and latest.close < latest.sma200
+    under_50 = latest.sma50 is not None and latest.close is not None and latest.close < latest.sma50
+    checks.append(_ampel_warning_check("Kurs über 200-SMA", not under_200, "Unter 200-SMA" if under_200 else "OK", under_200))
+    checks.append(_ampel_warning_check("Kurs über 50-SMA", not under_50, "Unter 50-SMA" if under_50 else "OK", under_50))
+    declining_up_volume = bool(latest.up_vol_declining)
+    checks.append(
+        _ampel_warning_check(
+            "Volumen an Aufwärtstagen",
+            not declining_up_volume,
+            "Abnehmendes Vol." if declining_up_volume else "OK",
+            declining_up_volume,
+        )
+    )
+    intermarket_divergence = _has_intermarket_divergence(intermarket)
+    if intermarket:
+        checks.append(
+            _ampel_warning_check(
+                "Intermarket-Konvergenz",
+                not intermarket_divergence,
+                _intermarket_detail(intermarket),
+                intermarket_divergence,
+            )
+        )
+    if defensive_lead is not None:
+        checks.append(
+            _ampel_warning_check(
+                "Keine Sektorrotation in Defensive",
+                not defensive_lead,
+                f"Spread: {_format_optional_pct(defensive_spread_pct)}",
+                bool(defensive_lead),
+            )
+        )
+    recovery_pct, drop_pct = _detect_failing_rally(points)
+    if recovery_pct is not None and drop_pct is not None and drop_pct > 5:
+        weak_recovery = recovery_pct < 50
+        checks.append(
+            _ampel_warning_check(
+                "Erholungsquote >=50%",
+                not weak_recovery,
+                f"Rückgang {drop_pct:.1f}%, Erholung {recovery_pct:.0f}%",
+                weak_recovery,
+            )
+        )
+    return checks
+
+
+def _ampel_warning_check(
+    label: str,
+    passed: bool,
+    detail: str,
+    active_warning: bool,
+) -> MarketAmpelWarningCheck:
+    return MarketAmpelWarningCheck(
+        label=label,
+        passed=passed,
+        detail=detail,
+        active_warning=active_warning,
+        tone="good" if passed else "warning",
+    )
+
+
+def _ampel_chart_points(points: Sequence[TrendAmpelPoint]) -> list[MarketAmpelChartPoint]:
+    return [
+        MarketAmpelChartPoint(
+            date=point.date,
+            open=point.open,
+            high=point.high,
+            low=point.low,
+            close=point.close,
+            volume=point.volume,
+            ema21=point.ema21,
+            sma10=point.sma10,
+            sma50=point.sma50,
+            sma200=point.sma200,
+            phase=point.phase,
+            is_distribution=bool(point.is_distribution),
+            is_stall=bool(point.is_stall),
+            intraday_reversal_down=bool(point.intraday_reversal_down),
+            intraday_reversal_up=bool(point.intraday_reversal_up),
+        )
+        for point in points
+    ]
+
+
+def _ampel_chart_markers(
+    chart_points: Sequence[MarketAmpelChartPoint],
+    latest: TrendAmpelPoint,
+    *,
+    anchor_date: str | None,
+    floor_mark: float | None,
+) -> list[MarketAmpelChartMarker]:
+    markers: list[MarketAmpelChartMarker] = []
+    if anchor_date:
+        markers.append(MarketAmpelChartMarker(key="anchor", date=anchor_date, label="Ankertag", color="#f59e0b"))
+    for point in chart_points:
+        if point.is_distribution:
+            markers.append(
+                MarketAmpelChartMarker(
+                    key=f"dist-{point.date}",
+                    date=point.date,
+                    label="Dist.",
+                    value=point.close,
+                    color="#fb7185",
+                )
+            )
+        elif point.is_stall:
+            markers.append(
+                MarketAmpelChartMarker(
+                    key=f"stall-{point.date}",
+                    date=point.date,
+                    label="Stau",
+                    value=point.close,
+                    color="#fbbf24",
+                )
+            )
+    if floor_mark is not None and latest.phase == "rot":
+        markers.append(
+            MarketAmpelChartMarker(
+                key="floor",
+                date=latest.date,
+                label=f"Floor {_format_number(floor_mark)}",
+                value=floor_mark,
+                color="#f87171",
+            )
+        )
+    return markers[-8:]
+
+
+def _detect_failing_rally(points: Sequence[TrendAmpelPoint]) -> tuple[float | None, float | None]:
+    clean = [point for point in points if point.close is not None]
+    if len(clean) < 30:
+        return None, None
+    recent = clean[-60:]
+    high_point = max(recent, key=lambda point: point.close or 0)
+    high_index = recent.index(high_point)
+    after_high = recent[high_index:]
+    if len(after_high) < 5 or high_point.close is None:
+        return None, None
+    low_point = min(after_high, key=lambda point: point.close or float("inf"))
+    if low_point.close is None or high_point.close <= 0:
+        return None, None
+    drop = high_point.close - low_point.close
+    if drop / high_point.close < 0.03:
+        return None, None
+    latest_close = clean[-1].close
+    if latest_close is None:
+        return None, None
+    recovery = latest_close - low_point.close
+    return round(recovery / drop * 100, 1), round(drop / high_point.close * 100, 1)
+
+
+def _volatility_card_status(volatility: VolatilityResponse, title: str) -> str:
+    for card in volatility.status_cards:
+        if card.title == title:
+            return card.status
+    return "n/a"
+
+
+def _distance_tile(label: str, value: str, indicator: str, tone: str, detail: str) -> MarketAmpelDistanceTile:
+    return MarketAmpelDistanceTile(label=label, value=value, indicator=indicator, tone=tone, detail=detail)
+
+
+def _sma_distance_tile(label: str, value: float | None, detail: str) -> MarketAmpelDistanceTile:
+    if value is None:
+        return _distance_tile(label, "-", "-", "neutral", detail)
+    if value < 0:
+        return _distance_tile(label, f"{value:+.1f}%", "Darunter", "bad", detail)
+    return _distance_tile(label, f"{value:+.1f}%", "OK", "good", detail)
+
+
+def _ampel_phase_label(phase: str) -> str:
+    return {
+        "rot": "ROT",
+        "gelb": "GELB - Startschuss",
+        "gruen": "GRÜN - Frühe Bestätigung",
+        "aufwaertstrend": "AUFWÄRTSTREND",
+        "neutral": "NEUTRAL",
+    }.get(str(phase or "").lower(), str(phase or "-").upper())
+
+
+def _tone_for_phase(phase: str) -> str:
+    if phase in {"gruen", "aufwaertstrend"}:
+        return "good"
+    if phase in {"gelb", "neutral"}:
+        return "warning"
+    return "bad"
+
+
+def _tone_for_breadth_mode(mode: str) -> str:
+    if mode == "rueckenwind":
+        return "good"
+    if mode == "wachsam":
+        return "warning"
+    return "bad"
+
+
+def _tone_for_vix_regime(regime: str) -> str:
+    if regime == "Stress":
+        return "bad"
+    if regime == "Ruhig":
+        return "good"
+    return "warning"
+
+
+def _format_number(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:,.2f}"
+
+
+def _format_date_de(value: str) -> str:
+    try:
+        return date.fromisoformat(value).strftime("%d.%m.%Y")
+    except ValueError:
+        return value
 
 
 def _normalize_tickers(tickers: list[str]) -> list[str]:

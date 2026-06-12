@@ -5,6 +5,7 @@ import type {
   Freshness,
   Job,
   JobType,
+  MarketAmpel,
   MarketDiagnostics,
   MarketOverview,
   Institutional13FTrend,
@@ -134,6 +135,8 @@ async function errorMessage(response: Response) {
 
 export const api = {
   marketOverview: () => getJson<MarketOverview>("/market/overview"),
+  marketAmpel: (ticker = "SPY", days = 90) =>
+    getJson<MarketAmpel>(`/market/ampel?ticker=${encodeURIComponent(ticker)}&days=${days}`),
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
   marketDiagnostics: () => getJson<MarketDiagnostics>("/market/diagnostics"),

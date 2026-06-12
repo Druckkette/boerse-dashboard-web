@@ -58,6 +58,115 @@ class MarketTrendAmpel(BaseModel):
     source: Literal["database", "missing", "synthetic_fixture"] = "database"
 
 
+class MarketAmpelHero(BaseModel):
+    mode: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+    action: str
+    reasons: list[str]
+
+
+class MarketAmpelLight(BaseModel):
+    key: Literal["rot", "gelb", "gruen", "aufwaertstrend"]
+    label: str
+    active: bool
+    rule: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class MarketAmpelPhaseInfo(BaseModel):
+    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    label: str
+    reason: str
+    action: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class MarketAmpelCycle(BaseModel):
+    anchor_date: str | None = None
+    floor_mark: float | None = None
+    floor_distance_pct: float | None = None
+    startschuss_low: float | None = None
+    startschuss_distance_pct: float | None = None
+    startschuss_bonus: bool | None = None
+    ma_order: bool | None = None
+    diagnostics: list[str] = Field(default_factory=list)
+
+
+class MarketAmpelChangeCard(BaseModel):
+    title: str
+    value: str
+    detail: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+    detail2: str | None = None
+    detail3: str | None = None
+    arrow: Literal["up", "down", "flat"] | None = None
+    quality: str | None = None
+
+
+class MarketAmpelDistanceTile(BaseModel):
+    label: str
+    value: str
+    indicator: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+    detail: str
+
+
+class MarketAmpelWarningCheck(BaseModel):
+    label: str
+    passed: bool
+    detail: str
+    active_warning: bool
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class MarketAmpelChartPoint(BaseModel):
+    date: str
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+    ema21: float | None = None
+    sma10: float | None = None
+    sma50: float | None = None
+    sma200: float | None = None
+    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    is_distribution: bool = False
+    is_stall: bool = False
+    intraday_reversal_down: bool = False
+    intraday_reversal_up: bool = False
+
+
+class MarketAmpelChartMarker(BaseModel):
+    key: str
+    date: str
+    label: str
+    value: float | None = None
+    color: str
+
+
+class MarketAmpelResponse(BaseModel):
+    as_of: str
+    ticker: str
+    name: str
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    message: str = ""
+    warning_count: int
+    breadth_mode: Literal["schutz", "wachsam", "rueckenwind"]
+    volatility_regime: str
+    vix_regime: str
+    hero: MarketAmpelHero
+    phase_info: MarketAmpelPhaseInfo
+    lights: list[MarketAmpelLight]
+    cycle: MarketAmpelCycle
+    change_cards: list[MarketAmpelChangeCard]
+    distance_tiles: list[MarketAmpelDistanceTile]
+    warning_checks: list[MarketAmpelWarningCheck]
+    chart_points: list[MarketAmpelChartPoint]
+    chart_markers: list[MarketAmpelChartMarker]
+
+
 class MarketOverviewResponse(BaseModel):
     as_of: str
     source: Literal["database", "synthetic_fixture", "missing"]

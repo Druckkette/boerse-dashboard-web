@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.domain.market.ampel import TrendAmpelPoint
+from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketPricePoint
 from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking
@@ -120,6 +120,33 @@ def test_market_snapshot_uses_trend_ampel_when_available() -> None:
     assert snapshot.metrics_json["trend_ampel"]["ticker"] == "SPY"
     assert snapshot.metrics_json["trend_ampel"]["phase_label"] == "Aufwärtstrend"
     assert "Trend-Ampel Aufwärtstrend" in snapshot.metrics_json["action"]
+
+
+def test_trend_ampel_exposes_streamlit_market_indicators() -> None:
+    start = date(2025, 1, 2)
+    bars = [
+        TrendAmpelBar(
+            date=start + timedelta(days=index),
+            open=100 + index * 0.25,
+            high=101 + index * 0.25,
+            low=99 + index * 0.25,
+            close=100 + index * 0.25,
+            volume=1_000_000 + index * 100,
+        )
+        for index in range(260)
+    ]
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.sma10 is not None
+    assert latest.sma50 is not None
+    assert latest.sma200 is not None
+    assert latest.dist_50sma_pct is not None
+    assert latest.dist_200sma_pct is not None
+    assert latest.dist_52w_pct is not None
+    assert latest.ma_order is True
+    assert latest.neg_reversals_10d == 0
+    assert latest.low_cr_5d == 0
 
 
 def test_volatility_dashboard_returns_empty_without_benchmark() -> None:

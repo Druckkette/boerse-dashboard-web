@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.repositories.universes import UniverseRepositoryUnavailable
 from app.schemas import (
     BreadthResponse,
+    MarketAmpelResponse,
     MarketDiagnosticsResponse,
     MarketOverviewResponse,
     SectorRankingResponse,
@@ -13,6 +14,7 @@ from app.schemas import (
 )
 from app.services.market import (
     get_breadth,
+    get_market_ampel,
     get_market_diagnostics,
     get_market_overview,
     get_sector_ranking,
@@ -31,6 +33,14 @@ router = APIRouter()
 @router.get("/overview", response_model=MarketOverviewResponse)
 def market_overview() -> MarketOverviewResponse:
     return get_market_overview()
+
+
+@router.get("/ampel", response_model=MarketAmpelResponse)
+def market_ampel(
+    ticker: str = Query(default="SPY", max_length=24),
+    days: int = Query(default=90, ge=30, le=240),
+) -> MarketAmpelResponse:
+    return get_market_ampel(ticker=ticker, days=days)
 
 
 @router.get("/breadth", response_model=BreadthResponse)

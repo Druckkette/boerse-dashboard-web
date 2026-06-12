@@ -36,6 +36,115 @@ export type MarketOverview = {
   kpis: KpiCard[];
 };
 
+export type MarketAmpelHero = {
+  mode: string;
+  tone: Tone;
+  action: string;
+  reasons: string[];
+};
+
+export type MarketAmpelLight = {
+  key: "rot" | "gelb" | "gruen" | "aufwaertstrend";
+  label: string;
+  active: boolean;
+  rule: string;
+  tone: Tone;
+};
+
+export type MarketAmpelPhaseInfo = {
+  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  label: string;
+  reason: string;
+  action: string;
+  tone: Tone;
+};
+
+export type MarketAmpelCycle = {
+  anchor_date?: string | null;
+  floor_mark?: number | null;
+  floor_distance_pct?: number | null;
+  startschuss_low?: number | null;
+  startschuss_distance_pct?: number | null;
+  startschuss_bonus?: boolean | null;
+  ma_order?: boolean | null;
+  diagnostics: string[];
+};
+
+export type MarketAmpelChangeCard = {
+  title: string;
+  value: string;
+  detail: string;
+  tone: Tone;
+  detail2?: string | null;
+  detail3?: string | null;
+  arrow?: "up" | "down" | "flat" | null;
+  quality?: string | null;
+};
+
+export type MarketAmpelDistanceTile = {
+  label: string;
+  value: string;
+  indicator: string;
+  tone: Tone;
+  detail: string;
+};
+
+export type MarketAmpelWarningCheck = {
+  label: string;
+  passed: boolean;
+  detail: string;
+  active_warning: boolean;
+  tone: Tone;
+};
+
+export type MarketAmpelChartPoint = {
+  date: string;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  close?: number | null;
+  volume?: number | null;
+  ema21?: number | null;
+  sma10?: number | null;
+  sma50?: number | null;
+  sma200?: number | null;
+  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  is_distribution: boolean;
+  is_stall: boolean;
+  intraday_reversal_down: boolean;
+  intraday_reversal_up: boolean;
+};
+
+export type MarketAmpelChartMarker = {
+  key: string;
+  date: string;
+  label: string;
+  value?: number | null;
+  color: string;
+};
+
+export type MarketAmpel = {
+  as_of: string;
+  ticker: string;
+  name: string;
+  source: "database" | "missing";
+  data_status: "fresh" | "stale" | "missing" | "fallback";
+  message: string;
+  warning_count: number;
+  breadth_mode: "schutz" | "wachsam" | "rueckenwind";
+  volatility_regime: string;
+  vix_regime: string;
+  hero: MarketAmpelHero;
+  phase_info: MarketAmpelPhaseInfo;
+  lights: MarketAmpelLight[];
+  cycle: MarketAmpelCycle;
+  change_cards: MarketAmpelChangeCard[];
+  distance_tiles: MarketAmpelDistanceTile[];
+  warning_checks: MarketAmpelWarningCheck[];
+  chart_points: MarketAmpelChartPoint[];
+  chart_markers: MarketAmpelChartMarker[];
+};
+
 export type BreadthPoint = {
   date: string;
   advancers: number;
