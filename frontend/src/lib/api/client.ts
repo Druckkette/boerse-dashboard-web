@@ -32,6 +32,7 @@ import type {
   SectorRanking,
   SellDiagnostics,
   StockAssessment,
+  StockAssessmentCompare,
   StockAssessmentRanking,
   StockFundamentals,
   StockFundamentalsUpdate,
@@ -149,6 +150,8 @@ export const api = {
   rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),
   stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   stockAssessment: (ticker: string) => getJson<StockAssessment>(`/stocks/${ticker}/assessment`),
+  stockAssessmentCompare: (tickers: string[], limit = 12) =>
+    getJson<StockAssessmentCompare>(`/stocks/assessment/compare?tickers=${encodeURIComponent(tickers.join(","))}&limit=${limit}`),
   stockAssessmentRanking: (limit = 50) => getJson<StockAssessmentRanking>(`/stocks/assessment/ranking?limit=${limit}`),
   stockFundamentals: (ticker: string) => getJson<StockFundamentals>(`/stocks/${ticker}/fundamentals`),
   updateStockFundamentals: (ticker: string, body: StockFundamentalsUpdate) =>

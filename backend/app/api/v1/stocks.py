@@ -9,6 +9,7 @@ from app.schemas import (
     RsRatingRankingResponse,
     Sec13FMappingReviewResponse,
     Sec13FMappingUpdateRequest,
+    StockAssessmentCompareResponse,
     StockFundamentalsResponse,
     StockFundamentalsUpdateRequest,
     StockAssessmentRankingResponse,
@@ -24,6 +25,7 @@ from app.services.sec13f import (
 )
 from app.services.stocks import (
     get_stock_assessment,
+    get_stock_assessment_compare,
     get_stock_assessment_ranking,
     get_stock_fundamentals,
     update_stock_fundamentals,
@@ -61,6 +63,17 @@ def patch_institutional_13f_mapping(request: Sec13FMappingUpdateRequest) -> Sec1
 @router.get("/assessment/ranking", response_model=StockAssessmentRankingResponse)
 def stock_assessment_ranking(limit: int = Query(default=50, ge=1, le=120)) -> StockAssessmentRankingResponse:
     return get_stock_assessment_ranking(limit=limit)
+
+
+@router.get("/assessment/compare", response_model=StockAssessmentCompareResponse)
+def stock_assessment_compare(
+    tickers: str = Query(..., min_length=1),
+    limit: int = Query(default=12, ge=2, le=24),
+) -> StockAssessmentCompareResponse:
+    try:
+        return get_stock_assessment_compare(tickers=tickers, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/{ticker}/prices", response_model=PriceHistoryResponse)

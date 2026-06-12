@@ -353,6 +353,27 @@ def test_stock_assessment_ranking_contract() -> None:
         assert {"ticker", "overall_score", "technical_score", "verdict_label"}.issubset(payload["rows"][0])
 
 
+def test_stock_assessment_compare_contract() -> None:
+    response = client.get("/api/v1/stocks/assessment/compare?tickers=NVDA,MSFT&limit=12")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "partial", "missing"}
+    assert payload["requested_tickers"] == ["NVDA", "MSFT"]
+    assert isinstance(payload["missing_tickers"], list)
+    assert len(payload["rows"]) == 2
+    assert {
+        "rank",
+        "ticker",
+        "overall_score",
+        "technical_score",
+        "fundamental_score",
+        "moving_average_score",
+        "chart_behavior_score",
+        "above_sma50",
+        "chart_positive",
+    }.issubset(payload["rows"][0])
+
+
 def test_stock_institutional_13f_contract() -> None:
     response = client.get("/api/v1/stocks/NVDA/institutional/13f")
     assert response.status_code == 200

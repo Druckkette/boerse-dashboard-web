@@ -101,6 +101,13 @@ SEC_USER_AGENT=boerse-dashboard-web your-email@example.com
 
 This is not a secret, but it should contain a real contact email. Without it, the worker fails the
 13F job before making SEC requests.
+On Synology, this belongs in `/volume1/docker/boerse-dashboard-web/infra/.env.nas`. After editing it,
+recreate the containers that read the variable:
+
+```bash
+cd /volume1/docker/boerse-dashboard-web/infra
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
+```
 
 ## Updates
 

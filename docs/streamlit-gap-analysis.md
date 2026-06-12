@@ -68,6 +68,10 @@ Target: `Druckkette/boerse-dashboard-web`.
   ticker stores it as recent, the page can add it to the persisted watchlist and
   can mark it as a starter portfolio position through the API without a global
   UI reload.
+- Stock comparison migrated from Streamlit `_render_stock_compare_section`: `/stocks`
+  now has a multi-ticker compare view with category switching for overall,
+  technical, fundamental, moving-average and chart-behavior rankings backed by
+  the FastAPI assessment-compare endpoint.
 
 ## Open Gaps
 

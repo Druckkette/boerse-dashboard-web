@@ -698,6 +698,12 @@ export default function JobsPage() {
             {startMutation.isPending ? "Startet" : "Starten"}
           </button>
         </div>
+        {selectedType === "refresh_sec13f" && (
+          <div className="mt-3 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-sm leading-6 text-amber-100">
+            13F/SEC benötigt auf der NAS `SEC_USER_AGENT` in `infra/.env.nas`, zum Beispiel
+            `boerse-dashboard-web name@example.com`. Nach dem Ändern den Worker neu erstellen.
+          </div>
+        )}
         {startMutation.isError && (
           <div className="mt-3 text-sm text-rose-200">
             {startMutation.error instanceof Error ? startMutation.error.message : "Job konnte nicht gestartet werden."}

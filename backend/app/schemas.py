@@ -441,6 +441,56 @@ class StockAssessmentRankingResponse(BaseModel):
     rows: list[StockAssessmentRankingItem]
 
 
+class StockAssessmentCompareItem(BaseModel):
+    rank: int
+    ticker: str
+    name: str
+    as_of: str
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "stale", "missing"]
+    verdict_label: str
+    verdict_tone: Literal["good", "neutral", "warning", "bad"]
+    overall_score: int
+    technical_score: float
+    fundamental_score: float
+    moving_average_score: float
+    chart_behavior_score: int
+    price: float | None = None
+    perf_1m_pct: float | None = None
+    perf_3m_pct: float | None = None
+    perf_6m_pct: float | None = None
+    drawdown_52w_pct: float | None = None
+    atr_pct: float | None = None
+    beta: float | None = None
+    rs_rating: int | None = Field(default=None, ge=1, le=99)
+    above_sma10: bool | None = None
+    above_ema21: bool | None = None
+    above_sma50: bool | None = None
+    above_sma200: bool | None = None
+    ma_order: bool | None = None
+    fundamental_criteria_passed: int
+    fundamental_criteria_total: int
+    fundamental_positive: int
+    fundamental_negative: int
+    fundamental_neutral: int
+    technical_positive: int
+    technical_negative: int
+    technical_neutral: int
+    chart_positive: int
+    chart_negative: int
+    chart_neutral: int
+    top_driver: str = ""
+    top_warning: str = ""
+
+
+class StockAssessmentCompareResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "partial", "missing"]
+    requested_tickers: list[str]
+    missing_tickers: list[str]
+    rows: list[StockAssessmentCompareItem]
+
+
 class Institutional13FTrendItem(BaseModel):
     ticker: str
     cusip: str

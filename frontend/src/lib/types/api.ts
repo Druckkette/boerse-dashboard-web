@@ -669,6 +669,56 @@ export type StockAssessmentRanking = {
   rows: StockAssessmentRankingItem[];
 };
 
+export type StockAssessmentCompareItem = {
+  rank: number;
+  ticker: string;
+  name: string;
+  as_of: string;
+  source: "database" | "missing";
+  data_status: "fresh" | "stale" | "missing";
+  verdict_label: string;
+  verdict_tone: Tone;
+  overall_score: number;
+  technical_score: number;
+  fundamental_score: number;
+  moving_average_score: number;
+  chart_behavior_score: number;
+  price?: number | null;
+  perf_1m_pct?: number | null;
+  perf_3m_pct?: number | null;
+  perf_6m_pct?: number | null;
+  drawdown_52w_pct?: number | null;
+  atr_pct?: number | null;
+  beta?: number | null;
+  rs_rating?: number | null;
+  above_sma10?: boolean | null;
+  above_ema21?: boolean | null;
+  above_sma50?: boolean | null;
+  above_sma200?: boolean | null;
+  ma_order?: boolean | null;
+  fundamental_criteria_passed: number;
+  fundamental_criteria_total: number;
+  fundamental_positive: number;
+  fundamental_negative: number;
+  fundamental_neutral: number;
+  technical_positive: number;
+  technical_negative: number;
+  technical_neutral: number;
+  chart_positive: number;
+  chart_negative: number;
+  chart_neutral: number;
+  top_driver: string;
+  top_warning: string;
+};
+
+export type StockAssessmentCompare = {
+  as_of: string;
+  source: "database" | "partial" | "missing";
+  requested_tickers: string[];
+  missing_tickers: string[];
+  rows: StockAssessmentCompareItem[];
+};
+
 export type Institutional13FTrendItem = {
   ticker: string;
   cusip: string;

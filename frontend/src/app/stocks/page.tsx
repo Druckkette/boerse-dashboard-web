@@ -2,6 +2,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { RsRankingPanel } from "@/features/stocks/rs-ranking-panel";
 import { Sec13FMappingPanel } from "@/features/stocks/sec13f-mapping-panel";
 import { StockAssessmentRankingPanel } from "@/features/stocks/stock-assessment-ranking-panel";
+import { StockComparePanel } from "@/features/stocks/stock-compare-panel";
 
 export default function StocksPage() {
   return (
@@ -15,6 +16,7 @@ export default function StocksPage() {
         </div>
         <StatusChip tone="neutral">RS API ready</StatusChip>
       </div>
+      <StockComparePanel />
       <StockAssessmentRankingPanel />
       <RsRankingPanel />
       <Sec13FMappingPanel />
