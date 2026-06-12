@@ -32,6 +32,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Worker job `refresh_fundamentals` fills the same cache from yfinance without blocking stock detail requests.
 - Stock detail price chart now includes 21-EMA, 50-SMA, 200-SMA and volume context from the cached Price API.
 - Sell detail diagnostics endpoint and UI with live metrics, strategy hub, next action and post-mortem checks.
+- Market diagnostics endpoint and `/market` UI for the old `_tab_marktanalyse` daily checklist, Intermarket view and defensive/offensive sector rotation.
 
 ## Open Gaps
 
@@ -44,8 +45,6 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Persistent post-mortem notes/actions beyond read-only diagnostic checks.
   - More chart annotations around triggered sell signals.
 - Market parity:
-  - Deep analysis checklist cards from old `_tab_marktanalyse`.
-  - Intermarket block and sector rotation card integration into market overview.
   - Full universe maintenance/rescue/remap workflows.
 - Technical settings parity:
   - Worker diagnostics for missing tickers and Yahoo mapping.

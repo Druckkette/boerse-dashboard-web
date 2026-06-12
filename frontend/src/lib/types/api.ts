@@ -118,6 +118,53 @@ export type SectorRanking = {
   history: SectorRankingPoint[];
 };
 
+export type MarketDiagnosticCheck = {
+  category: "trend" | "breadth" | "volatility" | "warning" | "intermarket" | "rotation" | "data";
+  label: string;
+  passed: boolean;
+  detail: string;
+  tone: Tone;
+};
+
+export type MarketIntermarketItem = {
+  ticker: string;
+  name: string;
+  close?: number | null;
+  day_pct?: number | null;
+  dist_to_20d_high_pct?: number | null;
+  at_20d_high: boolean;
+  tone: Tone;
+  status: string;
+};
+
+export type MarketSectorRotationItem = {
+  ticker: string;
+  name: string;
+  group: "defensive" | "offensive";
+  return_10d_pct?: number | null;
+};
+
+export type MarketSectorRotationGroup = {
+  group: "defensive" | "offensive";
+  label: string;
+  avg_return_10d_pct?: number | null;
+  items: MarketSectorRotationItem[];
+};
+
+export type MarketDiagnostics = {
+  as_of: string;
+  source: "database" | "synthetic_fixture" | "missing";
+  data_status: "fresh" | "stale" | "missing" | "fallback";
+  message: string;
+  summary: string;
+  warning_count: number;
+  defensive_lead?: boolean | null;
+  defensive_spread_pct?: number | null;
+  checklist: MarketDiagnosticCheck[];
+  intermarket: MarketIntermarketItem[];
+  sector_rotation: MarketSectorRotationGroup[];
+};
+
 export type ServiceFreshness = {
   name: string;
   status: "fresh" | "stale" | "missing";

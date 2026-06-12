@@ -12,7 +12,7 @@ from app.domain.market.constants import (
     SECTOR_ETFS,
     SECTOR_ETF_TICKERS,
 )
-from app.domain.market.regime import MarketRegimeInput, classify_market_regime
+from app.domain.market.regime import STRESS_VOLATILITY_REGIMES, MarketRegimeInput, classify_market_regime
 from app.domain.market.volatility import (
     VOLATILITY_TICKERS,
     compute_volatility_dashboard,
@@ -30,7 +30,12 @@ from app.schemas import (
     BreadthPoint,
     BreadthResponse,
     KpiCard,
+    MarketDiagnosticCheck,
+    MarketDiagnosticsResponse,
+    MarketIntermarketItem,
     MarketOverviewResponse,
+    MarketSectorRotationGroup,
+    MarketSectorRotationItem,
     MarketTrendAmpel,
     SectorRankingPoint,
     SectorRankingResponse,
@@ -44,6 +49,13 @@ from app.services.dummy_data import get_market_overview as get_dummy_market_over
 
 
 MARKET_TREND_BENCHMARK = "SPY"
+INTERMARKET_INDEXES = {
+    "SPY": "S&P 500",
+    "QQQ": "Nasdaq 100",
+    "IWM": "Russell 2000",
+}
+DEFENSIVE_SECTOR_TICKERS = ("XLU", "XLP")
+OFFENSIVE_SECTOR_TICKERS = ("XLK", "XLY")
 
 
 @dataclass(frozen=True)
@@ -179,6 +191,42 @@ def get_sector_ranking(*, mode: str = "daily", periods: int = 15) -> SectorRanki
         top=rows[:3],
         bottom=list(reversed(rows[-3:])),
         history=history,
+    )
+
+
+def get_market_diagnostics() -> MarketDiagnosticsResponse:
+    overview = get_market_overview()
+    breadth = get_breadth()
+    volatility = get_volatility()
+    intermarket = _cached_intermarket_divergence()
+    rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
+    benchmark_drawdown_pct = _cached_benchmark_drawdown_pct()
+
+    checklist = _build_market_diagnostic_checks(
+        overview=overview,
+        breadth=breadth,
+        volatility=volatility,
+        intermarket=intermarket,
+        defensive_lead=defensive_lead,
+        defensive_spread_pct=defensive_spread,
+        benchmark_drawdown_pct=benchmark_drawdown_pct,
+    )
+    warning_count = sum(1 for item in checklist if not item.passed and item.tone in {"warning", "bad"})
+    source = _diagnostics_source(overview, intermarket, rotation_groups)
+    data_status = overview.data_status if source != "missing" else "missing"
+
+    return MarketDiagnosticsResponse(
+        as_of=overview.as_of,
+        source=source,
+        data_status=data_status,
+        message=_market_diagnostics_message(source, overview, breadth, intermarket, rotation_groups),
+        summary=_market_diagnostics_summary(warning_count, defensive_lead, intermarket),
+        warning_count=warning_count,
+        defensive_lead=defensive_lead,
+        defensive_spread_pct=defensive_spread,
+        checklist=checklist,
+        intermarket=intermarket,
+        sector_rotation=rotation_groups,
     )
 
 
@@ -425,6 +473,72 @@ def compute_sector_ranking(
     return rows, history
 
 
+def compute_intermarket_divergence(
+    series: Mapping[str, list[MarketOhlcvPoint]],
+) -> list[MarketIntermarketItem]:
+    results: list[MarketIntermarketItem] = []
+    for ticker, name in INTERMARKET_INDEXES.items():
+        points = sorted(series.get(ticker, []), key=lambda point: point.date)
+        if len(points) < 5:
+            continue
+        latest = points[-1]
+        previous = points[-2]
+        day_pct = _safe_pct_change(latest.close, previous.close)
+        high_window = points[-21:-1]
+        reference_high = max((point.high for point in high_window), default=None)
+        dist_to_high = _safe_pct_change(latest.close, reference_high)
+        at_20d_high = bool(reference_high and latest.close >= reference_high * 0.998)
+        tone = _tone_for_intermarket(at_20d_high, dist_to_high)
+        results.append(
+            MarketIntermarketItem(
+                ticker=ticker,
+                name=name,
+                close=round(latest.close, 2),
+                day_pct=_round_optional(day_pct),
+                dist_to_20d_high_pct=_round_optional(dist_to_high),
+                at_20d_high=at_20d_high,
+                tone=tone,
+                status=_intermarket_status(at_20d_high, dist_to_high),
+            )
+        )
+    return results
+
+
+def compute_sector_rotation(
+    series: Mapping[str, list[MarketPricePoint]],
+    *,
+    lookback_days: int = 10,
+) -> tuple[list[MarketSectorRotationGroup], bool | None, float | None]:
+    defensive_items = _sector_rotation_items(series, DEFENSIVE_SECTOR_TICKERS, "defensive", lookback_days)
+    offensive_items = _sector_rotation_items(series, OFFENSIVE_SECTOR_TICKERS, "offensive", lookback_days)
+    defensive_avg = _avg_optional([item.return_10d_pct for item in defensive_items])
+    offensive_avg = _avg_optional([item.return_10d_pct for item in offensive_items])
+    defensive_lead = None
+    spread = None
+    if defensive_avg is not None and offensive_avg is not None:
+        spread = round(defensive_avg - offensive_avg, 2)
+        defensive_lead = defensive_avg > offensive_avg
+
+    return (
+        [
+            MarketSectorRotationGroup(
+                group="defensive",
+                label="Defensiv",
+                avg_return_10d_pct=_round_optional(defensive_avg),
+                items=defensive_items,
+            ),
+            MarketSectorRotationGroup(
+                group="offensive",
+                label="Offensiv",
+                avg_return_10d_pct=_round_optional(offensive_avg),
+                items=offensive_items,
+            ),
+        ],
+        defensive_lead,
+        spread,
+    )
+
+
 def build_market_snapshot(
     point: BreadthComputationPoint,
     volatility_summary: dict | None = None,
@@ -487,6 +601,277 @@ def _cached_volatility_points(*, limit: int = 180):
     start_date = date.today() - timedelta(days=900)
     series = market_repository.load_cached_prices(VOLATILITY_TICKERS, start_date=start_date)
     return compute_volatility_dashboard(series, limit=limit)
+
+
+def _cached_intermarket_divergence() -> list[MarketIntermarketItem]:
+    start_date = date.today() - timedelta(days=120)
+    try:
+        series = {
+            ticker: market_repository.load_cached_ohlcv(ticker, start_date=start_date)
+            for ticker in INTERMARKET_INDEXES
+        }
+    except MarketRepositoryUnavailable:
+        return []
+    return compute_intermarket_divergence(series)
+
+
+def _cached_sector_rotation() -> tuple[list[MarketSectorRotationGroup], bool | None, float | None]:
+    start_date = date.today() - timedelta(days=70)
+    tickers = [*DEFENSIVE_SECTOR_TICKERS, *OFFENSIVE_SECTOR_TICKERS]
+    try:
+        series = market_repository.load_cached_prices(tickers, start_date=start_date)
+    except MarketRepositoryUnavailable:
+        series = {}
+    groups, defensive_lead, defensive_spread = compute_sector_rotation(series, lookback_days=10)
+    if not any(item.return_10d_pct is not None for group in groups for item in group.items):
+        return [], None, None
+    return groups, defensive_lead, defensive_spread
+
+
+def _cached_benchmark_drawdown_pct() -> float | None:
+    try:
+        series = market_repository.load_cached_prices(
+            [MARKET_TREND_BENCHMARK],
+            start_date=date.today() - timedelta(days=420),
+        ).get(MARKET_TREND_BENCHMARK, [])
+    except MarketRepositoryUnavailable:
+        return None
+    if not series:
+        return None
+    closes = [point.close for point in series if point.close > 0]
+    if not closes:
+        return None
+    high = max(closes)
+    if high <= 0:
+        return None
+    return (closes[-1] / high - 1) * 100
+
+
+def _build_market_diagnostic_checks(
+    *,
+    overview: MarketOverviewResponse,
+    breadth: BreadthResponse,
+    volatility: VolatilityResponse,
+    intermarket: list[MarketIntermarketItem],
+    defensive_lead: bool | None,
+    defensive_spread_pct: float | None,
+    benchmark_drawdown_pct: float | None,
+) -> list[MarketDiagnosticCheck]:
+    trend = overview.trend_ampel
+    trend_phase = trend.phase if trend else overview.phase
+    stable = trend_phase != "rot" or bool(trend and trend.anchor_date)
+    intermarket_divergence = _has_intermarket_divergence(intermarket)
+    stress_regime = volatility.regime in STRESS_VOLATILITY_REGIMES
+    if not stress_regime:
+        stress_regime = any(card.title == "VIX Regime" and card.status == "Stress" for card in volatility.status_cards)
+
+    return [
+        _diagnostic_check(
+            "data",
+            "Price-Cache vorhanden",
+            overview.source == "database" or breadth.source == "database",
+            "Marktdiagnose nutzt gespeicherte Snapshots und Price-Bars; keine Liveberechnung im Request.",
+        ),
+        _diagnostic_check(
+            "trend",
+            "Kein substanzieller Drawdown (> -8%)",
+            benchmark_drawdown_pct is None or benchmark_drawdown_pct > -8,
+            f"Benchmark-Drawdown: {_format_optional_pct(benchmark_drawdown_pct)}",
+        ),
+        _diagnostic_check(
+            "trend",
+            "Stabilisierung?",
+            stable,
+            f"Phase: {overview.phase_label}"
+            + (f" · Ankertag {trend.anchor_date}" if trend and trend.anchor_date else ""),
+        ),
+        _diagnostic_check(
+            "trend",
+            "Startschuss (>= Gelb)?",
+            trend_phase in {"gelb", "gruen", "aufwaertstrend"},
+            f"Trend-Ampel: {_phase_label(trend_phase)}",
+        ),
+        _diagnostic_check(
+            "breadth",
+            "Marktbreite?",
+            overview.breadth_mode != "schutz",
+            f"Modus: {overview.breadth_mode.capitalize()} · Coverage {(breadth.coverage_ratio * 100):.0f}%",
+        ),
+        _diagnostic_check(
+            "volatility",
+            "VIX Regime nicht Stress?",
+            not stress_regime,
+            f"Regime: {volatility.regime}",
+        ),
+        _diagnostic_check(
+            "warning",
+            "Warnzeichen <=2?",
+            overview.warning_count <= 2,
+            f"{overview.warning_count} aktiv",
+        ),
+        _diagnostic_check(
+            "intermarket",
+            "Intermarket-Konvergenz",
+            not intermarket_divergence,
+            _intermarket_detail(intermarket),
+        ),
+        _diagnostic_check(
+            "rotation",
+            "Keine Sektorrotation in Defensive",
+            defensive_lead is not True,
+            "Spread: "
+            + (_format_optional_pct(defensive_spread_pct) if defensive_spread_pct is not None else "n/a"),
+        ),
+    ]
+
+
+def _diagnostic_check(category: str, label: str, passed: bool, detail: str) -> MarketDiagnosticCheck:
+    return MarketDiagnosticCheck(
+        category=category,
+        label=label,
+        passed=passed,
+        detail=detail,
+        tone="good" if passed else "warning",
+    )
+
+
+def _sector_rotation_items(
+    series: Mapping[str, list[MarketPricePoint]],
+    tickers: tuple[str, ...],
+    group: str,
+    lookback_days: int,
+) -> list[MarketSectorRotationItem]:
+    items: list[MarketSectorRotationItem] = []
+    for ticker in tickers:
+        points = sorted(series.get(ticker, []), key=lambda point: point.date)
+        return_pct = None
+        if len(points) > lookback_days:
+            return_pct = _safe_pct_change(points[-1].close, points[-1 - lookback_days].close)
+        items.append(
+            MarketSectorRotationItem(
+                ticker=ticker,
+                name=SECTOR_ETFS.get(ticker, ticker),
+                group=group,
+                return_10d_pct=_round_optional(return_pct),
+            )
+        )
+    return items
+
+
+def _diagnostics_source(
+    overview: MarketOverviewResponse,
+    intermarket: list[MarketIntermarketItem],
+    rotation_groups: list[MarketSectorRotationGroup],
+) -> str:
+    has_rotation = any(item.return_10d_pct is not None for group in rotation_groups for item in group.items)
+    if overview.source == "database" or intermarket or has_rotation:
+        return "database"
+    if overview.source == "synthetic_fixture":
+        return "synthetic_fixture"
+    return "missing"
+
+
+def _market_diagnostics_message(
+    source: str,
+    overview: MarketOverviewResponse,
+    breadth: BreadthResponse,
+    intermarket: list[MarketIntermarketItem],
+    rotation_groups: list[MarketSectorRotationGroup],
+) -> str:
+    if source == "missing":
+        return "Keine gecachten Marktdaten gefunden. Starte refresh_prices und danach refresh_breadth."
+    missing_parts = []
+    if overview.source != "database":
+        missing_parts.append("MarketSnapshot")
+    if breadth.source != "database":
+        missing_parts.append("Breadth")
+    if not intermarket:
+        missing_parts.append("Intermarket-Indizes")
+    if not rotation_groups:
+        missing_parts.append("Sektor-ETFs")
+    if missing_parts:
+        return "Teilweise Cache-Abdeckung fehlt: " + ", ".join(missing_parts) + "."
+    return "Diagnose aus vorberechneten Snapshots und gecachten Price-Bars."
+
+
+def _market_diagnostics_summary(
+    warning_count: int,
+    defensive_lead: bool | None,
+    intermarket: list[MarketIntermarketItem],
+) -> str:
+    if warning_count == 0:
+        return "Keine aktiven Markt-Warnzeichen in der täglichen Checkliste."
+    if defensive_lead:
+        return f"{warning_count} Warnzeichen; defensive Sektoren führen kurzfristig."
+    if _has_intermarket_divergence(intermarket):
+        return f"{warning_count} Warnzeichen; wichtige Indizes bestätigen Stärke nicht einheitlich."
+    if warning_count <= 2:
+        return f"{warning_count} Warnzeichen; Umfeld bleibt handelbar, aber selektiv."
+    return f"{warning_count} Warnzeichen; Risiko reduzieren und neue Käufe stark filtern."
+
+
+def _has_intermarket_divergence(items: list[MarketIntermarketItem]) -> bool:
+    if len(items) < 2:
+        return False
+    return any(item.at_20d_high for item in items) and any(not item.at_20d_high for item in items)
+
+
+def _intermarket_detail(items: list[MarketIntermarketItem]) -> str:
+    if not items:
+        return "Keine Intermarket-Indexdaten im Cache."
+    return " · ".join(
+        f"{item.name}: {_format_optional_pct(item.dist_to_20d_high_pct)} zum 20T-Hoch" for item in items
+    )
+
+
+def _tone_for_intermarket(at_20d_high: bool, dist_to_high: float | None) -> str:
+    if at_20d_high:
+        return "good"
+    if dist_to_high is None:
+        return "neutral"
+    if dist_to_high >= -2:
+        return "neutral"
+    if dist_to_high >= -5:
+        return "warning"
+    return "bad"
+
+
+def _intermarket_status(at_20d_high: bool, dist_to_high: float | None) -> str:
+    if at_20d_high:
+        return "20T-Hoch bestätigt"
+    if dist_to_high is None:
+        return "Referenzhoch fehlt"
+    if dist_to_high >= -2:
+        return "nahe am 20T-Hoch"
+    if dist_to_high >= -5:
+        return "hinkt hinterher"
+    return "deutlich schwächer"
+
+
+def _safe_pct_change(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous is None or previous <= 0:
+        return None
+    return (current / previous - 1) * 100
+
+
+def _avg_optional(values: list[float | None]) -> float | None:
+    clean = [value for value in values if value is not None]
+    if not clean:
+        return None
+    return sum(clean) / len(clean)
+
+
+def _round_optional(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 2)
+
+
+def _format_optional_pct(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:+.1f}%"
+
 
 
 def _normalize_tickers(tickers: list[str]) -> list[str]:

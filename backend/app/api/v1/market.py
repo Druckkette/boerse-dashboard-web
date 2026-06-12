@@ -1,7 +1,19 @@
 from fastapi import APIRouter, Query
 
-from app.schemas import BreadthResponse, MarketOverviewResponse, SectorRankingResponse, VolatilityResponse
-from app.services.market import get_breadth, get_market_overview, get_sector_ranking, get_volatility
+from app.schemas import (
+    BreadthResponse,
+    MarketDiagnosticsResponse,
+    MarketOverviewResponse,
+    SectorRankingResponse,
+    VolatilityResponse,
+)
+from app.services.market import (
+    get_breadth,
+    get_market_diagnostics,
+    get_market_overview,
+    get_sector_ranking,
+    get_volatility,
+)
 
 
 router = APIRouter()
@@ -20,6 +32,11 @@ def market_breadth() -> BreadthResponse:
 @router.get("/volatility", response_model=VolatilityResponse)
 def market_volatility() -> VolatilityResponse:
     return get_volatility()
+
+
+@router.get("/diagnostics", response_model=MarketDiagnosticsResponse)
+def market_diagnostics() -> MarketDiagnosticsResponse:
+    return get_market_diagnostics()
 
 
 @router.get("/sectors", response_model=SectorRankingResponse)

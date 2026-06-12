@@ -140,6 +140,53 @@ class SectorRankingResponse(BaseModel):
     history: list[SectorRankingPoint]
 
 
+class MarketDiagnosticCheck(BaseModel):
+    category: Literal["trend", "breadth", "volatility", "warning", "intermarket", "rotation", "data"]
+    label: str
+    passed: bool
+    detail: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class MarketIntermarketItem(BaseModel):
+    ticker: str
+    name: str
+    close: float | None = None
+    day_pct: float | None = None
+    dist_to_20d_high_pct: float | None = None
+    at_20d_high: bool
+    tone: Literal["good", "neutral", "warning", "bad"]
+    status: str
+
+
+class MarketSectorRotationItem(BaseModel):
+    ticker: str
+    name: str
+    group: Literal["defensive", "offensive"]
+    return_10d_pct: float | None = None
+
+
+class MarketSectorRotationGroup(BaseModel):
+    group: Literal["defensive", "offensive"]
+    label: str
+    avg_return_10d_pct: float | None = None
+    items: list[MarketSectorRotationItem]
+
+
+class MarketDiagnosticsResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "synthetic_fixture", "missing"]
+    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    message: str = ""
+    summary: str
+    warning_count: int
+    defensive_lead: bool | None = None
+    defensive_spread_pct: float | None = None
+    checklist: list[MarketDiagnosticCheck]
+    intermarket: list[MarketIntermarketItem]
+    sector_rotation: list[MarketSectorRotationGroup]
+
+
 class PriceBarPoint(BaseModel):
     date: str
     open: float | None = None

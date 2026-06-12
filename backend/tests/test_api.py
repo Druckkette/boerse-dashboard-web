@@ -47,6 +47,20 @@ def test_market_volatility_contract() -> None:
     assert isinstance(payload["points"], list)
 
 
+def test_market_diagnostics_contract() -> None:
+    response = client.get("/api/v1/market/diagnostics")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "synthetic_fixture", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
+    assert isinstance(payload["warning_count"], int)
+    assert isinstance(payload["checklist"], list)
+    assert isinstance(payload["intermarket"], list)
+    assert isinstance(payload["sector_rotation"], list)
+    if payload["checklist"]:
+        assert {"category", "label", "passed", "detail", "tone"}.issubset(payload["checklist"][0])
+
+
 def test_market_sectors_contract() -> None:
     response = client.get("/api/v1/market/sectors?mode=daily&periods=10")
     assert response.status_code == 200

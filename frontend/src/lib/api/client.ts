@@ -4,6 +4,7 @@ import type {
   Freshness,
   Job,
   JobType,
+  MarketDiagnostics,
   MarketOverview,
   Institutional13FTrend,
   IsinMappingListResponse,
@@ -90,6 +91,7 @@ export const api = {
   marketOverview: () => getJson<MarketOverview>("/market/overview"),
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
+  marketDiagnostics: () => getJson<MarketDiagnostics>("/market/diagnostics"),
   marketSectors: (mode: "daily" | "weekly" = "daily", periods = 15) =>
     getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
   freshness: () => getJson<Freshness>("/freshness"),
