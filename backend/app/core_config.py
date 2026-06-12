@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     api_rate_limit_enabled: bool = False
     api_rate_limit_requests: int = 120
     api_rate_limit_window_seconds: int = 60
+    api_access_log_enabled: bool = False
     cors_origins: list[AnyHttpUrl | str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",

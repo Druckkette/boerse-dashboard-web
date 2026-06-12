@@ -30,6 +30,8 @@ traffic goes through the protected Next.js frontend. The frontend forwards `/api
 Keep `API_RATE_LIMIT_ENABLED=1` for NAS use. The default example allows 240 backend requests per
 60 seconds per client and excludes health/docs endpoints, which is enough for normal dashboard
 polling but helps if the backend port is accidentally exposed.
+Set `API_ACCESS_LOG_ENABLED=1` to add compact JSON request logs. Each response also carries
+`X-Request-ID`, which makes browser/network errors easier to match with container logs.
 
 `BACKEND_BIND=127.0.0.1` keeps FastAPI reachable only from the NAS host itself. Change it to
 `0.0.0.0` only for deliberate temporary debugging, for example to open `/docs` from another machine.
@@ -137,6 +139,7 @@ The backend also has an optional in-memory rate limit controlled by:
 API_RATE_LIMIT_ENABLED=1
 API_RATE_LIMIT_REQUESTS=240
 API_RATE_LIMIT_WINDOW_SECONDS=60
+API_ACCESS_LOG_ENABLED=1
 ```
 
 ## NAS Performance Rules

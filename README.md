@@ -93,6 +93,8 @@ Enable the private dashboard gate on the NAS with `APP_AUTH_ENABLED=1`, `APP_AUT
 Keep `API_RATE_LIMIT_ENABLED=1` on NAS unless you are debugging locally. The default
 `API_RATE_LIMIT_REQUESTS=240` per `API_RATE_LIMIT_WINDOW_SECONDS=60` is intended as a guardrail for
 direct backend access while leaving normal dashboard polling usable.
+Set `API_ACCESS_LOG_ENABLED=1` on NAS to emit compact JSON request logs with `request_id`, path,
+status and duration. Every API response also includes an `X-Request-ID` header.
 For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
 page only shows whether those env vars are configured and can start a non-blocking test job.
 For deeper stock fundamentals, optionally set `FMP_API_KEY`; without it the worker keeps using
@@ -200,6 +202,7 @@ in the private NAS environment file:
 - `API_RATE_LIMIT_ENABLED=1`
 - `API_RATE_LIMIT_REQUESTS=240`
 - `API_RATE_LIMIT_WINDOW_SECONDS=60`
+- `API_ACCESS_LOG_ENABLED=1`
 
 Normal browser traffic should go to `http://NAS-IP-ODER-HOSTNAME:3000`. The frontend serves pages and
 forwards `/api/v1/*` to the internal FastAPI service. Keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` on NAS
