@@ -195,6 +195,47 @@ def test_monitor_open_positions_persists_recommendation_state(monkeypatch: pytes
     assert result["items"][0]["recommendation_percent"] >= 0
 
 
+def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        PortfolioPositionRow(
+            ticker="AAPL",
+            name="Apple",
+            shares=3,
+            entry_price=100,
+            current_price=65,
+            currency="USD",
+            buy_date=date(2025, 1, 15),
+            broker="Test",
+            account="Main",
+        )
+    ]
+
+    def fake_price_bars(ticker: str, *, start_date=None):
+        if ticker.upper() == "SPY":
+            return _price_bars(start=410, step=0.12)
+        return _price_bars(start=120, step=-0.2)
+
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", fake_price_bars)
+
+    result = sell_service.monitor_open_positions(
+        monitor_settings={
+            "position_monitor_enabled": True,
+            "position_monitor_reference": "high_since_buy",
+            "position_monitor_threshold_atr": 1.0,
+            "position_monitor_atr_period": 21,
+            "position_monitor_lookback_days": 280,
+            "position_monitor_cooldown_hours": 12,
+        }
+    )
+
+    monitor = result["items"][0]["monitor"]
+    assert monitor["reference"] == "high_since_buy"
+    assert monitor["atr_period"] == 21
+    assert monitor["threshold_crossed"] is True
+    assert monitor["distance_atr"] >= 1.0
+
+
 def _price_bars(*, start: float, step: float, periods: int = 280):
     return [
         SimpleNamespace(

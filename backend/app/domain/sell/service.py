@@ -239,9 +239,13 @@ def clear_sell_engine_state() -> None:
     sell_state_repository.clear_memory_sell_state()
 
 
-def monitor_open_positions(tickers: list[str] | None = None) -> dict[str, Any]:
+def monitor_open_positions(
+    tickers: list[str] | None = None,
+    monitor_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Evaluate all open positions using cached sell metrics and persist recommendation state."""
 
+    settings = monitor_settings or {}
     allowed = set(_clean_ticker(ticker) for ticker in tickers or [] if _clean_ticker(ticker))
     portfolio_rows = [
         row for row in _portfolio_positions()
@@ -271,6 +275,7 @@ def monitor_open_positions(tickers: list[str] | None = None) -> dict[str, Any]:
         atr_pct = None
         if metrics.atr14 is not None and metrics.current_price:
             atr_pct = metrics.atr14 / metrics.current_price * 100
+        monitor_state = _monitor_state_from_metrics(row, metrics, settings)
         items.append(
             {
                 "ticker": row.ticker,
@@ -286,6 +291,7 @@ def monitor_open_positions(tickers: list[str] | None = None) -> dict[str, Any]:
                 "recommendation_percent": evaluation.recommendation_percent,
                 "pending_status": evaluation.pending_status,
                 "primary_signal": _primary_signal_label(evaluation),
+                "monitor": monitor_state,
             }
         )
 
@@ -356,6 +362,48 @@ def _live_monitor_metrics(metrics: SellMetricsApiResponse) -> list[SellLiveMonit
             tone="good" if metrics.rs_trend == "hoch" else "bad" if metrics.rs_trend == "runter" else "neutral",
         ),
     ]
+
+
+def _monitor_state_from_metrics(
+    row: PortfolioPositionRow,
+    metrics: SellMetricsApiResponse,
+    settings: dict[str, Any],
+) -> dict[str, Any]:
+    atr_period = int(_finite_float(settings.get("position_monitor_atr_period"), 14) or 14)
+    threshold_atr = float(_finite_float(settings.get("position_monitor_threshold_atr"), 1.5) or 1.5)
+    lookback_days = int(_finite_float(settings.get("position_monitor_lookback_days"), 120) or 120)
+    reference_mode = str(settings.get("position_monitor_reference") or "high_since_buy")
+    if reference_mode not in {"high_since_buy", "close_since_buy", "entry_price"}:
+        reference_mode = "high_since_buy"
+
+    daily_frame = metrics.raw_payload.ohlc_frames.get("daily_since_buy")
+    reference_price = _monitor_reference_price(
+        daily_frame=daily_frame,
+        row=row,
+        current_price=metrics.current_price,
+        reference_mode=reference_mode,
+        lookback_days=lookback_days,
+    )
+    atr_value = _monitor_atr(daily_frame, atr_period) or metrics.atr14
+    current_price = _finite_float(metrics.current_price)
+    distance_atr = None
+    threshold_crossed = False
+    if reference_price is not None and atr_value is not None and atr_value > 0 and current_price is not None:
+        distance_atr = (reference_price - current_price) / atr_value
+        threshold_crossed = distance_atr >= threshold_atr
+
+    return {
+        "enabled": bool(settings.get("position_monitor_enabled", True)),
+        "reference": reference_mode,
+        "reference_price": _round_metric(reference_price),
+        "current_price": _round_metric(current_price),
+        "atr_period": atr_period,
+        "atr_value": _round_metric(atr_value),
+        "threshold_atr": threshold_atr,
+        "distance_atr": _round_metric(distance_atr),
+        "threshold_crossed": threshold_crossed,
+        "cooldown_hours": int(_finite_float(settings.get("position_monitor_cooldown_hours"), 12) or 12),
+    }
 
 
 def _strategy_hub(signals: list[SellSignal]) -> list[SellStrategyDiagnostic]:
@@ -921,6 +969,70 @@ def _data_source_label(value: str) -> str:
     if value == "synthetic_fallback":
         return "Fallback"
     return "unbekannt"
+
+
+def _monitor_reference_price(
+    *,
+    daily_frame: Any,
+    row: PortfolioPositionRow,
+    current_price: float | None,
+    reference_mode: str,
+    lookback_days: int,
+) -> float | None:
+    if reference_mode == "entry_price":
+        return _finite_float(row.entry_price, current_price)
+
+    frame = _tail_ohlc_frame(daily_frame, lookback_days)
+    if frame.empty:
+        return _finite_float(current_price, row.entry_price)
+
+    column = "close" if reference_mode == "close_since_buy" else "high"
+    if column not in frame:
+        return _finite_float(current_price, row.entry_price)
+
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    if values.empty:
+        return _finite_float(current_price, row.entry_price)
+    return _finite_float(values.max(), current_price)
+
+
+def _monitor_atr(daily_frame: Any, period: int) -> float | None:
+    frame = _tail_ohlc_frame(daily_frame, max(period * 3, period + 2))
+    if frame.empty or len(frame) < max(2, period):
+        return None
+    required = {"high", "low", "close"}
+    if not required.issubset(set(frame.columns)):
+        return None
+
+    high = pd.to_numeric(frame["high"], errors="coerce")
+    low = pd.to_numeric(frame["low"], errors="coerce")
+    close = pd.to_numeric(frame["close"], errors="coerce")
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [
+            (high - low).abs(),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    atr = true_range.rolling(period).mean().dropna()
+    if atr.empty:
+        return None
+    return _finite_float(atr.iloc[-1])
+
+
+def _tail_ohlc_frame(frame: Any, lookback_days: int) -> pd.DataFrame:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return pd.DataFrame()
+    cleaned = frame.copy()
+    if not isinstance(cleaned.index, pd.DatetimeIndex):
+        cleaned.index = pd.to_datetime(cleaned.index, errors="coerce")
+        cleaned = cleaned[cleaned.index.notna()]
+    cleaned = cleaned.sort_index()
+    if lookback_days > 0:
+        cleaned = cleaned.tail(lookback_days)
+    return cleaned
 
 
 def _strategy_tone(signals: list[SellSignal]) -> str:

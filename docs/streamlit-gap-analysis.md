@@ -6,7 +6,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 ## Covered Or Mostly Covered
 
 - Market overview: breadth, volatility, trend ampellogic, cached snapshots.
-- Market data jobs: price refresh, breadth, relative strength, ATR monitor skeleton/partial implementation.
+- Market data jobs: price refresh, breadth, relative strength, settings-aware ATR monitor.
 - Portfolio import: browser upload, parsed positions, Trade-Republic transaction preview/import, ISIN mapping, persisted open positions.
 - Portfolio controls: manual position editor, sell booking, cash-flow log, depot curve from Trade-Republic transactions or open-position fallback, position-size calculator and persisted risk assumptions.
 - Sell engine: migrated domain logic, metrics/evaluate endpoints, ranking, manual state, tranche log, snooze state.
@@ -56,6 +56,8 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Universe mapping parity hardening: stale manual overrides for renamed/delisted symbols
   are kept in storage but no longer counted in current mapping review results; class-share
   examples are covered by dedicated market fixtures.
+- Settings-aware ATR monitor: scheduled runs respect the web setting, manual runs can still be
+  triggered, and monitor results include ATR distance to the configured reference.
 
 ## Open Gaps
 
