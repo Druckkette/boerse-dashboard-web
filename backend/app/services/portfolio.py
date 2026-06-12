@@ -22,9 +22,9 @@ from app.domain.portfolio.trade_republic import (
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import (
-    KpiCard,
     IsinMappingListResponse,
     IsinMappingPatchRequest,
+    KpiCard,
     PortfolioCashFlow,
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
@@ -52,8 +52,6 @@ from app.schemas import (
     TradeRepublicTransactionImportRequest,
     TradeRepublicTransactionImportResponse,
 )
-from app.services.dummy_data import get_portfolio_positions as get_dummy_portfolio_positions
-from app.services.dummy_data import get_portfolio_snapshot as get_dummy_portfolio_snapshot
 
 
 REQUIRED_IMPORT_FIELDS = {"ticker", "shares", "entry_price"}
@@ -87,7 +85,7 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
     except PortfolioRepositoryUnavailable:
         rows = []
     if not rows:
-        return get_dummy_portfolio_positions()
+        return []
 
     invested = sum(row.current_price * row.shares for row in rows)
     positions: list[PortfolioPosition] = []
@@ -129,7 +127,7 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
     except PortfolioRepositoryUnavailable:
         rows = []
     if not rows:
-        return get_dummy_portfolio_snapshot()
+        return _empty_portfolio_snapshot()
 
     positions = get_portfolio_positions()
     invested = sum(position.market_value for position in positions)
@@ -169,6 +167,37 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
             ),
         ],
         positions=positions,
+    )
+
+
+def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
+    try:
+        cash = portfolio_repository.get_cash_balance()
+    except PortfolioRepositoryUnavailable:
+        cash = 0.0
+    cash_ratio = 100.0 if cash > 0 else 0.0
+    return PortfolioSnapshotResponse(
+        as_of=datetime.now(UTC).isoformat(),
+        total_value=cash,
+        invested_value=0.0,
+        cash_balance=cash,
+        cash_ratio_pct=cash_ratio,
+        portfolio_atr_pct=0.0,
+        beta_balancer=1.0,
+        max_depot_loss_pct=0.0,
+        kpis=[
+            KpiCard(
+                label="Depotwert",
+                value=f"{cash:,.0f} EUR",
+                detail="kein Depot importiert",
+                tone="neutral",
+            ),
+            KpiCard(label="Positionen", value="0", detail="Import offen", tone="warning"),
+            KpiCard(label="Unrealisiert", value="+0 EUR", detail="keine offenen Positionen", tone="neutral"),
+            KpiCard(label="Cashquote", value=f"{cash_ratio:.1f}%", detail=f"{cash:,.0f} EUR", tone="neutral"),
+            KpiCard(label="Portfolio ATR", value="0.00%", detail="keine offenen Positionen", tone="neutral"),
+        ],
+        positions=[],
     )
 
 

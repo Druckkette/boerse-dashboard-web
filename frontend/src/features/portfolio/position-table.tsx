@@ -8,7 +8,8 @@ import {
   SortingState,
   useReactTable
 } from "@tanstack/react-table";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Upload } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -104,6 +105,28 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel()
   });
+
+  if (positions.length === 0) {
+    return (
+      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold">Keine offenen Positionen</h2>
+            <p className="mt-1 text-sm text-[#a0a7b4]">
+              Importiere dein Depot direkt über die Weboberfläche, damit Portfolio, Sell-Monitor und Charts echte Daten nutzen.
+            </p>
+          </div>
+          <Link
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200"
+            href="/portfolio/imports"
+          >
+            <Upload size={16} />
+            Import öffnen
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">

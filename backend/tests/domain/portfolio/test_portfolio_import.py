@@ -94,6 +94,21 @@ def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch)
     assert snapshot.kpis[-1].label == "Portfolio ATR"
 
 
+def test_empty_portfolio_returns_empty_state_not_demo_positions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: [])
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "get_cash_balance", lambda: 0.0)
+
+    positions = portfolio_service.get_portfolio_positions()
+    snapshot = portfolio_service.get_portfolio_snapshot()
+
+    assert positions == []
+    assert snapshot.positions == []
+    assert snapshot.total_value == 0
+    assert snapshot.kpis[1].label == "Positionen"
+    assert snapshot.kpis[1].value == "0"
+    assert snapshot.kpis[1].detail == "Import offen"
+
+
 def test_trade_republic_parser_handles_broker_edge_cases() -> None:
     rows = parse_transaction_export_csv((FIXTURE_DIR / "trade_republic_edge_cases.csv").read_text())
 
