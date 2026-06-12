@@ -44,6 +44,15 @@ PUSHOVER_DRY_RUN=0
 After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
 marked `skipped` instead of crashing the app.
 
+Set `SEC_USER_AGENT` before running real 13F/SEC jobs:
+
+```bash
+SEC_USER_AGENT=boerse-dashboard-web your-email@example.com
+```
+
+This is not a secret, but it should contain a real contact email. Without it, the worker fails the
+13F job before making SEC requests.
+
 ## Updates
 
 Use Synology Task Scheduler to run:

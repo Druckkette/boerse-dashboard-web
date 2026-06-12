@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
+from app.data_sources.sec13f_client import build_institutional_13f_payload, normalize_ticker
+from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import sec13f as sec13f_repository
+from app.repositories import portfolio as portfolio_repository
 from app.repositories.sec13f import (
     Institutional13FTrendRow,
     Institutional13FTrendWrite,
@@ -14,6 +20,8 @@ from app.schemas import (
     Institutional13FTrendItem,
     Institutional13FTrendResponse,
 )
+
+ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]
 
 
 def ingest_institutional_13f_payload(payload: dict[str, Any]) -> dict:
@@ -49,6 +57,36 @@ def ingest_institutional_13f_payload(payload: dict[str, Any]) -> dict:
         "records_written": written,
         "source": "payload",
     }
+
+
+def refresh_institutional_13f_from_sec(
+    payload: dict[str, Any],
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
+    universe = _resolve_universe(payload)
+    cache_root = Path(str(payload.get("cache_dir") or os.environ.get("BACKEND_CACHE_DIR") or ".cache"))
+    build_result = build_institutional_13f_payload(
+        universe=universe,
+        cache_dir=cache_root / "sec13f",
+        dataset_count=_int_or_default(payload.get("dataset_count"), 2),
+        large_holder_min_value_usd=_float_or_default(payload.get("large_holder_min_value_usd"), 10_000_000),
+        chunksize=_int_or_default(payload.get("chunksize"), 250_000),
+        progress=progress_callback,
+    )
+    ingest_result = ingest_institutional_13f_payload(build_result.payload)
+    ingest_result.update(
+        {
+            "source": "sec",
+            "metadata": build_result.metadata,
+            "universe": universe,
+            "universe_count": len(universe),
+            "mapping_count": len(build_result.mapping_rows),
+            "unmatched_count": len(build_result.unmatched_rows),
+            "records_seen": len(build_result.payload.get("tickers", {})),
+        }
+    )
+    return ingest_result
 
 
 def get_institutional_13f_for_ticker(ticker: str) -> Institutional13FTrendResponse:
@@ -143,3 +181,42 @@ def _str_or_none(value: Any) -> str | None:
 def _trend(value: Any) -> str:
     clean = str(value or "missing").strip().lower()
     return clean if clean in {"positive", "negative", "neutral", "new"} else "missing"
+
+
+def _resolve_universe(payload: dict[str, Any]) -> list[str]:
+    explicit = _normalize_tickers(payload.get("tickers"))
+    limit = max(1, min(500, _int_or_default(payload.get("limit_universe") or payload.get("limit"), 120)))
+    if explicit:
+        return explicit[:limit]
+
+    universe_key = str(payload.get("universe") or payload.get("mode") or "open_positions").strip().lower()
+    tickers: list[str] = []
+    if universe_key in {"open_positions", "positions", "incremental", "manual"}:
+        try:
+            tickers = [row.ticker for row in portfolio_repository.list_open_positions()]
+        except portfolio_repository.PortfolioRepositoryUnavailable:
+            tickers = []
+    if not tickers:
+        tickers = list(DEFAULT_MARKET_UNIVERSE_TICKERS)
+    return _normalize_tickers(tickers)[:limit]
+
+
+def _normalize_tickers(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw = value.replace(";", ",").split(",")
+    elif isinstance(value, list | tuple | set):
+        raw = list(value)
+    else:
+        raw = []
+    tickers = [normalize_ticker(item) for item in raw]
+    return list(dict.fromkeys(ticker for ticker in tickers if ticker))
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    numeric = _int_or_none(value)
+    return numeric if numeric is not None and numeric > 0 else default
+
+
+def _float_or_default(value: Any, default: float) -> float:
+    numeric = _float_or_none(value)
+    return numeric if numeric is not None and numeric > 0 else default

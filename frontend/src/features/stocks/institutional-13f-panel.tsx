@@ -34,7 +34,8 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
       {query.isError && <div className="text-sm text-rose-200">13F-Trend konnte nicht geladen werden.</div>}
       {!query.isLoading && !query.isError && !item && (
         <div className="rounded border border-dashed border-[#4b5563] bg-[#111419] p-5 text-sm text-[#a0a7b4]">
-          Starte den 13F/SEC-Job mit einem `institutional_13f_trends.json`-Payload, danach erscheint hier der Trend.
+          Starte den 13F/SEC-Job auf der Jobs-Seite. Der Worker lädt die offiziellen SEC-Datensätze
+          und speichert danach aggregierte Ticker-Trends.
         </div>
       )}
       {item && (

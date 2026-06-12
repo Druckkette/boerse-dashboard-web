@@ -38,6 +38,8 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Settings data diagnostics for missing/stale price cache, Yahoo-symbol gaps and ISIN mapping status with direct worker-job actions.
 - Basic Auth frontend gate for private NAS access plus same-origin `/api/v1` proxy to keep normal
   browser traffic behind the dashboard.
+- Real SEC Form-13F worker path: downloads official quarterly data sets with `SEC_USER_AGENT`,
+  caches ZIP files, maps CUSIPs to tickers and persists aggregate institutional trends.
 
 ## Open Gaps
 
@@ -49,4 +51,4 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Market parity:
   - Full universe maintenance/rescue/remap workflows.
 - 13F/SEC parity:
-  - Real 13F trend worker, CUSIP mapping workflows and frontend display.
+  - Manual CUSIP override maintenance and unmatched-CUSIP review workflow.

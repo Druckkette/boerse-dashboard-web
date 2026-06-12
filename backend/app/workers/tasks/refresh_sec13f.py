@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.repositories import jobs as job_repository
-from app.services.sec13f import ingest_institutional_13f_payload
+from app.services.sec13f import ingest_institutional_13f_payload, refresh_institutional_13f_from_sec
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
@@ -13,27 +13,34 @@ def refresh_sec13f(self, job_id: str | None = None, payload: dict | None = None)
     if job is None:
         job = job_repository.create_job("refresh_sec13f", payload, requested_by=str(payload.get("source") or "api"))
 
-    job_repository.mark_running(job.job_id, step="13F Payload prüfen")
+    job_repository.mark_running(job.job_id, step="13F Refresh startet")
     try:
         raise_if_cancelled(job.job_id)
-        if not isinstance(payload.get("tickers"), dict) and not _looks_like_ticker_payload(payload):
-            result = {
-                "ok": False,
-                "skipped": True,
-                "reason": "Kein 13F-Trendpayload übergeben. Erwartet altes JSON-Format mit Feld 'tickers'.",
-                "job_type": "refresh_sec13f",
-            }
-            job_repository.mark_skipped(job.job_id, message=result["reason"], result=result)
-            return result
+        if isinstance(payload.get("tickers"), dict) or _looks_like_ticker_payload(payload):
+            job_repository.update_progress(
+                job.job_id,
+                progress=35,
+                step="13F-Trends normalisieren",
+                message="Altes Streamlit-JSON-Format wird in Repository-Writes umgewandelt.",
+            )
+            raise_if_cancelled(job.job_id)
+            result = ingest_institutional_13f_payload(payload)
+        else:
+            result = {"ok": False, "job_type": "refresh_sec13f", "source": "sec"}
 
-        job_repository.update_progress(
-            job.job_id,
-            progress=35,
-            step="13F-Trends normalisieren",
-            message="Altes Streamlit-JSON-Format wird in Repository-Writes umgewandelt.",
-        )
-        raise_if_cancelled(job.job_id)
-        result = ingest_institutional_13f_payload(payload)
+            def progress_callback(progress: int, step: str, message: str, partial: dict) -> None:
+                raise_if_cancelled(job.job_id)
+                result.update(partial)
+                job_repository.update_progress(
+                    job.job_id,
+                    progress=progress,
+                    step=step,
+                    message=message,
+                    result=result,
+                )
+
+            result = refresh_institutional_13f_from_sec(payload, progress_callback=progress_callback)
+
         result["job_type"] = "refresh_sec13f"
         job_repository.update_progress(
             job.job_id,

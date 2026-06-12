@@ -12,7 +12,7 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_breadth", label: "Breadth", description: "Marktbreite und Snapshots" },
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking" },
   { type: "refresh_fundamentals", label: "Fundamentals", description: "EPS, ROE, Marge, Earnings" },
-  { type: "refresh_sec13f", label: "13F / SEC", description: "Institutionelle Artefakte, selten starten" },
+  { type: "refresh_sec13f", label: "13F / SEC", description: "Offizielle SEC-Datensätze, monatlich/manuell" },
   { type: "position_atr_monitor", label: "ATR Monitor", description: "Offene Positionen prüfen" }
 ];
 
@@ -488,6 +488,9 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
   if (type === "refresh_breadth") return { mode: "manual", lookback_days: 370 };
   if (type === "refresh_relative_strength") return { mode: "manual", lookback_days: 430 };
   if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
+  if (type === "refresh_sec13f") {
+    return { mode: "manual", universe: "open_positions", dataset_count: 2, limit_universe: 120 };
+  }
   return { mode: "manual" };
 }
 
