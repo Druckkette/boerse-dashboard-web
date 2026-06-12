@@ -19,6 +19,25 @@ class FetchedPriceBar:
     volume: float | None
 
 
+@dataclass(frozen=True)
+class FetchedFundamentals:
+    ticker: str
+    as_of: date
+    source: str
+    fiscal_period: str
+    quarterly_eps_growth_pct: float | None
+    annual_eps_growth_pct: float | None
+    quarterly_revenue_growth_pct: float | None
+    annual_revenue_growth_pct: float | None
+    roe_pct: float | None
+    profit_margin_pct: float | None
+    trailing_eps: float | None
+    institutional_holders: int | None
+    institutional_ownership_pct: float | None
+    next_earnings_date: date | None
+    beta: float | None
+
+
 def fetch_daily_price_bars(symbol: str, *, period: str = "1y") -> list[FetchedPriceBar]:
     """Fetch daily OHLC bars from yfinance for worker-side cache refreshes."""
     import yfinance as yf
@@ -63,6 +82,44 @@ def fetch_daily_price_bars(symbol: str, *, period: str = "1y") -> list[FetchedPr
     return bars
 
 
+def fetch_fundamentals(symbol: str, *, include_holders: bool = True) -> FetchedFundamentals:
+    """Fetch a compact fundamental snapshot for worker-side caching."""
+    import yfinance as yf
+
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        raise ValueError("symbol must not be empty")
+
+    ticker = yf.Ticker(clean_symbol)
+    info = _safe_info(ticker)
+    holders_count = _safe_holders_count(ticker) if include_holders else None
+    return FetchedFundamentals(
+        ticker=clean_symbol,
+        as_of=date.today(),
+        source="yfinance",
+        fiscal_period=str(info.get("mostRecentQuarter") or info.get("lastFiscalYearEnd") or ""),
+        quarterly_eps_growth_pct=_ratio_to_pct(
+            info.get("earningsQuarterlyGrowth") or info.get("quarterlyEarningsGrowth")
+        ),
+        annual_eps_growth_pct=_ratio_to_pct(info.get("earningsGrowth")),
+        quarterly_revenue_growth_pct=_ratio_to_pct(
+            info.get("revenueGrowth") or info.get("quarterlyRevenueGrowth")
+        ),
+        annual_revenue_growth_pct=_ratio_to_pct(info.get("annualRevenueGrowth")),
+        roe_pct=_ratio_to_pct(info.get("returnOnEquity")),
+        profit_margin_pct=_ratio_to_pct(info.get("profitMargins")),
+        trailing_eps=_float_or_none(info.get("trailingEps")),
+        institutional_holders=holders_count,
+        institutional_ownership_pct=_ratio_to_pct(
+            info.get("heldPercentInstitutions")
+            or info.get("heldByInstitutions")
+            or info.get("institutionPercentHeld")
+        ),
+        next_earnings_date=_next_earnings_date(ticker),
+        beta=_float_or_none(info.get("beta")),
+    )
+
+
 def _normalize_download_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     if not isinstance(frame.columns, pd.MultiIndex):
         return frame
@@ -82,6 +139,58 @@ def _normalize_download_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     flat = frame.copy()
     flat.columns = [str(column[0]) for column in flat.columns]
     return flat
+
+
+def _safe_info(ticker: Any) -> dict:
+    try:
+        info = ticker.get_info()
+    except Exception:
+        try:
+            info = ticker.info
+        except Exception:
+            info = {}
+    return info if isinstance(info, dict) else {}
+
+
+def _safe_holders_count(ticker: Any) -> int | None:
+    try:
+        holders = ticker.institutional_holders
+    except Exception:
+        return None
+    if isinstance(holders, pd.DataFrame) and not holders.empty:
+        return int(len(holders))
+    return None
+
+
+def _next_earnings_date(ticker: Any) -> date | None:
+    try:
+        frame = ticker.get_earnings_dates(limit=12)
+    except Exception:
+        return None
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return None
+    now = pd.Timestamp.utcnow()
+    try:
+        index = pd.DatetimeIndex(frame.index)
+    except Exception:
+        return None
+    if index.tz is None:
+        index = index.tz_localize("UTC")
+    else:
+        index = index.tz_convert("UTC")
+    future = index[index > now]
+    if future.empty:
+        return None
+    return future.min().date()
+
+
+def _ratio_to_pct(value: Any) -> float | None:
+    number = _float_or_none(value)
+    if number is None:
+        return None
+    if abs(number) <= 5:
+        return number * 100
+    return number
 
 
 def _float_or_none(value: Any) -> float | None:

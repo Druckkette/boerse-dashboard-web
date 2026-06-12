@@ -11,6 +11,7 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_prices", label: "Prices", description: "Inkrementelle OHLC-Aktualisierung" },
   { type: "refresh_breadth", label: "Breadth", description: "Marktbreite und Snapshots" },
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking" },
+  { type: "refresh_fundamentals", label: "Fundamentals", description: "EPS, ROE, Marge, Earnings" },
   { type: "refresh_sec13f", label: "13F / SEC", description: "Institutionelle Artefakte, selten starten" },
   { type: "position_atr_monitor", label: "ATR Monitor", description: "Offene Positionen prüfen" }
 ];
@@ -275,7 +276,7 @@ function RefreshSequence({
           Für das Custom-Universum bitte mindestens einen Ticker eintragen.
         </div>
       )}
-      <div className="grid gap-3 xl:grid-cols-4">
+      <div className="grid gap-3 xl:grid-cols-5">
         {refreshSequence.map((step) => {
           const latest = latestJobForType(jobs, step.type);
           const done = latest?.status === "done";
@@ -468,8 +469,14 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
       }
     },
     {
+      type: "refresh_fundamentals",
+      label: "4. Fundamentals",
+      description: "EPS, Umsatz, ROE, Marge, Beta und Earnings in den Cache laden.",
+      payload: { mode: "manual", include_holders: true, ...customUniversePayload }
+    },
+    {
       type: "position_atr_monitor",
-      label: "4. Positionsmonitor",
+      label: "5. Positionsmonitor",
       description: "Offene Positionen gegen Price Cache und Sell-Engine prüfen.",
       payload: { mode: "manual" }
     }
@@ -480,6 +487,7 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
   if (type === "refresh_prices") return { mode: "manual", range: "1y", preset: "all" };
   if (type === "refresh_breadth") return { mode: "manual", lookback_days: 370 };
   if (type === "refresh_relative_strength") return { mode: "manual", lookback_days: 430 };
+  if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
   return { mode: "manual" };
 }
 

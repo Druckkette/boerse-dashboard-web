@@ -736,6 +736,7 @@ export type JobType =
   | "refresh_prices"
   | "refresh_breadth"
   | "refresh_relative_strength"
+  | "refresh_fundamentals"
   | "refresh_sec13f"
   | "position_atr_monitor"
   | "pushover_test";

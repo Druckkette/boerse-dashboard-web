@@ -29,11 +29,12 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Stock assessment ranking table using the same score components as the single-stock assessment.
 - Pushover configuration status and test job via Settings; secrets stay in NAS/container environment.
 - Stock assessment fundamental cache with web editing, backend scoring, earnings warning and institutional support context.
+- Worker job `refresh_fundamentals` fills the same cache from yfinance without blocking stock detail requests.
 
 ## Open Gaps
 
 - Stock assessment page parity:
-  - Automated fundamentals refresh worker for Yahoo/FMP/SEC data.
+  - FMP/SEC enrichment for deeper quarterly/annual fundamental history and acceleration detection.
   - Deeper single-stock chart context such as annotated candlesticks, RS subplot and volume overlays.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
