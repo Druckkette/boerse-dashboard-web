@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.schemas import (
+    IsinMappingListResponse,
+    IsinMappingPatchRequest,
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
     PortfolioCashFlowsResponse,
@@ -29,12 +31,14 @@ from app.services.portfolio import (
     get_portfolio_cash_flows,
     get_portfolio_curve,
     get_portfolio_import_history,
+    get_isin_mappings,
     get_portfolio_positions,
     get_portfolio_snapshot,
     get_portfolio_transactions,
     import_portfolio_positions,
     import_trade_republic_transaction_export,
     sell_portfolio_position,
+    update_isin_mappings,
     upsert_portfolio_position,
 )
 
@@ -128,6 +132,22 @@ def create_cash_flow(payload: PortfolioCashFlowRequest) -> PortfolioCashFlowResp
 @router.get("/imports", response_model=PortfolioImportHistoryResponse)
 def imports(limit: int = Query(default=100, ge=1, le=500)) -> PortfolioImportHistoryResponse:
     return get_portfolio_import_history(limit=limit)
+
+
+@router.get("/isin-mappings", response_model=IsinMappingListResponse)
+def isin_mappings() -> IsinMappingListResponse:
+    return get_isin_mappings()
+
+
+@router.patch("/isin-mappings", response_model=IsinMappingListResponse)
+def patch_isin_mappings(payload: IsinMappingPatchRequest) -> IsinMappingListResponse:
+    try:
+        return update_isin_mappings(payload)
+    except PortfolioRepositoryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Portfolio-Datenbank ist nicht erreichbar: {exc}",
+        ) from exc
 
 
 @router.post("/imports/positions", response_model=PortfolioImportResponse)

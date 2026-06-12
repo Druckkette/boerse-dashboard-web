@@ -19,6 +19,8 @@ from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import (
     KpiCard,
+    IsinMappingListResponse,
+    IsinMappingPatchRequest,
     PortfolioCashFlow,
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
@@ -752,6 +754,46 @@ def import_trade_republic_transaction_export(
         mappings=mappings,
         skipped_positions=skipped_positions,
         warnings=warnings,
+    )
+
+
+def get_isin_mappings() -> IsinMappingListResponse:
+    try:
+        rows = portfolio_repository.list_isin_mapping_rows()
+    except PortfolioRepositoryUnavailable:
+        rows = []
+    return IsinMappingListResponse(
+        mappings=[
+            TradeRepublicIsinMappingItem(
+                isin=row.isin,
+                name="",
+                asset_class="",
+                ticker=row.ticker,
+                source="saved" if row.source != "manual" else "manual",
+            )
+            for row in rows
+        ]
+    )
+
+
+def update_isin_mappings(payload: IsinMappingPatchRequest) -> IsinMappingListResponse:
+    mapping_dict = {
+        item.isin.upper().strip(): item.ticker.upper().strip()
+        for item in payload.mappings
+        if item.isin.strip() and item.ticker.strip()
+    }
+    rows = portfolio_repository.upsert_isin_mappings(mapping_dict, source="manual")
+    return IsinMappingListResponse(
+        mappings=[
+            TradeRepublicIsinMappingItem(
+                isin=row.isin,
+                name="",
+                asset_class="",
+                ticker=row.ticker,
+                source="manual" if row.source == "manual" else "saved",
+            )
+            for row in rows
+        ]
     )
 
 

@@ -122,6 +122,13 @@ class TradeRepublicStoredTransactionRow:
 
 
 @dataclass(frozen=True)
+class IsinMappingRow:
+    isin: str
+    ticker: str
+    source: str
+
+
+@dataclass(frozen=True)
 class PortfolioImportResult:
     import_id: str
     rows_imported: int
@@ -147,6 +154,58 @@ def list_isin_mappings() -> dict[str, str]:
                 if row.isin and row.ticker:
                     mappings[row.isin.upper()] = row.ticker.upper()
             return mappings
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def list_isin_mapping_rows() -> list[IsinMappingRow]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(select(IsinMapping).order_by(IsinMapping.isin.asc(), IsinMapping.source.asc())).all()
+            return [
+                IsinMappingRow(
+                    isin=row.isin.upper(),
+                    ticker=row.ticker.upper(),
+                    source=row.source or "manual",
+                )
+                for row in rows
+                if row.isin and row.ticker
+            ]
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def upsert_isin_mappings(mappings: dict[str, str], *, source: str = "manual") -> list[IsinMappingRow]:
+    try:
+        with SessionLocal() as db:
+            for isin, ticker in mappings.items():
+                clean_isin = str(isin or "").upper().strip()
+                clean_ticker = str(ticker or "").upper().strip()
+                if not clean_isin or not clean_ticker:
+                    continue
+                instrument = _get_or_create_instrument(db, ticker=clean_ticker, name=clean_ticker, currency="EUR")
+                row = db.scalars(
+                    select(IsinMapping).where(
+                        IsinMapping.isin == clean_isin,
+                        IsinMapping.source == source,
+                    )
+                ).first()
+                if row is None:
+                    row = IsinMapping(
+                        isin=clean_isin,
+                        ticker=clean_ticker,
+                        instrument_id=instrument.id,
+                        source=source,
+                        confidence=1.0,
+                        metadata_json={},
+                    )
+                    db.add(row)
+                else:
+                    row.ticker = clean_ticker
+                    row.instrument_id = instrument.id
+                    row.confidence = 1.0
+            db.commit()
+            return list_isin_mapping_rows()
     except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 

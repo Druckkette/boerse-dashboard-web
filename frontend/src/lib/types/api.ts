@@ -358,6 +358,14 @@ export type TradeRepublicTransactionImportResponse = {
   warnings: string[];
 };
 
+export type IsinMappingPatchRequest = {
+  mappings: Array<{ isin: string; ticker: string }>;
+};
+
+export type IsinMappingListResponse = {
+  mappings: TradeRepublicIsinMappingItem[];
+};
+
 export type PriceRange = "1m" | "3m" | "6m" | "1y" | "2y" | "5y";
 
 export type PriceBarPoint = {

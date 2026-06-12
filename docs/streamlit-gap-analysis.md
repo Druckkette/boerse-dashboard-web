@@ -24,6 +24,8 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Position-size calculator with loss-budget and Beta-Balancer formulas.
 - Trade-Republic transaction CSV import with web upload, ISIN-to-Yahoo mapping preview and persisted transactions/open positions.
 - Transaction-based depot curve from saved Trade-Republic transactions with cached price bars and trade-price fallback.
+- S&P 500 benchmark line for the depot curve when `^GSPC` or `SPY` is present in the Price Cache.
+- Persistent ISIN/Yahoo mapping maintenance in the portfolio import UI.
 
 ## Open Gaps
 
@@ -34,8 +36,6 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Earnings warning, institutional holder context, CMF, liquidity/dollar-volume filters.
   - Comparison/ranking table parity beyond current RS ranking.
 - Portfolio parity:
-  - S&P 500 comparison line for the transaction-based depot curve.
-  - ISIN/Yahoo mapping maintenance page beyond import-time editing.
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:
   - Full strategy hub UI.

@@ -494,6 +494,19 @@ class TradeRepublicTransactionImportResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class IsinMappingWrite(BaseModel):
+    isin: str
+    ticker: str
+
+
+class IsinMappingPatchRequest(BaseModel):
+    mappings: list[IsinMappingWrite]
+
+
+class IsinMappingListResponse(BaseModel):
+    mappings: list[TradeRepublicIsinMappingItem]
+
+
 class PortfolioSnapshotResponse(BaseModel):
     as_of: str
     total_value: float

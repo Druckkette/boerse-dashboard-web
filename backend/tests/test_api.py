@@ -154,6 +154,13 @@ def test_trade_republic_transaction_import_preview_contract() -> None:
     assert payload["mappings"][0]["isin"] == "US67066G1040"
 
 
+def test_isin_mappings_contract() -> None:
+    response = client.get("/api/v1/portfolio/isin-mappings")
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload["mappings"], list)
+
+
 def test_portfolio_transactions_contract() -> None:
     response = client.get("/api/v1/portfolio/transactions")
     assert response.status_code == 200

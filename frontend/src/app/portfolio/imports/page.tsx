@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileText, Save, Upload } from "lucide-react";
 import { useMemo, useState, type DragEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -223,6 +223,7 @@ export default function PortfolioImportsPage() {
       </div>
 
       <TradeRepublicTransactionImportPanel />
+      <IsinMappingMaintenancePanel />
     </div>
   );
 }
@@ -488,6 +489,114 @@ function MiniStat({ label, value }: { label: string; value: string }) {
       <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
       <div className="mt-1 font-semibold tabular-nums">{value}</div>
     </div>
+  );
+}
+
+function IsinMappingMaintenancePanel() {
+  const queryClient = useQueryClient();
+  const query = useQuery({ queryKey: ["isin-mappings"], queryFn: api.isinMappings, staleTime: 60_000 });
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [newIsin, setNewIsin] = useState("");
+  const [newTicker, setNewTicker] = useState("");
+  const rows = query.data?.mappings ?? [];
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.patchIsinMappings({
+        mappings: [
+          ...rows.map((row) => ({ isin: row.isin, ticker: draft[row.isin] ?? row.ticker })),
+          ...(newIsin.trim() && newTicker.trim()
+            ? [{ isin: newIsin.trim().toUpperCase(), ticker: newTicker.trim().toUpperCase() }]
+            : [])
+        ]
+      }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(["isin-mappings"], result);
+      setDraft({});
+      setNewIsin("");
+      setNewTicker("");
+    }
+  });
+
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Gespeicherte ISIN-Zuordnungen</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+            Diese Zuordnungen werden dauerhaft gespeichert und beim Trade-Republic-Import automatisch vorgeschlagen.
+          </p>
+        </div>
+        <StatusChip tone={saveMutation.isPending ? "warning" : "neutral"}>
+          {saveMutation.isPending ? "speichert" : `${rows.length} Mappings`}
+        </StatusChip>
+      </div>
+
+      <div className="overflow-hidden rounded border border-[#2d333d]">
+        <div className="max-h-80 overflow-auto">
+          <table className="w-full min-w-[680px] border-collapse text-sm">
+            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+              <tr>
+                <th className="border-b border-[#2d333d] px-4 py-3">ISIN</th>
+                <th className="border-b border-[#2d333d] px-4 py-3">Yahoo-Ticker</th>
+                <th className="border-b border-[#2d333d] px-4 py-3">Quelle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${row.isin}-${row.source}`} className="border-b border-[#242a33]">
+                  <td className="px-4 py-3 font-mono text-xs">{row.isin}</td>
+                  <td className="px-4 py-3">
+                    <input
+                      className="input-dark max-w-48"
+                      value={draft[row.isin] ?? row.ticker}
+                      onChange={(event) => setDraft({ ...draft, [row.isin]: event.target.value.toUpperCase() })}
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-xs text-[#a0a7b4]">{row.source}</td>
+                </tr>
+              ))}
+              <tr className="border-b border-[#242a33]">
+                <td className="px-4 py-3">
+                  <input
+                    className="input-dark font-mono text-xs"
+                    placeholder="US67066G1040"
+                    value={newIsin}
+                    onChange={(event) => setNewIsin(event.target.value.toUpperCase())}
+                  />
+                </td>
+                <td className="px-4 py-3">
+                  <input
+                    className="input-dark max-w-48"
+                    placeholder="NVDA"
+                    value={newTicker}
+                    onChange={(event) => setNewTicker(event.target.value.toUpperCase())}
+                  />
+                </td>
+                <td className="px-4 py-3 text-xs text-[#a0a7b4]">neu</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={saveMutation.isPending || query.isLoading}
+          type="button"
+          onClick={() => saveMutation.mutate()}
+        >
+          <Save size={16} />
+          Mappings speichern
+        </button>
+        {query.isLoading && <span className="text-sm text-[#a0a7b4]">Mappings werden geladen...</span>}
+      </div>
+      {saveMutation.error && (
+        <div className="mt-4 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+          {saveMutation.error instanceof Error ? saveMutation.error.message : "Mappings konnten nicht gespeichert werden."}
+        </div>
+      )}
+    </section>
   );
 }
 

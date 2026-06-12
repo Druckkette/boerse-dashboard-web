@@ -6,6 +6,8 @@ import type {
   JobType,
   MarketOverview,
   Institutional13FTrend,
+  IsinMappingListResponse,
+  IsinMappingPatchRequest,
   PriceHistory,
   PriceRange,
   PortfolioCashFlow,
@@ -131,6 +133,9 @@ export const api = {
     const payload = await getJson<{ imports: PortfolioImportHistoryItem[] }>(`/portfolio/imports?limit=${limit}`);
     return payload.imports;
   },
+  isinMappings: () => getJson<IsinMappingListResponse>("/portfolio/isin-mappings"),
+  patchIsinMappings: (body: IsinMappingPatchRequest) =>
+    patchJson<IsinMappingListResponse>("/portfolio/isin-mappings", body),
   importPortfolioPositions: (body: PortfolioImportRequest) =>
     postJson<PortfolioImportResponse>("/portfolio/imports/positions", body),
   importTradeRepublicTransactions: (body: TradeRepublicTransactionImportRequest) =>
