@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     pushover_user_key: str = ""
     pushover_app_token: str = ""
     pushover_dry_run: bool = False
+    fmp_api_key: str = ""
     sec_user_agent: str = ""
     cors_origins: list[AnyHttpUrl | str] = [
         "http://localhost:3000",

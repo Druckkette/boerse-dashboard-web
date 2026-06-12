@@ -1,0 +1,551 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from functools import lru_cache
+from typing import Any
+
+import pandas as pd
+import requests
+
+
+QuarterlyRaw = dict[str, pd.Series | float]
+
+
+@dataclass(frozen=True)
+class GrowthPoint:
+    label: str
+    growth_pct: float | None
+    flag: str | None
+    current: float
+    previous: float
+
+
+@dataclass(frozen=True)
+class FundamentalEnrichment:
+    source: str = ""
+    fiscal_period: str = ""
+    quarterly_eps_growth_pct: float | None = None
+    quarterly_revenue_growth_pct: float | None = None
+    quarterly_eps_accelerating: bool | None = None
+    quarterly_revenue_accelerating: bool | None = None
+    trailing_eps: float | None = None
+    roe_pct: float | None = None
+    profit_margin_pct: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def fetch_fundamental_enrichment(
+    ticker: str,
+    *,
+    fmp_api_key: str = "",
+    sec_user_agent: str = "",
+    timeout: int = 15,
+) -> FundamentalEnrichment:
+    clean = ticker.strip().upper()
+    notes: list[str] = []
+    raw: QuarterlyRaw | None = None
+
+    if fmp_api_key:
+        fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout)
+        if fmp_note:
+            notes.append(fmp_note)
+        raw = merge_quarterly_raw(fmp_raw, raw)
+    else:
+        notes.append("FMP: kein API-Key")
+
+    if sec_user_agent:
+        sec_raw, sec_note = fetch_quarterly_sec_companyfacts(clean, sec_user_agent, timeout=timeout)
+        if sec_note:
+            notes.append(sec_note)
+        raw = merge_quarterly_raw(raw, sec_raw)
+    else:
+        notes.append("SEC: kein User-Agent")
+
+    return compute_fundamental_enrichment(clean, raw, notes=notes)
+
+
+def fetch_quarterly_fmp(
+    ticker: str,
+    api_key: str,
+    *,
+    timeout: int = 15,
+) -> tuple[QuarterlyRaw | None, str]:
+    if not api_key:
+        return None, "FMP: kein API-Key"
+
+    attempts = [
+        (
+            "FMP stable",
+            "https://financialmodelingprep.com/stable/income-statement",
+            {"symbol": ticker.upper(), "period": "quarter", "limit": 12, "apikey": api_key},
+        ),
+        (
+            "FMP legacy",
+            f"https://financialmodelingprep.com/api/v3/income-statement/{ticker.upper()}",
+            {"period": "quarter", "limit": 12, "apikey": api_key},
+        ),
+    ]
+    errors: list[str] = []
+    for label, url, params in attempts:
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+        except requests.exceptions.Timeout:
+            errors.append(f"{label}: Timeout")
+            continue
+        except requests.exceptions.ConnectionError as exc:
+            errors.append(f"{label}: Verbindung {str(exc)[:60]}")
+            continue
+
+        if response.status_code == 429:
+            errors.append(f"{label}: Rate Limited")
+            continue
+        if response.status_code in {401, 403}:
+            errors.append(f"{label}: Zugriff verweigert")
+            continue
+        if response.status_code != 200:
+            errors.append(f"{label}: HTTP {response.status_code}")
+            continue
+
+        try:
+            payload = response.json()
+        except ValueError:
+            errors.append(f"{label}: Ungueltiges JSON")
+            continue
+        if isinstance(payload, dict) and payload.get("Error Message"):
+            errors.append(f"{label}: {str(payload['Error Message'])[:120]}")
+            continue
+        if not isinstance(payload, list) or not payload:
+            errors.append(f"{label}: Leere Antwort")
+            continue
+
+        raw = _raw_from_fmp_income_statement(payload)
+        _merge_fmp_ttm_ratios(raw, ticker, api_key, timeout=timeout)
+        if any(isinstance(value, pd.Series) and not value.empty for value in raw.values()):
+            return raw, label
+        errors.append(f"{label}: Keine verwertbaren Quartalsdaten")
+
+    return None, " | ".join(errors) if errors else "FMP: keine Quartalsdaten"
+
+
+def fetch_quarterly_sec_companyfacts(
+    ticker: str,
+    user_agent: str,
+    *,
+    timeout: int = 15,
+) -> tuple[QuarterlyRaw | None, str]:
+    clean = ticker.upper().strip()
+    if not clean:
+        return None, "SEC: kein Ticker"
+    if not user_agent.strip():
+        return None, "SEC: kein User-Agent"
+
+    headers = {"User-Agent": user_agent.strip()}
+    try:
+        cik = _sec_cik_map(user_agent.strip(), timeout).get(clean, "")
+        if not cik:
+            return None, "SEC: Ticker nicht im CIK-Universum"
+
+        facts_response = requests.get(
+            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+            headers=headers,
+            timeout=timeout,
+        )
+        if facts_response.status_code != 200:
+            return None, f"SEC Facts HTTP {facts_response.status_code}"
+        facts_payload = facts_response.json()
+    except requests.exceptions.Timeout:
+        return None, "SEC: Timeout"
+    except requests.exceptions.ConnectionError as exc:
+        return None, f"SEC: Verbindung {str(exc)[:60]}"
+    except ValueError:
+        return None, "SEC: Ungueltiges JSON"
+    except RuntimeError as exc:
+        return None, f"SEC: {exc}"
+
+    facts = (((facts_payload or {}).get("facts") or {}).get("us-gaap") or {})
+    raw: QuarterlyRaw = {}
+    eps = _extract_sec_duration_series(
+        facts,
+        concepts=[
+            "EarningsPerShareDiluted",
+            "EarningsPerShareBasicAndDiluted",
+            "IncomeLossFromContinuingOperationsPerDilutedShare",
+        ],
+        unit_keys=["USD/shares"],
+    )
+    revenue = _extract_sec_duration_series(
+        facts,
+        concepts=[
+            "Revenues",
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
+            "SalesRevenueNet",
+        ],
+        unit_keys=["USD"],
+        duration_min=75,
+        duration_max=110,
+    )
+    net_income = _extract_sec_duration_series(
+        facts,
+        concepts=["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
+        unit_keys=["USD"],
+        duration_min=75,
+        duration_max=110,
+    )
+    equity = _extract_sec_point_series(
+        facts,
+        concepts=[
+            "StockholdersEquity",
+            "StockholdersEquityAttributableToParent",
+            "Equity",
+            "LiabilitiesAndStockholdersEquity",
+        ],
+        unit_keys=["USD"],
+    )
+    if eps is not None:
+        raw["DilutedEPS"] = eps
+    if revenue is not None:
+        raw["TotalRevenue"] = revenue
+    if net_income is not None:
+        raw["NetIncome"] = net_income
+    if equity is not None:
+        raw["StockholdersEquity"] = equity
+    if not raw:
+        return None, "SEC: keine Quartalsdaten"
+    return raw, "SEC ergaenzt"
+
+
+@lru_cache(maxsize=4)
+def _sec_cik_map(user_agent: str, timeout: int) -> dict[str, str]:
+    headers = {"User-Agent": user_agent}
+    response = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers, timeout=timeout)
+    if response.status_code != 200:
+        raise RuntimeError(f"SEC CIK HTTP {response.status_code}")
+    payload = response.json()
+    rows = payload.values() if isinstance(payload, dict) else payload if isinstance(payload, list) else []
+    out: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ticker = str(row.get("ticker") or "").upper().strip()
+        if not ticker:
+            continue
+        try:
+            out[ticker] = str(int(row.get("cik_str"))).zfill(10)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def merge_quarterly_raw(primary: QuarterlyRaw | None, secondary: QuarterlyRaw | None) -> QuarterlyRaw | None:
+    if primary is None:
+        return secondary
+    if secondary is None:
+        return primary
+    merged: QuarterlyRaw = dict(primary)
+    for key, secondary_value in secondary.items():
+        primary_value = merged.get(key)
+        if not isinstance(primary_value, pd.Series) or not isinstance(secondary_value, pd.Series):
+            merged.setdefault(key, secondary_value)
+            continue
+        try:
+            merged[key] = pd.concat([primary_value, secondary_value[~secondary_value.index.isin(primary_value.index)]]).sort_index(
+                ascending=False
+            )
+        except Exception:
+            merged[key] = primary_value
+    return merged
+
+
+def compute_fundamental_enrichment(
+    ticker: str,
+    raw: QuarterlyRaw | None,
+    *,
+    notes: list[str] | None = None,
+) -> FundamentalEnrichment:
+    notes = notes or []
+    if not raw:
+        return FundamentalEnrichment(metadata={"notes": notes, "ticker": ticker.upper()})
+
+    eps_growth = quarterly_yoy_growth(raw, "eps")
+    revenue_growth = quarterly_yoy_growth(raw, "revenue")
+    fiscal_period = _latest_period_label(raw)
+    source_parts = []
+    if any("FMP" in note for note in notes):
+        source_parts.append("fmp")
+    if any("SEC" in note for note in notes):
+        source_parts.append("sec")
+    source = "+".join(source_parts) or "fundamental-enrichment"
+    return FundamentalEnrichment(
+        source=source,
+        fiscal_period=fiscal_period,
+        quarterly_eps_growth_pct=_latest_numeric_growth(eps_growth),
+        quarterly_revenue_growth_pct=_latest_numeric_growth(revenue_growth),
+        quarterly_eps_accelerating=_is_accelerating(eps_growth),
+        quarterly_revenue_accelerating=_is_accelerating(revenue_growth),
+        trailing_eps=_trailing_sum(raw.get("DilutedEPS"), periods=4),
+        roe_pct=_roe_pct(raw),
+        profit_margin_pct=_profit_margin_pct(raw),
+        metadata={
+            "ticker": ticker.upper(),
+            "notes": notes,
+            "eps_growth": [point.__dict__ for point in eps_growth],
+            "revenue_growth": [point.__dict__ for point in revenue_growth],
+            "series_lengths": {
+                key: int(len(value)) for key, value in raw.items() if isinstance(value, pd.Series)
+            },
+        },
+    )
+
+
+def quarterly_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
+    key = {"eps": "DilutedEPS", "revenue": "TotalRevenue"}.get(field)
+    series = raw.get(key or "")
+    if not isinstance(series, pd.Series):
+        return []
+    values = pd.to_numeric(series, errors="coerce").dropna().sort_index(ascending=False)
+    if len(values) < 2:
+        return []
+
+    buckets: dict[tuple[int, int], float] = {}
+    for index, value in values.items():
+        ts = pd.to_datetime(index, errors="coerce")
+        if pd.isna(ts):
+            continue
+        yq = (int(ts.year), int(ts.quarter))
+        buckets.setdefault(yq, float(value))
+    if not buckets:
+        return []
+
+    anchor_quarter = max(buckets.keys())[1]
+    same_quarter = sorted(
+        [(year, value) for (year, quarter), value in buckets.items() if quarter == anchor_quarter],
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    if len(same_quarter) < 2:
+        return []
+
+    points: list[GrowthPoint] = []
+    for index in range(min(3, len(same_quarter) - 1)):
+        current_year, current = same_quarter[index]
+        previous_year, previous = same_quarter[index + 1]
+        label = f"{current_year} Q{anchor_quarter}"
+        points.append(_growth_point(label, current, previous_year, previous))
+    return points
+
+
+def _raw_from_fmp_income_statement(rows: list[dict[str, Any]]) -> QuarterlyRaw:
+    eps: dict[pd.Timestamp, float] = {}
+    revenue: dict[pd.Timestamp, float] = {}
+    net_income: dict[pd.Timestamp, float] = {}
+    for row in rows:
+        ts = pd.to_datetime(row.get("date"), errors="coerce")
+        if pd.isna(ts):
+            continue
+        eps_value = _float_or_none(row.get("epsDiluted", row.get("epsdiluted", row.get("eps"))))
+        revenue_value = _float_or_none(row.get("revenue"))
+        net_income_value = _float_or_none(row.get("netIncome", row.get("netincome")))
+        if eps_value is not None:
+            eps[ts] = eps_value
+        if revenue_value is not None:
+            revenue[ts] = revenue_value
+        if net_income_value is not None:
+            net_income[ts] = net_income_value
+    raw: QuarterlyRaw = {}
+    if eps:
+        raw["DilutedEPS"] = pd.Series(eps).sort_index(ascending=False)
+    if revenue:
+        raw["TotalRevenue"] = pd.Series(revenue).sort_index(ascending=False)
+    if net_income:
+        raw["NetIncome"] = pd.Series(net_income).sort_index(ascending=False)
+    return raw
+
+
+def _merge_fmp_ttm_ratios(raw: QuarterlyRaw, ticker: str, api_key: str, *, timeout: int) -> None:
+    attempts = [
+        ("https://financialmodelingprep.com/stable/ratios-ttm", {"symbol": ticker.upper(), "apikey": api_key}),
+        (f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker.upper()}", {"apikey": api_key}),
+    ]
+    for url, params in attempts:
+        try:
+            response = requests.get(url, params=params, timeout=min(timeout, 10))
+        except requests.RequestException:
+            continue
+        if response.status_code != 200:
+            continue
+        try:
+            payload = response.json()
+        except ValueError:
+            continue
+        item = payload[0] if isinstance(payload, list) and payload else payload if isinstance(payload, dict) else {}
+        roe = _float_or_none(item.get("returnOnEquityTTM"))
+        margin = _float_or_none(item.get("netProfitMarginTTM"))
+        if roe is not None:
+            raw["_roe_ttm"] = roe
+        if margin is not None:
+            raw["_pm_ttm"] = margin
+        return
+
+
+def _extract_sec_duration_series(
+    facts: dict[str, Any],
+    *,
+    concepts: list[str],
+    unit_keys: list[str],
+    duration_min: int | None = None,
+    duration_max: int | None = None,
+) -> pd.Series | None:
+    by_end: dict[pd.Timestamp, tuple[pd.Timestamp, float]] = {}
+    for concept in concepts:
+        units = ((facts.get(concept) or {}).get("units") or {})
+        for unit_key in unit_keys:
+            for item in units.get(unit_key) or []:
+                if str(item.get("form") or "") not in {"10-Q", "10-K"}:
+                    continue
+                if str(item.get("fp") or "") not in {"Q1", "Q2", "Q3", "Q4"}:
+                    continue
+                end = pd.to_datetime(item.get("end"), errors="coerce")
+                value = _float_or_none(item.get("val"))
+                if pd.isna(end) or value is None:
+                    continue
+                if duration_min is not None or duration_max is not None:
+                    start = pd.to_datetime(item.get("start"), errors="coerce")
+                    if pd.isna(start):
+                        continue
+                    days = int((end - start).days)
+                    if duration_min is not None and days < duration_min:
+                        continue
+                    if duration_max is not None and days > duration_max:
+                        continue
+                filed = pd.to_datetime(item.get("filed"), errors="coerce")
+                filed = filed if not pd.isna(filed) else pd.Timestamp.min
+                previous = by_end.get(end)
+                if previous is None or filed > previous[0]:
+                    by_end[end] = (filed, value)
+    return _series_from_by_end(by_end)
+
+
+def _extract_sec_point_series(
+    facts: dict[str, Any],
+    *,
+    concepts: list[str],
+    unit_keys: list[str],
+) -> pd.Series | None:
+    by_end: dict[pd.Timestamp, tuple[pd.Timestamp, float]] = {}
+    for concept in concepts:
+        units = ((facts.get(concept) or {}).get("units") or {})
+        for unit_key in unit_keys:
+            for item in units.get(unit_key) or []:
+                if str(item.get("form") or "") not in {"10-Q", "10-K"}:
+                    continue
+                end = pd.to_datetime(item.get("end"), errors="coerce")
+                value = _float_or_none(item.get("val"))
+                if pd.isna(end) or value is None:
+                    continue
+                filed = pd.to_datetime(item.get("filed"), errors="coerce")
+                filed = filed if not pd.isna(filed) else pd.Timestamp.min
+                previous = by_end.get(end)
+                if previous is None or filed > previous[0]:
+                    by_end[end] = (filed, value)
+        if by_end:
+            break
+    return _series_from_by_end(by_end)
+
+
+def _series_from_by_end(values: dict[pd.Timestamp, tuple[pd.Timestamp, float]]) -> pd.Series | None:
+    if not values:
+        return None
+    return pd.Series({end: value for end, (_, value) in values.items()}).sort_index(ascending=False)
+
+
+def _growth_point(label: str, current: float, previous_year: int, previous: float) -> GrowthPoint:
+    del previous_year
+    if previous < 0 < current:
+        return GrowthPoint(label, None, "turnaround", current, previous)
+    if previous < 0 and current <= 0:
+        return GrowthPoint(label, None, "still_neg", current, previous)
+    if previous > 0 > current:
+        return GrowthPoint(label, None, "turned_neg", current, previous)
+    if previous == 0:
+        return GrowthPoint(label, None, "prev_zero", current, previous)
+    return GrowthPoint(label, round((current / previous - 1) * 100, 1), None, current, previous)
+
+
+def _latest_numeric_growth(points: list[GrowthPoint]) -> float | None:
+    for point in points:
+        if point.growth_pct is not None:
+            return point.growth_pct
+    return None
+
+
+def _is_accelerating(points: list[GrowthPoint]) -> bool | None:
+    rates = [point.growth_pct for point in points if point.growth_pct is not None and point.flag is None]
+    if len(rates) < 2:
+        return None
+    return all(rates[index] > rates[index + 1] for index in range(len(rates) - 1))
+
+
+def _trailing_sum(value: Any, *, periods: int) -> float | None:
+    if not isinstance(value, pd.Series):
+        return None
+    series = pd.to_numeric(value, errors="coerce").dropna().sort_index(ascending=False)
+    if len(series) < periods:
+        return None
+    return round(float(series.iloc[:periods].sum()), 2)
+
+
+def _roe_pct(raw: QuarterlyRaw) -> float | None:
+    fmp_value = _ratio_to_pct(raw.get("_roe_ttm"))
+    if fmp_value is not None:
+        return fmp_value
+    ttm_income = _trailing_sum(raw.get("NetIncome"), periods=4)
+    equity = raw.get("StockholdersEquity")
+    if ttm_income is None or not isinstance(equity, pd.Series):
+        return None
+    equity_series = pd.to_numeric(equity, errors="coerce").dropna().sort_index(ascending=False)
+    if equity_series.empty or float(equity_series.iloc[0]) == 0:
+        return None
+    return round(float(ttm_income / float(equity_series.iloc[0]) * 100), 1)
+
+
+def _profit_margin_pct(raw: QuarterlyRaw) -> float | None:
+    fmp_value = _ratio_to_pct(raw.get("_pm_ttm"))
+    if fmp_value is not None:
+        return fmp_value
+    ttm_income = _trailing_sum(raw.get("NetIncome"), periods=4)
+    ttm_revenue = _trailing_sum(raw.get("TotalRevenue"), periods=4)
+    if ttm_income is None or ttm_revenue in (None, 0):
+        return None
+    return round(float(ttm_income / ttm_revenue * 100), 1)
+
+
+def _latest_period_label(raw: QuarterlyRaw) -> str:
+    for key in ["DilutedEPS", "TotalRevenue", "NetIncome"]:
+        value = raw.get(key)
+        if isinstance(value, pd.Series) and not value.empty:
+            ts = pd.to_datetime(value.sort_index(ascending=False).index[0], errors="coerce")
+            if not pd.isna(ts):
+                return f"{int(ts.year)} Q{int(ts.quarter)}"
+    return ""
+
+
+def _ratio_to_pct(value: Any) -> float | None:
+    number = _float_or_none(value)
+    if number is None:
+        return None
+    if abs(number) <= 5:
+        number *= 100
+    return round(number, 1)
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(number):
+        return None
+    return number

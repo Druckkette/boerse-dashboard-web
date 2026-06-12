@@ -39,7 +39,11 @@ Optional Pushover secrets go into the same private file:
 PUSHOVER_USER_KEY=...
 PUSHOVER_APP_TOKEN=...
 PUSHOVER_DRY_RUN=0
+FMP_API_KEY=...
 ```
+
+`FMP_API_KEY` is optional. When present, the Fundamentals worker uses it for deeper quarterly EPS
+and revenue history; when absent, the worker still uses yfinance and configured SEC data.
 
 After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
 marked `skipped` instead of crashing the app.

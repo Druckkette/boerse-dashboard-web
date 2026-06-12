@@ -92,6 +92,8 @@ Enable the private dashboard gate on the NAS with `APP_AUTH_ENABLED=1`, `APP_AUT
 `127.0.0.1` by default and is only meant for local NAS/container access.
 For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
 page only shows whether those env vars are configured and can start a non-blocking test job.
+For deeper stock fundamentals, optionally set `FMP_API_KEY`; without it the worker keeps using
+yfinance plus SEC Company Facts where available.
 For real SEC/13F refreshes, set `SEC_USER_AGENT` in `.env.nas` to a project name plus a real contact
 email, for example `boerse-dashboard-web name@example.com`.
 
@@ -131,6 +133,10 @@ reports ATR/health/signal status through the Jobs page. It does not run yfinance
 The 13F/SEC job downloads official SEC Form-13F quarterly data sets in the worker, caches ZIP files
 under the backend cache volume and persists aggregate ticker trends. It requires `SEC_USER_AGENT`;
 run it manually or monthly, not as part of the normal daily bootstrap.
+
+The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
+EPS/revenue growth and acceleration with FMP and SEC Company Facts. `FMP_API_KEY` is optional and
+belongs only in `.env.nas` or your local private `.env`.
 
 The same jobs can still be started through `POST /api/v1/jobs` for automation, but manual NAS
 operation should use the dashboard.

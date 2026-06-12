@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import jobs as job_repository
 from app.services.fundamentals import refresh_fundamentals_for_ticker
+from app.services.universes import resolve_universe_tickers
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
@@ -18,7 +19,12 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
             requested_by=str(payload.get("source") or "scheduler"),
         )
 
-    tickers = _normalize_tickers(payload.get("tickers") or DEFAULT_MARKET_UNIVERSE_TICKERS)
+    tickers = resolve_universe_tickers(
+        explicit_tickers=payload.get("tickers"),
+        universe_key=payload.get("universe"),
+        fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
+        limit=int(payload.get("limit_universe") or 50),
+    )
     include_holders = bool(payload.get("include_holders", True))
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
@@ -92,13 +98,3 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         error = f"{type(exc).__name__}: {exc}"
         job_repository.mark_failed(job.job_id, error_message=error, result=result)
         raise
-
-
-def _normalize_tickers(value: object) -> list[str]:
-    if isinstance(value, str):
-        raw = value.replace(";", ",").split(",")
-    elif isinstance(value, list):
-        raw = [str(item) for item in value]
-    else:
-        raw = []
-    return list(dict.fromkeys(item.strip().upper() for item in raw if item and item.strip()))[:50]
