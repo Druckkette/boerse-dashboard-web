@@ -49,6 +49,7 @@ NON_SHARE_TYPES = {
     "transfer_instant_inbound",
     "gift",
     "fee",
+    "exchange",
 }
 
 TRANSACTION_TYPE_ALIASES = {
@@ -67,6 +68,7 @@ TRANSACTION_TYPE_ALIASES = {
     "TRANSFER_INBOUND": "transfer_inbound",
     "TRANSFER_INSTANT_INBOUND": "transfer_instant_inbound",
     "GIFT": "gift",
+    "EXCHANGE": "exchange",
     "SPLIT": "split",
     "WARRANT_EXERCISE": "warrant_exercise",
     "TILG": "warrant_exercise",

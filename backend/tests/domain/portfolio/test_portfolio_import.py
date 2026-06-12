@@ -97,12 +97,13 @@ def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch)
 def test_trade_republic_parser_handles_broker_edge_cases() -> None:
     rows = parse_transaction_export_csv((FIXTURE_DIR / "trade_republic_edge_cases.csv").read_text())
 
-    assert len(rows) == 7
+    assert len(rows) == 8
     assert rows[1].transaction_type == "buy"
     assert rows[1].price == 100.5
     assert rows[1].external_id == "tr:tx-nvda-buy"
     assert rows[2].transaction_type == "dividend"
-    assert rows[-1].transaction_type == "warrant_exercise"
+    assert rows[-2].transaction_type == "warrant_exercise"
+    assert rows[-1].transaction_type == "exchange"
 
     positions, skipped = reconstruct_open_positions(rows, {"US67066G1040": "NVDA"})
 
