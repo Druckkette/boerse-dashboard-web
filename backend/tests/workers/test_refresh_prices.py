@@ -14,10 +14,11 @@ def reset_jobs() -> None:
 def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
 
-    def fake_refresh(ticker: str, *, range_key: str) -> dict:
+    def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str | None = None) -> dict:
         seen.append(ticker)
         return {
             "ticker": ticker,
+            "yahoo_symbol": yahoo_symbol or ticker,
             "records_seen": 10,
             "records_written": 10,
             "first_date": "2025-01-01",
@@ -42,11 +43,12 @@ def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_refresh(ticker: str, *, range_key: str) -> dict:
+    def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str | None = None) -> dict:
         if ticker == "BAD":
             raise RuntimeError("upstream rejected ticker")
         return {
             "ticker": ticker,
+            "yahoo_symbol": yahoo_symbol or ticker,
             "records_seen": 5,
             "records_written": 5,
             "source": "yfinance",

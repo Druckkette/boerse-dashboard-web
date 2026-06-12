@@ -88,6 +88,37 @@ class UniverseStatusResponse(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class UniverseSymbolMappingItem(BaseModel):
+    universe_key: str = "us_common_stocks"
+    source_ticker: str
+    yahoo_symbol: str = ""
+    status: Literal["active", "ignored", "unmapped"] = "active"
+    source: str = "manual"
+    note: str = ""
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    updated_at: datetime | None = None
+
+
+class UniverseSymbolMappingReviewResponse(BaseModel):
+    source: Literal["database", "fallback", "missing"]
+    as_of: str
+    universe_key: str
+    member_count: int
+    mapped_count: int
+    ignored_count: int
+    unmapped_count: int
+    mappings: list[UniverseSymbolMappingItem]
+    unmapped_sample: list[str]
+
+
+class UniverseSymbolMappingUpdateRequest(BaseModel):
+    universe_key: str = "us_common_stocks"
+    source_ticker: str = Field(min_length=1, max_length=32)
+    yahoo_symbol: str = Field(default="", max_length=64)
+    status: Literal["active", "ignored"] = "active"
+    note: str = ""
+
+
 class VolatilityStatusCard(BaseModel):
     title: str
     status: str

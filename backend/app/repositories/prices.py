@@ -67,6 +67,8 @@ def upsert_price_bars(
                 )
                 db.add(instrument)
                 db.flush()
+            elif yahoo_symbol:
+                instrument.yahoo_symbol = yahoo_symbol
 
             existing_rows = db.scalars(
                 select(PriceBar).where(

@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.models import Instrument, Universe, UniverseMember
+from app.db.models import Instrument, Universe, UniverseMember, UniverseSymbolMapping
 from app.db.session import SessionLocal
 
 
@@ -19,6 +19,26 @@ class UniverseStatusRow:
     updated_at: datetime | None
     sample_tickers: list[str]
     metadata_json: dict
+
+
+@dataclass(frozen=True)
+class UniverseSymbolMappingRow:
+    universe_key: str
+    source_ticker: str
+    yahoo_symbol: str
+    status: str
+    source: str
+    note: str
+    confidence: float | None
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ResolvedUniverseSymbolRow:
+    source_ticker: str
+    yahoo_symbol: str
+    status: str
+    source: str
 
 
 class UniverseRepositoryUnavailable(RuntimeError):
@@ -153,3 +173,134 @@ def list_universe_tickers(key: str = "us_common_stocks", *, limit: int = 5000) -
             return list(rows)
     except SQLAlchemyError as exc:
         raise UniverseRepositoryUnavailable(str(exc)) from exc
+
+
+def list_symbol_mappings(
+    key: str = "us_common_stocks",
+    *,
+    limit: int = 500,
+) -> list[UniverseSymbolMappingRow]:
+    clean_key = key.strip() or "us_common_stocks"
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(UniverseSymbolMapping)
+                .where(UniverseSymbolMapping.universe_key == clean_key)
+                .order_by(UniverseSymbolMapping.source_ticker.asc())
+                .limit(max(1, min(5_000, limit)))
+            ).all()
+            return [_mapping_row(row) for row in rows]
+    except SQLAlchemyError as exc:
+        raise UniverseRepositoryUnavailable(str(exc)) from exc
+
+
+def upsert_symbol_mapping(
+    *,
+    key: str,
+    source_ticker: str,
+    yahoo_symbol: str,
+    status: str = "active",
+    source: str = "manual",
+    note: str = "",
+    confidence: float | None = 1.0,
+) -> UniverseSymbolMappingRow:
+    clean_key = key.strip() or "us_common_stocks"
+    clean_source = _normalize_symbol(source_ticker)
+    clean_yahoo = yahoo_symbol.strip().upper()
+    clean_status = status if status in {"active", "ignored"} else "active"
+    if not clean_source:
+        raise ValueError("source_ticker is required.")
+    if clean_status == "active" and not clean_yahoo:
+        clean_yahoo = clean_source
+
+    try:
+        with SessionLocal() as db:
+            row = db.scalars(
+                select(UniverseSymbolMapping).where(
+                    UniverseSymbolMapping.universe_key == clean_key,
+                    UniverseSymbolMapping.source_ticker == clean_source,
+                )
+            ).first()
+            if row is None:
+                row = UniverseSymbolMapping(
+                    universe_key=clean_key,
+                    source_ticker=clean_source,
+                    yahoo_symbol=clean_yahoo,
+                    status=clean_status,
+                    source=source,
+                    note=note,
+                    confidence=confidence,
+                    metadata_json={},
+                )
+                db.add(row)
+            else:
+                row.yahoo_symbol = clean_yahoo
+                row.status = clean_status
+                row.source = source or row.source
+                row.note = note
+                row.confidence = confidence
+            instrument = db.scalars(select(Instrument).where(Instrument.ticker == clean_source)).first()
+            if instrument is not None and clean_yahoo:
+                instrument.yahoo_symbol = clean_yahoo
+            db.commit()
+            db.refresh(row)
+            return _mapping_row(row)
+    except SQLAlchemyError as exc:
+        raise UniverseRepositoryUnavailable(str(exc)) from exc
+
+
+def list_resolved_universe_symbols(
+    key: str = "us_common_stocks",
+    *,
+    limit: int = 5000,
+) -> list[ResolvedUniverseSymbolRow]:
+    clean_key = key.strip() or "us_common_stocks"
+    tickers = list_universe_tickers(clean_key, limit=limit)
+    if not tickers:
+        return []
+    mappings = {
+        row.source_ticker.upper(): row
+        for row in list_symbol_mappings(clean_key, limit=max(limit, 500))
+    }
+    resolved: list[ResolvedUniverseSymbolRow] = []
+    for ticker in tickers:
+        mapping = mappings.get(ticker.upper())
+        if mapping is not None:
+            if mapping.status == "ignored":
+                continue
+            yahoo_symbol = mapping.yahoo_symbol or ticker
+            resolved.append(
+                ResolvedUniverseSymbolRow(
+                    source_ticker=ticker,
+                    yahoo_symbol=yahoo_symbol,
+                    status=mapping.status,
+                    source=mapping.source,
+                )
+            )
+            continue
+        resolved.append(
+            ResolvedUniverseSymbolRow(
+                source_ticker=ticker,
+                yahoo_symbol=ticker,
+                status="unmapped",
+                source="universe",
+            )
+        )
+    return resolved[:limit]
+
+
+def _mapping_row(row: UniverseSymbolMapping) -> UniverseSymbolMappingRow:
+    return UniverseSymbolMappingRow(
+        universe_key=row.universe_key,
+        source_ticker=row.source_ticker,
+        yahoo_symbol=row.yahoo_symbol or "",
+        status=row.status or "active",
+        source=row.source or "",
+        note=row.note or "",
+        confidence=row.confidence,
+        updated_at=row.updated_at,
+    )
+
+
+def _normalize_symbol(value: str) -> str:
+    return value.strip().upper().replace(".", "-")

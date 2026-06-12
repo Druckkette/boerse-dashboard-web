@@ -66,6 +66,37 @@ export type UniverseStatus = {
   metadata: Record<string, unknown>;
 };
 
+export type UniverseSymbolMappingItem = {
+  universe_key: string;
+  source_ticker: string;
+  yahoo_symbol: string;
+  status: "active" | "ignored" | "unmapped";
+  source: string;
+  note: string;
+  confidence?: number | null;
+  updated_at?: string | null;
+};
+
+export type UniverseSymbolMappingReview = {
+  source: "database" | "fallback" | "missing";
+  as_of: string;
+  universe_key: string;
+  member_count: number;
+  mapped_count: number;
+  ignored_count: number;
+  unmapped_count: number;
+  mappings: UniverseSymbolMappingItem[];
+  unmapped_sample: string[];
+};
+
+export type UniverseSymbolMappingUpdate = {
+  universe_key?: string;
+  source_ticker: string;
+  yahoo_symbol?: string;
+  status?: "active" | "ignored";
+  note?: string;
+};
+
 export type VolatilityStatusCard = {
   title: string;
   status: string;

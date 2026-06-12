@@ -6,6 +6,7 @@ from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS, SECTOR_
 from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.repositories import jobs as job_repository
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
+from app.services.universes import resolve_universe_price_symbols
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
@@ -31,7 +32,14 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
 
     preset = _normalize_preset(payload.get("preset") or payload.get("universe") or "all")
     explicit_tickers = payload.get("tickers")
-    tickers = _normalize_tickers(explicit_tickers if explicit_tickers else PRICE_REFRESH_PRESETS[preset])
+    limit = _normalize_limit(payload.get("limit_universe") or payload.get("limit") or 50)
+    symbols = resolve_universe_price_symbols(
+        explicit_tickers=explicit_tickers,
+        universe_key=payload.get("universe"),
+        fallback=PRICE_REFRESH_PRESETS[preset],
+        limit=limit,
+    )
+    tickers = [symbol.source_ticker for symbol in symbols]
     range_key = _normalize_range(payload.get("range") or "1y")
     fail_fast = bool(payload.get("fail_fast") or False)
     result: dict = {
@@ -41,6 +49,15 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         "preset": preset,
         "tickers": tickers,
         "ticker_count": len(tickers),
+        "resolved_symbols": [
+            {
+                "source_ticker": symbol.source_ticker,
+                "yahoo_symbol": symbol.yahoo_symbol,
+                "status": symbol.status,
+                "source": symbol.source,
+            }
+            for symbol in symbols
+        ],
         "success_count": 0,
         "failure_count": 0,
         "failed_tickers": [],
@@ -51,22 +68,28 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
 
     job_repository.mark_running(job.job_id, step="Price-Cache-Refresh startet")
     try:
-        total = max(1, len(tickers))
-        for index, ticker in enumerate(tickers, start=1):
+        total = max(1, len(symbols))
+        for index, symbol in enumerate(symbols, start=1):
+            ticker = symbol.source_ticker
             raise_if_cancelled(job.job_id)
             progress = min(90, 10 + int(index / total * 80))
             job_repository.update_progress(
                 job.job_id,
                 progress=progress,
                 step=f"{ticker} von yfinance laden",
-                message=f"{ticker}: tägliche OHLC-Bars werden aktualisiert.",
+                message=f"{ticker}: tägliche OHLC-Bars über {symbol.yahoo_symbol} werden aktualisiert.",
                 result=result,
             )
             try:
-                item = refresh_price_cache_for_ticker(ticker, range_key=range_key)
+                item = refresh_price_cache_for_ticker(
+                    ticker,
+                    range_key=range_key,
+                    yahoo_symbol=symbol.yahoo_symbol,
+                )
             except Exception as exc:
                 item = {
                     "ticker": ticker,
+                    "yahoo_symbol": symbol.yahoo_symbol,
                     "ok": False,
                     "records_seen": 0,
                     "records_written": 0,
@@ -133,3 +156,10 @@ def _normalize_preset(value: object) -> PriceRefreshPreset:
     if clean in PRICE_REFRESH_PRESETS:
         return clean  # type: ignore[return-value]
     return "all"
+
+
+def _normalize_limit(value: object) -> int:
+    try:
+        return max(1, min(5_000, int(value)))
+    except (TypeError, ValueError):
+        return 50

@@ -44,6 +44,9 @@ Target: `Druckkette/boerse-dashboard-web`.
   from the latest worker result, without CSV file handling.
 - Universe maintenance: Nasdaq-Trader parser, `refresh_universe` worker, persisted
   `us_common_stocks` members, `/market/universe` status API and Jobs-page refresh control.
+- Universe symbol rescue: persisted Yahoo-symbol overrides for stored universe members,
+  `/market/universe/mappings` review/update API and Jobs-page mapping workflow for failed
+  price refreshes.
 
 ## Open Gaps
 
@@ -53,4 +56,4 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Market parity:
-  - Rescue/remap workflow for symbols that yfinance cannot load from the stored universe.
+  - Broader fixture coverage for real-world delisted/renamed symbols from stored universes.

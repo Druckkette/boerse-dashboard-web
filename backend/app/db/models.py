@@ -99,6 +99,27 @@ class UniverseMember(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class UniverseSymbolMapping(Base):
+    __tablename__ = "universe_symbol_mappings"
+    __table_args__ = (
+        UniqueConstraint("universe_key", "source_ticker", name="uq_universe_symbol_mapping"),
+        Index("ix_universe_symbol_mappings_universe_status", "universe_key", "status"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    universe_key: Mapped[str] = mapped_column(String(96), index=True)
+    source_ticker: Mapped[str] = mapped_column(String(32), index=True)
+    yahoo_symbol: Mapped[str] = mapped_column(String(64), default="", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    note: Mapped[str] = mapped_column(Text, default="")
+    confidence: Mapped[float | None] = mapped_column(Float)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class MarketSnapshot(Base):
     __tablename__ = "market_snapshots"
 

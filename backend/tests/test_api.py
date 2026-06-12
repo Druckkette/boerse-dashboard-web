@@ -47,6 +47,48 @@ def test_market_universe_contract() -> None:
     assert isinstance(payload["metadata"], dict)
 
 
+def test_market_universe_mappings_contract() -> None:
+    response = client.get("/api/v1/market/universe/mappings")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "fallback", "missing"}
+    assert payload["universe_key"]
+    assert isinstance(payload["member_count"], int)
+    assert isinstance(payload["mapped_count"], int)
+    assert isinstance(payload["ignored_count"], int)
+    assert isinstance(payload["unmapped_count"], int)
+    assert isinstance(payload["mappings"], list)
+    assert isinstance(payload["unmapped_sample"], list)
+
+
+def test_patch_market_universe_mapping_contract(monkeypatch) -> None:
+    from app.api.v1 import market as market_api
+    from app.schemas import UniverseSymbolMappingReviewResponse
+
+    def fake_update(request):
+        return UniverseSymbolMappingReviewResponse(
+            source="database",
+            as_of="2026-06-12",
+            universe_key=request.universe_key,
+            member_count=1,
+            mapped_count=1,
+            ignored_count=0,
+            unmapped_count=0,
+            mappings=[],
+            unmapped_sample=[],
+        )
+
+    monkeypatch.setattr(market_api, "update_universe_symbol_mapping", fake_update)
+
+    response = client.patch(
+        "/api/v1/market/universe/mappings",
+        json={"source_ticker": "BRK-B", "yahoo_symbol": "BRK-B", "status": "active"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mapped_count"] == 1
+
+
 def test_market_volatility_contract() -> None:
     response = client.get("/api/v1/market/volatility")
     assert response.status_code == 200

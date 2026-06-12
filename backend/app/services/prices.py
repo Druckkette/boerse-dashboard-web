@@ -70,10 +70,16 @@ def get_price_history(ticker: str, *, range_key: PriceRange = "1y") -> PriceHist
     )
 
 
-def refresh_price_cache_for_ticker(ticker: str, *, range_key: PriceRange = "1y") -> dict:
+def refresh_price_cache_for_ticker(
+    ticker: str,
+    *,
+    range_key: PriceRange = "1y",
+    yahoo_symbol: str | None = None,
+) -> dict:
     clean = _normalize_ticker(ticker)
+    fetch_symbol = (yahoo_symbol or clean).strip().upper()
     period = YFINANCE_PERIOD_BY_RANGE[range_key]
-    fetched = fetch_daily_price_bars(clean, period=period)
+    fetched = fetch_daily_price_bars(fetch_symbol, period=period)
     writes = [
         PriceBarWrite(
             date=bar.date,
@@ -86,9 +92,10 @@ def refresh_price_cache_for_ticker(ticker: str, *, range_key: PriceRange = "1y")
         )
         for bar in fetched
     ]
-    written = upsert_price_bars(clean, writes, yahoo_symbol=clean)
+    written = upsert_price_bars(clean, writes, yahoo_symbol=fetch_symbol)
     return {
         "ticker": clean,
+        "yahoo_symbol": fetch_symbol,
         "records_seen": len(fetched),
         "records_written": written,
         "first_date": fetched[0].date.isoformat() if fetched else None,

@@ -45,6 +45,8 @@ import type {
   TradeRepublicTransactionImportRequest,
   TradeRepublicTransactionImportResponse,
   UniverseStatus,
+  UniverseSymbolMappingReview,
+  UniverseSymbolMappingUpdate,
   Volatility
 } from "@/lib/types/api";
 
@@ -96,6 +98,10 @@ export const api = {
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
   marketDiagnostics: () => getJson<MarketDiagnostics>("/market/diagnostics"),
   marketUniverse: () => getJson<UniverseStatus>("/market/universe"),
+  marketUniverseMappings: (limit = 500) =>
+    getJson<UniverseSymbolMappingReview>(`/market/universe/mappings?limit=${limit}`),
+  patchMarketUniverseMapping: (body: UniverseSymbolMappingUpdate) =>
+    patchJson<UniverseSymbolMappingReview>("/market/universe/mappings", body),
   marketSectors: (mode: "daily" | "weekly" = "daily", periods = 15) =>
     getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
   freshness: () => getJson<Freshness>("/freshness"),

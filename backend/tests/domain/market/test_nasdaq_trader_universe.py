@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from app.data_sources.nasdaq_trader import parse_nasdaq_listed_text, parse_otherlisted_text
+from app.repositories import universes as universe_repository
+from app.services.universes import get_universe_symbol_mappings, resolve_universe_price_symbols
 
 
 def test_parse_nasdaq_listed_filters_non_common_rows() -> None:
@@ -29,3 +31,89 @@ def test_parse_otherlisted_filters_etfs_and_normalizes_symbols() -> None:
     )
 
     assert parse_otherlisted_text(text) == ["BRK-B"]
+
+
+def test_universe_mapping_review_counts_manual_overrides(monkeypatch) -> None:
+    monkeypatch.setattr(
+        universe_repository,
+        "list_universe_tickers",
+        lambda key, limit: ["AAPL", "BRK-B", "BF-B", "XYZ-W"],
+    )
+    monkeypatch.setattr(
+        universe_repository,
+        "list_symbol_mappings",
+        lambda key, limit: [
+            universe_repository.UniverseSymbolMappingRow(
+                universe_key=key,
+                source_ticker="BRK-B",
+                yahoo_symbol="BRK-B",
+                status="active",
+                source="manual",
+                note="class b",
+                confidence=1.0,
+                updated_at=None,
+            ),
+            universe_repository.UniverseSymbolMappingRow(
+                universe_key=key,
+                source_ticker="XYZ-W",
+                yahoo_symbol="",
+                status="ignored",
+                source="manual",
+                note="warrant",
+                confidence=1.0,
+                updated_at=None,
+            ),
+        ],
+    )
+
+    review = get_universe_symbol_mappings()
+
+    assert review.source == "database"
+    assert review.member_count == 4
+    assert review.mapped_count == 1
+    assert review.ignored_count == 1
+    assert review.unmapped_count == 2
+    assert review.unmapped_sample == ["AAPL", "BF-B"]
+
+
+def test_resolve_universe_price_symbols_uses_yahoo_aliases(monkeypatch) -> None:
+    monkeypatch.setattr(
+        universe_repository,
+        "list_resolved_universe_symbols",
+        lambda key, limit: [
+            universe_repository.ResolvedUniverseSymbolRow(
+                source_ticker="BRK-B",
+                yahoo_symbol="BRK-B",
+                status="active",
+                source="manual",
+            ),
+            universe_repository.ResolvedUniverseSymbolRow(
+                source_ticker="AAPL",
+                yahoo_symbol="AAPL",
+                status="unmapped",
+                source="universe",
+            ),
+        ],
+    )
+
+    resolved = resolve_universe_price_symbols(
+        explicit_tickers=None,
+        universe_key="us_common_stocks",
+        fallback=["SPY"],
+        limit=500,
+    )
+
+    assert [item.source_ticker for item in resolved] == ["BRK-B", "AAPL"]
+    assert [item.yahoo_symbol for item in resolved] == ["BRK-B", "AAPL"]
+
+
+def test_resolve_universe_price_symbols_prefers_explicit_payload() -> None:
+    resolved = resolve_universe_price_symbols(
+        explicit_tickers=["MSFT", "NVDA"],
+        universe_key="us_common_stocks",
+        fallback=["SPY"],
+        limit=500,
+    )
+
+    assert [item.source_ticker for item in resolved] == ["MSFT", "NVDA"]
+    assert all(item.source == "payload" for item in resolved)

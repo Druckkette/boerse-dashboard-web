@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
+from app.repositories.universes import UniverseRepositoryUnavailable
 from app.schemas import (
     BreadthResponse,
     MarketDiagnosticsResponse,
     MarketOverviewResponse,
     SectorRankingResponse,
     UniverseStatusResponse,
+    UniverseSymbolMappingReviewResponse,
+    UniverseSymbolMappingUpdateRequest,
     VolatilityResponse,
 )
 from app.services.market import (
@@ -15,7 +18,11 @@ from app.services.market import (
     get_sector_ranking,
     get_volatility,
 )
-from app.services.universes import get_universe_status
+from app.services.universes import (
+    get_universe_status,
+    get_universe_symbol_mappings,
+    update_universe_symbol_mapping,
+)
 
 
 router = APIRouter()
@@ -34,6 +41,25 @@ def market_breadth() -> BreadthResponse:
 @router.get("/universe", response_model=UniverseStatusResponse)
 def market_universe() -> UniverseStatusResponse:
     return get_universe_status()
+
+
+@router.get("/universe/mappings", response_model=UniverseSymbolMappingReviewResponse)
+def market_universe_mappings(
+    limit: int = Query(default=500, ge=1, le=1000),
+) -> UniverseSymbolMappingReviewResponse:
+    return get_universe_symbol_mappings(limit=limit)
+
+
+@router.patch("/universe/mappings", response_model=UniverseSymbolMappingReviewResponse)
+def patch_market_universe_mapping(
+    request: UniverseSymbolMappingUpdateRequest,
+) -> UniverseSymbolMappingReviewResponse:
+    try:
+        return update_universe_symbol_mapping(request)
+    except UniverseRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Universe mapping database unavailable") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/volatility", response_model=VolatilityResponse)

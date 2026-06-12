@@ -1,11 +1,18 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CircleDashed, Play, RotateCw, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDashed, Play, RotateCw, Save, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { Job, JobStatus, JobType, PriceRange } from "@/lib/types/api";
+import type {
+  Job,
+  JobStatus,
+  JobType,
+  PriceRange,
+  UniverseSymbolMappingReview,
+  UniverseSymbolMappingUpdate
+} from "@/lib/types/api";
 
 const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_prices", label: "Prices", description: "Inkrementelle OHLC-Aktualisierung" },
@@ -26,11 +33,12 @@ const statusTone: Record<JobStatus, "good" | "neutral" | "warning" | "bad"> = {
   cancelled: "neutral"
 };
 
-type PricePreset = "all" | "market_core" | "volatility" | "sector" | "custom";
+type PricePreset = "all" | "stored_universe" | "market_core" | "volatility" | "sector" | "custom";
 
 type MarketDataBootstrapConfig = {
   pricePreset: PricePreset;
   priceRange: PriceRange;
+  storedUniverseLimit: number;
   customTickers: string;
   breadthLookbackDays: number;
   rsLookbackDays: number;
@@ -42,6 +50,7 @@ const BOOTSTRAP_CONFIG_STORAGE_KEY = "boerse-dashboard.market-data-bootstrap.v1"
 const defaultBootstrapConfig: MarketDataBootstrapConfig = {
   pricePreset: "all",
   priceRange: "1y",
+  storedUniverseLimit: 500,
   customTickers: "",
   breadthLookbackDays: 370,
   rsLookbackDays: 430,
@@ -109,6 +118,206 @@ function UniverseStatusPanel({
   );
 }
 
+function UniverseSymbolMappingPanel({
+  failedTickers,
+  isFetching,
+  onRefresh,
+  onSave,
+  review,
+  saveError,
+  saving
+}: {
+  failedTickers: string[];
+  isFetching: boolean;
+  onRefresh: () => void;
+  onSave: (payload: UniverseSymbolMappingUpdate) => void;
+  review?: UniverseSymbolMappingReview;
+  saveError: string;
+  saving: boolean;
+}) {
+  const [sourceTicker, setSourceTicker] = useState("");
+  const [yahooSymbol, setYahooSymbol] = useState("");
+  const [status, setStatus] = useState<"active" | "ignored">("active");
+  const [note, setNote] = useState("");
+  const canSave = sourceTicker.trim().length > 0 && (status === "ignored" || yahooSymbol.trim().length > 0);
+  const mappedRows = review?.mappings.slice(0, 8) ?? [];
+  const unmappedSample = review?.unmapped_sample.slice(0, 18) ?? [];
+
+  function fillTicker(ticker: string) {
+    setSourceTicker(ticker);
+    setYahooSymbol(ticker);
+    setStatus("active");
+  }
+
+  function submit() {
+    if (!canSave) return;
+    onSave({
+      universe_key: review?.universe_key ?? "us_common_stocks",
+      source_ticker: normalizeTicker(sourceTicker),
+      yahoo_symbol: normalizeTicker(yahooSymbol),
+      status,
+      note
+    });
+  }
+
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">Yahoo-Symbol Rescue</h2>
+            <StatusChip tone={review?.source === "database" ? "good" : "neutral"}>
+              {review?.source ?? "lädt"}
+            </StatusChip>
+            <StatusChip tone={(review?.mapped_count ?? 0) > 0 ? "good" : "neutral"}>
+              {(review?.mapped_count ?? 0).toLocaleString("de-DE")} Mappings
+            </StatusChip>
+            <StatusChip tone={(review?.ignored_count ?? 0) > 0 ? "warning" : "neutral"}>
+              {(review?.ignored_count ?? 0).toLocaleString("de-DE")} ignoriert
+            </StatusChip>
+          </div>
+          <div className="mt-1 text-sm text-[#a0a7b4]">
+            Universe-Ticker bleiben stabil; nur der yfinance-Ladealias wird hier korrigiert.
+          </div>
+        </div>
+        <button
+          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+          type="button"
+          onClick={onRefresh}
+        >
+          <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+          Mappings prüfen
+        </button>
+      </div>
+
+      {failedTickers.length > 0 && (
+        <div className="mb-4 rounded border border-rose-300/30 bg-rose-300/10 p-3">
+          <div className="text-sm font-medium text-rose-100">Letzte Preisfehler</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {failedTickers.map((ticker) => (
+              <button
+                key={ticker}
+                className="rounded border border-rose-300/30 bg-[#111419] px-2 py-1 text-xs text-rose-100 transition hover:border-rose-200"
+                type="button"
+                onClick={() => fillTicker(ticker)}
+              >
+                {ticker}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 xl:grid-cols-[160px_160px_140px_1fr_auto]">
+        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
+          <span className="text-xs uppercase text-[#77808f]">Universe-Ticker</span>
+          <input
+            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
+            placeholder="BRK-B"
+            value={sourceTicker}
+            onChange={(event) => setSourceTicker(event.target.value.toUpperCase())}
+          />
+        </label>
+        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
+          <span className="text-xs uppercase text-[#77808f]">Yahoo-Symbol</span>
+          <input
+            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
+            placeholder="BRK-B"
+            value={yahooSymbol}
+            onChange={(event) => setYahooSymbol(event.target.value.toUpperCase())}
+          />
+        </label>
+        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
+          <span className="text-xs uppercase text-[#77808f]">Status</span>
+          <select
+            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
+            value={status}
+            onChange={(event) => setStatus(event.target.value as "active" | "ignored")}
+          >
+            <option value="active">Aktiv</option>
+            <option value="ignored">Ignorieren</option>
+          </select>
+        </label>
+        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
+          <span className="text-xs uppercase text-[#77808f]">Notiz</span>
+          <input
+            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition placeholder:text-[#697386] focus:border-emerald-300/70"
+            placeholder="z. B. Yahoo nutzt anderes Symbol"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded bg-emerald-300 px-4 py-3 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50 xl:self-end"
+          disabled={!canSave || saving}
+          type="button"
+          onClick={submit}
+        >
+          <Save size={15} />
+          {saving ? "Speichert" : "Speichern"}
+        </button>
+      </div>
+      {saveError && <div className="mt-3 text-sm text-rose-200">{saveError}</div>}
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-sm font-medium">Aktive Overrides</div>
+            <div className="text-xs text-[#77808f]">
+              {review ? `${review.member_count.toLocaleString("de-DE")} Universe-Ticker` : "lädt"}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {mappedRows.length === 0 && (
+              <div className="text-sm text-[#77808f]">Noch keine manuellen Symbol-Mappings gespeichert.</div>
+            )}
+            {mappedRows.map((row) => (
+              <button
+                key={`${row.universe_key}-${row.source_ticker}`}
+                className="grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 rounded border border-[#2d333d] px-3 py-2 text-left text-sm transition hover:border-[#697386]"
+                type="button"
+                onClick={() => {
+                  setSourceTicker(row.source_ticker);
+                  setYahooSymbol(row.yahoo_symbol);
+                  setStatus(row.status === "ignored" ? "ignored" : "active");
+                  setNote(row.note);
+                }}
+              >
+                <span className="font-medium">{row.source_ticker}</span>
+                <span className="text-[#a0a7b4]">{row.yahoo_symbol || "-"}</span>
+                <StatusChip tone={row.status === "ignored" ? "warning" : "good"}>{row.status}</StatusChip>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-sm font-medium">Ungemappte Stichprobe</div>
+            <div className="text-xs text-[#77808f]">
+              {(review?.unmapped_count ?? 0).toLocaleString("de-DE")} ohne Override
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {unmappedSample.map((ticker) => (
+              <button
+                key={ticker}
+                className="rounded border border-[#2d333d] px-2 py-1 text-xs text-[#d8dde6] transition hover:border-emerald-300/60"
+                type="button"
+                onClick={() => fillTicker(ticker)}
+              >
+                {ticker}
+              </button>
+            ))}
+            {unmappedSample.length === 0 && (
+              <div className="text-sm text-[#77808f]">Keine ungemappten Ticker in der aktuellen Stichprobe.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function JobsPage() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<JobType>("refresh_prices");
@@ -124,8 +333,14 @@ export default function JobsPage() {
     queryFn: api.marketUniverse,
     staleTime: 60_000
   });
+  const universeMappingsQuery = useQuery({
+    queryKey: ["market-universe-mappings"],
+    queryFn: () => api.marketUniverseMappings(500),
+    staleTime: 60_000
+  });
   const jobs = data ?? [];
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
+  const priceFailures = latestFailedPriceTickers(jobs);
 
   const startMutation = useMutation({
     mutationFn: ({ type, payload }: { type: JobType; payload: Record<string, unknown> }) => {
@@ -139,6 +354,14 @@ export default function JobsPage() {
   const cancelMutation = useMutation({
     mutationFn: (jobId: string) => api.cancelJob(jobId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
+  });
+
+  const mappingMutation = useMutation({
+    mutationFn: api.patchMarketUniverseMapping,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["market-universe-mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["market-universe"] });
+    }
   });
 
   useEffect(() => {
@@ -183,6 +406,20 @@ export default function JobsPage() {
         onRefresh={() => universeQuery.refetch()}
         onStart={() => startMutation.mutate({ type: "refresh_universe", payload: defaultPayloadForJob("refresh_universe") })}
         starting={startingType === "refresh_universe"}
+      />
+
+      <UniverseSymbolMappingPanel
+        failedTickers={priceFailures}
+        isFetching={universeMappingsQuery.isFetching}
+        review={universeMappingsQuery.data}
+        saving={mappingMutation.isPending}
+        saveError={
+          mappingMutation.isError && mappingMutation.error instanceof Error
+            ? mappingMutation.error.message
+            : ""
+        }
+        onRefresh={() => universeMappingsQuery.refetch()}
+        onSave={(payload) => mappingMutation.mutate(payload)}
       />
 
       <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -288,6 +525,7 @@ function RefreshSequence({
             onChange={(event) => onConfigChange({ pricePreset: event.target.value as PricePreset })}
           >
             <option value="all">Starter + Volatility</option>
+            <option value="stored_universe">Gespeichertes US-Universe</option>
             <option value="market_core">Starter-Universum</option>
             <option value="volatility">Nur SPY, VIX, VIXY</option>
             <option value="sector">Nur Sektor-ETFs</option>
@@ -309,6 +547,14 @@ function RefreshSequence({
             <option value="5y">5 Jahre</option>
           </select>
         </label>
+        <NumberField
+          label="Universe Limit"
+          max={5000}
+          min={25}
+          suffix="Ticker"
+          value={config.storedUniverseLimit}
+          onChange={(value) => onConfigChange({ storedUniverseLimit: value })}
+        />
         <NumberField
           label="Breadth Lookback"
           max={2000}
@@ -503,6 +749,20 @@ function latestJobForType(jobs: Job[], type: JobType) {
   return jobs.find((job) => job.job_type === type);
 }
 
+function latestFailedPriceTickers(jobs: Job[]) {
+  const latest = jobs.find((job) => job.job_type === "refresh_prices");
+  const result = latest?.result ?? {};
+  const failedFromList = Array.isArray(result.failed_tickers)
+    ? result.failed_tickers.map((value) => String(value))
+    : [];
+  const failedFromItems = Array.isArray(result.items)
+    ? result.items
+        .filter((item) => item && typeof item === "object" && (item as { ok?: unknown }).ok === false)
+        .map((item) => String((item as { ticker?: unknown }).ticker ?? ""))
+    : [];
+  return uniqueTickers([...failedFromList, ...failedFromItems]).slice(0, 24);
+}
+
 function buildRefreshSequence(config: MarketDataBootstrapConfig): {
   type: JobType;
   label: string;
@@ -511,7 +771,11 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
   disabled?: boolean;
 }[] {
   const customTickers = config.pricePreset === "custom" ? parseTickers(config.customTickers) : [];
-  const customUniversePayload = customTickers.length > 0 ? { tickers: customTickers } : {};
+  const storedUniversePayload =
+    config.pricePreset === "stored_universe"
+      ? { universe: "us_common_stocks", limit_universe: config.storedUniverseLimit }
+      : {};
+  const customUniversePayload = customTickers.length > 0 ? { tickers: customTickers } : storedUniversePayload;
   const rsBenchmarkTicker = normalizeTicker(config.rsBenchmarkTicker) || "SPY";
   const pricePayload =
     config.pricePreset === "custom"
@@ -520,6 +784,13 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
           range: config.priceRange,
           tickers: uniqueTickers([...customTickers, rsBenchmarkTicker, "SPY", "^VIX", "VIXY"])
         }
+      : config.pricePreset === "stored_universe"
+        ? {
+            mode: "manual",
+            range: config.priceRange,
+            universe: "us_common_stocks",
+            limit_universe: config.storedUniverseLimit
+          }
       : { mode: "manual", range: config.priceRange, preset: config.pricePreset };
 
   return [
@@ -599,7 +870,7 @@ function clampNumber(value: number, min: number, max: number, fallback: number) 
 
 function normalizeBootstrapConfig(value: unknown): MarketDataBootstrapConfig {
   const raw = value && typeof value === "object" ? (value as Partial<MarketDataBootstrapConfig>) : {};
-  const pricePreset = ["all", "market_core", "volatility", "sector", "custom"].includes(String(raw.pricePreset))
+  const pricePreset = ["all", "stored_universe", "market_core", "volatility", "sector", "custom"].includes(String(raw.pricePreset))
     ? (raw.pricePreset as PricePreset)
     : defaultBootstrapConfig.pricePreset;
   const priceRange = ["1m", "3m", "6m", "1y", "2y", "5y"].includes(String(raw.priceRange))
@@ -609,6 +880,7 @@ function normalizeBootstrapConfig(value: unknown): MarketDataBootstrapConfig {
   return {
     pricePreset,
     priceRange,
+    storedUniverseLimit: clampNumber(Number(raw.storedUniverseLimit), 25, 5000, defaultBootstrapConfig.storedUniverseLimit),
     customTickers: typeof raw.customTickers === "string" ? raw.customTickers : "",
     breadthLookbackDays: clampNumber(
       Number(raw.breadthLookbackDays),
