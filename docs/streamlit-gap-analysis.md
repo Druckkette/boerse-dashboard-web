@@ -33,6 +33,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - FMP/SEC fundamentals enrichment: worker-side quarterly EPS/revenue growth, acceleration flags,
   trailing EPS, ROE/margin fallback and source metadata, with optional `FMP_API_KEY`.
 - Stock detail price chart now includes 21-EMA, 50-SMA, 200-SMA and volume context from the cached Price API.
+- Stock detail chart context: candlestick bodies/wicks, colored volume, automatic 52W/high-volume/trend-loss markers and RS-vs-SPY subplot from cached price data.
 - Sell detail diagnostics endpoint and UI with live metrics, strategy hub, next action and post-mortem checks.
 - Market diagnostics endpoint and `/market` UI for the old `_tab_marktanalyse` daily checklist, Intermarket view and defensive/offensive sector rotation.
 - Persistent Sell post-mortem notes/actions with Postgres table, API and non-blocking detail-page editing.
@@ -52,8 +53,6 @@ Target: `Druckkette/boerse-dashboard-web`.
 
 ## Open Gaps
 
-- Stock assessment page parity:
-  - Deeper single-stock chart context such as annotated candlesticks and RS subplot.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Market parity:

@@ -34,8 +34,11 @@ type LineChartCardProps = {
   caption: string;
   points: ChartDatum[];
   series: ChartSeries[];
+  chartMode?: "line" | "candlestick";
   levels?: ChartLevel[];
   markers?: ChartMarker[];
+  subSeries?: ChartSeries[];
+  subTitle?: string;
   volumeKey?: string;
   volumeLabel?: string;
   statusLabel?: string;
@@ -55,8 +58,11 @@ export function LineChartCard({
   caption,
   points,
   series,
+  chartMode = "line",
   levels = [],
   markers = [],
+  subSeries = [],
+  subTitle = "",
   volumeKey,
   volumeLabel = "Volumen",
   statusLabel,
@@ -64,18 +70,39 @@ export function LineChartCard({
   isLoading,
   error
 }: LineChartCardProps) {
+  const hasSubChart = subSeries.length > 0;
+  const subTop = hasSubChart ? HEIGHT - PAD_BOTTOM - 64 : HEIGHT - PAD_BOTTOM;
+  const priceBottom = hasSubChart ? subTop - 14 : HEIGHT - PAD_BOTTOM;
   const numericValues = points.flatMap((point) =>
     series
       .map((item) => toNumber(point[item.key]))
       .filter((value): value is number => value !== null)
   );
+  const candleValues =
+    chartMode === "candlestick"
+      ? points.flatMap((point) =>
+          ["open", "high", "low", "close"]
+            .map((key) => toNumber(point[key]))
+            .filter((value): value is number => value !== null)
+        )
+      : [];
   const levelValues = levels.map((level) => level.value).filter((value) => Number.isFinite(value));
-  const allValues = [...numericValues, ...levelValues];
+  const allValues = [...numericValues, ...candleValues, ...levelValues];
   const min = allValues.length ? Math.min(...allValues) : 0;
   const max = allValues.length ? Math.max(...allValues) : 1;
   const span = max - min || Math.max(1, Math.abs(max));
   const yMin = min - span * 0.08;
   const yMax = max + span * 0.08;
+  const subValues = points.flatMap((point) =>
+    subSeries
+      .map((item) => toNumber(point[item.key]))
+      .filter((value): value is number => value !== null)
+  );
+  const subMin = subValues.length ? Math.min(...subValues) : 0;
+  const subMax = subValues.length ? Math.max(...subValues) : 1;
+  const subSpan = subMax - subMin || Math.max(1, Math.abs(subMax));
+  const subYMin = subMin - subSpan * 0.08;
+  const subYMax = subMax + subSpan * 0.08;
   const volumeValues = volumeKey
     ? points.map((point) => toNumber(point[volumeKey])).filter((value): value is number => value !== null)
     : [];
@@ -127,8 +154,8 @@ export function LineChartCard({
                 strokeWidth="1"
                 x1={PAD_X}
                 x2={WIDTH - PAD_X}
-                y1={PAD_TOP + ratio * (HEIGHT - PAD_TOP - PAD_BOTTOM)}
-                y2={PAD_TOP + ratio * (HEIGHT - PAD_TOP - PAD_BOTTOM)}
+                y1={PAD_TOP + ratio * (priceBottom - PAD_TOP)}
+                y2={PAD_TOP + ratio * (priceBottom - PAD_TOP)}
               />
             ))}
             {volumeKey && maxVolume > 0 && (
@@ -139,7 +166,7 @@ export function LineChartCard({
                   const barHeight = Math.max(1, (volume / maxVolume) * 54);
                   const barWidth = Math.max(2, (WIDTH - PAD_X * 2) / Math.max(1, points.length) * 0.72);
                   const x = xForIndex(index, points.length) - barWidth / 2;
-                  const y = HEIGHT - PAD_BOTTOM - barHeight;
+                  const y = priceBottom - barHeight;
                   const close = toNumber(point.close);
                   const open = toNumber(point.open);
                   const fill = close !== null && open !== null && close < open ? "#fb7185" : "#34d399";
@@ -147,8 +174,52 @@ export function LineChartCard({
                 })}
               </g>
             )}
+            {chartMode === "candlestick" && (
+              <g>
+                {points.map((point, index) => {
+                  const open = toNumber(point.open);
+                  const high = toNumber(point.high);
+                  const low = toNumber(point.low);
+                  const close = toNumber(point.close);
+                  if (open === null || high === null || low === null || close === null) return null;
+                  const x = xForIndex(index, points.length);
+                  const candleWidth = Math.max(3, (WIDTH - PAD_X * 2) / Math.max(1, points.length) * 0.58);
+                  const yHigh = yForValue(high, yMin, yMax, PAD_TOP, priceBottom);
+                  const yLow = yForValue(low, yMin, yMax, PAD_TOP, priceBottom);
+                  const yOpen = yForValue(open, yMin, yMax, PAD_TOP, priceBottom);
+                  const yClose = yForValue(close, yMin, yMax, PAD_TOP, priceBottom);
+                  const up = close >= open;
+                  const color = up ? "#34d399" : "#fb7185";
+                  const bodyY = Math.min(yOpen, yClose);
+                  const bodyHeight = Math.max(1.4, Math.abs(yClose - yOpen));
+                  return (
+                    <g key={`${point.date}-candle`}>
+                      <line
+                        stroke={color}
+                        strokeWidth="1.4"
+                        vectorEffect="non-scaling-stroke"
+                        x1={x}
+                        x2={x}
+                        y1={yHigh}
+                        y2={yLow}
+                      />
+                      <rect
+                        fill={up ? "#34d399" : "#101318"}
+                        height={bodyHeight}
+                        stroke={color}
+                        strokeWidth="1.5"
+                        vectorEffect="non-scaling-stroke"
+                        width={candleWidth}
+                        x={x - candleWidth / 2}
+                        y={bodyY}
+                      />
+                    </g>
+                  );
+                })}
+              </g>
+            )}
             {series.map((item) => {
-              const path = buildPath(points, item.key, yMin, yMax);
+              const path = buildPath(points, item.key, yMin, yMax, PAD_TOP, priceBottom);
               if (!path) return null;
               return (
                 <path
@@ -164,7 +235,7 @@ export function LineChartCard({
               );
             })}
             {levels.map((level) => {
-              const y = yForValue(level.value, yMin, yMax);
+              const y = yForValue(level.value, yMin, yMax, PAD_TOP, priceBottom);
               return (
                 <g key={level.key}>
                   <line
@@ -191,7 +262,7 @@ export function LineChartCard({
               const markerValue = toNumber(marker.value) ?? toNumber(point.close);
               if (markerValue === null) return null;
               const x = xForIndex(markerIndex, points.length);
-              const y = yForValue(markerValue, yMin, yMax);
+              const y = yForValue(markerValue, yMin, yMax, PAD_TOP, priceBottom);
               return (
                 <g key={marker.key}>
                   <line
@@ -203,7 +274,7 @@ export function LineChartCard({
                     x1={x}
                     x2={x}
                     y1={PAD_TOP}
-                    y2={HEIGHT - PAD_BOTTOM}
+                    y2={priceBottom}
                   />
                   <circle cx={x} cy={y} fill={marker.color} r="5" vectorEffect="non-scaling-stroke" />
                   <text fill={marker.color} fontSize="11" fontWeight="700" textAnchor="middle" x={x} y={Math.max(18, y - 10)}>
@@ -212,6 +283,32 @@ export function LineChartCard({
                 </g>
               );
             })}
+            {hasSubChart && (
+              <g>
+                <line stroke="#2d333d" strokeWidth="1" x1={PAD_X} x2={WIDTH - PAD_X} y1={subTop} y2={subTop} />
+                {subTitle && (
+                  <text fill="#a0a7b4" fontSize="11" fontWeight="700" x={PAD_X} y={subTop + 14}>
+                    {subTitle}
+                  </text>
+                )}
+                {subSeries.map((item) => {
+                  const path = buildPath(points, item.key, subYMin, subYMax, subTop + 18, HEIGHT - PAD_BOTTOM);
+                  if (!path) return null;
+                  return (
+                    <path
+                      key={item.key}
+                      d={path}
+                      fill="none"
+                      stroke={item.color}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  );
+                })}
+              </g>
+            )}
             <text fill="#7f8794" fontSize="12" x={PAD_X} y={HEIGHT - 16}>
               {points[0]?.date}
             </text>
@@ -240,6 +337,16 @@ export function LineChartCard({
             </div>
           );
         })}
+        {subSeries.map((item) => {
+          const value = latest ? toNumber(latest[item.key]) : null;
+          return (
+            <div key={item.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">
+              <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} />
+              <span className="text-[#a0a7b4]">{item.label}</span>
+              <span className="tabular-nums">{value === null ? "-" : (item.formatter?.(value) ?? value.toFixed(2))}</span>
+            </div>
+          );
+        })}
         {levels.map((level) => (
           <div key={level.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">
             <span className="h-px w-4 border-t border-dashed" style={{ borderColor: level.color }} />
@@ -252,7 +359,14 @@ export function LineChartCard({
   );
 }
 
-function buildPath(points: ChartDatum[], key: string, yMin: number, yMax: number) {
+function buildPath(
+  points: ChartDatum[],
+  key: string,
+  yMin: number,
+  yMax: number,
+  top: number,
+  bottom: number
+) {
   const values = points
     .map((point, index) => ({ index, value: toNumber(point[key]) }))
     .filter((point): point is { index: number; value: number } => point.value !== null);
@@ -261,7 +375,7 @@ function buildPath(points: ChartDatum[], key: string, yMin: number, yMax: number
   return values
     .map((point, pathIndex) => {
       const x = xForIndex(point.index, points.length);
-      const y = yForValue(point.value, yMin, yMax);
+      const y = yForValue(point.value, yMin, yMax, top, bottom);
       return `${pathIndex === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
@@ -272,10 +386,10 @@ function xForIndex(index: number, total: number) {
   return PAD_X + (index / (total - 1)) * (WIDTH - PAD_X * 2);
 }
 
-function yForValue(value: number, yMin: number, yMax: number) {
-  const chartHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+function yForValue(value: number, yMin: number, yMax: number, top: number, bottom: number) {
+  const chartHeight = bottom - top;
   const ratio = (value - yMin) / (yMax - yMin || 1);
-  return PAD_TOP + (1 - ratio) * chartHeight;
+  return top + (1 - ratio) * chartHeight;
 }
 
 function indexForDate(points: ChartDatum[], date: string) {
