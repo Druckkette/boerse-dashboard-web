@@ -65,7 +65,7 @@ async function getJson<T>(path: string): Promise<T> {
     cache: "no-store"
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(await errorMessage(response));
   }
   return response.json() as Promise<T>;
 }
@@ -77,7 +77,7 @@ async function patchJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body)
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(await errorMessage(response));
   }
   return response.json() as Promise<T>;
 }
@@ -89,9 +89,31 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body)
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    throw new Error(await errorMessage(response));
   }
   return response.json() as Promise<T>;
+}
+
+async function errorMessage(response: Response) {
+  const fallback = `API request failed: ${response.status} ${response.statusText}`;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return fallback;
+
+  try {
+    const payload = (await response.json()) as {
+      detail?: unknown;
+      hint?: unknown;
+      target_origin?: unknown;
+      error?: unknown;
+    };
+    const detail = typeof payload.detail === "string" ? payload.detail : fallback;
+    const hint = typeof payload.hint === "string" ? ` Hinweis: ${payload.hint}` : "";
+    const target = typeof payload.target_origin === "string" ? ` Ziel: ${payload.target_origin}.` : "";
+    const error = typeof payload.error === "string" ? ` Fehler: ${payload.error}` : "";
+    return `${detail}.${target}${hint}${error}`;
+  } catch {
+    return fallback;
+  }
 }
 
 export const api = {

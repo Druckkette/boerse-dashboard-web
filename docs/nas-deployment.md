@@ -16,6 +16,7 @@ For public packages, login may not be required. Private packages require the tok
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web
+cd infra
 cp .env.nas.example .env.nas
 vi .env.nas
 docker compose --env-file .env.nas -f docker-compose.nas.yml pull
@@ -67,6 +68,28 @@ Redis without blocking the UI. From the NAS shell you can inspect the same statu
 ```bash
 curl http://127.0.0.1:8000/api/v1/readiness
 ```
+
+## 502 Bad Gateway
+
+`API request failed: 502 Bad Gateway` means the Next.js frontend proxy could not reach FastAPI.
+Check this from the NAS in `.../boerse-dashboard-web/infra`:
+
+```bash
+docker compose --env-file .env.nas -f docker-compose.nas.yml ps
+docker compose --env-file .env.nas -f docker-compose.nas.yml logs --tail=120 backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml logs --tail=120 frontend
+docker compose --env-file .env.nas -f docker-compose.nas.yml exec frontend wget -qO- http://backend:8000/api/v1/health
+```
+
+Expected frontend env values:
+
+```bash
+API_INTERNAL_BASE_URL=http://backend:8000
+NEXT_PUBLIC_API_BASE_URL=/api/v1
+```
+
+Do not set `API_INTERNAL_BASE_URL` to `http://127.0.0.1:8000` inside the frontend container. Inside
+Docker, `127.0.0.1` would point to the frontend container itself, not the backend service.
 
 Set `SEC_USER_AGENT` before running real 13F/SEC jobs:
 

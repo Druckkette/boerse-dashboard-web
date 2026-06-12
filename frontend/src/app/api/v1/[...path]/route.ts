@@ -49,9 +49,14 @@ async function forwardToBackend(request: NextRequest, context: RouteContext) {
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
       cache: "no-store"
     });
-  } catch {
+  } catch (error) {
     return Response.json(
-      { detail: "Backend service is currently unavailable" },
+      {
+        detail: "Backend service is currently unavailable",
+        hint: "The Next.js frontend proxy could not reach the FastAPI backend. Check backend container health, API_INTERNAL_BASE_URL and Docker network DNS.",
+        target_origin: safeTargetOrigin(target),
+        error: compactError(error)
+      },
       {
         status: 502,
         headers: {
@@ -74,6 +79,22 @@ function buildTargetUrl(path: string[], search: string) {
     .replace(/\/$/, "");
   const cleanPath = path.map((part) => encodeURIComponent(part)).join("/");
   return `${base}/api/v1/${cleanPath}${search}`;
+}
+
+function safeTargetOrigin(target: string) {
+  try {
+    const url = new URL(target);
+    return url.origin;
+  } catch {
+    return "unparseable";
+  }
+}
+
+function compactError(error: unknown) {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`.slice(0, 300);
+  }
+  return String(error).slice(0, 300);
 }
 
 function forwardedHeaders(headers: Headers) {
