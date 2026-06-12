@@ -184,6 +184,34 @@ export type PortfolioCurve = {
   points: PortfolioCurvePoint[];
 };
 
+export type PortfolioPositionSizeRequest = {
+  depot_value: number;
+  risk_per_position_pct: number;
+  target_risk_contribution: number;
+  buy_price: number;
+  stop_pct: number;
+  current_price?: number | null;
+  atr_pct?: number | null;
+  beta?: number | null;
+  market_atr_pct?: number | null;
+};
+
+export type PortfolioPositionSizeResult = {
+  risk_budget: number;
+  risk_per_share: number;
+  stop_price: number;
+  max_shares_by_loss_budget: number;
+  max_position_value_by_loss_budget: number;
+  balancer_score?: number | null;
+  max_weight_pct_by_balancer?: number | null;
+  max_position_value_by_balancer?: number | null;
+  max_shares_by_balancer?: number | null;
+  recommended_max_shares: number;
+  recommended_position_value: number;
+  limiting_factor: "loss_budget" | "beta_balancer" | "insufficient_data";
+  warnings: string[];
+};
+
 export type PortfolioPositionWriteRequest = {
   ticker: string;
   name?: string;
@@ -581,6 +609,10 @@ export type JobType =
 
 export type AppSettings = {
   atr_threshold: number;
+  risk_per_position_pct: number;
+  target_risk_contribution: number;
+  max_depot_loss_lower_pct: number;
+  max_depot_loss_upper_pct: number;
   position_monitor_enabled: boolean;
   position_monitor_interval_minutes: number;
   position_monitor_threshold_atr: number;

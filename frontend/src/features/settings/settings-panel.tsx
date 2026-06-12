@@ -9,6 +9,10 @@ import type { AppSettings } from "@/lib/types/api";
 
 const fallbackSettings: AppSettings = {
   atr_threshold: 1.5,
+  risk_per_position_pct: 1,
+  target_risk_contribution: 0.2,
+  max_depot_loss_lower_pct: 4,
+  max_depot_loss_upper_pct: 8,
   position_monitor_enabled: false,
   position_monitor_interval_minutes: 5,
   position_monitor_threshold_atr: 1.5,
@@ -89,6 +93,47 @@ export function SettingsPanel() {
               value={settings.atr_threshold}
               onChange={(value) => updateNumber("atr_threshold", value, 0.5, 5)}
             />
+          </SettingCard>
+
+          <SettingCard
+            description="Default-Werte für Positionsgrößen, Risiko-Ranking und den Stückzahl-Rechner."
+            title="Depot-Annahmen"
+            value={`${settings.risk_per_position_pct.toFixed(1)}% / ${settings.target_risk_contribution.toFixed(2)}`}
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <NumberField
+                label="Max. Verlust je Idee %"
+                max={5}
+                min={0.1}
+                step={0.1}
+                value={settings.risk_per_position_pct}
+                onChange={(value) => updateNumber("risk_per_position_pct", value, 0.1, 5)}
+              />
+              <NumberField
+                label="Ziel Risikobeitrag"
+                max={0.5}
+                min={0.05}
+                step={0.01}
+                value={settings.target_risk_contribution}
+                onChange={(value) => updateNumber("target_risk_contribution", value, 0.05, 0.5, 0.01)}
+              />
+              <NumberField
+                label="Untergrenze Max.-Depotverlust %"
+                max={30}
+                min={1}
+                step={0.5}
+                value={settings.max_depot_loss_lower_pct}
+                onChange={(value) => updateNumber("max_depot_loss_lower_pct", value, 1, 30, 0.5)}
+              />
+              <NumberField
+                label="Obergrenze Max.-Depotverlust %"
+                max={30}
+                min={1}
+                step={0.5}
+                value={settings.max_depot_loss_upper_pct}
+                onChange={(value) => updateNumber("max_depot_loss_upper_pct", value, 1, 30, 0.5)}
+              />
+            </div>
           </SettingCard>
 
           <SettingCard
@@ -194,6 +239,8 @@ export function SettingsPanel() {
           <h2 className="text-base font-semibold">Runtime Status</h2>
           <div className="mt-4 space-y-3 text-sm">
             <InfoRow label="Monitor" value={settings.position_monitor_enabled ? "aktiv" : "aus"} tone={settings.position_monitor_enabled ? "good" : "neutral"} />
+            <InfoRow label="Max. Verlust / Idee" value={`${settings.risk_per_position_pct.toFixed(1)}%`} />
+            <InfoRow label="Ziel Risikobeitrag" value={settings.target_risk_contribution.toFixed(2)} />
             <InfoRow label="Intervall" value={`${settings.position_monitor_interval_minutes} min`} />
             <InfoRow label="ATR Schwelle" value={`${settings.position_monitor_threshold_atr.toFixed(1)} ATR`} />
             <InfoRow label="RS Quelle" value={settings.rs_rating_source} />

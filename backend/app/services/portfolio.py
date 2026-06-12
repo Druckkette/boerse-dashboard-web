@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 
@@ -25,6 +26,8 @@ from app.schemas import (
     PortfolioImportRow,
     PortfolioPosition,
     PortfolioPositionDeleteResponse,
+    PortfolioPositionSizeRequest,
+    PortfolioPositionSizeResponse,
     PortfolioPositionWriteRequest,
     PortfolioPositionWriteResponse,
     PortfolioSnapshotResponse,
@@ -232,6 +235,65 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
         data_status="fresh",
         message="Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand.",
         points=points,
+    )
+
+
+def calculate_position_size(payload: PortfolioPositionSizeRequest) -> PortfolioPositionSizeResponse:
+    risk_budget = payload.depot_value * (payload.risk_per_position_pct / 100)
+    risk_per_share = payload.buy_price * (payload.stop_pct / 100)
+    stop_price = payload.buy_price * (1 - payload.stop_pct / 100)
+    max_shares_by_loss = math.floor(risk_budget / risk_per_share) if risk_budget > 0 and risk_per_share > 0 else 0
+    max_position_value_by_loss = max_shares_by_loss * payload.buy_price
+
+    warnings: list[str] = []
+    balancer_score: float | None = None
+    max_weight_pct_by_balancer: float | None = None
+    max_position_value_by_balancer: float | None = None
+    max_shares_by_balancer: int | None = None
+    current_price = payload.current_price or payload.buy_price
+
+    if payload.beta is not None and payload.atr_pct is not None and payload.market_atr_pct:
+        balancer_score = 0.60 * payload.beta + 0.40 * (payload.atr_pct / payload.market_atr_pct)
+        if balancer_score > 0:
+            max_weight = payload.target_risk_contribution / balancer_score
+            max_weight_pct_by_balancer = max_weight * 100
+            max_position_value_by_balancer = payload.depot_value * max_weight
+            max_shares_by_balancer = (
+                math.floor(max_position_value_by_balancer / current_price)
+                if current_price > 0 and max_position_value_by_balancer > 0
+                else 0
+            )
+    else:
+        warnings.append("Beta-Balancer nicht berechnet: ATR%, Beta oder Markt-ATR fehlen.")
+
+    if max_shares_by_balancer is None:
+        recommended = max_shares_by_loss
+        limiting_factor = "insufficient_data"
+    elif max_shares_by_loss <= max_shares_by_balancer:
+        recommended = max_shares_by_loss
+        limiting_factor = "loss_budget"
+    else:
+        recommended = max_shares_by_balancer
+        limiting_factor = "beta_balancer"
+
+    return PortfolioPositionSizeResponse(
+        risk_budget=round(risk_budget, 2),
+        risk_per_share=round(risk_per_share, 4),
+        stop_price=round(stop_price, 4),
+        max_shares_by_loss_budget=max_shares_by_loss,
+        max_position_value_by_loss_budget=round(max_position_value_by_loss, 2),
+        balancer_score=round(balancer_score, 4) if balancer_score is not None else None,
+        max_weight_pct_by_balancer=round(max_weight_pct_by_balancer, 4)
+        if max_weight_pct_by_balancer is not None
+        else None,
+        max_position_value_by_balancer=round(max_position_value_by_balancer, 2)
+        if max_position_value_by_balancer is not None
+        else None,
+        max_shares_by_balancer=max_shares_by_balancer,
+        recommended_max_shares=recommended,
+        recommended_position_value=round(recommended * current_price, 2),
+        limiting_factor=limiting_factor,
+        warnings=warnings,
     )
 
 

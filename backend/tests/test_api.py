@@ -151,6 +151,30 @@ def test_portfolio_curve_contract() -> None:
     assert isinstance(payload["points"], list)
 
 
+def test_portfolio_position_size_contract() -> None:
+    response = client.post(
+        "/api/v1/portfolio/position-size",
+        json={
+            "depot_value": 100000,
+            "risk_per_position_pct": 1,
+            "target_risk_contribution": 0.2,
+            "buy_price": 100,
+            "stop_pct": 7,
+            "current_price": 100,
+            "atr_pct": 4,
+            "beta": 1.2,
+            "market_atr_pct": 2,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["risk_budget"] == 1000
+    assert payload["risk_per_share"] == 7
+    assert payload["max_shares_by_loss_budget"] == 142
+    assert payload["recommended_max_shares"] > 0
+    assert payload["limiting_factor"] in {"loss_budget", "beta_balancer", "insufficient_data"}
+
+
 def test_portfolio_import_history_contract() -> None:
     response = client.get("/api/v1/portfolio/imports")
     assert response.status_code == 200

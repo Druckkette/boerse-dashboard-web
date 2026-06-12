@@ -486,6 +486,34 @@ class PortfolioCurveResponse(BaseModel):
     points: list[PortfolioCurvePoint]
 
 
+class PortfolioPositionSizeRequest(BaseModel):
+    depot_value: float = Field(default=0, ge=0)
+    risk_per_position_pct: float = Field(default=1.0, ge=0.1, le=5)
+    target_risk_contribution: float = Field(default=0.20, ge=0.05, le=0.50)
+    buy_price: float = Field(default=1.0, gt=0)
+    stop_pct: float = Field(default=7.0, ge=0.1, le=50)
+    current_price: float | None = Field(default=None, gt=0)
+    atr_pct: float | None = Field(default=None, ge=0)
+    beta: float | None = Field(default=None, ge=0)
+    market_atr_pct: float | None = Field(default=None, gt=0)
+
+
+class PortfolioPositionSizeResponse(BaseModel):
+    risk_budget: float
+    risk_per_share: float
+    stop_price: float
+    max_shares_by_loss_budget: int
+    max_position_value_by_loss_budget: float
+    balancer_score: float | None = None
+    max_weight_pct_by_balancer: float | None = None
+    max_position_value_by_balancer: float | None = None
+    max_shares_by_balancer: int | None = None
+    recommended_max_shares: int
+    recommended_position_value: float
+    limiting_factor: Literal["loss_budget", "beta_balancer", "insufficient_data"]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SellRankingRow(BaseModel):
     ticker: str
     name: str
@@ -583,6 +611,10 @@ class JobCancelResponse(BaseModel):
 
 class AppSettings(BaseModel):
     atr_threshold: float
+    risk_per_position_pct: float = 1.0
+    target_risk_contribution: float = 0.20
+    max_depot_loss_lower_pct: float = 4.0
+    max_depot_loss_upper_pct: float = 8.0
     position_monitor_enabled: bool
     position_monitor_interval_minutes: int
     position_monitor_threshold_atr: float = 1.5
@@ -598,6 +630,10 @@ class AppSettings(BaseModel):
 
 class SettingsPatch(BaseModel):
     atr_threshold: float | None = None
+    risk_per_position_pct: float | None = None
+    target_risk_contribution: float | None = None
+    max_depot_loss_lower_pct: float | None = None
+    max_depot_loss_upper_pct: float | None = None
     position_monitor_enabled: bool | None = None
     position_monitor_interval_minutes: int | None = None
     position_monitor_threshold_atr: float | None = None

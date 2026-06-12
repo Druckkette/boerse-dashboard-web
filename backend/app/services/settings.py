@@ -7,6 +7,10 @@ from app.schemas import AppSettings, SettingsPatch
 
 DEFAULT_SETTINGS = AppSettings(
     atr_threshold=1.5,
+    risk_per_position_pct=1.0,
+    target_risk_contribution=0.20,
+    max_depot_loss_lower_pct=4.0,
+    max_depot_loss_upper_pct=8.0,
     position_monitor_enabled=False,
     position_monitor_interval_minutes=5,
     position_monitor_threshold_atr=1.5,

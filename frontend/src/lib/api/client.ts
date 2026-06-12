@@ -15,6 +15,8 @@ import type {
   PortfolioImportRequest,
   PortfolioImportResponse,
   PortfolioPosition,
+  PortfolioPositionSizeRequest,
+  PortfolioPositionSizeResult,
   PortfolioPositionWriteRequest,
   PortfolioSellRequest,
   PortfolioSnapshot,
@@ -95,6 +97,8 @@ export const api = {
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
   portfolioCurve: (days = 370) => getJson<PortfolioCurve>(`/portfolio/curve?days=${days}`),
+  portfolioPositionSize: (body: PortfolioPositionSizeRequest) =>
+    postJson<PortfolioPositionSizeResult>("/portfolio/position-size", body),
   upsertPortfolioPosition: async (body: PortfolioPositionWriteRequest) => {
     const payload = await postJson<{ position: PortfolioPosition }>("/portfolio/positions", body);
     return payload.position;

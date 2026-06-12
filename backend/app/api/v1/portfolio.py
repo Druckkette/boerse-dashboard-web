@@ -10,6 +10,8 @@ from app.schemas import (
     PortfolioImportResponse,
     PortfolioImportHistoryResponse,
     PortfolioPositionDeleteResponse,
+    PortfolioPositionSizeRequest,
+    PortfolioPositionSizeResponse,
     PortfolioPositionWriteRequest,
     PortfolioPositionWriteResponse,
     PortfolioPositionsResponse,
@@ -19,6 +21,7 @@ from app.schemas import (
     PortfolioTransactionsResponse,
 )
 from app.services.portfolio import (
+    calculate_position_size,
     create_portfolio_cash_flow,
     delete_portfolio_position,
     get_portfolio_cash_flows,
@@ -91,6 +94,11 @@ def snapshot() -> PortfolioSnapshotResponse:
 @router.get("/curve", response_model=PortfolioCurveResponse)
 def curve(days: int = Query(default=370, ge=30, le=2500)) -> PortfolioCurveResponse:
     return get_portfolio_curve(days=days)
+
+
+@router.post("/position-size", response_model=PortfolioPositionSizeResponse)
+def position_size(payload: PortfolioPositionSizeRequest) -> PortfolioPositionSizeResponse:
+    return calculate_position_size(payload)
 
 
 @router.get("/transactions", response_model=PortfolioTransactionsResponse)

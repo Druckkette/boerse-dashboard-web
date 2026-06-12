@@ -6,16 +6,20 @@ import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { PortfolioPosition } from "@/lib/types/api";
+import { PositionSizeCalculator } from "./position-size-calculator";
 
 export function PortfolioManagementPanel({ positions }: { positions: PortfolioPosition[] }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
-      <PositionEditor positions={positions} />
-      <div className="space-y-4">
-        <SellBooking positions={positions} />
-        <CashFlowPanel />
+    <div className="space-y-4">
+      <PositionSizeCalculator />
+      <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+        <PositionEditor positions={positions} />
+        <div className="space-y-4">
+          <SellBooking positions={positions} />
+          <CashFlowPanel />
+        </div>
+        <PortfolioActivity />
       </div>
-      <PortfolioActivity />
     </div>
   );
 }
