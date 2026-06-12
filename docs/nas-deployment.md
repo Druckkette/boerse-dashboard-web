@@ -23,7 +23,16 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml --profile migrate r
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d
 ```
 
-Set `POSTGRES_PASSWORD`, `DATABASE_URL`, `NEXT_PUBLIC_API_BASE_URL` and `CORS_ORIGINS`.
+Set at least `POSTGRES_PASSWORD`, `DATABASE_URL`, `APP_AUTH_USER` and `APP_AUTH_PASSWORD`.
+Keep `APP_AUTH_ENABLED=1` for NAS use and keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` so browser API
+traffic goes through the protected Next.js frontend. The frontend forwards `/api/v1/*` to
+`API_INTERNAL_BASE_URL=http://backend:8000` inside Docker.
+
+`BACKEND_BIND=127.0.0.1` keeps FastAPI reachable only from the NAS host itself. Change it to
+`0.0.0.0` only for deliberate temporary debugging, for example to open `/docs` from another machine.
+If the backend port is exposed publicly, it is outside the frontend Basic Auth gate.
+
+Set `CORS_ORIGINS` to the NAS frontend origin if you intentionally use direct backend calls.
 Optional Pushover secrets go into the same private file:
 
 ```bash
@@ -86,6 +95,26 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f backend
 docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f worker
 docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f scheduler
 ```
+
+## Private Dashboard Access
+
+The normal NAS URL is:
+
+```text
+http://NAS-IP-ODER-HOSTNAME:3000
+```
+
+The browser receives a Basic Auth challenge from the Next.js frontend when `APP_AUTH_ENABLED=1`.
+Those credentials are:
+
+```bash
+APP_AUTH_USER=...
+APP_AUTH_PASSWORD=...
+```
+
+The FastAPI backend still runs on port `8000` for container health checks and local diagnostics, but
+it is bound to `127.0.0.1` by default. That keeps personal depot, settings and job APIs behind the
+frontend route `/api/v1`.
 
 ## NAS Performance Rules
 

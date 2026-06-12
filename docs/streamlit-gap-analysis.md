@@ -36,6 +36,8 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Persistent Sell post-mortem notes/actions with Postgres table, API and non-blocking detail-page editing.
 - Sell context chart annotations for stop, next tranche, full-exit levels and active signal markers.
 - Settings data diagnostics for missing/stale price cache, Yahoo-symbol gaps and ISIN mapping status with direct worker-job actions.
+- Basic Auth frontend gate for private NAS access plus same-origin `/api/v1` proxy to keep normal
+  browser traffic behind the dashboard.
 
 ## Open Gaps
 
@@ -46,8 +48,5 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Market parity:
   - Full universe maintenance/rescue/remap workflows.
-- Auth/private area:
-  - Streamlit password gate equivalent for personal depot/settings.
-  - Session handling suitable for NAS and later Hetzner.
 - 13F/SEC parity:
   - Real 13F trend worker, CUSIP mapping workflows and frontend display.

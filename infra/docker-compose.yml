@@ -116,7 +116,11 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.frontend
     environment:
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+      API_INTERNAL_BASE_URL: ${API_INTERNAL_BASE_URL:-http://backend:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
+      APP_AUTH_ENABLED: ${APP_AUTH_ENABLED:-0}
+      APP_AUTH_USER: ${APP_AUTH_USER:-}
+      APP_AUTH_PASSWORD: ${APP_AUTH_PASSWORD:-}
     ports:
       - "3000:3000"
     depends_on:

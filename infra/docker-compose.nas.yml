@@ -46,7 +46,7 @@ services:
       APP_ENV: nas
       BACKEND_CACHE_DIR: /app/.cache
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     volumes:
       - backend_cache:/app/.cache
     depends_on:
@@ -98,6 +98,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env.nas
+    environment:
+      API_INTERNAL_BASE_URL: ${API_INTERNAL_BASE_URL:-http://backend:8000}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

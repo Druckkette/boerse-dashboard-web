@@ -26,6 +26,9 @@ Backend: `http://localhost:8000`
 
 OpenAPI: `http://localhost:8000/docs`
 
+The frontend uses the same-origin API path `/api/v1` and proxies requests to the FastAPI container.
+For local development, auth is disabled by default through `APP_AUTH_ENABLED=0`.
+
 Run migrations explicitly when using a fresh Postgres volume:
 
 ```bash
@@ -84,6 +87,9 @@ cd infra
 ```
 
 Use a private `.env` on the NAS for database passwords, API keys and future notification credentials. Do not commit secrets.
+Enable the private dashboard gate on the NAS with `APP_AUTH_ENABLED=1`, `APP_AUTH_USER` and
+`APP_AUTH_PASSWORD`. The frontend should stay the public entry point; the backend port binds to
+`127.0.0.1` by default and is only meant for local NAS/container access.
 For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
 page only shows whether those env vars are configured and can start a non-blocking test job.
 
@@ -167,6 +173,20 @@ Repository settings required:
 - Actions permission to read contents and write packages.
 - Workflow permission `packages: write` is declared in the workflow.
 - For private GHCR packages, the NAS needs `docker login ghcr.io` with a token that has `read:packages`.
+
+## Private Access
+
+The NAS deployment uses a lightweight Basic Auth gate in the Next.js frontend. Set these values only
+in the private NAS environment file:
+
+- `APP_AUTH_ENABLED=1`
+- `APP_AUTH_USER=<your-user>`
+- `APP_AUTH_PASSWORD=<long-random-password>`
+
+Normal browser traffic should go to `http://NAS-IP-ODER-HOSTNAME:3000`. The frontend serves pages and
+forwards `/api/v1/*` to the internal FastAPI service. Keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` on NAS
+so the browser does not bypass the frontend gate. Keep `BACKEND_BIND=127.0.0.1` unless you
+intentionally need temporary direct access to `http://NAS-IP:8000/docs`.
 
 ## Why UI And Jobs Are Separate
 
