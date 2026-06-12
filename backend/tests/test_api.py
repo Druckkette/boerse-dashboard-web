@@ -102,6 +102,62 @@ def test_stock_assessment_contract() -> None:
     assert isinstance(payload["chart_signals"], list)
 
 
+def test_stock_fundamentals_contract() -> None:
+    response = client.get("/api/v1/stocks/NVDA/fundamentals")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ticker"] == "NVDA"
+    assert payload["source"] in {"database", "missing"}
+    assert "item" in payload
+
+
+def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
+    from app.api.v1 import stocks as stocks_api
+    from app.schemas import StockFundamentalsItem, StockFundamentalsResponse
+
+    def fake_update(ticker, request):
+        return StockFundamentalsResponse(
+            ticker=ticker.upper(),
+            source="database",
+            item=StockFundamentalsItem(
+                ticker=ticker.upper(),
+                as_of=request.as_of or "2026-06-12",
+                source=request.source,
+                fiscal_period=request.fiscal_period,
+                quarterly_eps_growth_pct=request.quarterly_eps_growth_pct,
+                annual_eps_growth_pct=None,
+                quarterly_revenue_growth_pct=None,
+                annual_revenue_growth_pct=None,
+                roe_pct=request.roe_pct,
+                profit_margin_pct=None,
+                trailing_eps=None,
+                quarterly_eps_accelerating=None,
+                quarterly_revenue_accelerating=None,
+                institutional_holders=None,
+                institutional_ownership_pct=None,
+                next_earnings_date=None,
+                beta=None,
+            ),
+        )
+
+    monkeypatch.setattr(stocks_api, "update_stock_fundamentals", fake_update)
+    response = client.patch(
+        "/api/v1/stocks/NVDA/fundamentals",
+        json={
+            "as_of": "2026-06-12",
+            "source": "manual",
+            "fiscal_period": "Q1 2026",
+            "quarterly_eps_growth_pct": 42.0,
+            "roe_pct": 21.0,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "database"
+    assert payload["item"]["quarterly_eps_growth_pct"] == 42.0
+
+
 def test_stock_assessment_ranking_contract() -> None:
     response = client.get("/api/v1/stocks/assessment/ranking?limit=10")
     assert response.status_code == 200

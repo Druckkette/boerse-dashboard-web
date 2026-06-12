@@ -65,6 +65,19 @@ class StockAssessmentMetrics:
     distance_sma200_pct: float | None
     rs_rating: int | None = None
     rs_percentile: float | None = None
+    beta: float | None = None
+    institutional_ownership_pct: float | None = None
+    next_earnings_calendar_days: int | None = None
+    next_earnings_trading_days: int | None = None
+
+
+@dataclass(frozen=True)
+class EarningsWarning:
+    next_earnings_date: str | None
+    calendar_days: int | None
+    trading_days: int | None
+    tone: VerdictTone
+    message: str
 
 
 @dataclass(frozen=True)
@@ -80,6 +93,8 @@ class StockAssessmentResult:
     fundamentals_available: bool
     scores: StockAssessmentScores
     metrics: StockAssessmentMetrics
+    fundamentals: Mapping[str, Any] | None = None
+    earnings: EarningsWarning | None = None
     checks: list[AssessmentCheck] = field(default_factory=list)
     chart_signals: list[ChartSignal] = field(default_factory=list)
     drivers: list[str] = field(default_factory=list)
@@ -91,6 +106,8 @@ def compute_stock_assessment(
     bars: Sequence[Any],
     *,
     rs_context: Mapping[str, Any] | None = None,
+    fundamentals_context: Mapping[str, Any] | None = None,
+    institutional_context: Mapping[str, Any] | None = None,
 ) -> StockAssessmentResult:
     clean = ticker.strip().upper()
     df = _coerce_bars_to_frame(bars)
@@ -130,29 +147,50 @@ def compute_stock_assessment(
         )
 
     rs = dict(rs_context or {})
-    checks, cmf_value = evaluate_technicals(df, rs_context=rs)
+    fundamentals = dict(fundamentals_context or {})
+    institutional = dict(institutional_context or {})
+    technical_checks, cmf_value = evaluate_technicals(df, rs_context=rs)
+    fundamental_checks, fundamental_score, fundamentals_available = evaluate_fundamentals_context(
+        fundamentals,
+        institutional_context=institutional,
+    )
+    earnings = _build_earnings_warning(fundamentals.get("next_earnings_date"))
+    earnings_check = _earnings_check(earnings)
+    checks = [*technical_checks, *fundamental_checks]
+    if earnings_check is not None:
+        checks.append(earnings_check)
     chart_signals = evaluate_chart_signs(df, rs_context=rs)
-    metrics = _compute_metrics(df, cmf_value=cmf_value, rs_context=rs)
-    technical_score = _technical_points_score(checks, metrics.rs_rating, cmf_value)
-    fundamental_score = 50.0
+    metrics = _compute_metrics(
+        df,
+        cmf_value=cmf_value,
+        rs_context=rs,
+        fundamentals_context=fundamentals,
+        earnings=earnings,
+    )
+    technical_score = _technical_points_score(technical_checks, metrics.rs_rating, cmf_value)
     ma_score = _moving_average_score(df)
     positive_count = sum(1 for signal in chart_signals if signal.category == "positive")
     negative_count = sum(1 for signal in chart_signals if signal.category == "negative")
     chart_score = _chart_behavior_score_100(positive_count, negative_count)
     overall = _round_half_up_int(np.mean([technical_score, fundamental_score, chart_score, ma_score]))
     verdict_label, verdict_tone, verdict_text = _build_verdict(overall, checks, metrics)
-    drivers, warnings = _build_drivers_and_warnings(checks, chart_signals, fundamentals_available=False)
+    drivers, warnings = _build_drivers_and_warnings(
+        checks,
+        chart_signals,
+        fundamentals_available=fundamentals_available,
+        earnings=earnings,
+    )
 
     return StockAssessmentResult(
         ticker=clean,
         as_of=df.index[-1].date().isoformat(),
         source="database",
         data_status="fresh",
-        message="Bewertung aus gecachten Price-Bars und gespeichertem RS-Kontext.",
+        message="Bewertung aus gecachten Price-Bars, gespeichertem RS-Kontext und Fundamental-Cache.",
         verdict_label=verdict_label,
         verdict_tone=verdict_tone,
         verdict_text=verdict_text,
-        fundamentals_available=False,
+        fundamentals_available=fundamentals_available,
         scores=StockAssessmentScores(
             overall=overall,
             technical=technical_score,
@@ -161,6 +199,8 @@ def compute_stock_assessment(
             chart_behavior=chart_score,
         ),
         metrics=metrics,
+        fundamentals=fundamentals or None,
+        earnings=earnings,
         checks=checks,
         chart_signals=chart_signals,
         drivers=drivers,
@@ -306,6 +346,124 @@ def evaluate_technicals(
         )
 
     return checks, cmf_value
+
+
+def evaluate_fundamentals_context(
+    fundamentals_context: Mapping[str, Any] | None,
+    *,
+    institutional_context: Mapping[str, Any] | None = None,
+) -> tuple[list[AssessmentCheck], float, bool]:
+    fundamentals = dict(fundamentals_context or {})
+    institutional = dict(institutional_context or {})
+    available = _has_fundamental_data(fundamentals)
+    checks: list[AssessmentCheck] = []
+
+    source = str(fundamentals.get("source") or "").strip()
+    as_of = str(fundamentals.get("as_of") or "").strip()
+    period = str(fundamentals.get("fiscal_period") or "").strip()
+    detail_parts = [part for part in [source, period, as_of] if part]
+    checks.append(
+        AssessmentCheck(
+            category="fundamental",
+            label="Fundamental-Datenquelle",
+            passed=available,
+            detail=" · ".join(detail_parts) if detail_parts else "Noch kein Fundamental-Cache",
+        )
+    )
+
+    q_eps = _safe_float(fundamentals.get("quarterly_eps_growth_pct"))
+    checks.append(
+        _growth_check(
+            "EPS >=20% YoY",
+            q_eps,
+            minimum=20.0,
+            detail_suffix="letztes Quartal",
+        )
+    )
+
+    eps_accel = _optional_bool(fundamentals.get("quarterly_eps_accelerating"))
+    checks.append(
+        AssessmentCheck(
+            category="fundamental",
+            label="EPS-Beschleunigung",
+            passed=bool(eps_accel),
+            detail=_bool_detail(eps_accel),
+        )
+    )
+
+    annual_eps = _safe_float(fundamentals.get("annual_eps_growth_pct"))
+    checks.append(
+        _growth_check(
+            "Jährl. EPS-Wachstum >=20%",
+            annual_eps,
+            minimum=20.0,
+            detail_suffix="jährlich",
+        )
+    )
+
+    trailing_eps = _safe_float(fundamentals.get("trailing_eps"))
+    checks.append(
+        AssessmentCheck(
+            category="fundamental",
+            label="Trailing EPS > 0",
+            passed=trailing_eps is not None and trailing_eps > 0,
+            detail=f"${trailing_eps:.2f}" if trailing_eps is not None else "Nicht verfügbar",
+        )
+    )
+
+    q_revenue = _safe_float(fundamentals.get("quarterly_revenue_growth_pct"))
+    checks.append(
+        _growth_check(
+            "Umsatz >=20% YoY",
+            q_revenue,
+            minimum=20.0,
+            detail_suffix="letztes Quartal",
+        )
+    )
+
+    revenue_accel = _optional_bool(fundamentals.get("quarterly_revenue_accelerating"))
+    checks.append(
+        AssessmentCheck(
+            category="fundamental",
+            label="Umsatz-Beschleunigung",
+            passed=bool(revenue_accel),
+            detail=_bool_detail(revenue_accel),
+        )
+    )
+
+    annual_revenue = _safe_float(fundamentals.get("annual_revenue_growth_pct"))
+    checks.append(
+        _growth_check(
+            "Jährl. Umsatzwachstum >=20%",
+            annual_revenue,
+            minimum=20.0,
+            detail_suffix="jährlich",
+        )
+    )
+
+    roe = _safe_float(fundamentals.get("roe_pct"))
+    checks.append(
+        AssessmentCheck(
+            category="fundamental",
+            label="ROE >=17%",
+            passed=roe is not None and roe >= 17.0,
+            detail=f"{roe:.1f}%" if roe is not None else "Nicht verfügbar",
+        )
+    )
+
+    margin = _safe_float(fundamentals.get("profit_margin_pct"))
+    checks.append(
+        AssessmentCheck(
+            category="fundamental",
+            label="Gewinnmarge positiv",
+            passed=margin is not None and margin > 0,
+            detail=f"{margin:.1f}%" if margin is not None else "Nicht verfügbar",
+        )
+    )
+
+    checks.append(_institutional_support_check(fundamentals, institutional))
+    score = _fundamental_checklist_score_100(checks, fundamentals)
+    return checks, score if available else 50.0, available
 
 
 def evaluate_chart_signs(
@@ -507,6 +665,8 @@ def _compute_metrics(
     *,
     cmf_value: float | None,
     rs_context: Mapping[str, Any],
+    fundamentals_context: Mapping[str, Any],
+    earnings: EarningsWarning | None,
 ) -> StockAssessmentMetrics:
     close = pd.to_numeric(df["Close"], errors="coerce")
     high = pd.to_numeric(df["High"], errors="coerce")
@@ -541,6 +701,10 @@ def _compute_metrics(
         distance_sma200_pct=_distance_pct(price, _safe_float(sma200.iloc[-1])),
         rs_rating=_int_or_none(rs_context.get("rating")),
         rs_percentile=_safe_float(rs_context.get("percentile")),
+        beta=_safe_float(fundamentals_context.get("beta")),
+        institutional_ownership_pct=_safe_float(fundamentals_context.get("institutional_ownership_pct")),
+        next_earnings_calendar_days=earnings.calendar_days if earnings else None,
+        next_earnings_trading_days=earnings.trading_days if earnings else None,
     )
 
 
@@ -605,6 +769,36 @@ def _chart_behavior_score_100(positive_count: int, negative_count: int) -> int:
     return max(0, min(100, score))
 
 
+def _fundamental_checklist_score_100(
+    checks: Sequence[AssessmentCheck],
+    fundamentals_context: Mapping[str, Any],
+) -> float:
+    check_map = {check.label: bool(check.passed) for check in checks}
+    unit = 100.0 / 9.0
+
+    def tiered_pct(key: str, *, minimum: float, stretch: float) -> float:
+        value = _safe_float(fundamentals_context.get(key))
+        if value is None or value < minimum:
+            return 0.0
+        return unit * min((value - minimum) / max(stretch - minimum, 1e-9), 1.0)
+
+    score = 0.0
+    score += tiered_pct("quarterly_eps_growth_pct", minimum=20.0, stretch=80.0)
+    score += unit if check_map.get("EPS-Beschleunigung", False) else 0.0
+    score += tiered_pct("annual_eps_growth_pct", minimum=20.0, stretch=60.0)
+    score += unit if check_map.get("Trailing EPS > 0", False) else 0.0
+    score += tiered_pct("quarterly_revenue_growth_pct", minimum=20.0, stretch=60.0)
+    score += unit if check_map.get("Umsatz-Beschleunigung", False) else 0.0
+    score += tiered_pct("annual_revenue_growth_pct", minimum=20.0, stretch=50.0)
+    score += tiered_pct("roe_pct", minimum=17.0, stretch=35.0)
+
+    margin = _safe_float(fundamentals_context.get("profit_margin_pct"))
+    if margin is not None and margin > 0:
+        score += unit * min(margin / 25.0, 1.0)
+
+    return round(float(np.clip(score, 0, 100)), 1)
+
+
 def _build_verdict(
     overall: int,
     checks: Sequence[AssessmentCheck],
@@ -631,6 +825,7 @@ def _build_drivers_and_warnings(
     chart_signals: Sequence[ChartSignal],
     *,
     fundamentals_available: bool,
+    earnings: EarningsWarning | None,
 ) -> tuple[list[str], list[str]]:
     driver_labels = {
         "RS-Bewertung >=80",
@@ -641,6 +836,13 @@ def _build_drivers_and_warnings(
         "MA-Ordnung (21>50>200)",
         "CMF Rating A oder B",
         "Up/Down Vol. Ratio >=1.0",
+        "EPS >=20% YoY",
+        "Jährl. EPS-Wachstum >=20%",
+        "Umsatz >=20% YoY",
+        "Jährl. Umsatzwachstum >=20%",
+        "ROE >=17%",
+        "Gewinnmarge positiv",
+        "Institutionelle Unterstützung",
     }
     drivers = [f"{check.label}: {check.detail}" for check in checks if check.passed and check.label in driver_labels]
     drivers.extend(f"{signal.label}: {signal.detail}".rstrip(": ") for signal in chart_signals if signal.category == "positive")
@@ -653,7 +855,185 @@ def _build_drivers_and_warnings(
     warnings.extend(f"{signal.label}: {signal.detail}".rstrip(": ") for signal in chart_signals if signal.category == "negative")
     if not fundamentals_available:
         warnings.append("Fundamentaldaten sind noch nicht im Cache; Fundamental-Score neutral mit 50/100.")
+    if earnings and earnings.tone in {"warning", "bad"}:
+        warnings.append(earnings.message)
     return drivers[:8], warnings[:8]
+
+
+def _growth_check(
+    label: str,
+    value: float | None,
+    *,
+    minimum: float,
+    detail_suffix: str,
+) -> AssessmentCheck:
+    return AssessmentCheck(
+        category="fundamental",
+        label=label,
+        passed=value is not None and value >= minimum,
+        detail=f"{value:+.1f}% · {detail_suffix}" if value is not None else "Nicht verfügbar",
+    )
+
+
+def _institutional_support_check(
+    fundamentals_context: Mapping[str, Any],
+    institutional_context: Mapping[str, Any],
+) -> AssessmentCheck:
+    trend = str(institutional_context.get("trend") or "").strip().lower()
+    large_holders = _int_or_none(institutional_context.get("large_holder_count"))
+    holder_count = _int_or_none(institutional_context.get("holder_count"))
+    large_delta = _int_or_none(institutional_context.get("large_holder_delta"))
+    holder_delta = _int_or_none(institutional_context.get("holder_count_delta"))
+    period = str(institutional_context.get("report_period") or institutional_context.get("period") or "").strip()
+
+    if institutional_context:
+        negative = (large_delta is not None and large_delta < 0) or (large_holders is not None and large_holders < 5)
+        passed = not negative and trend not in {"negative", "missing"}
+        details = []
+        if large_holders is not None:
+            details.append(f"Große Institutionen: {large_holders}")
+        if large_delta is not None:
+            details.append(f"Delta groß: {large_delta:+d}")
+        if holder_count is not None:
+            details.append(f"Alle 13F-Halter: {holder_count}")
+        if holder_delta is not None:
+            details.append(f"Delta Halter: {holder_delta:+d}")
+        if trend:
+            details.append(f"Trend {trend}")
+        if period:
+            details.append(period)
+        return AssessmentCheck(
+            category="fundamental",
+            label="Institutionelle Unterstützung",
+            passed=passed,
+            detail=" · ".join(details) if details else "13F-Kontext gespeichert",
+        )
+
+    holders = _int_or_none(fundamentals_context.get("institutional_holders"))
+    ownership = _safe_float(fundamentals_context.get("institutional_ownership_pct"))
+    if holders is not None:
+        detail = f"{holders} Institutionen"
+        if ownership is not None:
+            detail += f" · {ownership:.1f}% inst. gehalten"
+        return AssessmentCheck(
+            category="fundamental",
+            label="Institutionelle Unterstützung",
+            passed=holders >= 5,
+            detail=detail,
+        )
+    if ownership is not None:
+        return AssessmentCheck(
+            category="fundamental",
+            label="Institutionelle Unterstützung",
+            passed=ownership >= 20,
+            detail=f"{ownership:.1f}% inst. gehalten",
+        )
+    return AssessmentCheck(
+        category="fundamental",
+        label="Institutionelle Unterstützung",
+        passed=False,
+        detail="Nicht verfügbar",
+    )
+
+
+def _build_earnings_warning(value: Any) -> EarningsWarning | None:
+    earnings_date = _parse_date(value)
+    if earnings_date is None:
+        return None
+
+    today = date.today()
+    calendar_days = (earnings_date - today).days
+    trading_days = _business_days_between(today, earnings_date)
+    if calendar_days < 0:
+        return EarningsWarning(
+            next_earnings_date=earnings_date.isoformat(),
+            calendar_days=calendar_days,
+            trading_days=trading_days,
+            tone="neutral",
+            message=f"Letzte gespeicherte Quartalszahlen lagen am {earnings_date.isoformat()}.",
+        )
+    if trading_days <= 5:
+        tone: VerdictTone = "bad"
+        message = (
+            f"Nächste Quartalszahlen am {earnings_date.isoformat()} "
+            f"({trading_days} Handelstage): kein Einstieg kurz vor Earnings ohne Gewinnpolster."
+        )
+    elif trading_days <= 14:
+        tone = "warning"
+        message = (
+            f"Nächste Quartalszahlen am {earnings_date.isoformat()} "
+            f"({trading_days} Handelstage): erhöhtes Einstiegsrisiko."
+        )
+    else:
+        tone = "good"
+        message = f"Nächste Quartalszahlen am {earnings_date.isoformat()} ({trading_days} Handelstage)."
+    return EarningsWarning(
+        next_earnings_date=earnings_date.isoformat(),
+        calendar_days=calendar_days,
+        trading_days=trading_days,
+        tone=tone,
+        message=message,
+    )
+
+
+def _earnings_check(earnings: EarningsWarning | None) -> AssessmentCheck | None:
+    if earnings is None:
+        return None
+    passed = earnings.trading_days is None or earnings.trading_days > 14
+    severity: Literal["info", "warning", "critical"] = "critical" if earnings.tone == "bad" else "warning"
+    if earnings.tone == "good":
+        severity = "info"
+    return AssessmentCheck(
+        category="risk",
+        label="Earnings-Abstand >14 Handelstage",
+        passed=passed,
+        detail=earnings.message,
+        severity=severity,
+    )
+
+
+def _business_days_between(start: date, end: date) -> int:
+    if end <= start:
+        return 0
+    return max(0, len(pd.bdate_range(pd.Timestamp(start), pd.Timestamp(end))) - 1)
+
+
+def _has_fundamental_data(fundamentals_context: Mapping[str, Any]) -> bool:
+    keys = {
+        "quarterly_eps_growth_pct",
+        "annual_eps_growth_pct",
+        "quarterly_revenue_growth_pct",
+        "annual_revenue_growth_pct",
+        "roe_pct",
+        "profit_margin_pct",
+        "trailing_eps",
+        "institutional_holders",
+        "institutional_ownership_pct",
+        "next_earnings_date",
+        "beta",
+    }
+    return any(fundamentals_context.get(key) is not None for key in keys)
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    clean = str(value).strip().lower()
+    if clean in {"true", "1", "yes", "ja"}:
+        return True
+    if clean in {"false", "0", "no", "nein"}:
+        return False
+    return None
+
+
+def _bool_detail(value: bool | None) -> str:
+    if value is True:
+        return "ja"
+    if value is False:
+        return "nein"
+    return "Nicht verfügbar"
 
 
 def _coerce_bars_to_frame(bars: Sequence[Any]) -> pd.DataFrame:
@@ -835,6 +1215,20 @@ def _safe_float(value: Any) -> float | None:
     if np.isnan(numeric) or np.isinf(numeric):
         return None
     return numeric
+
+
+def _parse_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        parsed = pd.to_datetime(value, errors="coerce")
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
 
 
 def _int_or_none(value: Any) -> int | None:

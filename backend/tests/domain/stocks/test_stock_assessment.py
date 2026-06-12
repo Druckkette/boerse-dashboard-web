@@ -65,6 +65,59 @@ def test_stock_assessment_missing_payload_is_stable() -> None:
     assert result.warnings
 
 
+def test_stock_assessment_uses_cached_fundamentals() -> None:
+    bars = _synthetic_bars(start_price=45, drift=0.0035, volume=3_000_000)
+    result = compute_stock_assessment(
+        "FUND",
+        bars,
+        rs_context={"rating": 88, "above_21": True, "above_50": True, "trend_5w": True, "trend_13w": True},
+        fundamentals_context={
+            "ticker": "FUND",
+            "as_of": "2026-06-01",
+            "source": "manual",
+            "fiscal_period": "Q1 2026",
+            "quarterly_eps_growth_pct": 65.0,
+            "annual_eps_growth_pct": 48.0,
+            "quarterly_revenue_growth_pct": 36.0,
+            "annual_revenue_growth_pct": 31.0,
+            "roe_pct": 28.0,
+            "profit_margin_pct": 18.0,
+            "trailing_eps": 3.42,
+            "quarterly_eps_accelerating": True,
+            "quarterly_revenue_accelerating": True,
+            "institutional_holders": 22,
+            "institutional_ownership_pct": 58.0,
+            "beta": 1.25,
+        },
+    )
+
+    assert result.fundamentals_available is True
+    assert result.scores.fundamental > 70
+    assert result.metrics.beta == 1.25
+    assert any(check.label == "ROE >=17%" and check.passed for check in result.checks)
+    assert any("ROE" in driver or "EPS" in driver for driver in result.drivers)
+
+
+def test_stock_assessment_flags_near_earnings() -> None:
+    near_earnings = date.today() + timedelta(days=3)
+    bars = _synthetic_bars(start_price=45, drift=0.003, volume=2_500_000)
+    result = compute_stock_assessment(
+        "EARN",
+        bars,
+        fundamentals_context={
+            "ticker": "EARN",
+            "as_of": date.today().isoformat(),
+            "source": "manual",
+            "next_earnings_date": near_earnings.isoformat(),
+        },
+    )
+
+    assert result.earnings is not None
+    assert result.earnings.tone in {"warning", "bad"}
+    assert any(check.label == "Earnings-Abstand >14 Handelstage" for check in result.checks)
+    assert any("Quartalszahlen" in warning for warning in result.warnings)
+
+
 def _synthetic_bars(*, start_price: float, drift: float, volume: float) -> list[StockAssessmentBar]:
     bars: list[StockAssessmentBar] = []
     current = start_price

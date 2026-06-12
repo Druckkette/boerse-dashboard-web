@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, CircleDot, Gauge, TrendingUp } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, CircleDot, Gauge, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -54,6 +54,9 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
               <StatusChip tone={hasData ? "good" : "warning"}>
                 {hasData ? "Price Cache" : "Daten fehlen"}
               </StatusChip>
+              {assessment.earnings && (
+                <StatusChip tone={assessment.earnings.tone}>Earnings {assessment.earnings.trading_days ?? "-"}T</StatusChip>
+              )}
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">{assessment.verdict_text}</p>
             <p className="mt-1 text-xs text-[#7f8794]">
@@ -73,7 +76,7 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
         <ScoreCard
           label="Fundamental"
           value={assessment.scores.fundamental}
-          detail={assessment.fundamentals_available ? "Fundamental-Cache" : "Noch neutral, Datenquelle offen"}
+          detail={assessment.fundamentals_available ? assessment.fundamentals?.source ?? "Fundamental-Cache" : "Noch neutral, Datenquelle offen"}
           tone={assessment.fundamentals_available ? toneForScore(assessment.scores.fundamental) : "neutral"}
         />
         <ScoreCard label="Trend" value={assessment.scores.moving_averages} detail="10/21/50/200 + Ordnung" />
@@ -85,7 +88,25 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
         <Metric label="ATR" value={pct(assessment.metrics.atr_pct)} detail="21 Tage" />
         <Metric label="Dollar-Volumen" value={mio(assessment.metrics.dollar_volume_mio)} detail="20 Tage Ø" />
         <Metric label="RS-Rating" value={numberOrDash(assessment.metrics.rs_rating)} detail={pct(assessment.metrics.rs_percentile)} />
+        <Metric label="Beta" value={numberOrDash(assessment.metrics.beta)} detail="Fundamental-Cache" />
+        <Metric
+          label="Inst. gehalten"
+          value={pctPlain(assessment.metrics.institutional_ownership_pct)}
+          detail={assessment.fundamentals?.institutional_holders ? `${assessment.fundamentals.institutional_holders} Halter` : "13F/Fundamentals"}
+        />
+        <Metric
+          label="Earnings"
+          value={assessment.earnings?.trading_days !== undefined && assessment.earnings?.trading_days !== null ? `${assessment.earnings.trading_days} HT` : "-"}
+          detail={assessment.earnings?.next_earnings_date ?? "kein Termin"}
+        />
       </div>
+
+      {assessment.earnings && (
+        <div className={earningsBoxClass(assessment.earnings.tone)}>
+          <CalendarClock className="mt-0.5 size-4 shrink-0" />
+          <span>{assessment.earnings.message}</span>
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <ReasonList title="Treiber" tone="good" items={assessment.drivers} empty="Noch keine starken Treiber im Cache." />
@@ -307,6 +328,11 @@ function pct(value?: number | null) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function pctPlain(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return `${value.toFixed(1)}%`;
+}
+
 function mio(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return `$${value.toFixed(0)} Mio.`;
@@ -314,5 +340,15 @@ function mio(value?: number | null) {
 
 function numberOrDash(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
-  return `${value}`;
+  return `${Number.isInteger(value) ? value : value.toFixed(2)}`;
+}
+
+function earningsBoxClass(tone: Tone) {
+  if (tone === "good") {
+    return "flex gap-2 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100";
+  }
+  if (tone === "bad") {
+    return "flex gap-2 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100";
+  }
+  return "flex gap-2 rounded border border-amber-300/25 bg-amber-950/20 p-3 text-sm text-amber-100";
 }

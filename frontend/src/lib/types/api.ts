@@ -462,6 +462,63 @@ export type StockAssessmentMetrics = {
   distance_sma200_pct?: number | null;
   rs_rating?: number | null;
   rs_percentile?: number | null;
+  beta?: number | null;
+  institutional_ownership_pct?: number | null;
+  next_earnings_calendar_days?: number | null;
+  next_earnings_trading_days?: number | null;
+};
+
+export type StockFundamentalsItem = {
+  ticker: string;
+  as_of: string;
+  source: string;
+  fiscal_period: string;
+  quarterly_eps_growth_pct?: number | null;
+  annual_eps_growth_pct?: number | null;
+  quarterly_revenue_growth_pct?: number | null;
+  annual_revenue_growth_pct?: number | null;
+  roe_pct?: number | null;
+  profit_margin_pct?: number | null;
+  trailing_eps?: number | null;
+  quarterly_eps_accelerating?: boolean | null;
+  quarterly_revenue_accelerating?: boolean | null;
+  institutional_holders?: number | null;
+  institutional_ownership_pct?: number | null;
+  next_earnings_date?: string | null;
+  beta?: number | null;
+};
+
+export type StockFundamentals = {
+  ticker: string;
+  source: "database" | "missing";
+  item?: StockFundamentalsItem | null;
+};
+
+export type StockFundamentalsUpdate = {
+  as_of?: string | null;
+  source?: string;
+  fiscal_period?: string;
+  quarterly_eps_growth_pct?: number | null;
+  annual_eps_growth_pct?: number | null;
+  quarterly_revenue_growth_pct?: number | null;
+  annual_revenue_growth_pct?: number | null;
+  roe_pct?: number | null;
+  profit_margin_pct?: number | null;
+  trailing_eps?: number | null;
+  quarterly_eps_accelerating?: boolean | null;
+  quarterly_revenue_accelerating?: boolean | null;
+  institutional_holders?: number | null;
+  institutional_ownership_pct?: number | null;
+  next_earnings_date?: string | null;
+  beta?: number | null;
+};
+
+export type StockEarningsWarning = {
+  next_earnings_date?: string | null;
+  calendar_days?: number | null;
+  trading_days?: number | null;
+  tone: Tone;
+  message: string;
 };
 
 export type StockAssessment = {
@@ -476,6 +533,8 @@ export type StockAssessment = {
   fundamentals_available: boolean;
   scores: StockAssessmentScores;
   metrics: StockAssessmentMetrics;
+  fundamentals?: StockFundamentalsItem | null;
+  earnings?: StockEarningsWarning | null;
   checks: StockAssessmentCheck[];
   chart_signals: StockAssessmentSignal[];
   drivers: string[];

@@ -28,6 +28,8 @@ import type {
   SectorRanking,
   StockAssessment,
   StockAssessmentRanking,
+  StockFundamentals,
+  StockFundamentalsUpdate,
   SellEvaluation,
   SellManualInput,
   SellMetrics,
@@ -96,6 +98,9 @@ export const api = {
   stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   stockAssessment: (ticker: string) => getJson<StockAssessment>(`/stocks/${ticker}/assessment`),
   stockAssessmentRanking: (limit = 50) => getJson<StockAssessmentRanking>(`/stocks/assessment/ranking?limit=${limit}`),
+  stockFundamentals: (ticker: string) => getJson<StockFundamentals>(`/stocks/${ticker}/fundamentals`),
+  updateStockFundamentals: (ticker: string, body: StockFundamentalsUpdate) =>
+    patchJson<StockFundamentals>(`/stocks/${ticker}/fundamentals`, body),
   stockInstitutional13F: (ticker: string) => getJson<Institutional13FTrend>(`/stocks/${ticker}/institutional/13f`),
   portfolioPositions: async () => {
     const payload = await getJson<{ positions: PortfolioPosition[] }>("/portfolio/positions");

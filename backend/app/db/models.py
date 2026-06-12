@@ -150,6 +150,39 @@ class RsRating(Base):
     metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
+class FundamentalSnapshot(Base):
+    __tablename__ = "fundamental_snapshots"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", "as_of", "source", name="uq_fundamental_snapshot"),
+        Index("ix_fundamental_snapshots_ticker_as_of", "ticker", "as_of"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    instrument_id: Mapped[str] = mapped_column(ForeignKey("instruments.id"), index=True)
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    fiscal_period: Mapped[str] = mapped_column(String(32), default="")
+    quarterly_eps_growth_pct: Mapped[float | None] = mapped_column(Float)
+    annual_eps_growth_pct: Mapped[float | None] = mapped_column(Float)
+    quarterly_revenue_growth_pct: Mapped[float | None] = mapped_column(Float)
+    annual_revenue_growth_pct: Mapped[float | None] = mapped_column(Float)
+    roe_pct: Mapped[float | None] = mapped_column(Float)
+    profit_margin_pct: Mapped[float | None] = mapped_column(Float)
+    trailing_eps: Mapped[float | None] = mapped_column(Float)
+    quarterly_eps_accelerating: Mapped[bool | None] = mapped_column(Boolean)
+    quarterly_revenue_accelerating: Mapped[bool | None] = mapped_column(Boolean)
+    institutional_holders: Mapped[int | None] = mapped_column(Integer)
+    institutional_ownership_pct: Mapped[float | None] = mapped_column(Float)
+    next_earnings_date: Mapped[date | None] = mapped_column(Date)
+    beta: Mapped[float | None] = mapped_column(Float)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Position(Base):
     __tablename__ = "positions"
 

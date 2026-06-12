@@ -28,13 +28,13 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Persistent ISIN/Yahoo mapping maintenance in the portfolio import UI.
 - Stock assessment ranking table using the same score components as the single-stock assessment.
 - Pushover configuration status and test job via Settings; secrets stay in NAS/container environment.
+- Stock assessment fundamental cache with web editing, backend scoring, earnings warning and institutional support context.
 
 ## Open Gaps
 
 - Stock assessment page parity:
-  - Single-stock fundamental checks.
-  - Earnings warning, institutional holder context, CMF, liquidity/dollar-volume filters.
-  - Fundamental score is still neutral until a dedicated fundamentals cache exists.
+  - Automated fundamentals refresh worker for Yahoo/FMP/SEC data.
+  - Deeper single-stock chart context such as annotated candlesticks, RS subplot and volume overlays.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:

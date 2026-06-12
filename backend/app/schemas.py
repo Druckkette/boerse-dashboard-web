@@ -234,6 +234,63 @@ class StockAssessmentMetrics(BaseModel):
     distance_sma200_pct: float | None = None
     rs_rating: int | None = Field(default=None, ge=1, le=99)
     rs_percentile: float | None = Field(default=None, ge=0, le=100)
+    beta: float | None = None
+    institutional_ownership_pct: float | None = None
+    next_earnings_calendar_days: int | None = None
+    next_earnings_trading_days: int | None = None
+
+
+class StockFundamentalsItem(BaseModel):
+    ticker: str
+    as_of: str
+    source: str
+    fiscal_period: str = ""
+    quarterly_eps_growth_pct: float | None = None
+    annual_eps_growth_pct: float | None = None
+    quarterly_revenue_growth_pct: float | None = None
+    annual_revenue_growth_pct: float | None = None
+    roe_pct: float | None = None
+    profit_margin_pct: float | None = None
+    trailing_eps: float | None = None
+    quarterly_eps_accelerating: bool | None = None
+    quarterly_revenue_accelerating: bool | None = None
+    institutional_holders: int | None = None
+    institutional_ownership_pct: float | None = None
+    next_earnings_date: str | None = None
+    beta: float | None = None
+
+
+class StockFundamentalsResponse(BaseModel):
+    ticker: str
+    source: Literal["database", "missing"]
+    item: StockFundamentalsItem | None = None
+
+
+class StockFundamentalsUpdateRequest(BaseModel):
+    as_of: str | None = None
+    source: str = "manual"
+    fiscal_period: str = ""
+    quarterly_eps_growth_pct: float | None = None
+    annual_eps_growth_pct: float | None = None
+    quarterly_revenue_growth_pct: float | None = None
+    annual_revenue_growth_pct: float | None = None
+    roe_pct: float | None = None
+    profit_margin_pct: float | None = None
+    trailing_eps: float | None = None
+    quarterly_eps_accelerating: bool | None = None
+    quarterly_revenue_accelerating: bool | None = None
+    institutional_holders: int | None = Field(default=None, ge=0)
+    institutional_ownership_pct: float | None = Field(default=None, ge=0, le=100)
+    next_earnings_date: str | None = None
+    beta: float | None = None
+
+
+class StockEarningsWarning(BaseModel):
+    next_earnings_date: str | None = None
+    calendar_days: int | None = None
+    trading_days: int | None = None
+    tone: Literal["good", "neutral", "warning", "bad"]
+    message: str
 
 
 class StockAssessmentResponse(BaseModel):
@@ -248,6 +305,8 @@ class StockAssessmentResponse(BaseModel):
     fundamentals_available: bool
     scores: StockAssessmentScores
     metrics: StockAssessmentMetrics
+    fundamentals: StockFundamentalsItem | None = None
+    earnings: StockEarningsWarning | None = None
     checks: list[StockAssessmentCheck]
     chart_signals: list[StockAssessmentSignal]
     drivers: list[str]
