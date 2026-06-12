@@ -8,7 +8,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Market overview: breadth, volatility, trend ampellogic, cached snapshots.
 - Market data jobs: price refresh, breadth, relative strength, ATR monitor skeleton/partial implementation.
 - Portfolio import: browser upload, parsed positions, Trade-Republic transaction preview/import, ISIN mapping, persisted open positions.
-- Portfolio controls: manual position editor, sell booking, cash-flow log, depot curve fallback, position-size calculator and persisted risk assumptions.
+- Portfolio controls: manual position editor, sell booking, cash-flow log, depot curve from Trade-Republic transactions or open-position fallback, position-size calculator and persisted risk assumptions.
 - Sell engine: migrated domain logic, metrics/evaluate endpoints, ranking, manual state, tranche log, snooze state.
 - NAS/GHCR deployment: Docker Compose, GHCR workflows, update script.
 - Jobs UI: manual start, status polling, configurable market-data bootstrap.
@@ -23,6 +23,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Depot curve endpoint and frontend panel for cached-position fallback.
 - Position-size calculator with loss-budget and Beta-Balancer formulas.
 - Trade-Republic transaction CSV import with web upload, ISIN-to-Yahoo mapping preview and persisted transactions/open positions.
+- Transaction-based depot curve from saved Trade-Republic transactions with cached price bars and trade-price fallback.
 
 ## Open Gaps
 
@@ -33,7 +34,7 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Earnings warning, institutional holder context, CMF, liquidity/dollar-volume filters.
   - Comparison/ranking table parity beyond current RS ranking.
 - Portfolio parity:
-  - Full transaction-based TWR depot curve from saved Trade-Republic export, including S&P 500 comparison.
+  - S&P 500 comparison line for the transaction-based depot curve.
   - ISIN/Yahoo mapping maintenance page beyond import-time editing.
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:

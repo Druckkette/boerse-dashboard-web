@@ -51,6 +51,15 @@ from app.services.dummy_data import get_portfolio_snapshot as get_dummy_portfoli
 
 
 REQUIRED_IMPORT_FIELDS = {"ticker", "shares", "entry_price"}
+TR_EXTERNAL_FLOW_TYPES = {
+    "customer_inbound",
+    "customer_outbound_request",
+    "customer_inpayment",
+    "transfer_inbound",
+    "transfer_instant_inbound",
+    "gift",
+    "tax_optimization",
+}
 
 HEADER_ALIASES = {
     "ticker": {"ticker", "symbol", "wertpapier", "isin_ticker"},
@@ -158,6 +167,10 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
 
 
 def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
+    tr_curve = _get_trade_republic_curve(days=days)
+    if tr_curve is not None:
+        return tr_curve
+
     try:
         rows = portfolio_repository.list_open_positions()
         cash = portfolio_repository.get_cash_balance()
@@ -246,6 +259,168 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
         message="Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand.",
         points=points,
     )
+
+
+def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
+    try:
+        transactions = portfolio_repository.list_trade_republic_transactions()
+    except PortfolioRepositoryUnavailable:
+        return None
+    if not transactions:
+        return None
+
+    start_date = min(row.date for row in transactions)
+    end_date = date.today()
+    if start_date > end_date:
+        return None
+    calendar = pd.DatetimeIndex(pd.date_range(start_date, end_date, freq="B"))
+    if calendar.empty:
+        return None
+
+    tickers = sorted({row.ticker for row in transactions if row.ticker})
+    positions_value = pd.Series(0.0, index=calendar)
+    missing_price_tickers: list[str] = []
+    trade_price_fallbacks: list[str] = []
+
+    for ticker in tickers:
+        ticker_transactions = [row for row in transactions if row.ticker == ticker]
+        shares = pd.Series(0.0, index=calendar)
+        running = 0.0
+        for row in ticker_transactions:
+            delta = _signed_share_delta(row.transaction_type, row.shares)
+            if row.transaction_type == "split":
+                running = max(row.shares, 0.0)
+            else:
+                running = max(running + delta, 0.0)
+            shares.loc[shares.index >= pd.Timestamp(row.date)] = running
+
+        cached_prices = _cached_price_series(ticker, start_date)
+        if cached_prices.empty:
+            cached_prices = _trade_price_fallback_series(ticker_transactions, calendar)
+            if cached_prices.empty:
+                missing_price_tickers.append(ticker)
+                continue
+            trade_price_fallbacks.append(ticker)
+        aligned_prices = cached_prices.reindex(calendar, method="ffill").ffill().bfill().fillna(0.0)
+        positions_value = positions_value.add(shares.values * aligned_prices.values, fill_value=0.0)
+
+    cash_daily = pd.Series(0.0, index=calendar)
+    external_daily = pd.Series(0.0, index=calendar)
+    for row in transactions:
+        day = pd.Timestamp(row.date)
+        if day not in cash_daily.index:
+            next_days = cash_daily.index[cash_daily.index >= day]
+            if next_days.empty:
+                continue
+            day = next_days[0]
+        cash_daily.loc[day] += row.net_amount
+        if row.transaction_type in TR_EXTERNAL_FLOW_TYPES:
+            external_daily.loc[day] += row.net_amount
+
+    curve = pd.DataFrame(
+        {
+            "date": calendar,
+            "positions_value": positions_value.values,
+            "cash": cash_daily.cumsum().values,
+            "external_flow": external_daily.values,
+        }
+    )
+    curve["depot_value"] = curve["positions_value"] + curve["cash"]
+    first_active = curve["depot_value"].abs().gt(1e-9)
+    if not first_active.any():
+        return None
+    curve = curve.loc[first_active.idxmax() :].reset_index(drop=True)
+
+    window_start = pd.Timestamp(date.today() - timedelta(days=max(30, min(2500, days))))
+    curve = curve[curve["date"] >= window_start].reset_index(drop=True)
+    if curve.empty:
+        return None
+
+    index_values = [100.0]
+    depot_values = curve["depot_value"].tolist()
+    external_values = curve["external_flow"].tolist()
+    for idx in range(1, len(curve)):
+        previous = float(depot_values[idx - 1])
+        current = float(depot_values[idx])
+        external = float(external_values[idx])
+        daily_return = (current - previous - external) / previous if previous > 0 else 0.0
+        index_values.append(index_values[-1] * (1.0 + daily_return))
+    curve["portfolio_index"] = index_values
+    curve["portfolio_index_sma10"] = curve["portfolio_index"].rolling(10, min_periods=10).mean()
+    curve["portfolio_index_sma21"] = curve["portfolio_index"].rolling(21, min_periods=21).mean()
+
+    points = [
+        PortfolioCurvePoint(
+            date=pd.Timestamp(row.date).date().isoformat(),
+            depot_value=round(float(row.depot_value), 2),
+            positions_value=round(float(row.positions_value), 2),
+            cash=round(float(row.cash), 2),
+            portfolio_index=round(float(row.portfolio_index), 2),
+            portfolio_index_sma10=round(float(row.portfolio_index_sma10), 2)
+            if pd.notna(row.portfolio_index_sma10)
+            else None,
+            portfolio_index_sma21=round(float(row.portfolio_index_sma21), 2)
+            if pd.notna(row.portfolio_index_sma21)
+            else None,
+        )
+        for row in curve.itertuples()
+    ]
+    details = []
+    if trade_price_fallbacks:
+        details.append("Trade-Price-Fallback: " + ", ".join(trade_price_fallbacks))
+    if missing_price_tickers:
+        details.append("Kursdaten fehlen: " + ", ".join(missing_price_tickers))
+    message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport."
+    if details:
+        message += " " + " · ".join(details)
+
+    return PortfolioCurveResponse(
+        as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
+        source="trade_republic_transactions",
+        data_status="fresh" if points else "missing",
+        message=message,
+        points=points,
+    )
+
+
+def _cached_price_series(ticker: str, start_date: date) -> pd.Series:
+    try:
+        rows = prices_repository.list_price_bars(ticker, start_date=start_date)
+    except PriceRepositoryUnavailable:
+        rows = []
+    values = [(pd.Timestamp(row.date), float(row.close)) for row in rows if row.close is not None]
+    if not values:
+        return pd.Series(dtype=float)
+    return pd.Series(
+        [item[1] for item in values],
+        index=pd.DatetimeIndex([item[0] for item in values]),
+        dtype=float,
+    ).sort_index()
+
+
+def _trade_price_fallback_series(transactions: list[portfolio_repository.TradeRepublicStoredTransactionRow], calendar: pd.DatetimeIndex) -> pd.Series:
+    values = [
+        (pd.Timestamp(row.date), float(row.price))
+        for row in transactions
+        if row.price is not None and row.price > 0 and row.transaction_type in {"buy", "sell", "transfer_in", "sell_cancelled"}
+    ]
+    if not values:
+        return pd.Series(dtype=float)
+    series = pd.Series(
+        [item[1] for item in values],
+        index=pd.DatetimeIndex([item[0] for item in values]),
+        dtype=float,
+    ).sort_index()
+    return series.reindex(calendar, method="ffill").ffill().bfill()
+
+
+def _signed_share_delta(transaction_type: str, shares: float) -> float:
+    amount = abs(float(shares or 0.0))
+    if transaction_type in {"sell", "transfer_out", "warrant_exercise", "insolvency_proceedings", "delisted", "expiration"}:
+        return -amount
+    if transaction_type in {"buy", "transfer_in", "sell_cancelled"}:
+        return amount
+    return 0.0
 
 
 def calculate_position_size(payload: PortfolioPositionSizeRequest) -> PortfolioPositionSizeResponse:

@@ -110,6 +110,18 @@ class PortfolioImportHistoryRow:
 
 
 @dataclass(frozen=True)
+class TradeRepublicStoredTransactionRow:
+    ticker: str
+    date: date
+    transaction_type: str
+    shares: float
+    price: float | None
+    net_amount: float
+    currency: str
+    raw_json: dict
+
+
+@dataclass(frozen=True)
 class PortfolioImportResult:
     import_id: str
     rows_imported: int
@@ -334,6 +346,31 @@ def list_transactions(*, limit: int = 250) -> list[PortfolioTransactionRow]:
                 .limit(max(1, min(1000, limit)))
             ).all()
             return [_transaction_to_row(row) for row in rows]
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def list_trade_republic_transactions() -> list[TradeRepublicStoredTransactionRow]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(Transaction)
+                .where(Transaction.raw_json["source"].as_string() == "trade_republic_transactions")
+                .order_by(Transaction.date.asc(), Transaction.created_at.asc())
+            ).all()
+            return [
+                TradeRepublicStoredTransactionRow(
+                    ticker=row.ticker or "",
+                    date=row.date,
+                    transaction_type=row.transaction_type or "",
+                    shares=float(row.shares or 0.0),
+                    price=float(row.price) if row.price is not None else None,
+                    net_amount=float(row.net_amount or 0.0),
+                    currency=row.currency or "EUR",
+                    raw_json=dict(row.raw_json or {}),
+                )
+                for row in rows
+            ]
     except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 

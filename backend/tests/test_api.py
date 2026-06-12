@@ -173,7 +173,7 @@ def test_portfolio_curve_contract() -> None:
     response = client.get("/api/v1/portfolio/curve")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["source"] in {"database", "missing"}
+    assert payload["source"] in {"database", "trade_republic_transactions", "missing"}
     assert payload["data_status"] in {"fresh", "missing"}
     assert isinstance(payload["points"], list)
 

@@ -178,7 +178,7 @@ export type PortfolioCurvePoint = {
 
 export type PortfolioCurve = {
   as_of: string;
-  source: "database" | "missing";
+  source: "database" | "trade_republic_transactions" | "missing";
   data_status: "fresh" | "missing";
   message: string;
   points: PortfolioCurvePoint[];

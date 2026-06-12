@@ -519,7 +519,7 @@ class PortfolioCurvePoint(BaseModel):
 
 class PortfolioCurveResponse(BaseModel):
     as_of: str
-    source: Literal["database", "missing"]
+    source: Literal["database", "trade_republic_transactions", "missing"]
     data_status: Literal["fresh", "missing"]
     message: str = ""
     points: list[PortfolioCurvePoint]
