@@ -56,6 +56,9 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Universe mapping parity hardening: stale manual overrides for renamed/delisted symbols
   are kept in storage but no longer counted in current mapping review results; class-share
   examples are covered by dedicated market fixtures.
+- Technical setup parity: Yahoo-symbol diagnostics and auto-rescue are available as
+  non-blocking worker jobs from `/jobs`, replacing Streamlit's direct Yahoo diagnosis
+  and automatic remapping buttons.
 - Settings-aware ATR monitor: scheduled runs respect the web setting, manual runs can still be
   triggered, and monitor results include ATR distance to the configured reference.
 - Workspace page migrated from Streamlit `_tab_mein_bereich`: persisted watchlist,

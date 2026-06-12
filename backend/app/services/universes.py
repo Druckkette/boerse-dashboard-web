@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from app.data_sources.yfinance_client import probe_daily_price_symbol
 from app.data_sources.nasdaq_trader import fetch_us_common_stock_universe
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.repositories import jobs as job_repository
 from app.repositories import universes as universe_repository
 from app.schemas import (
     UniverseStatusResponse,
@@ -173,6 +175,49 @@ def resolve_universe_price_symbols(
     ]
 
 
+def diagnose_yahoo_symbols(payload: dict | None = None, *, apply_mappings: bool = False) -> dict:
+    payload = payload or {}
+    universe_key = str(payload.get("universe") or payload.get("universe_key") or "us_common_stocks").strip()
+    limit = _normalize_limit(payload.get("limit") or payload.get("sample_size") or 40)
+    period = _normalize_probe_period(payload.get("period") or "1mo")
+    tickers = _diagnostic_tickers(payload, universe_key=universe_key, limit=limit)
+    items: list[dict] = []
+    mapped_count = 0
+    candidate_found_count = 0
+
+    for ticker in tickers:
+        item = _diagnose_single_yahoo_symbol(ticker, period=period)
+        if item["status"] == "candidate_found":
+            candidate_found_count += 1
+            if apply_mappings and item.get("best_candidate"):
+                universe_repository.upsert_symbol_mapping(
+                    key=universe_key,
+                    source_ticker=ticker,
+                    yahoo_symbol=str(item["best_candidate"]),
+                    status="active",
+                    source="auto_rescue",
+                    note="Automatisch validiert über yfinance-Daily-Probe.",
+                    confidence=0.80,
+                )
+                item["mapping_applied"] = True
+                mapped_count += 1
+        items.append(item)
+
+    ok_count = sum(1 for item in items if item["status"] in {"valid_current", "candidate_found"})
+    return {
+        "ok": True,
+        "job_type": "yahoo_symbol_rescue" if apply_mappings else "yahoo_symbol_diagnostics",
+        "universe_key": universe_key,
+        "period": period,
+        "requested_count": len(tickers),
+        "ok_count": ok_count,
+        "candidate_found_count": candidate_found_count,
+        "mapped_count": mapped_count,
+        "not_found_count": sum(1 for item in items if item["status"] == "not_found"),
+        "items": items,
+    }
+
+
 def _mapping_item(row: universe_repository.UniverseSymbolMappingRow) -> UniverseSymbolMappingItem:
     status = row.status if row.status in {"active", "ignored"} else "unmapped"
     return UniverseSymbolMappingItem(
@@ -185,6 +230,87 @@ def _mapping_item(row: universe_repository.UniverseSymbolMappingRow) -> Universe
         confidence=row.confidence,
         updated_at=row.updated_at,
     )
+
+
+def _diagnostic_tickers(payload: dict, *, universe_key: str, limit: int) -> list[str]:
+    explicit = _normalize_tickers(payload.get("tickers") or payload.get("failed_tickers"))
+    if explicit:
+        return explicit[:limit]
+
+    latest_failed = _latest_failed_price_tickers(limit=limit)
+    if latest_failed:
+        return latest_failed
+
+    review = get_universe_symbol_mappings(universe_key, limit=limit)
+    return review.unmapped_sample[:limit]
+
+
+def _latest_failed_price_tickers(*, limit: int) -> list[str]:
+    for job in job_repository.list_jobs(limit=25):
+        if job.job_type != "refresh_prices":
+            continue
+        result = job.result if isinstance(job.result, dict) else {}
+        failed: list[str] = []
+        raw_failed = result.get("failed_tickers")
+        if isinstance(raw_failed, list):
+            failed.extend(str(item) for item in raw_failed)
+        raw_items = result.get("items")
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if isinstance(item, dict) and item.get("ok") is False and item.get("ticker"):
+                    failed.append(str(item["ticker"]))
+        normalized = _normalize_tickers(failed)
+        if normalized:
+            return normalized[:limit]
+    return []
+
+
+def _diagnose_single_yahoo_symbol(ticker: str, *, period: str) -> dict:
+    clean = _normalize_tickers([ticker])[0]
+    candidates = _build_yahoo_symbol_candidates(clean)
+    candidate_results = [probe_daily_price_symbol(candidate, period=period) for candidate in candidates]
+    valid = [candidate for candidate in candidate_results if candidate.get("ok")]
+    best = str(valid[0]["symbol"]) if valid else ""
+    status = "not_found"
+    if best:
+        status = "valid_current" if best == clean else "candidate_found"
+    return {
+        "source_ticker": clean,
+        "best_candidate": best,
+        "status": status,
+        "mapping_applied": False,
+        "candidates": candidate_results,
+    }
+
+
+def _build_yahoo_symbol_candidates(ticker: str) -> list[str]:
+    clean = ticker.strip().upper()
+    candidates = [clean]
+    if "-" in clean:
+        candidates.append(clean.replace("-", "."))
+        candidates.append(clean.replace("-", ""))
+    if "." in clean:
+        candidates.append(clean.replace(".", "-"))
+        candidates.append(clean.replace(".", ""))
+    if clean.endswith(".U"):
+        candidates.append(f"{clean[:-2]}-UN")
+    if clean.endswith("-U"):
+        candidates.append(f"{clean[:-2]}.U")
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def _normalize_limit(value: object) -> int:
+    try:
+        return max(1, min(120, int(value)))
+    except (TypeError, ValueError):
+        return 40
+
+
+def _normalize_probe_period(value: object) -> str:
+    clean = str(value).strip()
+    if clean in {"5d", "1mo", "3mo"}:
+        return clean
+    return "1mo"
 
 
 def _normalize_tickers(value: object) -> list[str]:

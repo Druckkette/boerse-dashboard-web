@@ -18,9 +18,13 @@ SUPPORTED_JOB_TYPES: set[str] = {
     "refresh_prices",
     "refresh_breadth",
     "refresh_relative_strength",
+    "refresh_fundamentals",
     "refresh_sec13f",
     "refresh_universe",
     "position_atr_monitor",
+    "pushover_test",
+    "yahoo_symbol_diagnostics",
+    "yahoo_symbol_rescue",
 }
 
 _MEMORY_JOBS: dict[str, Job] = {}

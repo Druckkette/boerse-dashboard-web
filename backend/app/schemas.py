@@ -841,6 +841,8 @@ JobType = Literal[
     "refresh_sec13f",
     "position_atr_monitor",
     "pushover_test",
+    "yahoo_symbol_diagnostics",
+    "yahoo_symbol_rescue",
 ]
 
 

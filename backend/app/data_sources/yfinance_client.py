@@ -82,6 +82,30 @@ def fetch_daily_price_bars(symbol: str, *, period: str = "1y") -> list[FetchedPr
     return bars
 
 
+def probe_daily_price_symbol(symbol: str, *, period: str = "1mo") -> dict:
+    """Return a compact yfinance availability probe for a symbol candidate."""
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        return {"symbol": clean_symbol, "ok": False, "records_seen": 0, "error_message": "Leeres Symbol."}
+    try:
+        bars = fetch_daily_price_bars(clean_symbol, period=period)
+    except Exception as exc:
+        return {
+            "symbol": clean_symbol,
+            "ok": False,
+            "records_seen": 0,
+            "error_message": f"{type(exc).__name__}: {exc}",
+        }
+    return {
+        "symbol": clean_symbol,
+        "ok": bool(bars),
+        "records_seen": len(bars),
+        "last_date": bars[-1].date.isoformat() if bars else None,
+        "last_close": bars[-1].close if bars else None,
+        "error_message": "" if bars else "Keine Daily-Bars gefunden.",
+    }
+
+
 def fetch_fundamentals(symbol: str, *, include_holders: bool = True) -> FetchedFundamentals:
     """Fetch a compact fundamental snapshot for worker-side caching."""
     import yfinance as yf

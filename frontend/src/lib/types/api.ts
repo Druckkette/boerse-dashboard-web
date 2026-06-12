@@ -936,7 +936,9 @@ export type JobType =
   | "refresh_universe"
   | "refresh_sec13f"
   | "position_atr_monitor"
-  | "pushover_test";
+  | "pushover_test"
+  | "yahoo_symbol_diagnostics"
+  | "yahoo_symbol_rescue";
 
 export type AppSettings = {
   atr_threshold: number;

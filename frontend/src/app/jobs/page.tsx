@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CircleDashed, Play, RotateCw, Save, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDashed, Play, RotateCw, Save, SearchCheck, WandSparkles, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -20,6 +20,8 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking" },
   { type: "refresh_fundamentals", label: "Fundamentals", description: "EPS, ROE, Marge, Earnings" },
   { type: "refresh_universe", label: "Universe", description: "US Common Stocks von Nasdaq Trader" },
+  { type: "yahoo_symbol_diagnostics", label: "Yahoo Diagnose", description: "Fehlende Universe-Symbole testen" },
+  { type: "yahoo_symbol_rescue", label: "Yahoo Rescue", description: "Validierte Yahoo-Mappings speichern" },
   { type: "refresh_sec13f", label: "13F / SEC", description: "Offizielle SEC-Datensätze, monatlich/manuell" },
   { type: "position_atr_monitor", label: "ATR Monitor", description: "Offene Positionen prüfen" }
 ];
@@ -363,6 +365,160 @@ function UniverseSymbolMappingPanel({
   );
 }
 
+type YahooProbeCandidate = {
+  symbol: string;
+  ok?: boolean;
+  records_seen?: number;
+  last_date?: string | null;
+  error_message?: string;
+};
+
+type YahooProbeItem = {
+  source_ticker: string;
+  best_candidate: string;
+  status: string;
+  mapping_applied?: boolean;
+  candidates: YahooProbeCandidate[];
+};
+
+function YahooDiagnosticsPanel({
+  activeJob,
+  failedTickers,
+  latestDiagnosticsJob,
+  latestRescueJob,
+  onStart,
+  startingType
+}: {
+  activeJob?: Job;
+  failedTickers: string[];
+  latestDiagnosticsJob?: Job;
+  latestRescueJob?: Job;
+  onStart: (type: JobType, payload: Record<string, unknown>) => void;
+  startingType: JobType | null;
+}) {
+  const latestJob = newerJob(latestDiagnosticsJob, latestRescueJob);
+  const items = yahooProbeItems(latestJob).slice(0, 12);
+  const running =
+    latestDiagnosticsJob?.status === "queued" ||
+    latestDiagnosticsJob?.status === "running" ||
+    latestRescueJob?.status === "queued" ||
+    latestRescueJob?.status === "running";
+  const disabled = Boolean(activeJob) || Boolean(running);
+  const probePayload = failedTickers.length
+    ? { source: "dashboard", tickers: failedTickers, limit: Math.min(120, failedTickers.length), period: "1mo" }
+    : { source: "dashboard", universe: "us_common_stocks", limit: 40, period: "1mo" };
+
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">Yahoo-Diagnose & Auto-Rescue</h2>
+            {latestJob ? <StatusChip tone={statusTone[latestJob.status]}>{latestJob.status}</StatusChip> : null}
+            {failedTickers.length ? (
+              <StatusChip tone="warning">{failedTickers.length.toLocaleString("de-DE")} Preisfehler</StatusChip>
+            ) : (
+              <StatusChip tone="neutral">Universe-Stichprobe</StatusChip>
+            )}
+          </div>
+          <div className="mt-1 max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+            Prüft fehlgeschlagene oder ungemappte Universe-Ticker gegen yfinance. Auto-Rescue speichert nur Kandidaten,
+            die echte Daily-Bars liefern; Kursdaten werden danach über den normalen Price-Refresh geladen.
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled || startingType === "yahoo_symbol_diagnostics"}
+            type="button"
+            onClick={() => onStart("yahoo_symbol_diagnostics", probePayload)}
+          >
+            <SearchCheck size={15} />
+            {startingType === "yahoo_symbol_diagnostics" ? "Startet" : "Diagnose starten"}
+          </button>
+          <button
+            className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled || startingType === "yahoo_symbol_rescue"}
+            type="button"
+            onClick={() => onStart("yahoo_symbol_rescue", probePayload)}
+          >
+            <WandSparkles size={15} />
+            {startingType === "yahoo_symbol_rescue" ? "Startet" : "Auto-Rescue"}
+          </button>
+        </div>
+      </div>
+
+      {latestJob && (
+        <div className="mb-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="font-medium">Letzter Yahoo-Job: {latestJob.job_type}</div>
+              <div className="mt-1 text-xs leading-5 text-[#77808f]">{latestJob.message || latestJob.current_step}</div>
+            </div>
+            <div className="text-xs tabular-nums text-[#a0a7b4]">{formatDate(latestJob.created_at)}</div>
+          </div>
+          {(latestJob.status === "queued" || latestJob.status === "running") && (
+            <div className="mt-3">
+              <div className="h-2 overflow-hidden rounded bg-[#171a20]">
+                <div className="h-2 rounded bg-emerald-300" style={{ width: `${latestJob.progress}%` }} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {items.length ? (
+        <div className="overflow-hidden rounded border border-[#2d333d]">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[#111419] text-xs uppercase text-[#a0a7b4]">
+              <tr>
+                <th className="px-3 py-2">Ticker</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Bester Kandidat</th>
+                <th className="px-3 py-2">Geprüfte Symbole</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.source_ticker} className="border-t border-[#2d333d]">
+                  <td className="px-3 py-2 font-medium text-emerald-100">{item.source_ticker}</td>
+                  <td className="px-3 py-2">
+                    <StatusChip tone={toneForYahooStatus(item.status, item.mapping_applied)}>
+                      {item.mapping_applied ? "mapping gespeichert" : item.status}
+                    </StatusChip>
+                  </td>
+                  <td className="px-3 py-2 text-[#d8dde6]">{item.best_candidate || "-"}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {item.candidates.slice(0, 4).map((candidate) => (
+                        <span
+                          key={candidate.symbol}
+                          className={[
+                            "rounded border px-2 py-1 text-xs",
+                            candidate.ok
+                              ? "border-emerald-300/35 bg-emerald-300/10 text-emerald-100"
+                              : "border-[#2d333d] bg-[#111419] text-[#a0a7b4]"
+                          ].join(" ")}
+                        >
+                          {candidate.symbol}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="rounded border border-dashed border-[#2d333d] bg-[#111419] p-4 text-sm text-[#a0a7b4]">
+          Noch keine Yahoo-Diagnose gelaufen. Starte zuerst eine Diagnose oder nutze Auto-Rescue nach einem fehlgeschlagenen Price-Refresh.
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function JobsPage() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<JobType>("refresh_prices");
@@ -386,6 +542,8 @@ export default function JobsPage() {
   const jobs = data ?? [];
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
   const latestUniverseJob = latestJobForType(jobs, "refresh_universe");
+  const latestYahooDiagnosticsJob = latestJobForType(jobs, "yahoo_symbol_diagnostics");
+  const latestYahooRescueJob = latestJobForType(jobs, "yahoo_symbol_rescue");
   const priceFailures = latestFailedPriceTickers(jobs);
 
   const startMutation = useMutation({
@@ -488,6 +646,15 @@ export default function JobsPage() {
         }
         onRefresh={() => universeMappingsQuery.refetch()}
         onSave={(payload) => mappingMutation.mutate(payload)}
+      />
+
+      <YahooDiagnosticsPanel
+        activeJob={activeJob}
+        failedTickers={priceFailures}
+        latestDiagnosticsJob={latestYahooDiagnosticsJob}
+        latestRescueJob={latestYahooRescueJob}
+        onStart={(type, payload) => startMutation.mutate({ type, payload })}
+        startingType={startingType}
       />
 
       <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -817,6 +984,45 @@ function latestJobForType(jobs: Job[], type: JobType) {
   return jobs.find((job) => job.job_type === type);
 }
 
+function newerJob(left?: Job, right?: Job) {
+  if (!left) return right;
+  if (!right) return left;
+  return new Date(left.created_at).getTime() >= new Date(right.created_at).getTime() ? left : right;
+}
+
+function yahooProbeItems(job?: Job): YahooProbeItem[] {
+  const rawItems = job?.result?.items;
+  if (!Array.isArray(rawItems)) return [];
+  return rawItems
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .map((item) => ({
+      source_ticker: String(item.source_ticker ?? ""),
+      best_candidate: String(item.best_candidate ?? ""),
+      status: String(item.status ?? "unknown"),
+      mapping_applied: Boolean(item.mapping_applied),
+      candidates: Array.isArray(item.candidates)
+        ? item.candidates
+            .filter((candidate): candidate is Record<string, unknown> => Boolean(candidate && typeof candidate === "object"))
+            .map((candidate) => ({
+              symbol: String(candidate.symbol ?? ""),
+              ok: Boolean(candidate.ok),
+              records_seen: Number(candidate.records_seen ?? 0),
+              last_date: typeof candidate.last_date === "string" ? candidate.last_date : null,
+              error_message: String(candidate.error_message ?? "")
+            }))
+        : []
+    }))
+    .filter((item) => item.source_ticker);
+}
+
+function toneForYahooStatus(status: string, mappingApplied?: boolean): "good" | "neutral" | "warning" | "bad" {
+  if (mappingApplied) return "good";
+  if (status === "valid_current") return "good";
+  if (status === "candidate_found") return "warning";
+  if (status === "not_found") return "bad";
+  return "neutral";
+}
+
 function latestFailedPriceTickers(jobs: Job[]) {
   const latest = jobs.find((job) => job.job_type === "refresh_prices");
   const result = latest?.result ?? {};
@@ -907,6 +1113,8 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
   if (type === "refresh_relative_strength") return { mode: "manual", lookback_days: 430 };
   if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
   if (type === "refresh_universe") return { mode: "manual", source: "dashboard" };
+  if (type === "yahoo_symbol_diagnostics") return { mode: "manual", source: "dashboard", universe: "us_common_stocks", limit: 40 };
+  if (type === "yahoo_symbol_rescue") return { mode: "manual", source: "dashboard", universe: "us_common_stocks", limit: 40 };
   if (type === "refresh_sec13f") {
     return { mode: "manual", universe: "open_positions", dataset_count: 2, limit_universe: 120 };
   }
