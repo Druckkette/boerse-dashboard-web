@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ChartPlaceholder } from "@/components/ui/chart-placeholder";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { MarketOverviewPanel } from "@/features/market/market-overview-panel";
+import { PortfolioCurvePanel } from "@/features/portfolio/portfolio-curve-panel";
 import { PositionTable } from "@/features/portfolio/position-table";
 import { api } from "@/lib/api/client";
 
@@ -29,7 +29,7 @@ export function DashboardPage() {
         </div>
 
         <div className="space-y-4">
-          <ChartPlaceholder title="Portfolio Index" caption="Platzhalter bis Lightweight Charts angebunden wird" />
+          <PortfolioCurvePanel />
           <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-base font-semibold">Job Freshness</h2>
@@ -54,4 +54,3 @@ export function DashboardPage() {
     </div>
   );
 }
-
