@@ -30,12 +30,13 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Pushover configuration status and test job via Settings; secrets stay in NAS/container environment.
 - Stock assessment fundamental cache with web editing, backend scoring, earnings warning and institutional support context.
 - Worker job `refresh_fundamentals` fills the same cache from yfinance without blocking stock detail requests.
+- Stock detail price chart now includes 21-EMA, 50-SMA, 200-SMA and volume context from the cached Price API.
 
 ## Open Gaps
 
 - Stock assessment page parity:
   - FMP/SEC enrichment for deeper quarterly/annual fundamental history and acceleration detection.
-  - Deeper single-stock chart context such as annotated candlesticks, RS subplot and volume overlays.
+  - Deeper single-stock chart context such as annotated candlesticks and RS subplot.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:

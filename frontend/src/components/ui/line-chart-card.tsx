@@ -19,6 +19,8 @@ type LineChartCardProps = {
   caption: string;
   points: ChartDatum[];
   series: ChartSeries[];
+  volumeKey?: string;
+  volumeLabel?: string;
   statusLabel?: string;
   statusTone?: "good" | "neutral" | "warning" | "bad";
   isLoading?: boolean;
@@ -36,6 +38,8 @@ export function LineChartCard({
   caption,
   points,
   series,
+  volumeKey,
+  volumeLabel = "Volumen",
   statusLabel,
   statusTone = "neutral",
   isLoading,
@@ -51,6 +55,10 @@ export function LineChartCard({
   const span = max - min || Math.max(1, Math.abs(max));
   const yMin = min - span * 0.08;
   const yMax = max + span * 0.08;
+  const volumeValues = volumeKey
+    ? points.map((point) => toNumber(point[volumeKey])).filter((value): value is number => value !== null)
+    : [];
+  const maxVolume = volumeValues.length ? Math.max(...volumeValues) : 0;
   const latest = points.at(-1);
   const hasError = Boolean(error);
   const empty = !isLoading && (!points.length || !numericValues.length);
@@ -102,6 +110,22 @@ export function LineChartCard({
                 y2={PAD_TOP + ratio * (HEIGHT - PAD_TOP - PAD_BOTTOM)}
               />
             ))}
+            {volumeKey && maxVolume > 0 && (
+              <g opacity="0.24">
+                {points.map((point, index) => {
+                  const volume = toNumber(point[volumeKey]);
+                  if (volume === null) return null;
+                  const barHeight = Math.max(1, (volume / maxVolume) * 54);
+                  const barWidth = Math.max(2, (WIDTH - PAD_X * 2) / Math.max(1, points.length) * 0.72);
+                  const x = xForIndex(index, points.length) - barWidth / 2;
+                  const y = HEIGHT - PAD_BOTTOM - barHeight;
+                  const close = toNumber(point.close);
+                  const open = toNumber(point.open);
+                  const fill = close !== null && open !== null && close < open ? "#fb7185" : "#34d399";
+                  return <rect key={`${point.date}-${index}`} fill={fill} height={barHeight} width={barWidth} x={x} y={y} />;
+                })}
+              </g>
+            )}
             {series.map((item) => {
               const path = buildPath(points, item.key, yMin, yMax);
               if (!path) return null;
@@ -129,6 +153,13 @@ export function LineChartCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-3">
+        {volumeKey && (
+          <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
+            <span className="size-2 rounded-full bg-[#697386]" />
+            <span className="text-[#a0a7b4]">{volumeLabel}</span>
+            <span className="tabular-nums">{formatCompact(toNumber(latest?.[volumeKey]))}</span>
+          </div>
+        )}
         {series.map((item) => {
           const value = latest ? toNumber(latest[item.key]) : null;
           return (
@@ -173,4 +204,12 @@ function yForValue(value: number, yMin: number, yMax: number) {
 function toNumber(value: string | number | null | undefined) {
   if (typeof value !== "number" || Number.isNaN(value)) return null;
   return value;
+}
+
+function formatCompact(value: number | null) {
+  if (value === null) return "-";
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} Mrd.`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} Mio.`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} Tsd.`;
+  return value.toFixed(0);
 }
