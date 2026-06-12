@@ -37,6 +37,16 @@ def test_market_breadth_contract() -> None:
         assert {"date", "advancers", "decliners", "pct_above_50sma"}.issubset(payload["points"][0])
 
 
+def test_market_universe_contract() -> None:
+    response = client.get("/api/v1/market/universe")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["key"]
+    assert isinstance(payload["member_count"], int)
+    assert isinstance(payload["sample_tickers"], list)
+    assert isinstance(payload["metadata"], dict)
+
+
 def test_market_volatility_contract() -> None:
     response = client.get("/api/v1/market/volatility")
     assert response.status_code == 200

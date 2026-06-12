@@ -12,6 +12,7 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_breadth", label: "Breadth", description: "Marktbreite und Snapshots" },
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking" },
   { type: "refresh_fundamentals", label: "Fundamentals", description: "EPS, ROE, Marge, Earnings" },
+  { type: "refresh_universe", label: "Universe", description: "US Common Stocks von Nasdaq Trader" },
   { type: "refresh_sec13f", label: "13F / SEC", description: "Offizielle SEC-Datensätze, monatlich/manuell" },
   { type: "position_atr_monitor", label: "ATR Monitor", description: "Offene Positionen prüfen" }
 ];
@@ -47,6 +48,67 @@ const defaultBootstrapConfig: MarketDataBootstrapConfig = {
   rsBenchmarkTicker: "SPY"
 };
 
+function UniverseStatusPanel({
+  activeJob,
+  memberCount,
+  source,
+  updatedAt,
+  sampleTickers,
+  isFetching,
+  onRefresh,
+  onStart,
+  starting
+}: {
+  activeJob?: Job;
+  memberCount: number;
+  source: string;
+  updatedAt: string | null;
+  sampleTickers: string[];
+  isFetching: boolean;
+  onRefresh: () => void;
+  onStart: () => void;
+  starting: boolean;
+}) {
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">Aktienuniversum</h2>
+            <StatusChip tone={source === "nasdaq_trader" ? "good" : "warning"}>{source}</StatusChip>
+            <StatusChip tone={memberCount > 100 ? "good" : "neutral"}>{memberCount.toLocaleString("de-DE")} Ticker</StatusChip>
+          </div>
+          <div className="mt-1 text-sm text-[#a0a7b4]">
+            {updatedAt ? `Aktualisiert ${new Date(updatedAt).toLocaleString("de-DE")}` : "Noch kein gespeichertes Live-Universe."}
+          </div>
+          <div className="mt-2 max-w-4xl truncate text-xs text-[#697386]">
+            {sampleTickers.length ? sampleTickers.join(", ") : "Fallback-Starterliste wird verwendet."}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            type="button"
+            onClick={onRefresh}
+          >
+            <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            Status
+          </button>
+          <button
+            className="inline-flex items-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            disabled={Boolean(activeJob) || starting}
+            onClick={onStart}
+          >
+            <Play size={15} />
+            Universe aktualisieren
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function JobsPage() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<JobType>("refresh_prices");
@@ -56,6 +118,11 @@ export default function JobsPage() {
     queryKey: ["jobs"],
     queryFn: api.jobs,
     refetchInterval: 5000
+  });
+  const universeQuery = useQuery({
+    queryKey: ["market-universe"],
+    queryFn: api.marketUniverse,
+    staleTime: 60_000
   });
   const jobs = data ?? [];
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
@@ -104,6 +171,18 @@ export default function JobsPage() {
         jobs={jobs}
         onStart={(type, payload) => startMutation.mutate({ type, payload })}
         startingType={startingType}
+      />
+
+      <UniverseStatusPanel
+        activeJob={activeJob}
+        memberCount={universeQuery.data?.member_count ?? 0}
+        source={universeQuery.data?.source ?? "missing"}
+        updatedAt={universeQuery.data?.updated_at ?? null}
+        sampleTickers={universeQuery.data?.sample_tickers ?? []}
+        isFetching={universeQuery.isFetching}
+        onRefresh={() => universeQuery.refetch()}
+        onStart={() => startMutation.mutate({ type: "refresh_universe", payload: defaultPayloadForJob("refresh_universe") })}
+        starting={startingType === "refresh_universe"}
       />
 
       <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -488,6 +567,7 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
   if (type === "refresh_breadth") return { mode: "manual", lookback_days: 370 };
   if (type === "refresh_relative_strength") return { mode: "manual", lookback_days: 430 };
   if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
+  if (type === "refresh_universe") return { mode: "manual", source: "dashboard" };
   if (type === "refresh_sec13f") {
     return { mode: "manual", universe: "open_positions", dataset_count: 2, limit_universe: 120 };
   }

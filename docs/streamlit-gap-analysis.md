@@ -42,6 +42,8 @@ Target: `Druckkette/boerse-dashboard-web`.
   caches ZIP files, maps CUSIPs to tickers and persists aggregate institutional trends.
 - 13F CUSIP mapping workflow in `/stocks`: persisted manual overrides plus unmatched-CUSIP review
   from the latest worker result, without CSV file handling.
+- Universe maintenance: Nasdaq-Trader parser, `refresh_universe` worker, persisted
+  `us_common_stocks` members, `/market/universe` status API and Jobs-page refresh control.
 
 ## Open Gaps
 
@@ -51,4 +53,4 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Market parity:
-  - Full universe maintenance/rescue/remap workflows.
+  - Rescue/remap workflow for symbols that yfinance cannot load from the stored universe.

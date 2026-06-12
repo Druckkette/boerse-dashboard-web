@@ -5,6 +5,7 @@ from app.schemas import (
     MarketDiagnosticsResponse,
     MarketOverviewResponse,
     SectorRankingResponse,
+    UniverseStatusResponse,
     VolatilityResponse,
 )
 from app.services.market import (
@@ -14,6 +15,7 @@ from app.services.market import (
     get_sector_ranking,
     get_volatility,
 )
+from app.services.universes import get_universe_status
 
 
 router = APIRouter()
@@ -27,6 +29,11 @@ def market_overview() -> MarketOverviewResponse:
 @router.get("/breadth", response_model=BreadthResponse)
 def market_breadth() -> BreadthResponse:
     return get_breadth()
+
+
+@router.get("/universe", response_model=UniverseStatusResponse)
+def market_universe() -> UniverseStatusResponse:
+    return get_universe_status()
 
 
 @router.get("/volatility", response_model=VolatilityResponse)

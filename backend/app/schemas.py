@@ -78,6 +78,16 @@ class BreadthResponse(BaseModel):
     points: list[BreadthPoint]
 
 
+class UniverseStatusResponse(BaseModel):
+    key: str
+    name: str
+    source: str
+    member_count: int
+    updated_at: datetime | None = None
+    sample_tickers: list[str]
+    metadata: dict = Field(default_factory=dict)
+
+
 class VolatilityStatusCard(BaseModel):
     title: str
     status: str
@@ -781,6 +791,7 @@ JobType = Literal[
     "refresh_breadth",
     "refresh_relative_strength",
     "refresh_fundamentals",
+    "refresh_universe",
     "refresh_sec13f",
     "position_atr_monitor",
     "pushover_test",

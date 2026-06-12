@@ -44,6 +44,7 @@ import type {
   TrancheLogEntry,
   TradeRepublicTransactionImportRequest,
   TradeRepublicTransactionImportResponse,
+  UniverseStatus,
   Volatility
 } from "@/lib/types/api";
 
@@ -94,6 +95,7 @@ export const api = {
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
   marketDiagnostics: () => getJson<MarketDiagnostics>("/market/diagnostics"),
+  marketUniverse: () => getJson<UniverseStatus>("/market/universe"),
   marketSectors: (mode: "daily" | "weekly" = "daily", periods = 15) =>
     getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
   freshness: () => getJson<Freshness>("/freshness"),

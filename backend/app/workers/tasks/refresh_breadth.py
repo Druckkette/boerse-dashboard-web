@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY, DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import jobs as job_repository
 from app.services.market import refresh_market_breadth
+from app.services.universes import resolve_universe_tickers
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
@@ -14,8 +15,13 @@ def refresh_breadth(self, job_id: str | None = None, payload: dict | None = None
     if job is None:
         job = job_repository.create_job("refresh_breadth", payload, requested_by=str(payload.get("source") or "scheduler"))
 
-    tickers = _normalize_tickers(payload.get("tickers") or DEFAULT_MARKET_UNIVERSE_TICKERS)
     universe = str(payload.get("universe") or DEFAULT_MARKET_UNIVERSE_KEY)
+    tickers = resolve_universe_tickers(
+        explicit_tickers=payload.get("tickers"),
+        universe_key=payload.get("universe"),
+        fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
+        limit=int(payload.get("limit_universe") or 500),
+    )
     lookback_days = int(payload.get("lookback_days") or 370)
 
     job_repository.mark_running(job.job_id, step="Market-Price-Cache lesen")
@@ -56,13 +62,3 @@ def refresh_breadth(self, job_id: str | None = None, payload: dict | None = None
         error = f"{type(exc).__name__}: {exc}"
         job_repository.mark_failed(job.job_id, error_message=error, result={"ok": False, "job_type": "refresh_breadth"})
         raise
-
-
-def _normalize_tickers(value: object) -> list[str]:
-    if isinstance(value, str):
-        raw = value.replace(";", ",").split(",")
-    elif isinstance(value, list):
-        raw = [str(item) for item in value]
-    else:
-        raw = []
-    return list(dict.fromkeys(item.strip().upper() for item in raw if item and item.strip()))[:80]

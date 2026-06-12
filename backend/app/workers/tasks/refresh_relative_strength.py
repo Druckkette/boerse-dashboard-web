@@ -7,6 +7,7 @@ from app.services.relative_strength import (
     DEFAULT_RS_LOOKBACK_DAYS,
     refresh_relative_strength_ratings,
 )
+from app.services.universes import resolve_universe_tickers
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
@@ -22,7 +23,12 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
             requested_by=str(payload.get("source") or "scheduler"),
         )
 
-    tickers = _normalize_tickers(payload.get("tickers") or DEFAULT_MARKET_UNIVERSE_TICKERS)
+    tickers = resolve_universe_tickers(
+        explicit_tickers=payload.get("tickers"),
+        universe_key=payload.get("universe"),
+        fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
+        limit=int(payload.get("limit_universe") or 500),
+    )
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
     lookback_days = int(payload.get("lookback_days") or DEFAULT_RS_LOOKBACK_DAYS)
     source = str(payload.get("rating_source") or "computed").strip() or "computed"
@@ -78,13 +84,3 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
             result={"ok": False, "job_type": "refresh_relative_strength"},
         )
         raise
-
-
-def _normalize_tickers(value: object) -> list[str]:
-    if isinstance(value, str):
-        raw = value.replace(";", ",").split(",")
-    elif isinstance(value, list):
-        raw = [str(item) for item in value]
-    else:
-        raw = []
-    return list(dict.fromkeys(item.strip().upper() for item in raw if item and item.strip()))[:120]

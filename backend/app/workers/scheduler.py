@@ -15,6 +15,11 @@ def get_beat_schedule() -> dict:
             "schedule": crontab(hour=22, minute=15),
             "args": (None, {"mode": "incremental", "source": "scheduler"}),
         },
+        "refresh-universe-weekly": {
+            "task": "refresh_universe",
+            "schedule": crontab(day_of_week="sun", hour=2, minute=15),
+            "args": (None, {"mode": "weekly", "source": "scheduler"}),
+        },
         "refresh-breadth-daily": {
             "task": "refresh_breadth",
             "schedule": crontab(hour=22, minute=45),

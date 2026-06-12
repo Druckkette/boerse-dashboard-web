@@ -56,6 +56,16 @@ export type Breadth = {
   points: BreadthPoint[];
 };
 
+export type UniverseStatus = {
+  key: string;
+  name: string;
+  source: string;
+  member_count: number;
+  updated_at?: string | null;
+  sample_tickers: string[];
+  metadata: Record<string, unknown>;
+};
+
 export type VolatilityStatusCard = {
   title: string;
   status: string;
@@ -877,6 +887,7 @@ export type JobType =
   | "refresh_breadth"
   | "refresh_relative_strength"
   | "refresh_fundamentals"
+  | "refresh_universe"
   | "refresh_sec13f"
   | "position_atr_monitor"
   | "pushover_test";
