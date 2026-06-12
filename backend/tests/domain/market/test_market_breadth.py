@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
+from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketPricePoint
 from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking
@@ -147,6 +148,10 @@ def test_trend_ampel_exposes_streamlit_market_indicators() -> None:
     assert latest.ma_order is True
     assert latest.neg_reversals_10d == 0
     assert latest.low_cr_5d == 0
+
+
+def test_market_core_price_tickers_include_streamlit_indexes() -> None:
+    assert {"^GSPC", "^IXIC", "^RUT", "RSP", "QQEW"}.issubset(MARKET_CORE_PRICE_TICKERS)
 
 
 def test_volatility_dashboard_returns_empty_without_benchmark() -> None:

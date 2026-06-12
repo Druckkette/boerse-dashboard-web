@@ -150,7 +150,7 @@ def test_market_ampel_contract() -> None:
     payload = response.json()
     assert payload["source"] in {"database", "missing"}
     assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
-    assert payload["ticker"] == "SPY"
+    assert payload["ticker"] == "^GSPC"
     assert {"mode", "tone", "action", "reasons"}.issubset(payload["hero"])
     assert {"phase", "label", "reason", "action", "tone"}.issubset(payload["phase_info"])
     assert isinstance(payload["lights"], list)
@@ -158,6 +158,16 @@ def test_market_ampel_contract() -> None:
     assert isinstance(payload["distance_tiles"], list)
     assert isinstance(payload["warning_checks"], list)
     assert isinstance(payload["chart_points"], list)
+
+
+def test_market_ampel_etf_aliases_map_to_streamlit_indexes() -> None:
+    nasdaq = client.get("/api/v1/market/ampel?ticker=QQQ&days=90")
+    russell = client.get("/api/v1/market/ampel?ticker=IWM&days=90")
+
+    assert nasdaq.status_code == 200
+    assert russell.status_code == 200
+    assert nasdaq.json()["ticker"] == "^IXIC"
+    assert russell.json()["ticker"] == "^RUT"
 
 
 def test_market_breadth_contract() -> None:

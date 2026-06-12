@@ -133,10 +133,11 @@ in the Postgres Docker volume. You only need to repeat the full bootstrap when t
 is empty, after a deliberate reset, or when you want to load a different universe or longer history.
 Normal updates should be handled by scheduler/worker jobs.
 
-`refresh_prices` loads the starter universe plus the volatility tickers `SPY`, `^VIX` and `VIXY`.
-It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also includes
-the RS benchmark and volatility tickers in the price refresh so market overview and RS calculations
-have the required support data.
+`refresh_prices` loads the starter universe plus the Streamlit-compatible market indexes `^GSPC`,
+`^IXIC`, `^RUT`, the equal-weight ETFs `RSP`/`QQEW`, and the volatility tickers `SPY`, `^VIX` and
+`VIXY`. It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also
+includes the RS benchmark and volatility tickers in the price refresh so market overview and RS
+calculations have the required support data.
 
 `/stocks/ratings/rs` and `/stocks/<ticker>/rs` read the persisted `rs_ratings` table. They do not
 run yfinance or Pandas recomputes in the click path.

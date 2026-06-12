@@ -7,19 +7,19 @@ from app.services.market import compute_intermarket_divergence, compute_sector_r
 def test_intermarket_divergence_marks_lagging_index() -> None:
     start = date(2025, 1, 2)
     series = {
-        "SPY": _ohlcv_series("SPY", start, [100 + index for index in range(30)]),
-        "QQQ": _ohlcv_series("QQQ", start, [120 + index * 1.2 for index in range(30)]),
-        "IWM": _ohlcv_series("IWM", start, [95 + index * 0.2 for index in range(25)] + [90, 89, 88, 87, 86]),
+        "^GSPC": _ohlcv_series("^GSPC", start, [100 + index for index in range(30)]),
+        "^IXIC": _ohlcv_series("^IXIC", start, [120 + index * 1.2 for index in range(30)]),
+        "^RUT": _ohlcv_series("^RUT", start, [95 + index * 0.2 for index in range(25)] + [90, 89, 88, 87, 86]),
     }
 
     items = compute_intermarket_divergence(series)
 
     assert len(items) == 3
-    assert next(item for item in items if item.ticker == "SPY").at_20d_high is True
-    iwm = next(item for item in items if item.ticker == "IWM")
-    assert iwm.at_20d_high is False
-    assert iwm.dist_to_20d_high_pct is not None
-    assert iwm.tone in {"warning", "bad"}
+    assert next(item for item in items if item.ticker == "^GSPC").at_20d_high is True
+    rut = next(item for item in items if item.ticker == "^RUT")
+    assert rut.at_20d_high is False
+    assert rut.dist_to_20d_high_pct is not None
+    assert rut.tone in {"warning", "bad"}
 
 
 def test_sector_rotation_detects_defensive_leadership() -> None:

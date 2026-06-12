@@ -9,6 +9,7 @@ from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_tren
 from app.domain.market.constants import (
     DEFAULT_MARKET_UNIVERSE_KEY,
     DEFAULT_MARKET_UNIVERSE_TICKERS,
+    MARKET_INDEX_FALLBACK_TICKERS,
     SECTOR_ETFS,
     SECTOR_ETF_TICKERS,
 )
@@ -56,16 +57,16 @@ from app.schemas import (
 )
 
 
-MARKET_TREND_BENCHMARK = "SPY"
+MARKET_TREND_BENCHMARK = "^GSPC"
 MARKET_AMPEL_INDEXES = {
-    "SPY": "S&P 500",
-    "QQQ": "Nasdaq 100",
-    "IWM": "Russell 2000",
+    "^GSPC": "S&P 500",
+    "^IXIC": "Nasdaq Composite",
+    "^RUT": "Russell 2000",
 }
 INTERMARKET_INDEXES = {
-    "SPY": "S&P 500",
-    "QQQ": "Nasdaq 100",
-    "IWM": "Russell 2000",
+    "^GSPC": "S&P 500",
+    "^IXIC": "Nasdaq Composite",
+    "^RUT": "Russell 2000",
 }
 DEFENSIVE_SECTOR_TICKERS = ("XLU", "XLP")
 OFFENSIVE_SECTOR_TICKERS = ("XLK", "XLY")
@@ -124,10 +125,7 @@ def get_market_ampel(
     clean_ticker = _normalize_ampel_ticker(ticker)
     clean_days = max(30, min(240, int(days)))
     start_date = date.today() - timedelta(days=max(320, clean_days + 280))
-    try:
-        bars = market_repository.load_cached_ohlcv(clean_ticker, start_date=start_date)
-    except MarketRepositoryUnavailable:
-        bars = []
+    bars, used_ticker = _load_cached_index_ohlcv(clean_ticker, start_date=start_date)
 
     if len(bars) < 2:
         return _missing_market_ampel(clean_ticker)
@@ -145,6 +143,7 @@ def get_market_ampel(
         name=MARKET_AMPEL_INDEXES.get(clean_ticker, clean_ticker),
         points=points,
         days=clean_days,
+        price_ticker=used_ticker,
         overview=overview,
         volatility=volatility,
         intermarket=intermarket,
@@ -160,6 +159,7 @@ def build_market_ampel_response(
     name: str,
     points: Sequence[TrendAmpelPoint],
     days: int,
+    price_ticker: str | None = None,
     overview: MarketOverviewResponse,
     volatility: VolatilityResponse,
     intermarket: list[MarketIntermarketItem],
@@ -198,8 +198,8 @@ def build_market_ampel_response(
         ticker=ticker,
         name=name,
         source="database",
-        data_status=_data_status_for_date(date.fromisoformat(latest.date)),
-        message="Marktampel aus gecachten OHLCV-Bars. Keine Live-yfinance-Berechnung im Request-Pfad.",
+        data_status=_ampel_data_status(date.fromisoformat(latest.date), ticker=ticker, price_ticker=price_ticker),
+        message=_ampel_data_message(ticker=ticker, price_ticker=price_ticker),
         warning_count=warning_count,
         breadth_mode=overview.breadth_mode,
         volatility_regime=volatility.regime,
@@ -762,7 +762,7 @@ def build_market_snapshot(
 
 def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> TrendAmpelPoint | None:
     start_date = date.today() - timedelta(days=max(250, min(2000, lookback_days)))
-    bars = market_repository.load_cached_ohlcv(ticker, start_date=start_date)
+    bars, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
     if len(bars) < 2:
         return None
     points = compute_trend_ampel([_trend_bar_from_ohlcv(point) for point in bars])
@@ -777,13 +777,10 @@ def _cached_volatility_points(*, limit: int = 180):
 
 def _cached_intermarket_divergence() -> list[MarketIntermarketItem]:
     start_date = date.today() - timedelta(days=120)
-    try:
-        series = {
-            ticker: market_repository.load_cached_ohlcv(ticker, start_date=start_date)
-            for ticker in INTERMARKET_INDEXES
-        }
-    except MarketRepositoryUnavailable:
-        return []
+    series: dict[str, list[MarketOhlcvPoint]] = {}
+    for ticker in INTERMARKET_INDEXES:
+        rows, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
+        series[ticker] = rows
     return compute_intermarket_divergence(series)
 
 
@@ -801,16 +798,13 @@ def _cached_sector_rotation() -> tuple[list[MarketSectorRotationGroup], bool | N
 
 
 def _cached_benchmark_drawdown_pct() -> float | None:
-    try:
-        series = market_repository.load_cached_prices(
-            [MARKET_TREND_BENCHMARK],
-            start_date=date.today() - timedelta(days=420),
-        ).get(MARKET_TREND_BENCHMARK, [])
-    except MarketRepositoryUnavailable:
+    bars, _used_ticker = _load_cached_index_ohlcv(
+        MARKET_TREND_BENCHMARK,
+        start_date=date.today() - timedelta(days=420),
+    )
+    if not bars:
         return None
-    if not series:
-        return None
-    closes = [point.close for point in series if point.close > 0]
+    closes = [point.close for point in bars if point.close > 0]
     if not closes:
         return None
     high = max(closes)
@@ -1088,13 +1082,39 @@ def _normalize_ampel_ticker(value: str) -> str:
     clean = str(value or "").strip().upper()
     if clean in MARKET_AMPEL_INDEXES:
         return clean
-    if clean in {"S&P 500", "SP500", "^GSPC", "^SPX"}:
-        return "SPY"
-    if clean in {"NASDAQ", "NASDAQ COMPOSITE", "^IXIC", "NDX"}:
-        return "QQQ"
-    if clean in {"RUSSELL", "RUSSELL 2000", "^RUT"}:
-        return "IWM"
+    if clean in {"S&P 500", "SP500", "SPY", "^SPX"}:
+        return "^GSPC"
+    if clean in {"NASDAQ", "NASDAQ 100", "NASDAQ COMPOSITE", "QQQ", "NDX"}:
+        return "^IXIC"
+    if clean in {"RUSSELL", "RUSSELL 2000", "IWM"}:
+        return "^RUT"
     return MARKET_TREND_BENCHMARK
+
+
+def _load_cached_index_ohlcv(ticker: str, *, start_date: date) -> tuple[list[MarketOhlcvPoint], str | None]:
+    for candidate in [ticker, *MARKET_INDEX_FALLBACK_TICKERS.get(ticker, [])]:
+        try:
+            rows = market_repository.load_cached_ohlcv(candidate, start_date=start_date)
+        except MarketRepositoryUnavailable:
+            return [], None
+        if rows:
+            return rows, candidate
+    return [], None
+
+
+def _ampel_data_message(*, ticker: str, price_ticker: str | None) -> str:
+    if price_ticker and price_ticker != ticker:
+        return (
+            f"Marktampel nutzt vorübergehend {price_ticker} als Proxy, weil {ticker} noch nicht im Cache liegt. "
+            "Starte refresh_prices mit Preset market_core/all, um die echten Indexdaten zu laden."
+        )
+    return "Marktampel aus gecachten Index-OHLCV-Bars. Keine Live-yfinance-Berechnung im Request-Pfad."
+
+
+def _ampel_data_status(value: date, *, ticker: str, price_ticker: str | None) -> str:
+    if price_ticker and price_ticker != ticker:
+        return "fallback"
+    return _data_status_for_date(value)
 
 
 def _last_cycle_markers(points: Sequence[TrendAmpelPoint], latest: TrendAmpelPoint) -> tuple[str | None, float | None, float | None]:
@@ -1223,7 +1243,7 @@ def _ampel_phase_info(
 
 
 def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
-    active_key = "gruen" if phase == "aufwaertstrend" else phase
+    active_key = phase
     rules = {
         "rot": "ROT wird aktiv bei Drawdown von mehr als 10% vom jüngsten Hoch oder Schlusskurs unter der 50-SMA bei mindestens 4 Distribution Days im 25-Tage-Fenster.",
         "gelb": "GELB wird aktiv, wenn nach einem Ankertag frühestens ab Tag 5 ein Startschuss auftritt: mindestens +1,0%, Volumen über Vortag und kein Unterschreiten der Bodenmarke intraday.",
@@ -1235,9 +1255,16 @@ def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
         MarketAmpelLight(key="gelb", label="GELB", active=active_key == "gelb", rule=rules["gelb"], tone="warning"),
         MarketAmpelLight(
             key="gruen",
-            label="GRÜN" if phase != "aufwaertstrend" else "AUFWÄRTSTREND",
+            label="GRÜN",
             active=active_key == "gruen",
-            rule=rules["aufwaertstrend"] if phase == "aufwaertstrend" else rules["gruen"],
+            rule=rules["gruen"],
+            tone="good",
+        ),
+        MarketAmpelLight(
+            key="aufwaertstrend",
+            label="AUFWÄRTSTREND",
+            active=active_key == "aufwaertstrend",
+            rule=rules["aufwaertstrend"],
             tone="good",
         ),
     ]
