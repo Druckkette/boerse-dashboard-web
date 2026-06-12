@@ -59,6 +59,7 @@ const defaultBootstrapConfig: MarketDataBootstrapConfig = {
 
 function UniverseStatusPanel({
   activeJob,
+  latestJob,
   memberCount,
   source,
   updatedAt,
@@ -66,9 +67,11 @@ function UniverseStatusPanel({
   isFetching,
   onRefresh,
   onStart,
+  startError,
   starting
 }: {
   activeJob?: Job;
+  latestJob?: Job;
   memberCount: number;
   source: string;
   updatedAt: string | null;
@@ -76,8 +79,13 @@ function UniverseStatusPanel({
   isFetching: boolean;
   onRefresh: () => void;
   onStart: () => void;
+  startError: string;
   starting: boolean;
 }) {
+  const blockedByOtherJob = Boolean(activeJob && activeJob.job_type !== "refresh_universe");
+  const universeRunning = latestJob?.status === "queued" || latestJob?.status === "running";
+  const disabled = blockedByOtherJob || universeRunning || starting;
+
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -86,6 +94,7 @@ function UniverseStatusPanel({
             <h2 className="text-base font-semibold">Aktienuniversum</h2>
             <StatusChip tone={source === "nasdaq_trader" ? "good" : "warning"}>{source}</StatusChip>
             <StatusChip tone={memberCount > 100 ? "good" : "neutral"}>{memberCount.toLocaleString("de-DE")} Ticker</StatusChip>
+            {latestJob && <StatusChip tone={statusTone[latestJob.status]}>{latestJob.status}</StatusChip>}
           </div>
           <div className="mt-1 text-sm text-[#a0a7b4]">
             {updatedAt ? `Aktualisiert ${new Date(updatedAt).toLocaleString("de-DE")}` : "Noch kein gespeichertes Live-Universe."}
@@ -106,14 +115,50 @@ function UniverseStatusPanel({
           <button
             className="inline-flex items-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
-            disabled={Boolean(activeJob) || starting}
+            disabled={disabled}
             onClick={onStart}
           >
             <Play size={15} />
-            Universe aktualisieren
+            {starting ? "Startet" : universeRunning ? "Läuft" : "Universum aktualisieren"}
           </button>
         </div>
       </div>
+      {latestJob && (
+        <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="font-medium">Letzter Universe-Job</div>
+              <div className="mt-1 text-xs leading-5 text-[#77808f]">
+                {latestJob.current_step || latestJob.message || "Jobstatus wird aktualisiert."}
+              </div>
+            </div>
+            <div className="text-xs tabular-nums text-[#a0a7b4]">{formatDate(latestJob.created_at)}</div>
+          </div>
+          {(latestJob.status === "queued" || latestJob.status === "running") && (
+            <div className="mt-3">
+              <div className="h-2 overflow-hidden rounded bg-[#171a20]">
+                <div className="h-2 rounded bg-emerald-300" style={{ width: `${latestJob.progress}%` }} />
+              </div>
+              <div className="mt-1 text-right text-xs tabular-nums text-[#77808f]">{latestJob.progress}%</div>
+            </div>
+          )}
+          {latestJob.status === "failed" && latestJob.error_message && (
+            <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-xs leading-5 text-rose-100">
+              {latestJob.error_message}
+            </div>
+          )}
+        </div>
+      )}
+      {blockedByOtherJob && activeJob && (
+        <div className="mt-3 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+          Ein anderer Job läuft gerade: {activeJob.job_type}. Auf der NAS wird nur ein schwerer Job gleichzeitig gestartet.
+        </div>
+      )}
+      {startError && (
+        <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+          {startError}
+        </div>
+      )}
     </section>
   );
 }
@@ -340,6 +385,7 @@ export default function JobsPage() {
   });
   const jobs = data ?? [];
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
+  const latestUniverseJob = latestJobForType(jobs, "refresh_universe");
   const priceFailures = latestFailedPriceTickers(jobs);
 
   const startMutation = useMutation({
@@ -347,8 +393,16 @@ export default function JobsPage() {
       setStartingType(type);
       return api.startJob({ type, payload });
     },
-    onSettled: () => setStartingType(null),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
+    onSettled: () => {
+      setStartingType(null);
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onSuccess: (job) => {
+      if (job.job_type === "refresh_universe") {
+        queryClient.invalidateQueries({ queryKey: ["market-universe"] });
+        queryClient.invalidateQueries({ queryKey: ["market-universe-mappings"] });
+      }
+    }
   });
 
   const cancelMutation = useMutation({
@@ -367,6 +421,12 @@ export default function JobsPage() {
   useEffect(() => {
     window.localStorage.setItem(BOOTSTRAP_CONFIG_STORAGE_KEY, JSON.stringify(bootstrapConfig));
   }, [bootstrapConfig]);
+
+  useEffect(() => {
+    if (latestUniverseJob?.status !== "done") return;
+    queryClient.invalidateQueries({ queryKey: ["market-universe"] });
+    queryClient.invalidateQueries({ queryKey: ["market-universe-mappings"] });
+  }, [latestUniverseJob?.job_id, latestUniverseJob?.status, queryClient]);
 
   return (
     <div className="space-y-5">
@@ -398,6 +458,7 @@ export default function JobsPage() {
 
       <UniverseStatusPanel
         activeJob={activeJob}
+        latestJob={latestUniverseJob}
         memberCount={universeQuery.data?.member_count ?? 0}
         source={universeQuery.data?.source ?? "missing"}
         updatedAt={universeQuery.data?.updated_at ?? null}
@@ -405,6 +466,13 @@ export default function JobsPage() {
         isFetching={universeQuery.isFetching}
         onRefresh={() => universeQuery.refetch()}
         onStart={() => startMutation.mutate({ type: "refresh_universe", payload: defaultPayloadForJob("refresh_universe") })}
+        startError={
+          startMutation.isError &&
+          startMutation.variables?.type === "refresh_universe" &&
+          startMutation.error instanceof Error
+            ? startMutation.error.message
+            : ""
+        }
         starting={startingType === "refresh_universe"}
       />
 
