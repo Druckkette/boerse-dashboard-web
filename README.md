@@ -149,8 +149,11 @@ reports ATR/health/signal status through the Jobs page. It does not run yfinance
 
 The 13F/SEC job downloads official SEC Form-13F quarterly data sets in the worker, caches ZIP files
 under the backend cache volume and persists aggregate ticker trends. It requires `SEC_USER_AGENT`;
-run it manually or monthly, not as part of the normal daily bootstrap.
-On the NAS, put it into `/volume1/docker/boerse-dashboard-web/infra/.env.nas`:
+run it manually or monthly, not as part of the normal daily bootstrap. The preferred path is now
+`/setup` > `Konfiguration & Secrets`: enter `SEC_USER_AGENT` there and the backend/worker will read it
+from Postgres without editing `.env.nas`.
+
+As a fallback, set it in `/volume1/docker/boerse-dashboard-web/infra/.env.nas`:
 
 ```bash
 SEC_USER_AGENT=boerse-dashboard-web name@example.com
@@ -162,6 +165,10 @@ After changing `.env.nas`, recreate at least the worker so the new environment i
 cd /volume1/docker/boerse-dashboard-web/infra
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
 ```
+
+FMP and Pushover credentials can also be entered in `/setup`. Bootstrap values such as
+`DATABASE_URL`/Neon, Redis and frontend Basic Auth still have to exist before the containers start,
+so the setup page shows their status but does not apply them at runtime.
 
 The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
 EPS/revenue growth and acceleration with FMP and SEC Company Facts. `FMP_API_KEY` is optional and

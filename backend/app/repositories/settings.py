@@ -7,6 +7,7 @@ from app.db.session import SessionLocal
 
 
 SETTINGS_KEY = "runtime"
+RUNTIME_CONFIG_KEY = "runtime_config"
 
 
 class SettingsRepositoryUnavailable(RuntimeError):
@@ -35,6 +36,47 @@ def write_settings(values: dict) -> dict:
                 db.add(row)
             else:
                 row.value_json = dict(values)
+            db.commit()
+            return dict(row.value_json or {})
+    except SQLAlchemyError as exc:
+        raise SettingsRepositoryUnavailable(str(exc)) from exc
+
+
+def read_runtime_config() -> dict:
+    return _read_json_setting(RUNTIME_CONFIG_KEY)
+
+
+def write_runtime_config(values: dict) -> dict:
+    return _write_json_setting(
+        RUNTIME_CONFIG_KEY,
+        values,
+        description="Runtime API keys and integration config edited through the setup UI.",
+    )
+
+
+def _read_json_setting(key: str) -> dict:
+    try:
+        with SessionLocal() as db:
+            row = db.get(AppSetting, key)
+            return dict(row.value_json or {}) if row is not None else {}
+    except SQLAlchemyError as exc:
+        raise SettingsRepositoryUnavailable(str(exc)) from exc
+
+
+def _write_json_setting(key: str, values: dict, *, description: str) -> dict:
+    try:
+        with SessionLocal() as db:
+            row = db.get(AppSetting, key)
+            if row is None:
+                row = AppSetting(
+                    key=key,
+                    value_json=dict(values),
+                    description=description,
+                )
+                db.add(row)
+            else:
+                row.value_json = dict(values)
+                row.description = description
             db.commit()
             return dict(row.value_json or {})
     except SQLAlchemyError as exc:

@@ -29,6 +29,8 @@ import type {
   RsRatingRanking,
   Sec13FMappingReview,
   Sec13FMappingUpdate,
+  RuntimeConfig,
+  RuntimeConfigPatch,
   SectorRanking,
   SellDiagnostics,
   StockAssessment,
@@ -240,6 +242,8 @@ export const api = {
     return payload;
   },
   settings: () => getJson<AppSettings>("/settings"),
+  runtimeConfig: () => getJson<RuntimeConfig>("/settings/runtime-config"),
+  patchRuntimeConfig: (body: RuntimeConfigPatch) => patchJson<RuntimeConfig>("/settings/runtime-config", body),
   dataDiagnostics: () => getJson<DataDiagnostics>("/settings/data-diagnostics"),
   patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body),
   workspace: () => getJson<WorkspaceState>("/workspace"),

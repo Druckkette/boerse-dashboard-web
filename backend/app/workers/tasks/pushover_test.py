@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from app.core_config import get_settings
 from app.repositories import jobs as job_repository
+from app.services.settings import get_runtime_config_bool, get_runtime_config_value
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
@@ -25,8 +26,10 @@ def pushover_test(self, job_id: str | None = None, payload: dict | None = None) 
     try:
         raise_if_cancelled(job.job_id)
         settings = get_settings()
-        configured = bool(settings.pushover_user_key and settings.pushover_app_token)
-        dry_run = bool(payload.get("dry_run") or settings.pushover_dry_run)
+        user_key = get_runtime_config_value("PUSHOVER_USER_KEY") or settings.pushover_user_key
+        app_token = get_runtime_config_value("PUSHOVER_APP_TOKEN") or settings.pushover_app_token
+        configured = bool(user_key and app_token)
+        dry_run = bool(payload.get("dry_run") or get_runtime_config_bool("PUSHOVER_DRY_RUN", settings.pushover_dry_run))
         result = {
             "ok": False,
             "job_type": "pushover_test",
@@ -53,8 +56,8 @@ def pushover_test(self, job_id: str | None = None, payload: dict | None = None) 
             return result
 
         response = _send_pushover_message(
-            user_key=settings.pushover_user_key,
-            app_token=settings.pushover_app_token,
+            user_key=user_key,
+            app_token=app_token,
             message=f"boerse-dashboard-web Pushover-Test {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
         )
         result.update(ok=True, sent=True, response=response)

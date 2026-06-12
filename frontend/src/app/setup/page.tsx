@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
+import { RuntimeConfigPanel } from "@/features/setup/runtime-config-panel";
 import { api } from "@/lib/api/client";
 import type { Job, SetupStep } from "@/lib/types/api";
 
@@ -82,6 +83,8 @@ export default function SetupPage() {
           </div>
         </div>
       </section>
+
+      <RuntimeConfigPanel />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">

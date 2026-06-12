@@ -4,6 +4,7 @@ from app.core_config import get_settings
 from app.data_sources.fundamentals_client import FundamentalEnrichment, fetch_fundamental_enrichment
 from app.data_sources.yfinance_client import FetchedFundamentals, fetch_fundamentals
 from app.repositories.fundamentals import FundamentalSnapshotWrite, upsert_fundamentals
+from app.services.settings import get_runtime_config_value
 
 
 def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True) -> dict:
@@ -15,8 +16,8 @@ def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True
     settings = get_settings()
     enrichment = fetch_fundamental_enrichment(
         clean,
-        fmp_api_key=settings.fmp_api_key,
-        sec_user_agent=settings.sec_user_agent,
+        fmp_api_key=get_runtime_config_value("FMP_API_KEY") or settings.fmp_api_key,
+        sec_user_agent=get_runtime_config_value("SEC_USER_AGENT") or settings.sec_user_agent,
     )
     row = upsert_fundamentals(_to_write(fetched, enrichment))
     available_fields = [

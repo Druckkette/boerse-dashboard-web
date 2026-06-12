@@ -7,6 +7,7 @@ from app.data_sources.sec13f_client import (
     aggregate_by_ticker,
     build_cusip_mapping,
     build_outputs,
+    sec_headers,
 )
 
 
@@ -38,6 +39,13 @@ def test_sec13f_cusip_mapping_uses_sec_company_names() -> None:
             "method": "name_unique",
         }
     ]
+
+
+def test_sec13f_headers_accept_explicit_runtime_user_agent(monkeypatch) -> None:
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    headers = sec_headers("boerse-dashboard-web tests@example.com")
+
+    assert headers["User-Agent"] == "boerse-dashboard-web tests@example.com"
 
 
 def test_sec13f_aggregate_outputs_stable_trend_payload() -> None:

@@ -581,3 +581,31 @@ def test_settings_data_diagnostics_contract() -> None:
     assert isinstance(payload["issues"], list)
     if payload["issues"]:
         assert {"key", "label", "severity", "detail", "tickers"}.issubset(payload["issues"][0])
+
+
+def test_runtime_config_contract() -> None:
+    response = client.get("/api/v1/settings/runtime-config")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "SEC_USER_AGENT" in payload["editable_keys"]
+    assert "DATABASE_URL" in payload["bootstrap_keys"]
+    sec_item = next(item for item in payload["items"] if item["key"] == "SEC_USER_AGENT")
+    db_item = next(item for item in payload["items"] if item["key"] == "DATABASE_URL")
+    assert sec_item["editable"] is True
+    assert sec_item["runtime_applied"] is True
+    assert db_item["editable"] is False
+    assert db_item["restart_required"] is True
+
+
+def test_runtime_config_patch_masks_secret() -> None:
+    response = client.patch(
+        "/api/v1/settings/runtime-config",
+        json={"values": {"SEC_USER_AGENT": "boerse-dashboard-web tests@example.com"}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    sec_item = next(item for item in payload["items"] if item["key"] == "SEC_USER_AGENT")
+    assert sec_item["source"] == "database"
+    assert sec_item["configured"] is True
+    assert "tests@example.com" not in sec_item["value_preview"]
+    assert sec_item["value_preview"].startswith("bo")

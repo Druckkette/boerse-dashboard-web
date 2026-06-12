@@ -26,6 +26,7 @@ from app.schemas import (
     Sec13FMappingUpdateRequest,
     Sec13FUnmatchedCusipItem,
 )
+from app.services.settings import get_runtime_config_value
 
 ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]
 
@@ -81,6 +82,7 @@ def refresh_institutional_13f_from_sec(
         chunksize=_int_or_default(payload.get("chunksize"), 250_000),
         cusip_overrides=manual_overrides,
         progress=progress_callback,
+        sec_user_agent=get_runtime_config_value("SEC_USER_AGENT"),
     )
     ingest_result = ingest_institutional_13f_payload(build_result.payload)
     ingest_result.update(

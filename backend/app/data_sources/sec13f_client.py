@@ -114,6 +114,7 @@ def build_institutional_13f_payload(
     chunksize: int = 250_000,
     cusip_overrides: dict[str, str] | None = None,
     progress: ProgressCallback | None = None,
+    sec_user_agent: str = "",
 ) -> Sec13FBuildResult:
     tickers = {normalize_ticker(value) for value in universe}
     tickers.discard("")
@@ -122,7 +123,7 @@ def build_institutional_13f_payload(
 
     effective_dataset_count = max(2, min(6, int(dataset_count or 2)))
     _emit(progress, 8, "SEC Dataset-Liste laden", "SEC Form-13F-Datensaetze werden gesucht.", {})
-    dataset_links = list_sec_13f_datasets()[:effective_dataset_count]
+    dataset_links = list_sec_13f_datasets(sec_user_agent=sec_user_agent)[:effective_dataset_count]
 
     _emit(
         progress,
@@ -131,7 +132,7 @@ def build_institutional_13f_payload(
         f"{len(dataset_links)} SEC-Datensaetze werden aus Cache oder Netzwerk geladen.",
         {"dataset_count": len(dataset_links)},
     )
-    zip_paths = [download_dataset(link, cache_dir) for link in dataset_links]
+    zip_paths = [download_dataset(link, cache_dir, sec_user_agent=sec_user_agent) for link in dataset_links]
 
     _emit(progress, 28, "Submission-Index lesen", "13F-HR-Submissions werden gefiltert.", {})
     submission_indexes = [load_submission_index(path) for path in zip_paths]
@@ -160,7 +161,7 @@ def build_institutional_13f_payload(
     )
 
     _emit(progress, 68, "CUSIP Mapping", "SEC Company-Ticker werden mit CUSIPs gemappt.", {})
-    records = fetch_sec_company_symbol_records(tickers)
+    records = fetch_sec_company_symbol_records(tickers, sec_user_agent=sec_user_agent)
     overrides = load_default_overrides(tickers)
     for raw_cusip, raw_ticker in (cusip_overrides or {}).items():
         cusip = normalize_cusip(raw_cusip)
@@ -210,8 +211,8 @@ def build_institutional_13f_payload(
     )
 
 
-def sec_headers() -> dict[str, str]:
-    user_agent = os.environ.get("SEC_USER_AGENT", "").strip()
+def sec_headers(sec_user_agent: str = "") -> dict[str, str]:
+    user_agent = (sec_user_agent or os.environ.get("SEC_USER_AGENT", "")).strip()
     if not user_agent:
         raise RuntimeError(
             "SEC_USER_AGENT is not set. Configure it as '<project> <contact-email>' before running 13F jobs."
@@ -222,15 +223,15 @@ def sec_headers() -> dict[str, str]:
     }
 
 
-def fetch_text(url: str, timeout: int = 30) -> str:
-    response = requests.get(url, headers=sec_headers(), timeout=timeout)
+def fetch_text(url: str, timeout: int = 30, *, sec_user_agent: str = "") -> str:
+    response = requests.get(url, headers=sec_headers(sec_user_agent), timeout=timeout)
     response.raise_for_status()
     return response.text
 
 
-def list_sec_13f_datasets() -> list[DatasetLink]:
+def list_sec_13f_datasets(*, sec_user_agent: str = "") -> list[DatasetLink]:
     parser = SECAnchorParser()
-    parser.feed(fetch_text(SEC_13F_DATASETS_URL))
+    parser.feed(fetch_text(SEC_13F_DATASETS_URL, sec_user_agent=sec_user_agent))
     links: list[DatasetLink] = []
     seen: set[str] = set()
     for label, href in parser.links:
@@ -247,7 +248,7 @@ def list_sec_13f_datasets() -> list[DatasetLink]:
     return links
 
 
-def download_dataset(link: DatasetLink, cache_dir: Path) -> Path:
+def download_dataset(link: DatasetLink, cache_dir: Path, *, sec_user_agent: str = "") -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     target = cache_dir / link.filename
     if target.exists() and target.stat().st_size > 1_000_000:
@@ -255,7 +256,7 @@ def download_dataset(link: DatasetLink, cache_dir: Path) -> Path:
 
     tmp_path: Path | None = None
     try:
-        with requests.get(link.url, headers=sec_headers(), stream=True, timeout=120) as response:
+        with requests.get(link.url, headers=sec_headers(sec_user_agent), stream=True, timeout=120) as response:
             response.raise_for_status()
             with tempfile.NamedTemporaryFile("wb", delete=False, dir=cache_dir) as tmp:
                 tmp_path = Path(tmp.name)
@@ -273,8 +274,8 @@ def download_dataset(link: DatasetLink, cache_dir: Path) -> Path:
         raise
 
 
-def fetch_sec_company_symbol_records(universe: set[str]) -> list[SymbolRecord]:
-    response = requests.get(SEC_COMPANY_TICKERS_EXCHANGE_URL, headers=sec_headers(), timeout=30)
+def fetch_sec_company_symbol_records(universe: set[str], *, sec_user_agent: str = "") -> list[SymbolRecord]:
+    response = requests.get(SEC_COMPANY_TICKERS_EXCHANGE_URL, headers=sec_headers(sec_user_agent), timeout=30)
     response.raise_for_status()
     payload = response.json()
     fields = payload.get("fields") or []

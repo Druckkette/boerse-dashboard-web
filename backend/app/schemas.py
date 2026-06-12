@@ -1034,3 +1034,30 @@ class SettingsPatch(BaseModel):
     pushover_enabled: bool | None = None
     rs_rating_source: Literal["csv_latest", "computed"] | None = None
     data_jobs_enabled: bool | None = None
+
+
+class RuntimeConfigItem(BaseModel):
+    key: str
+    label: str
+    category: Literal["external_api", "notifications", "database", "security", "deployment"]
+    description: str
+    configured: bool
+    source: Literal["database", "environment", "missing", "bootstrap_only"]
+    secret: bool = True
+    editable: bool = False
+    restart_required: bool = False
+    runtime_applied: bool = False
+    placeholder: str = ""
+    value_preview: str = ""
+
+
+class RuntimeConfigResponse(BaseModel):
+    items: list[RuntimeConfigItem]
+    editable_keys: list[str]
+    bootstrap_keys: list[str]
+    note: str
+
+
+class RuntimeConfigPatch(BaseModel):
+    values: dict[str, str] = Field(default_factory=dict)
+    clear_keys: list[str] = Field(default_factory=list)

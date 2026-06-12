@@ -93,7 +93,17 @@ Docker, `127.0.0.1` would point to the frontend container itself, not the backen
 If `.env.nas` still contains older `API_INTERNAL_BASE_URL` or `NEXT_PUBLIC_API_BASE_URL` lines, remove
 them; the compose file now owns those non-secret defaults.
 
-Set `SEC_USER_AGENT` before running real 13F/SEC jobs:
+Prefer the web setup page for runtime integration secrets:
+
+1. Open `http://NAS-IP-ODER-HOSTNAME:3000/setup`.
+2. In `Konfiguration & Secrets`, enter `SEC_USER_AGENT`, optional `FMP_API_KEY` and optional
+   Pushover credentials.
+3. Click `Speichern`.
+
+Backend and worker read these values from Postgres. No `.env.nas` edit or worker restart is needed
+for these runtime-applied values.
+
+As an environment fallback, set `SEC_USER_AGENT` before running real 13F/SEC jobs:
 
 ```bash
 SEC_USER_AGENT=boerse-dashboard-web your-email@example.com
@@ -108,6 +118,10 @@ recreate the containers that read the variable:
 cd /volume1/docker/boerse-dashboard-web/infra
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
 ```
+
+Neon/Postgres `DATABASE_URL`, Redis and frontend Basic Auth remain bootstrap settings. They are shown
+in the setup page for visibility, but cannot be switched from inside the running app because the app
+needs those values before it can start and persist anything.
 
 ## Updates
 

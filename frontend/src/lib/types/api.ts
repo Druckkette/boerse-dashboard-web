@@ -1009,6 +1009,33 @@ export type AppSettings = {
   data_jobs_enabled: boolean;
 };
 
+export type RuntimeConfigItem = {
+  key: string;
+  label: string;
+  category: "external_api" | "notifications" | "database" | "security" | "deployment";
+  description: string;
+  configured: boolean;
+  source: "database" | "environment" | "missing" | "bootstrap_only";
+  secret: boolean;
+  editable: boolean;
+  restart_required: boolean;
+  runtime_applied: boolean;
+  placeholder: string;
+  value_preview: string;
+};
+
+export type RuntimeConfig = {
+  items: RuntimeConfigItem[];
+  editable_keys: string[];
+  bootstrap_keys: string[];
+  note: string;
+};
+
+export type RuntimeConfigPatch = {
+  values?: Record<string, string>;
+  clear_keys?: string[];
+};
+
 export type DataDiagnosticIssue = {
   key: string;
   label: string;
