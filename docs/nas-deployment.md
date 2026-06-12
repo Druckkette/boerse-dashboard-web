@@ -72,6 +72,13 @@ cd /volume1/docker/boerse-dashboard-web/infra
 ```
 
 The script pulls GHCR images, runs Alembic migrations and restarts services without deleting volumes.
+Run a database backup before major updates:
+
+```bash
+cd /volume1/docker/boerse-dashboard-web/infra
+./backup-postgres.sh
+./update-nas.sh
+```
 
 ## Rollback
 
@@ -88,14 +95,32 @@ Database downgrades are not automatic. Restore a Postgres backup if the rollback
 
 ## Backups
 
-Back up the `postgres_data` volume before major updates:
+Back up Postgres before major updates or before testing a new migration:
 
 ```bash
-docker compose --env-file .env.nas -f docker-compose.nas.yml exec postgres \
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > boerse-dashboard-$(date +%F).sql
+cd /volume1/docker/boerse-dashboard-web/infra
+./backup-postgres.sh
 ```
 
+The script writes `./backups/boerse-dashboard-postgres-<timestamp>.dump` plus a SHA-256 checksum
+when the host has `sha256sum` or `shasum`. It uses `pg_dump --format=custom` and does not stop
+containers or delete volumes.
+
 For Synology Hyper Backup, include the Docker project directory and the Docker volume location used by Container Manager.
+
+## Restore Test / Disaster Restore
+
+Restore is intentionally guarded because it overwrites database objects. Stop app services, restore
+the dump, run migrations and restart services with:
+
+```bash
+cd /volume1/docker/boerse-dashboard-web/infra
+RESTORE_CONFIRM=I_UNDERSTAND_THIS_OVERWRITES_DATABASE ./restore-postgres.sh ./backups/boerse-dashboard-postgres-YYYYMMDDTHHMMSSZ.dump
+```
+
+The restore script does not remove Docker volumes. It supports the custom `.dump` files created by
+`backup-postgres.sh` and plain `.sql` files. For a rollback to a specific image plus database state,
+set `IMAGE_TAG=<commit-sha>` in `.env.nas`, run the restore command, then run `./update-nas.sh`.
 
 ## Pause Worker Or Scheduler
 

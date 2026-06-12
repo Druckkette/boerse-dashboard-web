@@ -15,3 +15,6 @@ coverage/
 *.pyc
 *.sqlite
 *.sqlite3
+infra/backups/
+*.dump
+*.sha256

@@ -103,6 +103,8 @@ For real SEC/13F refreshes, set `SEC_USER_AGENT` in `.env.nas` to a project name
 email, for example `boerse-dashboard-web name@example.com`.
 
 Detailed NAS operations, backup and rollback notes are in `docs/nas-deployment.md`.
+Use `infra/backup-postgres.sh` before major updates; it writes Postgres dumps into
+`infra/backups/`, which is ignored by git.
 
 ## Market Data Bootstrap
 
