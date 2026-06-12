@@ -1,12 +1,18 @@
-import pytest
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from app.domain.portfolio.trade_republic import parse_transaction_export_csv, reconstruct_open_positions
 from app.repositories.portfolio import PortfolioImportResult
 from app.repositories.portfolio import PortfolioPositionRow
 from app.schemas import PortfolioImportRequest
 from app.services import portfolio as portfolio_service
 from app.services.portfolio import parse_positions_csv
+
+
+FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "portfolio"
 
 
 def test_parse_positions_csv_supports_semicolon_and_decimal_comma() -> None:
@@ -86,6 +92,25 @@ def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch)
     assert positions[0].atr_pct > 0
     assert snapshot.portfolio_atr_pct == pytest.approx(positions[0].atr_pct)
     assert snapshot.kpis[-1].label == "Portfolio ATR"
+
+
+def test_trade_republic_parser_handles_broker_edge_cases() -> None:
+    rows = parse_transaction_export_csv((FIXTURE_DIR / "trade_republic_edge_cases.csv").read_text())
+
+    assert len(rows) == 7
+    assert rows[1].transaction_type == "buy"
+    assert rows[1].price == 100.5
+    assert rows[1].external_id == "tr:tx-nvda-buy"
+    assert rows[2].transaction_type == "dividend"
+    assert rows[-1].transaction_type == "warrant_exercise"
+
+    positions, skipped = reconstruct_open_positions(rows, {"US67066G1040": "NVDA"})
+
+    assert skipped == []
+    assert len(positions) == 1
+    assert positions[0].ticker == "NVDA"
+    assert positions[0].shares == pytest.approx(15)
+    assert positions[0].avg_buy_price == pytest.approx(50.25)
 
 
 def _price_bars(periods: int = 40):

@@ -10,7 +10,11 @@ import pandas as pd
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.domain.portfolio.trade_republic import (
+    NON_SHARE_TYPES,
+    SHARE_DECREASE_TYPES,
+    SHARE_INCREASE_TYPES,
     estimate_cash_balance,
+    normalize_transaction_type,
     parse_transaction_export_csv,
     reconstruct_open_positions,
     resolve_isin_mappings,
@@ -281,30 +285,34 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
     if calendar.empty:
         return None
 
-    tickers = sorted({row.ticker for row in transactions if row.ticker})
     positions_value = pd.Series(0.0, index=calendar)
-    missing_price_tickers: list[str] = []
+    missing_price_instruments: list[str] = []
     trade_price_fallbacks: list[str] = []
 
-    for ticker in tickers:
-        ticker_transactions = [row for row in transactions if row.ticker == ticker]
+    for instrument_key, instrument_transactions in _trade_republic_valuation_groups(transactions).items():
+        ticker = instrument_transactions[0].ticker
+        label = ticker or instrument_key
         shares = pd.Series(0.0, index=calendar)
         running = 0.0
-        for row in ticker_transactions:
-            delta = _signed_share_delta(row.transaction_type, row.shares)
-            if row.transaction_type == "split":
+        for row in sorted(instrument_transactions, key=_stored_transaction_sort_key):
+            typ = normalize_transaction_type(row.transaction_type)
+            if typ == "split":
                 running = max(row.shares, 0.0)
+            elif typ in SHARE_DECREASE_TYPES and abs(float(row.shares or 0.0)) <= 1e-12 and row.asset_class.upper() == "DERIVATIVE":
+                running = 0.0
+            elif typ in NON_SHARE_TYPES:
+                pass
             else:
-                running = max(running + delta, 0.0)
+                running = max(running + _signed_share_delta(typ, row.shares), 0.0)
             shares.loc[shares.index >= pd.Timestamp(row.date)] = running
 
-        cached_prices = _cached_price_series(ticker, start_date)
+        cached_prices = _cached_price_series(ticker, start_date) if ticker else pd.Series(dtype=float)
         if cached_prices.empty:
-            cached_prices = _trade_price_fallback_series(ticker_transactions, calendar)
+            cached_prices = _trade_price_fallback_series(instrument_transactions, calendar)
             if cached_prices.empty:
-                missing_price_tickers.append(ticker)
+                missing_price_instruments.append(label)
                 continue
-            trade_price_fallbacks.append(ticker)
+            trade_price_fallbacks.append(label)
         aligned_prices = cached_prices.reindex(calendar, method="ffill").ffill().bfill().fillna(0.0)
         positions_value = positions_value.add(shares.values * aligned_prices.values, fill_value=0.0)
 
@@ -318,7 +326,7 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
                 continue
             day = next_days[0]
         cash_daily.loc[day] += row.net_amount
-        if row.transaction_type in TR_EXTERNAL_FLOW_TYPES:
+        if normalize_transaction_type(row.transaction_type) in TR_EXTERNAL_FLOW_TYPES:
             external_daily.loc[day] += row.net_amount
 
     curve = pd.DataFrame(
@@ -330,7 +338,9 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         }
     )
     curve["depot_value"] = curve["positions_value"] + curve["cash"]
-    first_active = curve["depot_value"].abs().gt(1e-9)
+    first_active = curve["positions_value"].abs().gt(1e-9)
+    if not first_active.any():
+        first_active = curve["depot_value"].abs().gt(1e-9)
     if not first_active.any():
         return None
     curve = curve.loc[first_active.idxmax() :].reset_index(drop=True)
@@ -375,8 +385,8 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
     details = []
     if trade_price_fallbacks:
         details.append("Trade-Price-Fallback: " + ", ".join(trade_price_fallbacks))
-    if missing_price_tickers:
-        details.append("Kursdaten fehlen: " + ", ".join(missing_price_tickers))
+    if missing_price_instruments:
+        details.append("Kursdaten fehlen: " + ", ".join(missing_price_instruments))
     message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport."
     if details:
         message += " " + " · ".join(details)
@@ -430,7 +440,9 @@ def _trade_price_fallback_series(transactions: list[portfolio_repository.TradeRe
     values = [
         (pd.Timestamp(row.date), float(row.price))
         for row in transactions
-        if row.price is not None and row.price > 0 and row.transaction_type in {"buy", "sell", "transfer_in", "sell_cancelled"}
+        if row.price is not None
+        and row.price > 0
+        and normalize_transaction_type(row.transaction_type) in {"buy", "sell", "transfer_in", "sell_cancelled", "warrant_exercise", "expiration", "delisted"}
     ]
     if not values:
         return pd.Series(dtype=float)
@@ -443,12 +455,40 @@ def _trade_price_fallback_series(transactions: list[portfolio_repository.TradeRe
 
 
 def _signed_share_delta(transaction_type: str, shares: float) -> float:
+    transaction_type = normalize_transaction_type(transaction_type)
     amount = abs(float(shares or 0.0))
-    if transaction_type in {"sell", "transfer_out", "warrant_exercise", "insolvency_proceedings", "delisted", "expiration"}:
+    if transaction_type in SHARE_DECREASE_TYPES:
         return -amount
-    if transaction_type in {"buy", "transfer_in", "sell_cancelled"}:
+    if transaction_type in SHARE_INCREASE_TYPES:
         return amount
     return 0.0
+
+
+def _trade_republic_valuation_groups(
+    transactions: list[portfolio_repository.TradeRepublicStoredTransactionRow],
+) -> dict[str, list[portfolio_repository.TradeRepublicStoredTransactionRow]]:
+    groups: dict[str, list[portfolio_repository.TradeRepublicStoredTransactionRow]] = {}
+    for row in transactions:
+        ticker = str(row.ticker or "").upper().strip()
+        isin = row.isin or str((row.raw_json or {}).get("isin") or "").upper().strip()
+        asset_class = (row.asset_class or str((row.raw_json or {}).get("asset_class") or "")).upper().strip()
+        key = ticker or (isin if asset_class == "DERIVATIVE" else "")
+        if not key:
+            continue
+        groups.setdefault(key, []).append(row)
+    return groups
+
+
+def _stored_transaction_sort_key(row: portfolio_repository.TradeRepublicStoredTransactionRow) -> tuple[pd.Timestamp, str]:
+    raw = row.raw_json or {}
+    raw_ts = raw.get("event_ts") or raw.get("datetime") or row.date
+    try:
+        timestamp = pd.Timestamp(raw_ts)
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_convert(None)
+    except Exception:
+        timestamp = pd.Timestamp(row.date)
+    return timestamp, str(raw.get("transaction_id") or raw.get("external_id") or "")
 
 
 def calculate_position_size(payload: PortfolioPositionSizeRequest) -> PortfolioPositionSizeResponse:

@@ -35,6 +35,45 @@ ISIN_TO_YAHOO: dict[str, str] = {
 
 REQUIRED_TRANSACTION_COLUMNS = {"date", "type", "asset_class", "name", "symbol", "shares", "price", "currency"}
 POSITION_ASSET_CLASSES = {"STOCK", "FUND"}
+SHARE_INCREASE_TYPES = {"buy", "transfer_in", "sell_cancelled"}
+SHARE_DECREASE_TYPES = {"sell", "transfer_out", "warrant_exercise", "insolvency_proceedings", "delisted", "expiration"}
+NON_SHARE_TYPES = {
+    "dividend",
+    "interest_payment",
+    "tax_optimization",
+    "sec_account",
+    "customer_inbound",
+    "customer_outbound_request",
+    "customer_inpayment",
+    "transfer_inbound",
+    "transfer_instant_inbound",
+    "gift",
+    "fee",
+}
+
+TRANSACTION_TYPE_ALIASES = {
+    "BUY": "buy",
+    "SELL": "sell",
+    "SELL_CANCELLED": "sell_cancelled",
+    "TRANSFER_IN": "transfer_in",
+    "TRANSFER_OUT": "transfer_out",
+    "DIVIDEND": "dividend",
+    "INTEREST_PAYMENT": "interest_payment",
+    "TAX_OPTIMIZATION": "tax_optimization",
+    "SEC_ACCOUNT": "sec_account",
+    "CUSTOMER_INBOUND": "customer_inbound",
+    "CUSTOMER_OUTBOUND_REQUEST": "customer_outbound_request",
+    "CUSTOMER_INPAYMENT": "customer_inpayment",
+    "TRANSFER_INBOUND": "transfer_inbound",
+    "TRANSFER_INSTANT_INBOUND": "transfer_instant_inbound",
+    "GIFT": "gift",
+    "SPLIT": "split",
+    "WARRANT_EXERCISE": "warrant_exercise",
+    "TILG": "warrant_exercise",
+    "INSOLVENCY_PROCEEDINGS": "insolvency_proceedings",
+    "DELISTED": "delisted",
+    "EXPIRATION": "expiration",
+}
 
 
 @dataclass(frozen=True)
@@ -84,6 +123,11 @@ def normalize_ticker(value: str) -> str:
     return str(value or "").strip().upper().replace(" ", "")
 
 
+def normalize_transaction_type(value: str) -> str:
+    clean = str(value or "").strip().upper().replace(" ", "_").replace("-", "_")
+    return TRANSACTION_TYPE_ALIASES.get(clean, clean.lower())
+
+
 def parse_transaction_export_csv(content: str) -> list[TradeRepublicTransactionRow]:
     if not content.strip():
         raise ValueError("CSV-Inhalt ist leer.")
@@ -111,12 +155,12 @@ def parse_transaction_export_csv(content: str) -> list[TradeRepublicTransactionR
         raise ValueError("Keine gültigen Datumswerte im Transaktionsexport.")
 
     for col in ("shares", "price", "amount", "fee", "tax"):
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0) if col in df.columns else 0.0
+        df[col] = df[col].map(_number_value).fillna(0.0) if col in df.columns else 0.0
 
     rows: list[TradeRepublicTransactionRow] = []
     for order, record in enumerate(df.to_dict("records")):
         raw = {str(key): _json_safe(value) for key, value in record.items()}
-        transaction_type = _string_field(record.get("type")).upper()
+        transaction_type = normalize_transaction_type(_string_field(record.get("type")))
         asset_class = _string_field(record.get("asset_class")).upper()
         isin = _string_field(record.get("symbol")).upper()
         event_ts = pd.Timestamp(record.get("event_ts")).tz_localize(None)
@@ -195,24 +239,30 @@ def reconstruct_open_positions(
         state["currency"] = row.currency or state["currency"]
         raw_shares = abs(float(row.shares or 0.0))
         price = float(row.price or 0.0)
-        typ = row.transaction_type
+        typ = normalize_transaction_type(row.transaction_type)
+        asset_class = str(state["asset_class"] or "").upper()
 
-        if typ in {"BUY", "TRANSFER_IN"}:
+        if typ == "sell_cancelled":
+            avg = (state["cost"] / state["shares"]) if state["shares"] > 0 else price
+            state["shares"] += raw_shares
+            state["cost"] += raw_shares * avg
+        elif typ in SHARE_INCREASE_TYPES:
             if state["shares"] <= 0:
                 state["first_buy_date"] = row.date
             state["shares"] += raw_shares
             state["cost"] += raw_shares * price
-        elif typ == "SELL_CANCELLED":
-            avg = (state["cost"] / state["shares"]) if state["shares"] > 0 else price
-            state["shares"] += raw_shares
-            state["cost"] += raw_shares * avg
-        elif typ in {"SELL", "TRANSFER_OUT", "WARRANT_EXERCISE", "INSOLVENCY_PROCEEDINGS", "DELISTED", "EXPIRATION"}:
-            sell_shares = min(raw_shares, max(state["shares"], 0.0))
+        elif typ in SHARE_DECREASE_TYPES:
+            if raw_shares <= 0 and asset_class == "DERIVATIVE":
+                sell_shares = max(state["shares"], 0.0)
+            else:
+                sell_shares = min(raw_shares, max(state["shares"], 0.0))
             avg = (state["cost"] / state["shares"]) if state["shares"] > 0 else 0.0
             state["shares"] -= sell_shares
             state["cost"] -= sell_shares * avg
-        elif typ == "SPLIT":
+        elif typ == "split":
             state["shares"] = max(raw_shares, 0.0)
+        elif typ in NON_SHARE_TYPES:
+            continue
 
         if state["shares"] <= 1e-9:
             state["shares"] = 0.0
@@ -271,6 +321,9 @@ def estimate_cash_balance(rows: list[TradeRepublicTransactionRow]) -> float:
 
 
 def _external_id(record: dict, order: int) -> str:
+    broker_id = _string_field(record.get("transaction_id"))
+    if broker_id:
+        return f"tr:{broker_id}"
     parts = [
         str(record.get("datetime") or record.get("date") or ""),
         str(record.get("type") or ""),
@@ -299,3 +352,24 @@ def _string_field(value) -> str:
     if value is None or pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def _number_value(value) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    clean = str(value).strip().replace("\u00a0", "").replace(" ", "")
+    if not clean:
+        return None
+    if "," in clean and "." in clean:
+        if clean.rfind(",") > clean.rfind("."):
+            clean = clean.replace(".", "").replace(",", ".")
+        else:
+            clean = clean.replace(",", "")
+    else:
+        clean = clean.replace(",", ".")
+    try:
+        return float(clean)
+    except ValueError:
+        return None

@@ -119,6 +119,9 @@ class TradeRepublicStoredTransactionRow:
     net_amount: float
     currency: str
     raw_json: dict
+    isin: str = ""
+    asset_class: str = ""
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -427,6 +430,9 @@ def list_trade_republic_transactions() -> list[TradeRepublicStoredTransactionRow
                     net_amount=float(row.net_amount or 0.0),
                     currency=row.currency or "EUR",
                     raw_json=dict(row.raw_json or {}),
+                    isin=str((row.raw_json or {}).get("isin") or "").upper().strip(),
+                    asset_class=str((row.raw_json or {}).get("asset_class") or "").upper().strip(),
+                    name=str((row.raw_json or {}).get("name") or ""),
                 )
                 for row in rows
             ]
