@@ -40,6 +40,8 @@ Target: `Druckkette/boerse-dashboard-web`.
   browser traffic behind the dashboard.
 - Real SEC Form-13F worker path: downloads official quarterly data sets with `SEC_USER_AGENT`,
   caches ZIP files, maps CUSIPs to tickers and persists aggregate institutional trends.
+- 13F CUSIP mapping workflow in `/stocks`: persisted manual overrides plus unmatched-CUSIP review
+  from the latest worker result, without CSV file handling.
 
 ## Open Gaps
 
@@ -50,5 +52,3 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Market parity:
   - Full universe maintenance/rescue/remap workflows.
-- 13F/SEC parity:
-  - Manual CUSIP override maintenance and unmatched-CUSIP review workflow.

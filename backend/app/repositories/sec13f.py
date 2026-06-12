@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -39,6 +39,17 @@ class Institutional13FTrendRow:
     holders_count: int
     source_url: str
     raw_json: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Sec13FMappingRow:
+    cusip: str
+    ticker: str
+    issuer_name: str
+    source: str
+    confidence: float | None
+    metadata_json: dict[str, Any]
+    updated_at: datetime | None
 
 
 class Sec13FRepositoryUnavailable(RuntimeError):
@@ -137,6 +148,89 @@ def list_latest_trends(*, limit: int = 100) -> list[Institutional13FTrendRow]:
         raise Sec13FRepositoryUnavailable(str(exc)) from exc
 
 
+def list_cusip_mappings(*, limit: int = 500) -> list[Sec13FMappingRow]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(Sec13fCusipMapping)
+                .order_by(Sec13fCusipMapping.updated_at.desc(), Sec13fCusipMapping.ticker.asc())
+                .limit(max(1, min(1000, limit)))
+            ).all()
+            return [_mapping_to_row(row) for row in rows]
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
+
+
+def list_manual_cusip_overrides() -> dict[str, str]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(Sec13fCusipMapping).where(Sec13fCusipMapping.source == "manual")
+            ).all()
+            return {
+                row.cusip.upper(): row.ticker.upper()
+                for row in rows
+                if row.cusip and row.ticker
+            }
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
+
+
+def upsert_manual_cusip_mapping(
+    *,
+    cusip: str,
+    ticker: str,
+    issuer_name: str = "",
+) -> Sec13FMappingRow:
+    clean_cusip = _normalize_cusip(cusip)
+    clean_ticker = ticker.strip().upper()
+    if not clean_cusip or not clean_ticker:
+        raise ValueError("CUSIP and ticker are required.")
+
+    try:
+        with SessionLocal() as db:
+            instrument = db.scalars(select(Instrument).where(Instrument.ticker == clean_ticker)).first()
+            if instrument is None:
+                instrument = Instrument(
+                    ticker=clean_ticker,
+                    yahoo_symbol=clean_ticker,
+                    name=clean_ticker,
+                    currency="USD",
+                )
+                db.add(instrument)
+                db.flush()
+
+            row = db.scalars(
+                select(Sec13fCusipMapping).where(
+                    Sec13fCusipMapping.cusip == clean_cusip,
+                    Sec13fCusipMapping.ticker == clean_ticker,
+                )
+            ).first()
+            if row is None:
+                row = Sec13fCusipMapping(
+                    cusip=clean_cusip,
+                    ticker=clean_ticker,
+                    instrument_id=instrument.id,
+                    issuer_name=issuer_name or instrument.name or clean_ticker,
+                    source="manual",
+                    confidence=1.0,
+                    metadata_json={"manual": True},
+                )
+                db.add(row)
+            else:
+                row.instrument_id = instrument.id
+                row.ticker = clean_ticker
+                row.issuer_name = issuer_name or row.issuer_name or instrument.name or clean_ticker
+                row.source = "manual"
+                row.confidence = 1.0
+                row.metadata_json = {**(row.metadata_json or {}), "manual": True}
+            db.commit()
+            db.refresh(row)
+            return _mapping_to_row(row)
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
+
+
 def _to_row(row: Institutional13FTrend) -> Institutional13FTrendRow:
     return Institutional13FTrendRow(
         ticker=row.ticker,
@@ -154,8 +248,25 @@ def _to_row(row: Institutional13FTrend) -> Institutional13FTrendRow:
     )
 
 
+def _mapping_to_row(row: Sec13fCusipMapping) -> Sec13FMappingRow:
+    return Sec13FMappingRow(
+        cusip=row.cusip,
+        ticker=row.ticker,
+        issuer_name=row.issuer_name,
+        source=row.source,
+        confidence=row.confidence,
+        metadata_json=row.metadata_json or {},
+        updated_at=row.updated_at,
+    )
+
+
 def _safe_cusip(raw: str, ticker: str) -> str:
     clean = "".join(char for char in str(raw or "").upper() if char.isalnum())
     if len(clean) == 9:
         return clean
     return f"{ticker[:12]}AGG"[:16]
+
+
+def _normalize_cusip(raw: str) -> str:
+    clean = "".join(char for char in str(raw or "").upper() if char.isalnum())
+    return clean if len(clean) == 9 else ""

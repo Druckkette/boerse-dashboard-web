@@ -191,6 +191,50 @@ def test_stock_institutional_13f_contract() -> None:
     assert "as_of" in payload
 
 
+def test_sec13f_mapping_review_contract() -> None:
+    response = client.get("/api/v1/stocks/institutional/13f/mappings")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert isinstance(payload["mappings"], list)
+    assert isinstance(payload["unmatched"], list)
+    assert "unmatched_source_job_id" in payload
+
+
+def test_patch_sec13f_mapping_contract(monkeypatch) -> None:
+    from app.api.v1 import stocks as stocks_api
+    from app.schemas import (
+        Sec13FMappingItem,
+        Sec13FMappingReviewResponse,
+    )
+
+    def fake_update(request):
+        return Sec13FMappingReviewResponse(
+            source="database",
+            as_of="2026-06-12",
+            mappings=[
+                Sec13FMappingItem(
+                    cusip=request.cusip,
+                    ticker=request.ticker.upper(),
+                    issuer_name=request.issuer_name,
+                    source="manual",
+                    confidence=1.0,
+                )
+            ],
+            unmatched=[],
+        )
+
+    monkeypatch.setattr(stocks_api, "update_sec13f_manual_mapping", fake_update)
+    response = client.patch(
+        "/api/v1/stocks/institutional/13f/mappings",
+        json={"cusip": "67066G104", "ticker": "nvda", "issuer_name": "NVIDIA CORP"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mappings"][0]["cusip"] == "67066G104"
+    assert payload["mappings"][0]["ticker"] == "NVDA"
+
+
 def test_portfolio_import_dry_run_contract() -> None:
     response = client.post(
         "/api/v1/portfolio/imports/positions",

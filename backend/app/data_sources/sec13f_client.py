@@ -112,6 +112,7 @@ def build_institutional_13f_payload(
     dataset_count: int = 2,
     large_holder_min_value_usd: float = 10_000_000,
     chunksize: int = 250_000,
+    cusip_overrides: dict[str, str] | None = None,
     progress: ProgressCallback | None = None,
 ) -> Sec13FBuildResult:
     tickers = {normalize_ticker(value) for value in universe}
@@ -161,6 +162,11 @@ def build_institutional_13f_payload(
     _emit(progress, 68, "CUSIP Mapping", "SEC Company-Ticker werden mit CUSIPs gemappt.", {})
     records = fetch_sec_company_symbol_records(tickers)
     overrides = load_default_overrides(tickers)
+    for raw_cusip, raw_ticker in (cusip_overrides or {}).items():
+        cusip = normalize_cusip(raw_cusip)
+        ticker = normalize_ticker(raw_ticker)
+        if cusip and ticker and ticker in tickers:
+            overrides[cusip] = ticker
     mapping, unmatched = build_cusip_mapping(cusip_meta, tickers, records, overrides)
 
     _emit(progress, 78, "Ticker-Trends berechnen", "13F-Halter und Werte werden je Ticker aggregiert.", {})
@@ -188,6 +194,7 @@ def build_institutional_13f_payload(
         "manager_names_included": False,
     }
     payload, rows = build_outputs(ticker_agg, mapping, holdings, current_period, previous_period, metadata)
+    unmatched_enriched = enrich_unmatched_cusips(unmatched, holdings, current_period)
     _emit(
         progress,
         88,
@@ -198,7 +205,7 @@ def build_institutional_13f_payload(
     return Sec13FBuildResult(
         payload=payload,
         mapping_rows=_dataframe_records(mapping),
-        unmatched_rows=_dataframe_records(unmatched),
+        unmatched_rows=_dataframe_records(unmatched_enriched),
         metadata=metadata,
     )
 
@@ -615,6 +622,25 @@ def build_outputs(
         for row in rows
     }
     return {"metadata": metadata, "tickers": tickers_payload}, rows
+
+
+def enrich_unmatched_cusips(
+    unmatched: pd.DataFrame,
+    holdings: pd.DataFrame,
+    current_period: str,
+) -> pd.DataFrame:
+    if unmatched.empty:
+        return unmatched
+    current_agg = holdings[holdings["period"] == current_period].groupby("CUSIP", as_index=False).agg(
+        current_holder_count=("CIK", "nunique"),
+        current_total_value_usd=("value_usd", "sum"),
+    )
+    if current_agg.empty:
+        return unmatched
+    enriched = unmatched.merge(current_agg, left_on="cusip", right_on="CUSIP", how="left").drop(
+        columns=["CUSIP"]
+    )
+    return enriched.sort_values("current_total_value_usd", ascending=False, na_position="last")
 
 
 def normalize_ticker(raw: object) -> str:

@@ -27,6 +27,8 @@ import type {
   PortfolioTransaction,
   RsRatingDetail,
   RsRatingRanking,
+  Sec13FMappingReview,
+  Sec13FMappingUpdate,
   SectorRanking,
   SellDiagnostics,
   StockAssessment,
@@ -105,6 +107,10 @@ export const api = {
   updateStockFundamentals: (ticker: string, body: StockFundamentalsUpdate) =>
     patchJson<StockFundamentals>(`/stocks/${ticker}/fundamentals`, body),
   stockInstitutional13F: (ticker: string) => getJson<Institutional13FTrend>(`/stocks/${ticker}/institutional/13f`),
+  sec13FMappingReview: (limit = 500) =>
+    getJson<Sec13FMappingReview>(`/stocks/institutional/13f/mappings?limit=${limit}`),
+  updateSec13FMapping: (body: Sec13FMappingUpdate) =>
+    patchJson<Sec13FMappingReview>("/stocks/institutional/13f/mappings", body),
   portfolioPositions: async () => {
     const payload = await getJson<{ positions: PortfolioPosition[] }>("/portfolio/positions");
     return payload.positions;

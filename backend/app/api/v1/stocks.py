@@ -7,6 +7,8 @@ from app.schemas import (
     Institutional13FTrendResponse,
     RsRatingDetailResponse,
     RsRatingRankingResponse,
+    Sec13FMappingReviewResponse,
+    Sec13FMappingUpdateRequest,
     StockFundamentalsResponse,
     StockFundamentalsUpdateRequest,
     StockAssessmentRankingResponse,
@@ -14,7 +16,12 @@ from app.schemas import (
 )
 from app.services.prices import PriceRange, get_price_history
 from app.services.relative_strength import get_relative_strength_for_ticker, get_relative_strength_ranking
-from app.services.sec13f import get_institutional_13f_for_ticker, get_institutional_13f_ranking
+from app.services.sec13f import (
+    get_institutional_13f_for_ticker,
+    get_institutional_13f_ranking,
+    get_sec13f_mapping_review,
+    update_sec13f_manual_mapping,
+)
 from app.services.stocks import (
     get_stock_assessment,
     get_stock_assessment_ranking,
@@ -34,6 +41,21 @@ def relative_strength_ranking(limit: int = Query(default=100, ge=1, le=500)) -> 
 @router.get("/institutional/13f", response_model=Institutional13FRankingResponse)
 def institutional_13f_ranking(limit: int = Query(default=100, ge=1, le=500)) -> Institutional13FRankingResponse:
     return get_institutional_13f_ranking(limit=limit)
+
+
+@router.get("/institutional/13f/mappings", response_model=Sec13FMappingReviewResponse)
+def institutional_13f_mappings(limit: int = Query(default=500, ge=1, le=1000)) -> Sec13FMappingReviewResponse:
+    return get_sec13f_mapping_review(limit=limit)
+
+
+@router.patch("/institutional/13f/mappings", response_model=Sec13FMappingReviewResponse)
+def patch_institutional_13f_mapping(request: Sec13FMappingUpdateRequest) -> Sec13FMappingReviewResponse:
+    try:
+        return update_sec13f_manual_mapping(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="13F mapping database unavailable") from exc
 
 
 @router.get("/assessment/ranking", response_model=StockAssessmentRankingResponse)

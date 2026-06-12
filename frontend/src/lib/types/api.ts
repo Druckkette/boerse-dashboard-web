@@ -641,6 +641,39 @@ export type Institutional13FTrend = {
   item?: Institutional13FTrendItem | null;
 };
 
+export type Sec13FMappingItem = {
+  cusip: string;
+  ticker: string;
+  issuer_name: string;
+  source: string;
+  confidence?: number | null;
+  updated_at?: string | null;
+};
+
+export type Sec13FUnmatchedCusipItem = {
+  cusip: string;
+  issuer: string;
+  title: string;
+  reason: string;
+  candidate_tickers: string;
+  current_holder_count?: number | null;
+  current_total_value_usd?: number | null;
+};
+
+export type Sec13FMappingReview = {
+  source: "database" | "missing";
+  as_of: string;
+  mappings: Sec13FMappingItem[];
+  unmatched: Sec13FUnmatchedCusipItem[];
+  unmatched_source_job_id: string;
+};
+
+export type Sec13FMappingUpdate = {
+  cusip: string;
+  ticker: string;
+  issuer_name?: string;
+};
+
 export type SellRankingRow = {
   ticker: string;
   name: string;

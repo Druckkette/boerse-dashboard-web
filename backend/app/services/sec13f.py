@@ -9,16 +9,22 @@ from typing import Any
 from app.data_sources.sec13f_client import build_institutional_13f_payload, normalize_ticker
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import sec13f as sec13f_repository
+from app.repositories import jobs as job_repository
 from app.repositories import portfolio as portfolio_repository
 from app.repositories.sec13f import (
     Institutional13FTrendRow,
     Institutional13FTrendWrite,
+    Sec13FMappingRow,
     Sec13FRepositoryUnavailable,
 )
 from app.schemas import (
     Institutional13FRankingResponse,
     Institutional13FTrendItem,
     Institutional13FTrendResponse,
+    Sec13FMappingItem,
+    Sec13FMappingReviewResponse,
+    Sec13FMappingUpdateRequest,
+    Sec13FUnmatchedCusipItem,
 )
 
 ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]
@@ -65,6 +71,7 @@ def refresh_institutional_13f_from_sec(
     progress_callback: ProgressCallback | None = None,
 ) -> dict:
     universe = _resolve_universe(payload)
+    manual_overrides = _load_manual_overrides()
     cache_root = Path(str(payload.get("cache_dir") or os.environ.get("BACKEND_CACHE_DIR") or ".cache"))
     build_result = build_institutional_13f_payload(
         universe=universe,
@@ -72,6 +79,7 @@ def refresh_institutional_13f_from_sec(
         dataset_count=_int_or_default(payload.get("dataset_count"), 2),
         large_holder_min_value_usd=_float_or_default(payload.get("large_holder_min_value_usd"), 10_000_000),
         chunksize=_int_or_default(payload.get("chunksize"), 250_000),
+        cusip_overrides=manual_overrides,
         progress=progress_callback,
     )
     ingest_result = ingest_institutional_13f_payload(build_result.payload)
@@ -83,10 +91,35 @@ def refresh_institutional_13f_from_sec(
             "universe_count": len(universe),
             "mapping_count": len(build_result.mapping_rows),
             "unmatched_count": len(build_result.unmatched_rows),
+            "unmatched_sample": build_result.unmatched_rows[:50],
             "records_seen": len(build_result.payload.get("tickers", {})),
         }
     )
     return ingest_result
+
+
+def get_sec13f_mapping_review(limit: int = 500) -> Sec13FMappingReviewResponse:
+    try:
+        mappings = sec13f_repository.list_cusip_mappings(limit=limit)
+    except Sec13FRepositoryUnavailable:
+        mappings = []
+    unmatched, source_job_id = _latest_unmatched_sample()
+    return Sec13FMappingReviewResponse(
+        source="database" if mappings or unmatched else "missing",
+        as_of=date.today().isoformat(),
+        mappings=[_mapping_to_item(row) for row in mappings],
+        unmatched=unmatched,
+        unmatched_source_job_id=source_job_id,
+    )
+
+
+def update_sec13f_manual_mapping(request: Sec13FMappingUpdateRequest) -> Sec13FMappingReviewResponse:
+    sec13f_repository.upsert_manual_cusip_mapping(
+        cusip=request.cusip,
+        ticker=request.ticker,
+        issuer_name=request.issuer_name,
+    )
+    return get_sec13f_mapping_review()
 
 
 def get_institutional_13f_for_ticker(ticker: str) -> Institutional13FTrendResponse:
@@ -181,6 +214,47 @@ def _str_or_none(value: Any) -> str | None:
 def _trend(value: Any) -> str:
     clean = str(value or "missing").strip().lower()
     return clean if clean in {"positive", "negative", "neutral", "new"} else "missing"
+
+
+def _mapping_to_item(row: Sec13FMappingRow) -> Sec13FMappingItem:
+    return Sec13FMappingItem(
+        cusip=row.cusip,
+        ticker=row.ticker,
+        issuer_name=row.issuer_name,
+        source=row.source,
+        confidence=row.confidence,
+        updated_at=row.updated_at,
+    )
+
+
+def _latest_unmatched_sample() -> tuple[list[Sec13FUnmatchedCusipItem], str]:
+    for job in job_repository.list_jobs(limit=100):
+        if job.job_type != "refresh_sec13f" or job.status != "done":
+            continue
+        sample = job.result.get("unmatched_sample")
+        if not isinstance(sample, list):
+            continue
+        return [_unmatched_item(row) for row in sample if isinstance(row, dict)], job.job_id
+    return [], ""
+
+
+def _unmatched_item(row: dict[str, Any]) -> Sec13FUnmatchedCusipItem:
+    return Sec13FUnmatchedCusipItem(
+        cusip=str(row.get("cusip") or ""),
+        issuer=str(row.get("issuer") or ""),
+        title=str(row.get("title") or ""),
+        reason=str(row.get("reason") or ""),
+        candidate_tickers=str(row.get("candidate_tickers") or ""),
+        current_holder_count=_int_or_none(row.get("current_holder_count")),
+        current_total_value_usd=_float_or_none(row.get("current_total_value_usd")),
+    )
+
+
+def _load_manual_overrides() -> dict[str, str]:
+    try:
+        return sec13f_repository.list_manual_cusip_overrides()
+    except Sec13FRepositoryUnavailable:
+        return {}
 
 
 def _resolve_universe(payload: dict[str, Any]) -> list[str]:

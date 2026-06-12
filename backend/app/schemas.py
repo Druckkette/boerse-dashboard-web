@@ -419,6 +419,39 @@ class Institutional13FRankingResponse(BaseModel):
     rows: list[Institutional13FTrendItem]
 
 
+class Sec13FMappingItem(BaseModel):
+    cusip: str
+    ticker: str
+    issuer_name: str = ""
+    source: str = ""
+    confidence: float | None = None
+    updated_at: datetime | None = None
+
+
+class Sec13FUnmatchedCusipItem(BaseModel):
+    cusip: str
+    issuer: str = ""
+    title: str = ""
+    reason: str = ""
+    candidate_tickers: str = ""
+    current_holder_count: int | None = None
+    current_total_value_usd: float | None = None
+
+
+class Sec13FMappingReviewResponse(BaseModel):
+    source: Literal["database", "missing"]
+    as_of: str
+    mappings: list[Sec13FMappingItem]
+    unmatched: list[Sec13FUnmatchedCusipItem]
+    unmatched_source_job_id: str = ""
+
+
+class Sec13FMappingUpdateRequest(BaseModel):
+    cusip: str = Field(min_length=9, max_length=16)
+    ticker: str = Field(min_length=1, max_length=32)
+    issuer_name: str = ""
+
+
 class PortfolioPosition(BaseModel):
     ticker: str
     name: str
