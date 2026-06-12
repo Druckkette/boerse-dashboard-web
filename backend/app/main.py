@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core_config import get_settings
+from app.middleware.rate_limit import InMemoryRateLimitMiddleware
 
 
 def create_app() -> FastAPI:
@@ -22,9 +23,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    if settings.api_rate_limit_enabled:
+        app.add_middleware(
+            InMemoryRateLimitMiddleware,
+            max_requests=settings.api_rate_limit_requests,
+            window_seconds=settings.api_rate_limit_window_seconds,
+        )
     app.include_router(api_router, prefix=settings.api_v1_prefix)
     return app
 
 
 app = create_app()
-

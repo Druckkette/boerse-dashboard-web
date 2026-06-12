@@ -90,6 +90,9 @@ Use a private `.env` on the NAS for database passwords, API keys and future noti
 Enable the private dashboard gate on the NAS with `APP_AUTH_ENABLED=1`, `APP_AUTH_USER` and
 `APP_AUTH_PASSWORD`. The frontend should stay the public entry point; the backend port binds to
 `127.0.0.1` by default and is only meant for local NAS/container access.
+Keep `API_RATE_LIMIT_ENABLED=1` on NAS unless you are debugging locally. The default
+`API_RATE_LIMIT_REQUESTS=240` per `API_RATE_LIMIT_WINDOW_SECONDS=60` is intended as a guardrail for
+direct backend access while leaving normal dashboard polling usable.
 For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
 page only shows whether those env vars are configured and can start a non-blocking test job.
 For deeper stock fundamentals, optionally set `FMP_API_KEY`; without it the worker keeps using
@@ -194,6 +197,9 @@ in the private NAS environment file:
 - `APP_AUTH_ENABLED=1`
 - `APP_AUTH_USER=<your-user>`
 - `APP_AUTH_PASSWORD=<long-random-password>`
+- `API_RATE_LIMIT_ENABLED=1`
+- `API_RATE_LIMIT_REQUESTS=240`
+- `API_RATE_LIMIT_WINDOW_SECONDS=60`
 
 Normal browser traffic should go to `http://NAS-IP-ODER-HOSTNAME:3000`. The frontend serves pages and
 forwards `/api/v1/*` to the internal FastAPI service. Keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` on NAS

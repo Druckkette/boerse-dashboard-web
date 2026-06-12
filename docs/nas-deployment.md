@@ -27,6 +27,9 @@ Set at least `POSTGRES_PASSWORD`, `DATABASE_URL`, `APP_AUTH_USER` and `APP_AUTH_
 Keep `APP_AUTH_ENABLED=1` for NAS use and keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` so browser API
 traffic goes through the protected Next.js frontend. The frontend forwards `/api/v1/*` to
 `API_INTERNAL_BASE_URL=http://backend:8000` inside Docker.
+Keep `API_RATE_LIMIT_ENABLED=1` for NAS use. The default example allows 240 backend requests per
+60 seconds per client and excludes health/docs endpoints, which is enough for normal dashboard
+polling but helps if the backend port is accidentally exposed.
 
 `BACKEND_BIND=127.0.0.1` keeps FastAPI reachable only from the NAS host itself. Change it to
 `0.0.0.0` only for deliberate temporary debugging, for example to open `/docs` from another machine.
@@ -128,6 +131,13 @@ APP_AUTH_PASSWORD=...
 The FastAPI backend still runs on port `8000` for container health checks and local diagnostics, but
 it is bound to `127.0.0.1` by default. That keeps personal depot, settings and job APIs behind the
 frontend route `/api/v1`.
+The backend also has an optional in-memory rate limit controlled by:
+
+```bash
+API_RATE_LIMIT_ENABLED=1
+API_RATE_LIMIT_REQUESTS=240
+API_RATE_LIMIT_WINDOW_SECONDS=60
+```
 
 ## NAS Performance Rules
 
