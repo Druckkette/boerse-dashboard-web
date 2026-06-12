@@ -1,6 +1,8 @@
 .DS_Store
 .env
 .env.local
+infra/.env.nas
+infra/.env.hetzner
 .venv/
 __pycache__/
 .pytest_cache/

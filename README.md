@@ -105,6 +105,8 @@ email, for example `boerse-dashboard-web name@example.com`.
 Detailed NAS operations, backup and rollback notes are in `docs/nas-deployment.md`.
 Use `infra/backup-postgres.sh` before major updates; it writes Postgres dumps into
 `infra/backups/`, which is ignored by git.
+The later VPS target is prepared in `infra/docker-compose.hetzner.yml` and documented in
+`docs/hetzner-deployment.md`; it uses Caddy for HTTPS and keeps FastAPI internal.
 
 ## Market Data Bootstrap
 
