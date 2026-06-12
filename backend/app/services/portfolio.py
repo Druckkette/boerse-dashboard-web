@@ -222,6 +222,7 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
         if series is None:
             continue
         frame[row.ticker] = series.reindex(frame.index).ffill()
+    benchmark_index = _benchmark_index_series(frame.index)
 
     points: list[PortfolioCurvePoint] = []
     index_values: list[float] = []
@@ -249,6 +250,7 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
                 portfolio_index=round(portfolio_index, 2),
                 portfolio_index_sma10=round(sma10, 2) if sma10 is not None else None,
                 portfolio_index_sma21=round(sma21, 2) if sma21 is not None else None,
+                sp500_index=_rounded_series_value(benchmark_index, timestamp),
             )
         )
 
@@ -348,6 +350,8 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
     curve["portfolio_index"] = index_values
     curve["portfolio_index_sma10"] = curve["portfolio_index"].rolling(10, min_periods=10).mean()
     curve["portfolio_index_sma21"] = curve["portfolio_index"].rolling(21, min_periods=21).mean()
+    benchmark_index = _benchmark_index_series(pd.DatetimeIndex(curve["date"]))
+    curve["sp500_index"] = benchmark_index.reindex(pd.DatetimeIndex(curve["date"])).values
 
     points = [
         PortfolioCurvePoint(
@@ -362,6 +366,7 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
             portfolio_index_sma21=round(float(row.portfolio_index_sma21), 2)
             if pd.notna(row.portfolio_index_sma21)
             else None,
+            sp500_index=round(float(row.sp500_index), 2) if pd.notna(row.sp500_index) else None,
         )
         for row in curve.itertuples()
     ]
@@ -396,6 +401,27 @@ def _cached_price_series(ticker: str, start_date: date) -> pd.Series:
         index=pd.DatetimeIndex([item[0] for item in values]),
         dtype=float,
     ).sort_index()
+
+
+def _benchmark_index_series(calendar: pd.DatetimeIndex) -> pd.Series:
+    if calendar.empty:
+        return pd.Series(dtype=float)
+    start = pd.Timestamp(calendar.min()).date()
+    for ticker in ("^GSPC", "SPY"):
+        series = _cached_price_series(ticker, start)
+        if not series.empty:
+            aligned = series.reindex(calendar, method="ffill").ffill().bfill()
+            valid = aligned.dropna()
+            if not valid.empty and float(valid.iloc[0]) > 0:
+                return aligned / float(valid.iloc[0]) * 100
+    return pd.Series(index=calendar, dtype=float)
+
+
+def _rounded_series_value(series: pd.Series, timestamp: pd.Timestamp) -> float | None:
+    if series.empty or timestamp not in series.index:
+        return None
+    value = series.loc[timestamp]
+    return round(float(value), 2) if pd.notna(value) else None
 
 
 def _trade_price_fallback_series(transactions: list[portfolio_repository.TradeRepublicStoredTransactionRow], calendar: pd.DatetimeIndex) -> pd.Series:

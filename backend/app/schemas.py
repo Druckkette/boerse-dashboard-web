@@ -515,6 +515,7 @@ class PortfolioCurvePoint(BaseModel):
     portfolio_index: float
     portfolio_index_sma10: float | None = None
     portfolio_index_sma21: float | None = None
+    sp500_index: float | None = None
 
 
 class PortfolioCurveResponse(BaseModel):

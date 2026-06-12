@@ -41,12 +41,16 @@ def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
     monkeypatch.setattr(
         portfolio_service.prices_repository,
         "list_price_bars",
-        lambda ticker, start_date=None: [
-            PriceRow(date=date(2025, 1, 2), close=100),
-            PriceRow(date=date(2025, 1, 3), close=110),
-        ]
-        if ticker == "NVDA"
-        else [],
+        lambda ticker, start_date=None: {
+            "NVDA": [
+                PriceRow(date=date(2025, 1, 2), close=100),
+                PriceRow(date=date(2025, 1, 3), close=110),
+            ],
+            "^GSPC": [
+                PriceRow(date=date(2025, 1, 2), close=5000),
+                PriceRow(date=date(2025, 1, 3), close=5050),
+            ],
+        }.get(ticker, []),
     )
 
     curve = portfolio_service.get_portfolio_curve(days=2500)
@@ -55,3 +59,5 @@ def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
     assert curve.points
     assert curve.points[-1].depot_value >= 10100
     assert curve.points[-1].portfolio_index > 100
+    assert curve.points[-1].sp500_index is not None
+    assert curve.points[-1].sp500_index > 100

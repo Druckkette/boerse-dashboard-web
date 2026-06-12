@@ -174,6 +174,7 @@ export type PortfolioCurvePoint = {
   portfolio_index: number;
   portfolio_index_sma10?: number | null;
   portfolio_index_sma21?: number | null;
+  sp500_index?: number | null;
 };
 
 export type PortfolioCurve = {

@@ -39,10 +39,22 @@ export function PortfolioCurvePanel() {
           label: "SMA 21",
           color: "#fbbf24",
           formatter: (value) => value.toFixed(2)
+        },
+        {
+          key: "sp500_index",
+          label: "S&P 500",
+          color: "#f472b6",
+          formatter: (value) => value.toFixed(2)
         }
       ]}
-      statusLabel={curve?.source === "database" ? "Price Cache" : "Cache fehlt"}
-      statusTone={curve?.source === "database" ? "good" : "warning"}
+      statusLabel={
+        curve?.source === "trade_republic_transactions"
+          ? "TR-Transaktionen"
+          : curve?.source === "database"
+            ? "Price Cache"
+            : "Cache fehlt"
+      }
+      statusTone={curve?.source === "missing" ? "warning" : "good"}
       title="Depotkurve"
     />
   );
