@@ -9,6 +9,7 @@ import {
   Home,
   LineChart,
   ListChecks,
+  Rocket,
   Search,
   Settings,
   Shield,
@@ -20,6 +21,7 @@ import { ReactNode } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
+  { href: "/setup", label: "Setup", icon: Rocket },
   { href: "/market", label: "Market", icon: Gauge },
   { href: "/sectors", label: "Sectors", icon: Shield },
   { href: "/stocks", label: "Stocks", icon: Search },

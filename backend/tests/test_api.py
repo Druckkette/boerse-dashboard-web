@@ -3,7 +3,14 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.schemas import FreshnessResponse, ServiceFreshness, SystemReadinessCheck, SystemReadinessResponse
+from app.schemas import (
+    FreshnessResponse,
+    ServiceFreshness,
+    SetupStatusResponse,
+    SetupStep,
+    SystemReadinessCheck,
+    SystemReadinessResponse,
+)
 
 
 client = TestClient(app)
@@ -80,6 +87,48 @@ def test_freshness_contract(monkeypatch) -> None:
     assert payload["services"][0]["name"] == "prices"
     assert payload["services"][0]["status"] == "fresh"
     assert payload["services"][1]["status"] == "missing"
+
+
+def test_setup_status_contract(monkeypatch) -> None:
+    from app.api.v1 import setup as setup_api
+
+    def fake_setup_status() -> SetupStatusResponse:
+        return SetupStatusResponse(
+            as_of=datetime.now(UTC),
+            status="needs_action",
+            summary="Nächster Schritt: Kursdaten.",
+            next_step_key="prices",
+            steps=[
+                SetupStep(
+                    key="portfolio",
+                    label="Depot",
+                    status="complete",
+                    detail="2 offene Positionen sind gespeichert.",
+                    href="/portfolio",
+                    action_label="Depot öffnen",
+                ),
+                SetupStep(
+                    key="prices",
+                    label="Kursdaten",
+                    status="pending",
+                    detail="Noch kein Price-Cache vorhanden.",
+                    job_type="refresh_prices",
+                    job_payload={"mode": "manual", "range": "1y", "preset": "all"},
+                    action_label="Kurse laden",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(setup_api, "get_setup_status", fake_setup_status)
+
+    response = client.get("/api/v1/setup/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "needs_action"
+    assert payload["next_step_key"] == "prices"
+    assert payload["steps"][1]["job_type"] == "refresh_prices"
+    assert payload["steps"][1]["job_payload"]["range"] == "1y"
 
 
 def test_market_overview_contract() -> None:

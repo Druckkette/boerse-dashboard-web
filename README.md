@@ -114,20 +114,24 @@ The later VPS target is prepared in `infra/docker-compose.hetzner.yml` and docum
 
 ## Market Data Bootstrap
 
-After the NAS containers are running, populate the market cache through the dashboard UI. Open
-`http://NAS-IP-ODER-HOSTNAME:3000/jobs`, use **Marktdaten initial laden**, set the desired range,
-lookback windows and optional custom ticker list, then start the jobs in this order:
+After the NAS containers are running, populate the app through the dashboard UI. Open
+`http://NAS-IP-ODER-HOSTNAME:3000/setup`. The setup page checks system readiness, portfolio import,
+price cache, market breadth, RS ratings and the ATR monitor, then offers the next safe action.
+No files have to be placed manually on the NAS; portfolio data is imported through
+`/portfolio/imports`.
+
+For operational refreshes you can still open `/jobs`, use **Marktdaten initial laden**, set the
+desired range, lookback windows and optional custom ticker list, then start the jobs in this order:
 
 1. `Market Prices`
 2. `Market Breadth`
 3. `RS Ratings`
 4. `Positionsmonitor` after importing a portfolio
 
-The UI stores these bootstrap values in the browser so you do not have to retype them on the next
-visit from the same browser. The market data itself is stored in the Postgres Docker volume. You
-only need to repeat the full bootstrap when the database volume is empty, after a deliberate reset,
-or when you want to load a different universe or longer history. Normal updates should be handled
-by scheduler/worker jobs.
+The setup and jobs pages store only UI preferences in the browser. The market data itself is stored
+in the Postgres Docker volume. You only need to repeat the full bootstrap when the database volume
+is empty, after a deliberate reset, or when you want to load a different universe or longer history.
+Normal updates should be handled by scheduler/worker jobs.
 
 `refresh_prices` loads the starter universe plus the volatility tickers `SPY`, `^VIX` and `VIXY`.
 It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also includes
@@ -138,7 +142,7 @@ have the required support data.
 run yfinance or Pandas recomputes in the click path.
 
 `/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
-yet, they return fallback data rather than blocking the UI.
+yet, they return explicit missing-data states rather than blocking the UI.
 
 The monitor evaluates open imported positions against cached bars, stores recommendation state and
 reports ATR/health/signal status through the Jobs page. It does not run yfinance in the request path.

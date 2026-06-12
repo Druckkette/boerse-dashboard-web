@@ -41,6 +41,7 @@ import type {
   SellPostMortemNote,
   SellPostMortemNoteRequest,
   SellRankingRow,
+  SetupStatus,
   SystemReadiness,
   TrancheLogEntry,
   TradeRepublicTransactionImportRequest,
@@ -107,6 +108,7 @@ export const api = {
     getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
   freshness: () => getJson<Freshness>("/freshness"),
   readiness: () => getJson<SystemReadiness>("/readiness"),
+  setupStatus: () => getJson<SetupStatus>("/setup/status"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
     getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),
   rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),

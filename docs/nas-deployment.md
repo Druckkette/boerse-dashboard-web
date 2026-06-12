@@ -53,6 +53,14 @@ and revenue history; when absent, the worker still uses yfinance and configured 
 After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
 marked `skipped` instead of crashing the app.
 
+Open `http://NAS-IP-ODER-HOSTNAME:3000/setup` for the first data bootstrap. The setup page guides
+portfolio import, price cache refresh, market breadth, RS ratings and ATR monitor jobs through the
+web UI. You do not have to copy CSV files into a container or run `curl` commands manually.
+
+The bootstrap does not have to be repeated after normal container restarts. Postgres data lives in
+the Docker volume; repeat the full setup only after an empty/reset database, after restoring a clean
+volume, or when you deliberately want a different universe or longer history.
+
 The `/settings` page also shows **Systemstatus**. It checks Postgres, Alembic migration revision and
 Redis without blocking the UI. From the NAS shell you can inspect the same status with:
 

@@ -980,3 +980,23 @@ export type DataDiagnostics = {
   isin_mappings_count: number;
   issues: DataDiagnosticIssue[];
 };
+
+export type SetupStep = {
+  key: "system" | "portfolio" | "prices" | "market_breadth" | "relative_strength" | "atr_monitor";
+  label: string;
+  status: "complete" | "pending" | "running" | "warning" | "blocked" | "error";
+  detail: string;
+  action_label: string;
+  href: string;
+  job_type?: JobType | null;
+  job_payload: Record<string, unknown>;
+  latest_job?: Job | null;
+};
+
+export type SetupStatus = {
+  as_of: string;
+  status: "ready" | "needs_action" | "running" | "blocked";
+  summary: string;
+  next_step_key: string;
+  steps: SetupStep[];
+};

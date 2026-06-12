@@ -909,6 +909,26 @@ class DataDiagnosticsResponse(BaseModel):
     issues: list[DataDiagnosticIssue] = Field(default_factory=list)
 
 
+class SetupStep(BaseModel):
+    key: Literal["system", "portfolio", "prices", "market_breadth", "relative_strength", "atr_monitor"]
+    label: str
+    status: Literal["complete", "pending", "running", "warning", "blocked", "error"]
+    detail: str
+    action_label: str = ""
+    href: str = ""
+    job_type: JobType | None = None
+    job_payload: dict = Field(default_factory=dict)
+    latest_job: Job | None = None
+
+
+class SetupStatusResponse(BaseModel):
+    as_of: datetime
+    status: Literal["ready", "needs_action", "running", "blocked"]
+    summary: str
+    next_step_key: str = ""
+    steps: list[SetupStep]
+
+
 class AppSettings(BaseModel):
     atr_threshold: float
     risk_per_position_pct: float = 1.0
