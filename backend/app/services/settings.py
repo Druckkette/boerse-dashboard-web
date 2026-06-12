@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.repositories import settings as settings_repository
 from app.repositories.settings import SettingsRepositoryUnavailable
+from app.core_config import get_settings
 from app.schemas import AppSettings, SettingsPatch
 
 
@@ -48,4 +49,6 @@ def update_app_settings(payload: SettingsPatch) -> AppSettings:
 def _settings_from_values(values: dict) -> AppSettings:
     merged = DEFAULT_SETTINGS.model_dump()
     merged.update({key: value for key, value in values.items() if key in merged})
+    runtime = get_settings()
+    merged["pushover_configured"] = bool(runtime.pushover_user_key and runtime.pushover_app_token)
     return AppSettings(**merged)

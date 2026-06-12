@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, SlidersHorizontal } from "lucide-react";
+import { BellRing, Minus, Plus, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -40,6 +40,14 @@ export function SettingsPanel() {
       setLocal(null);
       setDirty(false);
     }
+  });
+  const pushoverMutation = useMutation({
+    mutationFn: () =>
+      api.startJob({
+        type: "pushover_test",
+        payload: { mode: "manual", source: "settings" }
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
   });
 
   useEffect(() => {
@@ -232,6 +240,40 @@ export function SettingsPanel() {
                 </select>
               </Field>
             </div>
+          </SettingCard>
+
+          <SettingCard
+            description="Secrets bleiben in der Container-Umgebung. Die Oberfläche speichert nur, ob Alerts genutzt werden sollen."
+            title="Pushover"
+            value={settings.pushover_configured ? "konfiguriert" : "Secrets fehlen"}
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm">
+                <span>Pushover aktiv</span>
+                <input
+                  checked={settings.pushover_enabled}
+                  className="size-4 accent-emerald-300"
+                  type="checkbox"
+                  onChange={(event) => update("pushover_enabled", event.target.checked)}
+                />
+              </label>
+              <button
+                className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={pushoverMutation.isPending}
+                type="button"
+                onClick={() => pushoverMutation.mutate()}
+              >
+                <BellRing size={16} />
+                {pushoverMutation.isPending ? "Startet" : "Pushover-Testjob"}
+              </button>
+            </div>
+            {pushoverMutation.error && (
+              <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+                {pushoverMutation.error instanceof Error
+                  ? pushoverMutation.error.message
+                  : "Pushover-Test konnte nicht gestartet werden."}
+              </div>
+            )}
           </SettingCard>
         </section>
 

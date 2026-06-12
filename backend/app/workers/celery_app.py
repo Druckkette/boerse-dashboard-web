@@ -30,6 +30,7 @@ celery_app.conf.update(
         "app.workers.tasks.refresh_relative_strength",
         "app.workers.tasks.refresh_sec13f",
         "app.workers.tasks.position_atr_monitor",
+        "app.workers.tasks.pushover_test",
     ),
 )
 

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     worker_concurrency: int = 1
     worker_disable_rate_limits: bool = True
     scheduler_enabled: bool = True
+    pushover_user_key: str = ""
+    pushover_app_token: str = ""
+    pushover_dry_run: bool = False
     cors_origins: list[AnyHttpUrl | str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",

@@ -24,6 +24,16 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml up -d
 ```
 
 Set `POSTGRES_PASSWORD`, `DATABASE_URL`, `NEXT_PUBLIC_API_BASE_URL` and `CORS_ORIGINS`.
+Optional Pushover secrets go into the same private file:
+
+```bash
+PUSHOVER_USER_KEY=...
+PUSHOVER_APP_TOKEN=...
+PUSHOVER_DRY_RUN=0
+```
+
+After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
+marked `skipped` instead of crashing the app.
 
 ## Updates
 

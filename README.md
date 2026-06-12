@@ -84,6 +84,8 @@ cd infra
 ```
 
 Use a private `.env` on the NAS for database passwords, API keys and future notification credentials. Do not commit secrets.
+For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
+page only shows whether those env vars are configured and can start a non-blocking test job.
 
 Detailed NAS operations, backup and rollback notes are in `docs/nas-deployment.md`.
 

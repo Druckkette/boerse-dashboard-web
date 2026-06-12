@@ -27,6 +27,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - S&P 500 benchmark line for the depot curve when `^GSPC` or `SPY` is present in the Price Cache.
 - Persistent ISIN/Yahoo mapping maintenance in the portfolio import UI.
 - Stock assessment ranking table using the same score components as the single-stock assessment.
+- Pushover configuration status and test job via Settings; secrets stay in NAS/container environment.
 
 ## Open Gaps
 
@@ -45,8 +46,6 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Intermarket block and sector rotation card integration into market overview.
   - Full universe maintenance/rescue/remap workflows.
 - Technical settings parity:
-  - Persistent settings service backed by Postgres `app_settings`.
-  - Pushover configuration and test job.
   - Worker diagnostics for missing tickers and Yahoo mapping.
 - Auth/private area:
   - Streamlit password gate equivalent for personal depot/settings.

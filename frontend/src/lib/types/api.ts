@@ -678,7 +678,8 @@ export type JobType =
   | "refresh_breadth"
   | "refresh_relative_strength"
   | "refresh_sec13f"
-  | "position_atr_monitor";
+  | "position_atr_monitor"
+  | "pushover_test";
 
 export type AppSettings = {
   atr_threshold: number;
