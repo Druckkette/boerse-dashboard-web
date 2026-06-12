@@ -8,7 +8,16 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { api } from "@/lib/api/client";
-import type { PendingStatus, SellDiagnostics, SellManualInput, SellSignal, Tone } from "@/lib/types/api";
+import type {
+  PendingStatus,
+  SellDiagnostics,
+  SellManualInput,
+  SellPostMortemCheck,
+  SellPostMortemNote,
+  SellPostMortemNoteRequest,
+  SellSignal,
+  Tone
+} from "@/lib/types/api";
 
 const toneByStatus = {
   Halten: "good",
@@ -31,6 +40,7 @@ export default function SellMonitorTickerPage() {
   const evaluation = useQuery({ queryKey: ["sell-evaluation", ticker], queryFn: () => api.sellEvaluation(ticker) });
   const diagnostics = useQuery({ queryKey: ["sell-diagnostics", ticker], queryFn: () => api.sellDiagnostics(ticker) });
   const [manualDraft, setManualDraft] = useState<{ ticker: string; value: SellManualInput } | null>(null);
+  const [postMortemDrafts, setPostMortemDrafts] = useState<Record<string, SellPostMortemNoteRequest>>({});
   const [tranchePct, setTranchePct] = useState(25);
   const [trancheReason, setTrancheReason] = useState("Manuelle Tranche");
 
@@ -66,6 +76,21 @@ export default function SellMonitorTickerPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sell-evaluation", ticker] });
       queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
+    }
+  });
+
+  const postMortemMutation = useMutation({
+    mutationFn: (payload: SellPostMortemNoteRequest) => api.saveSellPostMortemNote(ticker, payload),
+    onSuccess: (payload, variables) => {
+      queryClient.setQueryData(
+        ["sell-diagnostics", ticker],
+        diagnostics.data ? { ...diagnostics.data, post_mortem_notes: payload.notes } : diagnostics.data
+      );
+      setPostMortemDrafts((previous) => {
+        const next = { ...previous };
+        delete next[variables.check_key];
+        return next;
+      });
     }
   });
 
@@ -108,6 +133,26 @@ export default function SellMonitorTickerPage() {
       ticker,
       sell_setup: { ...currentManual.sell_setup, atr_multiple: atrMultiple }
     });
+  }
+
+  function updatePostMortemDraft(checkKey: string, patch: Partial<SellPostMortemNoteRequest>) {
+    const stored = diagnostics.data?.post_mortem_notes.find((note) => note.check_key === checkKey);
+    setPostMortemDrafts((previous) => ({
+      ...previous,
+      [checkKey]: {
+        check_key: checkKey,
+        note: previous[checkKey]?.note ?? stored?.note ?? "",
+        action: previous[checkKey]?.action ?? stored?.action ?? "",
+        status: previous[checkKey]?.status ?? stored?.status ?? "open",
+        ...patch
+      }
+    }));
+  }
+
+  function savePostMortemDraft(checkKey: string) {
+    const draft = postMortemDrafts[checkKey];
+    if (!draft) return;
+    postMortemMutation.mutate(draft);
   }
 
   const health = evaluation.data?.health ?? metrics.data?.health;
@@ -206,7 +251,14 @@ export default function SellMonitorTickerPage() {
 
           <StockPricePanel ticker={ticker} title="Sell Context" />
 
-          <SellDiagnosticsPanel diagnostics={diagnostics.data} isLoading={diagnostics.isLoading} />
+          <SellDiagnosticsPanel
+            diagnostics={diagnostics.data}
+            drafts={postMortemDrafts}
+            isLoading={diagnostics.isLoading}
+            savingKey={postMortemMutation.isPending ? postMortemMutation.variables?.check_key ?? null : null}
+            onDraftChange={updatePostMortemDraft}
+            onSave={savePostMortemDraft}
+          />
 
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
             <h2 className="mb-4 text-base font-semibold">Hauptgründe</h2>
@@ -355,10 +407,18 @@ export default function SellMonitorTickerPage() {
 
 function SellDiagnosticsPanel({
   diagnostics,
-  isLoading
+  drafts,
+  isLoading,
+  onDraftChange,
+  onSave,
+  savingKey
 }: {
   diagnostics?: SellDiagnostics;
+  drafts: Record<string, SellPostMortemNoteRequest>;
   isLoading: boolean;
+  onDraftChange: (checkKey: string, patch: Partial<SellPostMortemNoteRequest>) => void;
+  onSave: (checkKey: string) => void;
+  savingKey: string | null;
 }) {
   if (isLoading) {
     return (
@@ -443,17 +503,93 @@ function SellDiagnosticsPanel({
         <h3 className="mb-3 text-sm font-semibold">Post-Mortem-Checks</h3>
         <div className="grid gap-3 md:grid-cols-2">
           {diagnostics.post_mortem.map((check) => (
-            <div key={check.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="font-medium">{check.label}</div>
-                <StatusChip tone={check.tone}>{check.status}</StatusChip>
-              </div>
-              <div className="text-sm text-[#a0a7b4]">{check.evidence}</div>
-            </div>
+            <PostMortemCard
+              key={check.key}
+              check={check}
+              draft={drafts[check.key]}
+              note={diagnostics.post_mortem_notes.find((item) => item.check_key === check.key)}
+              saving={savingKey === check.key}
+              onDraftChange={onDraftChange}
+              onSave={onSave}
+            />
           ))}
         </div>
       </div>
     </section>
+  );
+}
+
+function PostMortemCard({
+  check,
+  draft,
+  note,
+  saving,
+  onDraftChange,
+  onSave
+}: {
+  check: SellPostMortemCheck;
+  draft?: SellPostMortemNoteRequest;
+  note?: SellPostMortemNote;
+  saving: boolean;
+  onDraftChange: (checkKey: string, patch: Partial<SellPostMortemNoteRequest>) => void;
+  onSave: (checkKey: string) => void;
+}) {
+  const value = draft ?? {
+    check_key: check.key,
+    note: note?.note ?? "",
+    action: note?.action ?? "",
+    status: note?.status ?? "open"
+  };
+  const dirty = Boolean(draft);
+
+  return (
+    <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="font-medium">{check.label}</div>
+        <StatusChip tone={check.tone}>{check.status}</StatusChip>
+      </div>
+      <div className="mb-3 text-sm text-[#a0a7b4]">{check.evidence}</div>
+      <div className="space-y-3">
+        <label className="block text-xs text-[#a0a7b4]">
+          Notiz
+          <textarea
+            className="mt-1 min-h-20 w-full resize-y rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm text-[#d8dde6] outline-none transition focus:border-emerald-300/70"
+            value={value.note}
+            onChange={(event) => onDraftChange(check.key, { note: event.target.value })}
+          />
+        </label>
+        <label className="block text-xs text-[#a0a7b4]">
+          Nächste Maßnahme
+          <input
+            className="mt-1 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm text-[#d8dde6] outline-none transition focus:border-emerald-300/70"
+            value={value.action}
+            onChange={(event) => onDraftChange(check.key, { action: event.target.value })}
+          />
+        </label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <select
+            className="rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm text-[#d8dde6]"
+            value={value.status}
+            onChange={(event) =>
+              onDraftChange(check.key, { status: event.target.value as SellPostMortemNoteRequest["status"] })
+            }
+          >
+            <option value="open">offen</option>
+            <option value="done">erledigt</option>
+            <option value="dismissed">verworfen</option>
+          </select>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!dirty || saving}
+            type="button"
+            onClick={() => onSave(check.key)}
+          >
+            <Save size={15} />
+            {saving ? "Speichert" : note ? "Aktualisieren" : "Speichern"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

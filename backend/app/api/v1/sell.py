@@ -7,6 +7,9 @@ from app.domain.sell.schemas import (
     SellDiagnosticsResponse,
     SellManualInput,
     SellMetricsApiResponse,
+    SellPostMortemNote,
+    SellPostMortemNoteRequest,
+    SellPostMortemNoteResponse,
     SellRankingResponse,
     SnoozeRequest,
     SnoozeResponse,
@@ -18,9 +21,11 @@ from app.domain.sell.service import (
     evaluate_position_sell_decision,
     get_sell_diagnostics_for_position,
     get_sell_metrics_for_position,
+    get_sell_post_mortem_notes,
     get_sell_position_ranking,
     snooze_sell_signal,
     update_manual_sell_inputs,
+    upsert_sell_post_mortem_note,
 )
 
 
@@ -48,6 +53,19 @@ def evaluate(
 @router.get("/{ticker}/diagnostics", response_model=SellDiagnosticsResponse)
 def diagnostics(ticker: str) -> SellDiagnosticsResponse:
     return get_sell_diagnostics_for_position(ticker)
+
+
+@router.get("/{ticker}/post-mortem", response_model=list[SellPostMortemNote])
+def post_mortem_notes(ticker: str) -> list[SellPostMortemNote]:
+    return get_sell_post_mortem_notes(ticker)
+
+
+@router.post("/{ticker}/post-mortem", response_model=SellPostMortemNoteResponse)
+def save_post_mortem_note(
+    ticker: str,
+    payload: SellPostMortemNoteRequest,
+) -> SellPostMortemNoteResponse:
+    return upsert_sell_post_mortem_note(ticker, payload)
 
 
 @router.patch("/{ticker}/manual", response_model=ManualInputResponse)

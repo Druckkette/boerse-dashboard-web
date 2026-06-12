@@ -22,6 +22,9 @@ from app.domain.sell.schemas import (
     SellMetricsPayload,
     SellMetricsRequest,
     SellPostMortemCheck,
+    SellPostMortemNote,
+    SellPostMortemNoteRequest,
+    SellPostMortemNoteResponse,
     SellPositionRankingItem,
     SellRankingResponse,
     SellRecommendationState,
@@ -176,6 +179,7 @@ def get_sell_diagnostics_for_position(ticker: str) -> SellDiagnosticsResponse:
         price_context=_live_monitor_metrics(metrics),
         strategy_hub=_strategy_hub(all_signals),
         post_mortem=_post_mortem_checks(metrics, evaluation),
+        post_mortem_notes=sell_state_repository.list_post_mortem_notes(clean_ticker),
         next_action=_next_action_text(evaluation),
     )
 
@@ -205,6 +209,29 @@ def snooze_sell_signal(ticker: str, request: SnoozeRequest) -> SnoozeResponse:
     )
     sell_state_repository.upsert_recommendation_state(clean_ticker, state)
     return SnoozeResponse(state=state)
+
+
+def get_sell_post_mortem_notes(ticker: str) -> list[SellPostMortemNote]:
+    return sell_state_repository.list_post_mortem_notes(_clean_ticker(ticker))
+
+
+def upsert_sell_post_mortem_note(
+    ticker: str,
+    request: SellPostMortemNoteRequest,
+) -> SellPostMortemNoteResponse:
+    clean_ticker = _clean_ticker(ticker)
+    note = SellPostMortemNote(
+        ticker=clean_ticker,
+        check_key=request.check_key,
+        note=request.note,
+        action=request.action,
+        status=request.status,
+    )
+    stored = sell_state_repository.upsert_post_mortem_note(note)
+    return SellPostMortemNoteResponse(
+        note=stored,
+        notes=sell_state_repository.list_post_mortem_notes(clean_ticker),
+    )
 
 
 def clear_sell_engine_state() -> None:

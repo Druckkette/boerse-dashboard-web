@@ -789,12 +789,33 @@ export type SellPostMortemCheck = {
   evidence: string;
 };
 
+export type SellPostMortemNoteStatus = "open" | "done" | "dismissed";
+
+export type SellPostMortemNote = {
+  id: string;
+  ticker: string;
+  check_key: string;
+  note: string;
+  action: string;
+  status: SellPostMortemNoteStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SellPostMortemNoteRequest = {
+  check_key: string;
+  note: string;
+  action: string;
+  status: SellPostMortemNoteStatus;
+};
+
 export type SellDiagnostics = {
   ticker: string;
   as_of: string;
   price_context: SellLiveMonitorMetric[];
   strategy_hub: SellStrategyDiagnostic[];
   post_mortem: SellPostMortemCheck[];
+  post_mortem_notes: SellPostMortemNote[];
   next_action: string;
 };
 

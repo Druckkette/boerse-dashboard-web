@@ -200,13 +200,42 @@ class SellPostMortemCheck(BaseModel):
     evidence: str
 
 
+class SellPostMortemNote(BaseModel):
+    id: str = ""
+    ticker: str
+    check_key: str
+    note: str = ""
+    action: str = ""
+    status: Literal["open", "done", "dismissed"] = "open"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("ticker")
+    @classmethod
+    def normalize_note_ticker(cls, value: str) -> str:
+        return str(value or "").upper().strip()
+
+
+class SellPostMortemNoteRequest(BaseModel):
+    check_key: str
+    note: str = ""
+    action: str = ""
+    status: Literal["open", "done", "dismissed"] = "open"
+
+
 class SellDiagnosticsResponse(BaseModel):
     ticker: str
     as_of: str
     price_context: list[SellLiveMonitorMetric]
     strategy_hub: list[SellStrategyDiagnostic]
     post_mortem: list[SellPostMortemCheck]
+    post_mortem_notes: list[SellPostMortemNote] = Field(default_factory=list)
     next_action: str
+
+
+class SellPostMortemNoteResponse(BaseModel):
+    note: SellPostMortemNote
+    notes: list[SellPostMortemNote]
 
 
 class SellRankingResponse(BaseModel):

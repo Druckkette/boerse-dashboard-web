@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import SellManualInput as SellManualInputModel
+from app.db.models import SellPostMortemNote as SellPostMortemNoteModel
 from app.db.models import SellRecommendationState as SellRecommendationStateModel
 from app.db.models import TrancheLog as TrancheLogModel
 from app.db.session import SessionLocal
-from app.domain.sell.schemas import SellManualInput, SellRecommendationState, TrancheLogEntry
+from app.domain.sell.schemas import SellManualInput, SellPostMortemNote, SellRecommendationState, TrancheLogEntry
 
 
 class SellStateRepositoryUnavailable(RuntimeError):
@@ -19,6 +21,7 @@ class SellStateRepositoryUnavailable(RuntimeError):
 _MEMORY_MANUAL_INPUTS: dict[str, SellManualInput] = {}
 _MEMORY_TRANCHE_LOG: dict[str, list[TrancheLogEntry]] = {}
 _MEMORY_RECOMMENDATION_STATE: dict[str, SellRecommendationState] = {}
+_MEMORY_POST_MORTEM_NOTES: dict[str, dict[str, SellPostMortemNote]] = {}
 
 
 def get_manual_input(ticker: str) -> SellManualInput | None:
@@ -130,10 +133,66 @@ def upsert_recommendation_state(ticker: str, state: SellRecommendationState) -> 
         return state
 
 
+def list_post_mortem_notes(ticker: str) -> list[SellPostMortemNote]:
+    clean = _clean_ticker(ticker)
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(SellPostMortemNoteModel)
+                .where(SellPostMortemNoteModel.ticker == clean)
+                .order_by(SellPostMortemNoteModel.updated_at.desc())
+            ).all()
+            return [_post_mortem_note_from_model(row) for row in rows]
+    except SQLAlchemyError:
+        return list(_MEMORY_POST_MORTEM_NOTES.get(clean, {}).values())
+
+
+def upsert_post_mortem_note(note: SellPostMortemNote) -> SellPostMortemNote:
+    clean = _clean_ticker(note.ticker)
+    check_key = str(note.check_key or "").strip()
+    now = datetime.now(UTC)
+    stored = note.model_copy(
+        update={
+            "ticker": clean,
+            "check_key": check_key,
+            "updated_at": now,
+        }
+    )
+    try:
+        with SessionLocal() as db:
+            row = db.scalars(
+                select(SellPostMortemNoteModel).where(
+                    SellPostMortemNoteModel.ticker == clean,
+                    SellPostMortemNoteModel.check_key == check_key,
+                )
+            ).first()
+            if row is None:
+                row = SellPostMortemNoteModel(
+                    ticker=clean,
+                    check_key=check_key,
+                    created_at=stored.created_at,
+                )
+                db.add(row)
+            row.note = stored.note
+            row.action = stored.action
+            row.status = stored.status
+            row.updated_at = now
+            db.commit()
+            db.refresh(row)
+            return _post_mortem_note_from_model(row)
+    except SQLAlchemyError:
+        memory_note = stored
+        if not memory_note.id:
+            memory_note = memory_note.model_copy(update={"id": str(uuid4()), "created_at": now})
+        _MEMORY_POST_MORTEM_NOTES.setdefault(clean, {})[check_key] = memory_note
+        return memory_note
+
+
 def clear_memory_sell_state() -> None:
     _MEMORY_MANUAL_INPUTS.clear()
     _MEMORY_TRANCHE_LOG.clear()
     _MEMORY_RECOMMENDATION_STATE.clear()
+    _MEMORY_POST_MORTEM_NOTES.clear()
 
 
 def _manual_from_model(row: SellManualInputModel) -> SellManualInput:
@@ -172,6 +231,19 @@ def _state_from_model(row: SellRecommendationStateModel) -> SellRecommendationSt
         consecutive_days=row.consecutive_days,
         snoozed_until=row.snoozed_until.isoformat() if row.snoozed_until else "",
         snoozed_pct=row.snoozed_pct,
+    )
+
+
+def _post_mortem_note_from_model(row: SellPostMortemNoteModel) -> SellPostMortemNote:
+    return SellPostMortemNote(
+        id=str(row.id),
+        ticker=row.ticker,
+        check_key=row.check_key,
+        note=row.note or "",
+        action=row.action or "",
+        status=row.status or "open",
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

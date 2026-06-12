@@ -33,6 +33,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Stock detail price chart now includes 21-EMA, 50-SMA, 200-SMA and volume context from the cached Price API.
 - Sell detail diagnostics endpoint and UI with live metrics, strategy hub, next action and post-mortem checks.
 - Market diagnostics endpoint and `/market` UI for the old `_tab_marktanalyse` daily checklist, Intermarket view and defensive/offensive sector rotation.
+- Persistent Sell post-mortem notes/actions with Postgres table, API and non-blocking detail-page editing.
 
 ## Open Gaps
 
@@ -42,7 +43,6 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:
-  - Persistent post-mortem notes/actions beyond read-only diagnostic checks.
   - More chart annotations around triggered sell signals.
 - Market parity:
   - Full universe maintenance/rescue/remap workflows.

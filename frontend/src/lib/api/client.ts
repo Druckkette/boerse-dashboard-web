@@ -35,6 +35,8 @@ import type {
   SellEvaluation,
   SellManualInput,
   SellMetrics,
+  SellPostMortemNote,
+  SellPostMortemNoteRequest,
   SellRankingRow,
   TrancheLogEntry,
   TradeRepublicTransactionImportRequest,
@@ -157,6 +159,9 @@ export const api = {
   sellMetrics: (ticker: string) => getJson<SellMetrics>(`/sell/${ticker}/metrics`),
   sellEvaluation: (ticker: string) => postJson<SellEvaluation>(`/sell/${ticker}/evaluate`),
   sellDiagnostics: (ticker: string) => getJson<SellDiagnostics>(`/sell/${ticker}/diagnostics`),
+  sellPostMortemNotes: (ticker: string) => getJson<SellPostMortemNote[]>(`/sell/${ticker}/post-mortem`),
+  saveSellPostMortemNote: (ticker: string, body: SellPostMortemNoteRequest) =>
+    postJson<{ note: SellPostMortemNote; notes: SellPostMortemNote[] }>(`/sell/${ticker}/post-mortem`, body),
   patchSellManual: async (ticker: string, body: SellManualInput) => {
     const payload = await patchJson<{ manual: SellManualInput }>(`/sell/${ticker}/manual`, body);
     return payload.manual;

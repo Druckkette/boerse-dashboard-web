@@ -318,6 +318,25 @@ class TrancheLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SellPostMortemNote(Base):
+    __tablename__ = "sell_post_mortem_notes"
+    __table_args__ = (
+        UniqueConstraint("ticker", "check_key", name="uq_sell_post_mortem_ticker_check"),
+        Index("ix_sell_post_mortem_ticker_status", "ticker", "status"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    check_key: Mapped[str] = mapped_column(String(96), index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    action: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Institutional13FTrend(Base):
     __tablename__ = "institutional_13f_trends"
     __table_args__ = (

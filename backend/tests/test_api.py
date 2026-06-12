@@ -300,3 +300,37 @@ def test_sell_metrics_contract() -> None:
     response = client.get("/api/v1/sell/PLTR/metrics")
     assert response.status_code == 200
     assert response.json()["ticker"] == "PLTR"
+
+
+def test_sell_diagnostics_contract() -> None:
+    response = client.get("/api/v1/sell/NVDA/diagnostics")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ticker"] == "NVDA"
+    assert isinstance(payload["price_context"], list)
+    assert isinstance(payload["strategy_hub"], list)
+    assert isinstance(payload["post_mortem"], list)
+    assert isinstance(payload["post_mortem_notes"], list)
+    assert payload["next_action"]
+
+
+def test_sell_post_mortem_note_contract() -> None:
+    response = client.post(
+        "/api/v1/sell/NOTE/post-mortem",
+        json={
+            "check_key": "data_quality",
+            "note": "Teilverkauf nach dem Signal prüfen.",
+            "action": "Stop am nächsten Handelstag nachziehen.",
+            "status": "open",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["note"]["ticker"] == "NOTE"
+    assert payload["note"]["check_key"] == "data_quality"
+    assert payload["note"]["status"] == "open"
+    assert any(note["check_key"] == "data_quality" for note in payload["notes"])
+
+    diagnostics = client.get("/api/v1/sell/NOTE/diagnostics")
+    assert diagnostics.status_code == 200
+    assert any(note["check_key"] == "data_quality" for note in diagnostics.json()["post_mortem_notes"])
