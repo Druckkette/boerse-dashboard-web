@@ -53,6 +53,13 @@ and revenue history; when absent, the worker still uses yfinance and configured 
 After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
 marked `skipped` instead of crashing the app.
 
+The `/settings` page also shows **Systemstatus**. It checks Postgres, Alembic migration revision and
+Redis without blocking the UI. From the NAS shell you can inspect the same status with:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/readiness
+```
+
 Set `SEC_USER_AGENT` before running real 13F/SEC jobs:
 
 ```bash

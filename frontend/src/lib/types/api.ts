@@ -218,6 +218,21 @@ export type Freshness = {
   services: ServiceFreshness[];
 };
 
+export type SystemReadinessCheck = {
+  name: string;
+  status: "ok" | "warning" | "error" | "unknown";
+  required: boolean;
+  detail: string;
+  latency_ms?: number | null;
+  metadata: Record<string, unknown>;
+};
+
+export type SystemReadiness = {
+  status: "ready" | "degraded" | "not_ready";
+  generated_at: string;
+  checks: SystemReadinessCheck[];
+};
+
 export type PortfolioPosition = {
   ticker: string;
   name: string;

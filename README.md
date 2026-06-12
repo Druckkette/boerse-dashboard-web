@@ -26,6 +26,8 @@ Backend: `http://localhost:8000`
 
 OpenAPI: `http://localhost:8000/docs`
 
+Readiness: `http://localhost:8000/api/v1/readiness`
+
 The frontend uses the same-origin API path `/api/v1` and proxies requests to the FastAPI container.
 For local development, auth is disabled by default through `APP_AUTH_ENABLED=0`.
 
@@ -95,6 +97,8 @@ Keep `API_RATE_LIMIT_ENABLED=1` on NAS unless you are debugging locally. The def
 direct backend access while leaving normal dashboard polling usable.
 Set `API_ACCESS_LOG_ENABLED=1` on NAS to emit compact JSON request logs with `request_id`, path,
 status and duration. Every API response also includes an `X-Request-ID` header.
+The Settings page shows a non-blocking system status for Postgres, Alembic migrations and Redis.
+The same diagnostic is available at `/api/v1/readiness` for local NAS checks.
 For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
 page only shows whether those env vars are configured and can start a non-blocking test job.
 For deeper stock fundamentals, optionally set `FMP_API_KEY`; without it the worker keeps using

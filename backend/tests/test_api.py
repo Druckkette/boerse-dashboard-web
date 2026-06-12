@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.schemas import SystemReadinessCheck, SystemReadinessResponse
 
 
 client = TestClient(app)
@@ -10,6 +13,50 @@ def test_health() -> None:
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_readiness_contract(monkeypatch) -> None:
+    from app.api.v1 import health as health_api
+
+    def fake_readiness() -> SystemReadinessResponse:
+        return SystemReadinessResponse(
+            status="degraded",
+            generated_at=datetime.now(UTC),
+            checks=[
+                SystemReadinessCheck(
+                    name="database",
+                    status="ok",
+                    required=True,
+                    detail="Postgres-Verbindung ist erreichbar.",
+                    latency_ms=4,
+                    metadata={"dialect": "postgresql"},
+                ),
+                SystemReadinessCheck(
+                    name="migrations",
+                    status="ok",
+                    required=True,
+                    detail="Datenbankschema ist auf Alembic Head.",
+                    latency_ms=2,
+                    metadata={"current_revision": "0005", "head_revision": "0005"},
+                ),
+                SystemReadinessCheck(
+                    name="redis",
+                    status="warning",
+                    required=False,
+                    detail="Redis nicht erreichbar; API läuft weiter.",
+                    latency_ms=1,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(health_api, "get_system_readiness", fake_readiness)
+
+    response = client.get("/api/v1/readiness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    assert {"database", "migrations", "redis"} == {check["name"] for check in payload["checks"]}
 
 
 def test_market_overview_contract() -> None:

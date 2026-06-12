@@ -2,7 +2,8 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter
 
-from app.schemas import FreshnessResponse, HealthResponse, ServiceFreshness
+from app.schemas import FreshnessResponse, HealthResponse, ServiceFreshness, SystemReadinessResponse
+from app.services.system import get_system_readiness
 
 
 router = APIRouter()
@@ -11,6 +12,11 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", service="backend", version="0.1.0")
+
+
+@router.get("/readiness", response_model=SystemReadinessResponse)
+def readiness() -> SystemReadinessResponse:
+    return get_system_readiness()
 
 
 @router.get("/freshness", response_model=FreshnessResponse)
@@ -24,4 +30,3 @@ def freshness() -> FreshnessResponse:
             ServiceFreshness(name="sell_ranking", status="fresh", as_of="2026-06-08", lag_minutes=5),
         ],
     )
-

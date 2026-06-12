@@ -41,6 +41,7 @@ import type {
   SellPostMortemNote,
   SellPostMortemNoteRequest,
   SellRankingRow,
+  SystemReadiness,
   TrancheLogEntry,
   TradeRepublicTransactionImportRequest,
   TradeRepublicTransactionImportResponse,
@@ -105,6 +106,7 @@ export const api = {
   marketSectors: (mode: "daily" | "weekly" = "daily", periods = 15) =>
     getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
   freshness: () => getJson<Freshness>("/freshness"),
+  readiness: () => getJson<SystemReadiness>("/readiness"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
     getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),
   rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),

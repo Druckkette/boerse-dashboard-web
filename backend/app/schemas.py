@@ -22,6 +22,21 @@ class FreshnessResponse(BaseModel):
     services: list[ServiceFreshness]
 
 
+class SystemReadinessCheck(BaseModel):
+    name: str
+    status: Literal["ok", "warning", "error", "unknown"]
+    required: bool
+    detail: str
+    latency_ms: int | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class SystemReadinessResponse(BaseModel):
+    status: Literal["ready", "degraded", "not_ready"]
+    generated_at: datetime
+    checks: list[SystemReadinessCheck]
+
+
 class KpiCard(BaseModel):
     label: str
     value: str

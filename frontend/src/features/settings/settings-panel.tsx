@@ -1,11 +1,17 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, DatabaseZap, Minus, Play, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { BellRing, DatabaseZap, Minus, Play, Plus, RefreshCw, ServerCog, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { AppSettings, DataDiagnosticIssue, DataDiagnostics } from "@/lib/types/api";
+import type {
+  AppSettings,
+  DataDiagnosticIssue,
+  DataDiagnostics,
+  SystemReadiness,
+  SystemReadinessCheck
+} from "@/lib/types/api";
 
 const fallbackSettings: AppSettings = {
   atr_threshold: 1.5,
@@ -33,6 +39,12 @@ export function SettingsPanel() {
     queryKey: ["settings-data-diagnostics"],
     queryFn: api.dataDiagnostics,
     staleTime: 60_000
+  });
+  const readiness = useQuery({
+    queryKey: ["system-readiness"],
+    queryFn: api.readiness,
+    refetchInterval: 30_000,
+    staleTime: 15_000
   });
   const [local, setLocal] = useState<AppSettings | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -294,6 +306,11 @@ export function SettingsPanel() {
         </section>
 
         <aside className="space-y-4">
+          <SystemReadinessPanel
+            data={readiness.data}
+            isLoading={readiness.isLoading}
+            onRefresh={() => readiness.refetch()}
+          />
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
             <h2 className="text-base font-semibold">Runtime Status</h2>
             <div className="mt-4 space-y-3 text-sm">
@@ -539,8 +556,114 @@ function DataDiagnosticsPanel({
   );
 }
 
+function SystemReadinessPanel({
+  data,
+  isLoading,
+  onRefresh
+}: {
+  data?: SystemReadiness;
+  isLoading: boolean;
+  onRefresh: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+        Systemstatus lädt...
+      </section>
+    );
+  }
+
+  if (!data) {
+    return (
+      <section className="rounded border border-rose-300/30 bg-rose-300/10 p-5 text-sm text-rose-100">
+        Systemstatus ist aktuell nicht erreichbar.
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <ServerCog className="text-sky-300" size={18} />
+            <h2 className="text-base font-semibold">Systemstatus</h2>
+          </div>
+          <p className="mt-2 text-sm leading-5 text-[#a0a7b4]">
+            DB, Migrationen und Redis werden ohne Seitenblockade geprüft.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusChip tone={toneForReadiness(data.status)}>{readinessLabel(data.status)}</StatusChip>
+          <button
+            className="flex size-9 items-center justify-center rounded border border-[#2d333d] bg-[#111419] transition hover:border-emerald-300/60"
+            type="button"
+            onClick={onRefresh}
+          >
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {data.checks.map((check) => (
+          <SystemCheckRow check={check} key={check.name} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SystemCheckRow({ check }: { check: SystemReadinessCheck }) {
+  const revision =
+    check.metadata.current_revision && check.metadata.head_revision
+      ? `${String(check.metadata.current_revision)} / ${String(check.metadata.head_revision)}`
+      : "";
+
+  return (
+    <div className="rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">{systemCheckLabel(check.name)}</div>
+          <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
+          {revision && <div className="mt-1 text-xs text-[#a0a7b4]">Revision {revision}</div>}
+        </div>
+        <StatusChip tone={toneForSystemCheck(check.status)}>{check.status}</StatusChip>
+      </div>
+      <div className="mt-2 flex items-center justify-between text-xs text-[#77808f]">
+        <span>{check.required ? "erforderlich" : "optional"}</span>
+        <span>{check.latency_ms === null || check.latency_ms === undefined ? "-" : `${check.latency_ms} ms`}</span>
+      </div>
+    </div>
+  );
+}
+
 function toneForSeverity(severity: DataDiagnosticIssue["severity"]) {
   if (severity === "critical") return "bad";
   if (severity === "warning") return "warning";
   return "neutral";
+}
+
+function toneForReadiness(status: SystemReadiness["status"]) {
+  if (status === "ready") return "good";
+  if (status === "degraded") return "warning";
+  return "bad";
+}
+
+function readinessLabel(status: SystemReadiness["status"]) {
+  if (status === "ready") return "ready";
+  if (status === "degraded") return "degraded";
+  return "not ready";
+}
+
+function toneForSystemCheck(status: SystemReadinessCheck["status"]) {
+  if (status === "ok") return "good";
+  if (status === "warning" || status === "unknown") return "warning";
+  return "bad";
+}
+
+function systemCheckLabel(name: string) {
+  if (name === "database") return "Datenbank";
+  if (name === "migrations") return "Migrationen";
+  if (name === "redis") return "Redis";
+  return name;
 }
