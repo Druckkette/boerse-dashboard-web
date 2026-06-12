@@ -9,6 +9,12 @@ import pandas as pd
 
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
+from app.domain.portfolio.trade_republic import (
+    estimate_cash_balance,
+    parse_transaction_export_csv,
+    reconstruct_open_positions,
+    resolve_isin_mappings,
+)
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import (
@@ -35,6 +41,10 @@ from app.schemas import (
     PortfolioSellResponse,
     PortfolioTransaction,
     PortfolioTransactionsResponse,
+    TradeRepublicIsinMappingItem,
+    TradeRepublicSkippedPosition,
+    TradeRepublicTransactionImportRequest,
+    TradeRepublicTransactionImportResponse,
 )
 from app.services.dummy_data import get_portfolio_positions as get_dummy_portfolio_positions
 from app.services.dummy_data import get_portfolio_snapshot as get_dummy_portfolio_snapshot
@@ -433,6 +443,114 @@ def import_portfolio_positions(payload: PortfolioImportRequest) -> PortfolioImpo
         rows_imported=result.rows_imported,
         positions=parse_result.positions,
         warnings=parse_result.warnings,
+    )
+
+
+def import_trade_republic_transaction_export(
+    payload: TradeRepublicTransactionImportRequest,
+) -> TradeRepublicTransactionImportResponse:
+    try:
+        rows = parse_transaction_export_csv(payload.content)
+    except ValueError as exc:
+        return TradeRepublicTransactionImportResponse(
+            ok=False,
+            dry_run=payload.dry_run,
+            rows_total=0,
+            rows_imported=0,
+            transactions_total=0,
+            cash_balance_estimate=0.0,
+            positions=[],
+            mappings=[],
+            errors=[str(exc)],
+        )
+
+    try:
+        saved_mappings = portfolio_repository.list_isin_mappings()
+    except PortfolioRepositoryUnavailable:
+        saved_mappings = {}
+    diagnostics = resolve_isin_mappings(rows, saved_mappings=saved_mappings, overrides=payload.isin_overrides)
+    ticker_by_isin = {
+        str(item["isin"]).upper(): str(item["ticker"]).upper()
+        for item in diagnostics
+        if str(item.get("ticker") or "").strip()
+    }
+    reconstructed, skipped = reconstruct_open_positions(rows, ticker_by_isin)
+    positions = [
+        PortfolioImportRow(
+            ticker=item.ticker,
+            name=item.name,
+            shares=item.shares,
+            entry_price=item.avg_buy_price,
+            current_price=None,
+            currency=item.currency,
+            buy_date=item.first_buy_date,
+            broker="Trade Republic",
+            account="Trade Republic",
+            note=f"TR-Transaktionsimport / ISIN {item.isin}",
+            warnings=[],
+        )
+        for item in reconstructed
+    ]
+    mappings = [
+        TradeRepublicIsinMappingItem(
+            isin=str(item["isin"]),
+            name=str(item["name"]),
+            asset_class=str(item["asset_class"]),
+            ticker=str(item["ticker"] or ""),
+            source=item["source"],
+        )
+        for item in diagnostics
+    ]
+    skipped_positions = [
+        TradeRepublicSkippedPosition(
+            isin=item.isin,
+            name=item.name,
+            shares=item.shares,
+            asset_class=item.asset_class,
+            reason=item.reason,
+        )
+        for item in skipped
+    ]
+    warnings = []
+    missing_mappings = [item.isin for item in mappings if not item.ticker]
+    if missing_mappings:
+        warnings.append("Für diese ISINs fehlt ein Yahoo-Ticker: " + ", ".join(missing_mappings))
+    if skipped_positions:
+        warnings.append(f"{len(skipped_positions)} offene Position(en) werden nicht automatisch importiert.")
+
+    if payload.dry_run:
+        return TradeRepublicTransactionImportResponse(
+            ok=True,
+            dry_run=True,
+            rows_total=len(rows),
+            rows_imported=0,
+            transactions_total=len(rows),
+            cash_balance_estimate=estimate_cash_balance(rows),
+            positions=positions,
+            mappings=mappings,
+            skipped_positions=skipped_positions,
+            warnings=warnings,
+        )
+
+    result = portfolio_repository.import_trade_republic_transactions(
+        transactions=rows,
+        positions=reconstructed,
+        mappings=ticker_by_isin,
+        file_name=payload.file_name,
+        replace_open_positions=payload.replace_open_positions,
+    )
+    return TradeRepublicTransactionImportResponse(
+        ok=True,
+        dry_run=False,
+        import_id=result.import_id,
+        rows_total=len(rows),
+        rows_imported=result.rows_imported,
+        transactions_total=result.transactions_imported,
+        cash_balance_estimate=estimate_cash_balance(rows),
+        positions=positions,
+        mappings=mappings,
+        skipped_positions=skipped_positions,
+        warnings=warnings,
     )
 
 

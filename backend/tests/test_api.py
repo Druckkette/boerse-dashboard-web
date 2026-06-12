@@ -127,6 +127,33 @@ def test_portfolio_import_dry_run_contract() -> None:
     assert payload["positions"][0]["ticker"] == "NVDA"
 
 
+def test_trade_republic_transaction_import_preview_contract() -> None:
+    csv_content = (
+        "date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax\n"
+        "2025-01-02,2025-01-02T10:00:00Z,BUY,STOCK,NVIDIA,US67066G1040,10,100,USD,-1000,-1,0\n"
+        "2025-01-10,2025-01-10T10:00:00Z,SELL,STOCK,NVIDIA,US67066G1040,2,120,USD,240,-1,-10\n"
+    )
+    response = client.post(
+        "/api/v1/portfolio/imports/tr-transactions",
+        json={
+            "file_name": "transactions.csv",
+            "content": csv_content,
+            "dry_run": True,
+            "replace_open_positions": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["dry_run"] is True
+    assert payload["rows_total"] == 2
+    assert payload["transactions_total"] == 2
+    assert payload["cash_balance_estimate"] == -772
+    assert payload["positions"][0]["ticker"] == "NVDA"
+    assert payload["positions"][0]["shares"] == 8
+    assert payload["mappings"][0]["isin"] == "US67066G1040"
+
+
 def test_portfolio_transactions_contract() -> None:
     response = client.get("/api/v1/portfolio/transactions")
     assert response.status_code == 200

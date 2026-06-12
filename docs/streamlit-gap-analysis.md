@@ -7,18 +7,22 @@ Target: `Druckkette/boerse-dashboard-web`.
 
 - Market overview: breadth, volatility, trend ampellogic, cached snapshots.
 - Market data jobs: price refresh, breadth, relative strength, ATR monitor skeleton/partial implementation.
-- Portfolio import: browser upload, parsed positions, persisted open positions.
+- Portfolio import: browser upload, parsed positions, Trade-Republic transaction preview/import, ISIN mapping, persisted open positions.
+- Portfolio controls: manual position editor, sell booking, cash-flow log, depot curve fallback, position-size calculator and persisted risk assumptions.
 - Sell engine: migrated domain logic, metrics/evaluate endpoints, ranking, manual state, tranche log, snooze state.
 - NAS/GHCR deployment: Docker Compose, GHCR workflows, update script.
 - Jobs UI: manual start, status polling, configurable market-data bootstrap.
 
-## Added In This Migration Step
+## Recently Added
 
 - Sectors page migrated from Streamlit `_tab_sektoranalyse`.
 - Backend endpoint: `GET /api/v1/market/sectors`.
 - Cached SPDR sector ETF ranking for daily and weekly mode.
 - Price-refresh preset `sector`; default `all` includes sector ETFs.
 - Frontend page: `/sectors` with Top/Bottom 3, ranking table and ranking-history matrix.
+- Depot curve endpoint and frontend panel for cached-position fallback.
+- Position-size calculator with loss-budget and Beta-Balancer formulas.
+- Trade-Republic transaction CSV import with web upload, ISIN-to-Yahoo mapping preview and persisted transactions/open positions.
 
 ## Open Gaps
 
@@ -29,11 +33,9 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Earnings warning, institutional holder context, CMF, liquidity/dollar-volume filters.
   - Comparison/ranking table parity beyond current RS ranking.
 - Portfolio parity:
-  - Full manual position editor with stop %, pivot day, sell booking and cash-flow log.
-  - Depot curve from Trade-Republic transaction export.
-  - ISIN-to-Yahoo mapping editor.
-  - Position-size calculator.
-  - Portfolio risk settings persisted in `app_settings`.
+  - Full transaction-based TWR depot curve from saved Trade-Republic export, including S&P 500 comparison.
+  - ISIN/Yahoo mapping maintenance page beyond import-time editing.
+  - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:
   - Full strategy hub UI.
   - Post-mortem workflow.

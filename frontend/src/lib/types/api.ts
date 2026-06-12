@@ -318,6 +318,45 @@ export type PortfolioImportResponse = {
   warnings: string[];
 };
 
+export type TradeRepublicIsinMappingItem = {
+  isin: string;
+  name: string;
+  asset_class: string;
+  ticker: string;
+  source: "manual" | "saved" | "static" | "missing";
+};
+
+export type TradeRepublicSkippedPosition = {
+  isin: string;
+  name: string;
+  shares: number;
+  asset_class: string;
+  reason: string;
+};
+
+export type TradeRepublicTransactionImportRequest = {
+  file_name: string;
+  content: string;
+  dry_run: boolean;
+  replace_open_positions: boolean;
+  isin_overrides: Record<string, string>;
+};
+
+export type TradeRepublicTransactionImportResponse = {
+  ok: boolean;
+  dry_run: boolean;
+  import_id?: string | null;
+  rows_total: number;
+  rows_imported: number;
+  transactions_total: number;
+  cash_balance_estimate: number;
+  positions: PortfolioImportRow[];
+  mappings: TradeRepublicIsinMappingItem[];
+  skipped_positions: TradeRepublicSkippedPosition[];
+  errors: string[];
+  warnings: string[];
+};
+
 export type PriceRange = "1m" | "3m" | "6m" | "1y" | "2y" | "5y";
 
 export type PriceBarPoint = {

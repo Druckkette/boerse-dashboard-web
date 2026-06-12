@@ -30,6 +30,8 @@ import type {
   SellMetrics,
   SellRankingRow,
   TrancheLogEntry,
+  TradeRepublicTransactionImportRequest,
+  TradeRepublicTransactionImportResponse,
   Volatility
 } from "@/lib/types/api";
 
@@ -131,6 +133,8 @@ export const api = {
   },
   importPortfolioPositions: (body: PortfolioImportRequest) =>
     postJson<PortfolioImportResponse>("/portfolio/imports/positions", body),
+  importTradeRepublicTransactions: (body: TradeRepublicTransactionImportRequest) =>
+    postJson<TradeRepublicTransactionImportResponse>("/portfolio/imports/tr-transactions", body),
   sellRanking: async () => {
     const payload = await getJson<{ rows: SellRankingRow[] }>("/sell/positions/ranking");
     return payload.rows;

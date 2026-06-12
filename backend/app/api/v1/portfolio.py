@@ -19,6 +19,8 @@ from app.schemas import (
     PortfolioSellResponse,
     PortfolioSnapshotResponse,
     PortfolioTransactionsResponse,
+    TradeRepublicTransactionImportRequest,
+    TradeRepublicTransactionImportResponse,
 )
 from app.services.portfolio import (
     calculate_position_size,
@@ -31,6 +33,7 @@ from app.services.portfolio import (
     get_portfolio_snapshot,
     get_portfolio_transactions,
     import_portfolio_positions,
+    import_trade_republic_transaction_export,
     sell_portfolio_position,
     upsert_portfolio_position,
 )
@@ -131,6 +134,19 @@ def imports(limit: int = Query(default=100, ge=1, le=500)) -> PortfolioImportHis
 def import_positions(payload: PortfolioImportRequest) -> PortfolioImportResponse:
     try:
         return import_portfolio_positions(payload)
+    except PortfolioRepositoryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Portfolio-Datenbank ist nicht erreichbar: {exc}",
+        ) from exc
+
+
+@router.post("/imports/tr-transactions", response_model=TradeRepublicTransactionImportResponse)
+def import_trade_republic_transactions(
+    payload: TradeRepublicTransactionImportRequest,
+) -> TradeRepublicTransactionImportResponse:
+    try:
+        return import_trade_republic_transaction_export(payload)
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

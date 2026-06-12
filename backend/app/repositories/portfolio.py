@@ -6,8 +6,9 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.models import CashFlow, ImportBatch, Instrument, Position, PriceBar, Transaction
+from app.db.models import CashFlow, ImportBatch, Instrument, IsinMapping, Position, PriceBar, Transaction
 from app.db.session import SessionLocal
+from app.domain.portfolio.trade_republic import TradeRepublicPosition, TradeRepublicTransactionRow
 from app.schemas import PortfolioImportRow
 
 
@@ -114,8 +115,28 @@ class PortfolioImportResult:
     rows_imported: int
 
 
+@dataclass(frozen=True)
+class TradeRepublicImportResult:
+    import_id: str
+    rows_imported: int
+    transactions_imported: int
+
+
 class PortfolioRepositoryUnavailable(RuntimeError):
     pass
+
+
+def list_isin_mappings() -> dict[str, str]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(select(IsinMapping).order_by(IsinMapping.isin.asc())).all()
+            mappings: dict[str, str] = {}
+            for row in rows:
+                if row.isin and row.ticker:
+                    mappings[row.isin.upper()] = row.ticker.upper()
+            return mappings
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
 def list_open_positions() -> list[PortfolioPositionRow]:
@@ -363,7 +384,9 @@ def get_cash_balance() -> float:
                     balance += amount
             for tx in transactions:
                 net = float(tx.net_amount or 0)
-                if tx.transaction_type == "buy":
+                if (tx.raw_json or {}).get("source") == "trade_republic_transactions":
+                    balance += net
+                elif tx.transaction_type == "buy":
                     balance -= abs(net)
                 elif tx.transaction_type == "sell":
                     balance += abs(net)
@@ -484,6 +507,159 @@ def upsert_imported_positions(
             import_batch.finished_at = datetime.now(UTC)
             db.commit()
             return PortfolioImportResult(import_id=import_batch.id, rows_imported=imported_count)
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def import_trade_republic_transactions(
+    *,
+    transactions: list[TradeRepublicTransactionRow],
+    positions: list[TradeRepublicPosition],
+    mappings: dict[str, str],
+    file_name: str,
+    replace_open_positions: bool,
+) -> TradeRepublicImportResult:
+    try:
+        with SessionLocal() as db:
+            import_batch = ImportBatch(
+                source="trade_republic_transactions",
+                file_name=file_name,
+                status="running",
+                rows_total=len(transactions),
+                rows_imported=0,
+                metadata_json={"replace_open_positions": replace_open_positions},
+            )
+            db.add(import_batch)
+            db.flush()
+
+            for isin, ticker in mappings.items():
+                clean_isin = str(isin or "").upper().strip()
+                clean_ticker = str(ticker or "").upper().strip()
+                if not clean_isin or not clean_ticker:
+                    continue
+                instrument = _get_or_create_instrument(db, ticker=clean_ticker, name=clean_ticker, currency="EUR")
+                row = db.scalars(
+                    select(IsinMapping).where(
+                        IsinMapping.isin == clean_isin,
+                        IsinMapping.source == "trade_republic",
+                    )
+                ).first()
+                if row is None:
+                    row = IsinMapping(
+                        isin=clean_isin,
+                        ticker=clean_ticker,
+                        instrument_id=instrument.id,
+                        source="trade_republic",
+                        confidence=1.0,
+                        metadata_json={},
+                    )
+                    db.add(row)
+                else:
+                    row.ticker = clean_ticker
+                    row.instrument_id = instrument.id
+                    row.confidence = 1.0
+
+            if replace_open_positions:
+                for position in db.scalars(select(Position).where(Position.is_open.is_(True))).all():
+                    position.is_open = False
+                    position.closed_at = datetime.now(UTC)
+
+            positions_by_isin = {item.isin: item for item in positions}
+            position_by_ticker: dict[str, Position] = {}
+            imported_positions = 0
+            for item in positions:
+                instrument = _get_or_create_instrument(
+                    db,
+                    ticker=item.ticker,
+                    name=item.name or item.ticker,
+                    currency=item.currency or "EUR",
+                )
+                position = db.scalars(
+                    select(Position).where(Position.ticker == item.ticker, Position.is_open.is_(True)).limit(1)
+                ).first()
+                if position is None:
+                    position = Position(
+                        instrument_id=instrument.id,
+                        ticker=item.ticker,
+                        shares=item.shares,
+                        buy_price=item.avg_buy_price,
+                        buy_date=_parse_date(item.first_buy_date),
+                        currency=item.currency or "EUR",
+                        broker="Trade Republic",
+                        account="Trade Republic",
+                        note=f"TR-Transaktionsimport / ISIN {item.isin}",
+                    )
+                    db.add(position)
+                    db.flush()
+                else:
+                    position.instrument_id = instrument.id
+                    position.shares = item.shares
+                    position.buy_price = item.avg_buy_price
+                    position.buy_date = _parse_date(item.first_buy_date)
+                    position.currency = item.currency or position.currency
+                    position.broker = "Trade Republic"
+                    position.account = "Trade Republic"
+                    position.note = f"TR-Transaktionsimport / ISIN {item.isin}"
+                position_by_ticker[item.ticker] = position
+                imported_positions += 1
+
+            existing_external_ids = {
+                item
+                for item in db.scalars(
+                    select(Transaction.external_id).where(
+                        Transaction.external_id.in_([row.external_id for row in transactions])
+                    )
+                ).all()
+                if item
+            }
+            transactions_imported = 0
+            for row in transactions:
+                ticker = mappings.get(row.isin, "") if row.isin else ""
+                position = position_by_ticker.get(ticker)
+                instrument = None
+                if ticker:
+                    name = positions_by_isin.get(row.isin).name if row.isin in positions_by_isin else row.name or ticker
+                    instrument = _get_or_create_instrument(db, ticker=ticker, name=name, currency=row.currency or "EUR")
+                existing = None
+                if row.external_id in existing_external_ids:
+                    existing = db.scalars(
+                        select(Transaction).where(Transaction.external_id == row.external_id).limit(1)
+                    ).first()
+                target = existing or Transaction()
+                target.position_id = position.id if position is not None else None
+                target.instrument_id = instrument.id if instrument is not None else None
+                target.ticker = ticker
+                target.date = row.date.date()
+                target.transaction_type = row.transaction_type.lower()
+                target.shares = abs(float(row.shares or 0.0))
+                target.price = float(row.price or 0.0) if row.price else None
+                target.fees = float(row.fee or 0.0)
+                target.tax = float(row.tax or 0.0)
+                target.gross_amount = float(row.amount or 0.0)
+                target.net_amount = float(row.cash_delta)
+                target.currency = row.currency or "EUR"
+                target.broker = "Trade Republic"
+                target.external_id = row.external_id
+                target.import_id = import_batch.id
+                target.raw_json = {
+                    **row.raw,
+                    "source": "trade_republic_transactions",
+                    "isin": row.isin,
+                    "cash_delta": row.cash_delta,
+                }
+                if existing is None:
+                    db.add(target)
+                    transactions_imported += 1
+
+            import_batch.status = "done"
+            import_batch.rows_imported = imported_positions
+            import_batch.finished_at = datetime.now(UTC)
+            db.commit()
+            return TradeRepublicImportResult(
+                import_id=import_batch.id,
+                rows_imported=imported_positions,
+                transactions_imported=transactions_imported,
+            )
     except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 

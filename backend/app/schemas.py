@@ -455,6 +455,45 @@ class PortfolioImportResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class TradeRepublicIsinMappingItem(BaseModel):
+    isin: str
+    name: str
+    asset_class: str
+    ticker: str = ""
+    source: Literal["manual", "saved", "static", "missing"] = "missing"
+
+
+class TradeRepublicSkippedPosition(BaseModel):
+    isin: str
+    name: str
+    shares: float
+    asset_class: str
+    reason: str
+
+
+class TradeRepublicTransactionImportRequest(BaseModel):
+    file_name: str = "trade-republic-transactions.csv"
+    content: str
+    dry_run: bool = True
+    replace_open_positions: bool = False
+    isin_overrides: dict[str, str] = Field(default_factory=dict)
+
+
+class TradeRepublicTransactionImportResponse(BaseModel):
+    ok: bool
+    dry_run: bool
+    import_id: str | None = None
+    rows_total: int
+    rows_imported: int
+    transactions_total: int
+    cash_balance_estimate: float
+    positions: list[PortfolioImportRow]
+    mappings: list[TradeRepublicIsinMappingItem]
+    skipped_positions: list[TradeRepublicSkippedPosition] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PortfolioSnapshotResponse(BaseModel):
     as_of: str
     total_value: float
