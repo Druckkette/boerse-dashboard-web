@@ -44,7 +44,8 @@ def test_market_snapshot_classifies_constructive_breadth() -> None:
     assert snapshot.breadth_mode == "rueckenwind"
     assert snapshot.warning_count == 0
     assert snapshot.metrics_json["coverage_ratio"] == pytest.approx(1.0)
-    assert snapshot.metrics_json["kpis"][0]["label"] == "Breite 50-SMA"
+    assert snapshot.metrics_json["kpis"][0]["label"] == "Aktien > 50-SMA"
+    assert snapshot.metrics_json["kpis"][0]["detail"] == "Anteil Universe, nicht SPY-Abstand"
 
 
 def test_volatility_dashboard_detects_confirmed_risk_off() -> None:

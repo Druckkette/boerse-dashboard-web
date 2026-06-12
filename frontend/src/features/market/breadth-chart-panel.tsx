@@ -26,13 +26,13 @@ export function BreadthChartPanel() {
       series={[
         {
           key: "pct_above_50sma",
-          label: "> 50-SMA",
+          label: "% Aktien > 50-SMA",
           color: "#22d3ee",
           formatter: (value) => `${value.toFixed(1)}%`
         },
         {
           key: "pct_above_200sma",
-          label: "> 200-SMA",
+          label: "% Aktien > 200-SMA",
           color: "#a78bfa",
           formatter: (value) => `${value.toFixed(1)}%`
         }

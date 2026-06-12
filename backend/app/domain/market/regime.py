@@ -52,15 +52,15 @@ def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResul
     action = _action_for_market_state(phase, breadth_mode, volatility_regime, warning_count)
     kpis = [
         _kpi_dict(
-            "Breite 50-SMA",
+            "Aktien > 50-SMA",
             _format_pct(regime_input.pct_above_50sma),
-            "über 50-SMA",
+            "Anteil Universe, nicht SPY-Abstand",
             _tone_for_pct(regime_input.pct_above_50sma),
         ),
         _kpi_dict(
-            "Breite 200-SMA",
+            "Aktien > 200-SMA",
             _format_pct(regime_input.pct_above_200sma),
-            "über 200-SMA",
+            "Anteil Universe, nicht SPY-Abstand",
             _tone_for_pct(regime_input.pct_above_200sma),
         ),
         _kpi_dict(

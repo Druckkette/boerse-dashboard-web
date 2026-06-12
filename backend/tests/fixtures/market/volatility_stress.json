@@ -34,6 +34,6 @@
     "breadth_mode": "rueckenwind",
     "warning_count": 1,
     "action_contains": "Volatilität bestätigt Stress",
-    "kpi_labels": ["Breite 50-SMA", "Breite 200-SMA", "McClellan", "Coverage", "Vol Regime"]
+    "kpi_labels": ["Aktien > 50-SMA", "Aktien > 200-SMA", "McClellan", "Coverage", "Vol Regime"]
   }
 }
