@@ -49,7 +49,9 @@ import type {
   UniverseStatus,
   UniverseSymbolMappingReview,
   UniverseSymbolMappingUpdate,
-  Volatility
+  Volatility,
+  WorkspacePatch,
+  WorkspaceState
 } from "@/lib/types/api";
 
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -75,6 +77,17 @@ async function patchJson<T>(path: string, body: unknown): Promise<T> {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  return response.json() as Promise<T>;
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" }
   });
   if (!response.ok) {
     throw new Error(await errorMessage(response));
@@ -225,5 +238,10 @@ export const api = {
   },
   settings: () => getJson<AppSettings>("/settings"),
   dataDiagnostics: () => getJson<DataDiagnostics>("/settings/data-diagnostics"),
-  patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body)
+  patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body),
+  workspace: () => getJson<WorkspaceState>("/workspace"),
+  patchWorkspace: (body: WorkspacePatch) => patchJson<WorkspaceState>("/workspace", body),
+  addWorkspaceTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/watchlist", { ticker }),
+  removeWorkspaceTicker: (ticker: string) => deleteJson<WorkspaceState>(`/workspace/watchlist/${encodeURIComponent(ticker)}`),
+  addRecentTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/recent-tickers", { ticker })
 };

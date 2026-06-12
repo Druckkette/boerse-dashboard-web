@@ -9,6 +9,7 @@ import {
   Home,
   LineChart,
   ListChecks,
+  NotebookTabs,
   Rocket,
   Search,
   Settings,
@@ -28,6 +29,7 @@ const navItems = [
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness },
   { href: "/portfolio/imports", label: "Imports", icon: Upload },
   { href: "/sell-monitor", label: "Sell Monitor", icon: ChartCandlestick },
+  { href: "/workspace", label: "Workspace", icon: NotebookTabs },
   { href: "/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings", label: "Settings", icon: Settings }
 ];

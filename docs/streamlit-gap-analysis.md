@@ -58,6 +58,9 @@ Target: `Druckkette/boerse-dashboard-web`.
   examples are covered by dedicated market fixtures.
 - Settings-aware ATR monitor: scheduled runs respect the web setting, manual runs can still be
   triggered, and monitor results include ATR distance to the configured reference.
+- Workspace page migrated from Streamlit `_tab_mein_bereich`: persisted watchlist,
+  daily to-dos, recent ticker shortcuts and saved-position shortcuts are available
+  in `/workspace` without file handling or Streamlit reruns.
 
 ## Open Gaps
 

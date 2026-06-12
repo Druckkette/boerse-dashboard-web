@@ -981,6 +981,20 @@ export type DataDiagnostics = {
   issues: DataDiagnosticIssue[];
 };
 
+export type WorkspaceState = {
+  source: "database" | "default";
+  updated_at?: string | null;
+  watchlist: string[];
+  todos: string;
+  recent_tickers: string[];
+};
+
+export type WorkspacePatch = {
+  watchlist?: string[];
+  todos?: string;
+  recent_tickers?: string[];
+};
+
 export type SetupStep = {
   key: "system" | "portfolio" | "prices" | "market_breadth" | "relative_strength" | "atr_monitor";
   label: string;

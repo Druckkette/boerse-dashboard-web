@@ -909,6 +909,24 @@ class DataDiagnosticsResponse(BaseModel):
     issues: list[DataDiagnosticIssue] = Field(default_factory=list)
 
 
+class WorkspaceState(BaseModel):
+    source: Literal["database", "default"]
+    updated_at: datetime | None = None
+    watchlist: list[str] = Field(default_factory=list)
+    todos: str = ""
+    recent_tickers: list[str] = Field(default_factory=list)
+
+
+class WorkspacePatch(BaseModel):
+    watchlist: list[str] | None = None
+    todos: str | None = None
+    recent_tickers: list[str] | None = None
+
+
+class WorkspaceTickerRequest(BaseModel):
+    ticker: str = Field(min_length=1, max_length=32)
+
+
 class SetupStep(BaseModel):
     key: Literal["system", "portfolio", "prices", "market_breadth", "relative_strength", "atr_monitor"]
     label: str
