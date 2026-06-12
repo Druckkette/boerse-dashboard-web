@@ -3,17 +3,22 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LineChartCard } from "@/components/ui/line-chart-card";
+import type { ChartLevel, ChartMarker } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
 import type { PriceBarPoint, PriceRange } from "@/lib/types/api";
 
 export function StockPricePanel({
   ticker,
   range = "1y",
-  title = "Kursverlauf"
+  title = "Kursverlauf",
+  levels = [],
+  markers = []
 }: {
   ticker: string;
   range?: PriceRange;
   title?: string;
+  levels?: ChartLevel[];
+  markers?: ChartMarker[];
 }) {
   const clean = ticker.toUpperCase();
   const query = useQuery({
@@ -62,6 +67,8 @@ export function StockPricePanel({
           formatter: (value) => `${value.toFixed(2)} ${history?.currency ?? "USD"}`
         }
       ]}
+      levels={levels}
+      markers={markers}
       volumeKey="volume"
       statusLabel={history ? statusLabel : "lädt"}
       statusTone={history ? statusTone : "neutral"}

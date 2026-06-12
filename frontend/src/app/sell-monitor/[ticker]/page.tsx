@@ -8,8 +8,10 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { api } from "@/lib/api/client";
+import type { ChartLevel, ChartMarker } from "@/components/ui/line-chart-card";
 import type {
   PendingStatus,
+  SellEvaluation,
   SellDiagnostics,
   SellManualInput,
   SellPostMortemCheck,
@@ -164,6 +166,11 @@ export default function SellMonitorTickerPage() {
         : "good";
   const priceDataSource = dataSourceFromMetrics(metrics.data?.raw_payload.metrics, "price_data_source");
   const benchmarkDataSource = dataSourceFromMetrics(metrics.data?.raw_payload.metrics, "benchmark_data_source");
+  const sellChartLevels = buildSellChartLevels(evaluation.data);
+  const sellChartMarkers = buildSellChartMarkers(
+    [...mainSignals, ...warningSignals],
+    metrics.data?.current_price
+  );
 
   return (
     <div className="space-y-5">
@@ -249,7 +256,12 @@ export default function SellMonitorTickerPage() {
             </div>
           </section>
 
-          <StockPricePanel ticker={ticker} title="Sell Context" />
+          <StockPricePanel
+            levels={sellChartLevels}
+            markers={sellChartMarkers}
+            ticker={ticker}
+            title="Sell Context"
+          />
 
           <SellDiagnosticsPanel
             diagnostics={diagnostics.data}
@@ -705,4 +717,40 @@ function toneForDataSource(value: string): "good" | "neutral" | "warning" | "bad
   if (value === "synthetic_fixture") return "neutral";
   if (value === "synthetic_fallback") return "warning";
   return "neutral";
+}
+
+function buildSellChartLevels(evaluation?: SellEvaluation): ChartLevel[] {
+  if (!evaluation) return [];
+  return [
+    { key: "stop", label: "Stop", value: evaluation.stop_price, color: "#fb7185" },
+    { key: "next-tranche", label: "Nächste Tranche", value: evaluation.next_tranche_trigger_price, color: "#fbbf24" },
+    { key: "full-exit", label: "Full Exit", value: evaluation.full_exit_price, color: "#c084fc" }
+  ].filter((item): item is ChartLevel => typeof item.value === "number" && Number.isFinite(item.value));
+}
+
+function buildSellChartMarkers(signals: SellSignal[], currentPrice?: number | null): ChartMarker[] {
+  return signals
+    .filter((signal) => signal.signal_date)
+    .slice(0, 8)
+    .map((signal) => ({
+      key: `${signal.id}-${signal.signal_date}`,
+      date: signal.signal_date,
+      label: `${signal.contribution_percent}% ${signal.label}`,
+      value: markerValueFromSignal(signal, currentPrice),
+      color: colorForSignal(signal)
+    }));
+}
+
+function markerValueFromSignal(signal: SellSignal, currentPrice?: number | null) {
+  const match = signal.event_note.match(/Nächste Marke:\s*([0-9]+(?:[.,][0-9]+)?)/);
+  if (!match) return currentPrice ?? null;
+  const parsed = Number(match[1].replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : currentPrice ?? null;
+}
+
+function colorForSignal(signal: SellSignal) {
+  if (signal.severity === "killer") return "#fb7185";
+  if (signal.severity === "tranche") return "#fbbf24";
+  if (signal.severity === "warning") return "#fdba74";
+  return "#93c5fd";
 }

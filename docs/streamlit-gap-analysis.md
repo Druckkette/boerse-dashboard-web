@@ -34,6 +34,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Sell detail diagnostics endpoint and UI with live metrics, strategy hub, next action and post-mortem checks.
 - Market diagnostics endpoint and `/market` UI for the old `_tab_marktanalyse` daily checklist, Intermarket view and defensive/offensive sector rotation.
 - Persistent Sell post-mortem notes/actions with Postgres table, API and non-blocking detail-page editing.
+- Sell context chart annotations for stop, next tranche, full-exit levels and active signal markers.
 
 ## Open Gaps
 
@@ -42,8 +43,6 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Deeper single-stock chart context such as annotated candlesticks and RS subplot.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
-- Sell parity:
-  - More chart annotations around triggered sell signals.
 - Market parity:
   - Full universe maintenance/rescue/remap workflows.
 - Technical settings parity:
