@@ -217,9 +217,10 @@ in the private NAS environment file:
 - `API_ACCESS_LOG_ENABLED=1`
 
 Normal browser traffic should go to `http://NAS-IP-ODER-HOSTNAME:3000`. The frontend serves pages and
-forwards `/api/v1/*` to the internal FastAPI service. Keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` on NAS
-so the browser does not bypass the frontend gate. Keep `BACKEND_BIND=127.0.0.1` unless you
-intentionally need temporary direct access to `http://NAS-IP:8000/docs`.
+forwards `/api/v1/*` to the internal FastAPI service. On NAS, these proxy values are set centrally
+in `infra/docker-compose.nas.yml`; `.env.nas` should not override `API_INTERNAL_BASE_URL` or
+`NEXT_PUBLIC_API_BASE_URL`. Keep `BACKEND_BIND=127.0.0.1` unless you intentionally need temporary
+direct access to `http://NAS-IP:8000/docs`.
 
 ## Why UI And Jobs Are Separate
 

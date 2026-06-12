@@ -25,9 +25,9 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml up -d
 ```
 
 Set at least `POSTGRES_PASSWORD`, `DATABASE_URL`, `APP_AUTH_USER` and `APP_AUTH_PASSWORD`.
-Keep `APP_AUTH_ENABLED=1` for NAS use and keep `NEXT_PUBLIC_API_BASE_URL=/api/v1` so browser API
-traffic goes through the protected Next.js frontend. The frontend forwards `/api/v1/*` to
-`API_INTERNAL_BASE_URL=http://backend:8000` inside Docker.
+Keep `APP_AUTH_ENABLED=1` for NAS use. Browser API traffic goes through the protected Next.js
+frontend at `/api/v1`; the internal FastAPI target `http://backend:8000` is set centrally in
+`docker-compose.nas.yml` and does not need to be configured in `.env.nas`.
 Keep `API_RATE_LIMIT_ENABLED=1` for NAS use. The default example allows 240 backend requests per
 60 seconds per client and excludes health/docs endpoints, which is enough for normal dashboard
 polling but helps if the backend port is accidentally exposed.
@@ -81,7 +81,7 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml logs --tail=120 fro
 docker compose --env-file .env.nas -f docker-compose.nas.yml exec frontend wget -qO- http://backend:8000/api/v1/health
 ```
 
-Expected frontend env values:
+Expected frontend env values are provided by `docker-compose.nas.yml`:
 
 ```bash
 API_INTERNAL_BASE_URL=http://backend:8000
@@ -90,6 +90,8 @@ NEXT_PUBLIC_API_BASE_URL=/api/v1
 
 Do not set `API_INTERNAL_BASE_URL` to `http://127.0.0.1:8000` inside the frontend container. Inside
 Docker, `127.0.0.1` would point to the frontend container itself, not the backend service.
+If `.env.nas` still contains older `API_INTERNAL_BASE_URL` or `NEXT_PUBLIC_API_BASE_URL` lines, remove
+them; the compose file now owns those non-secret defaults.
 
 Set `SEC_USER_AGENT` before running real 13F/SEC jobs:
 
