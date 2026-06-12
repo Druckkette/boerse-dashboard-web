@@ -64,6 +64,10 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Workspace page migrated from Streamlit `_tab_mein_bereich`: persisted watchlist,
   daily to-dos, recent ticker shortcuts and saved-position shortcuts are available
   in `/workspace` without file handling or Streamlit reruns.
+- Stock detail actions migrated from Streamlit `_tab_aktienbewertung`: opening a
+  ticker stores it as recent, the page can add it to the persisted watchlist and
+  can mark it as a starter portfolio position through the API without a global
+  UI reload.
 
 ## Open Gaps
 
