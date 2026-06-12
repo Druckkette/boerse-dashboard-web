@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.schemas import SystemReadinessCheck, SystemReadinessResponse
+from app.schemas import FreshnessResponse, ServiceFreshness, SystemReadinessCheck, SystemReadinessResponse
 
 
 client = TestClient(app)
@@ -57,6 +57,29 @@ def test_readiness_contract(monkeypatch) -> None:
     payload = response.json()
     assert payload["status"] == "degraded"
     assert {"database", "migrations", "redis"} == {check["name"] for check in payload["checks"]}
+
+
+def test_freshness_contract(monkeypatch) -> None:
+    from app.api.v1 import health as health_api
+
+    def fake_freshness() -> FreshnessResponse:
+        return FreshnessResponse(
+            generated_at=datetime.now(UTC),
+            services=[
+                ServiceFreshness(name="prices", status="fresh", as_of="2026-06-12", lag_minutes=45),
+                ServiceFreshness(name="market_breadth", status="missing", as_of="", lag_minutes=0),
+            ],
+        )
+
+    monkeypatch.setattr(health_api, "get_freshness", fake_freshness)
+
+    response = client.get("/api/v1/freshness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["services"][0]["name"] == "prices"
+    assert payload["services"][0]["status"] == "fresh"
+    assert payload["services"][1]["status"] == "missing"
 
 
 def test_market_overview_contract() -> None:
