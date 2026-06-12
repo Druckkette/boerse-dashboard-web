@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, Minus, Plus, SlidersHorizontal } from "lucide-react";
+import { BellRing, DatabaseZap, Minus, Play, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { AppSettings } from "@/lib/types/api";
+import type { AppSettings, DataDiagnosticIssue, DataDiagnostics } from "@/lib/types/api";
 
 const fallbackSettings: AppSettings = {
   atr_threshold: 1.5,
@@ -29,6 +29,11 @@ const fallbackSettings: AppSettings = {
 export function SettingsPanel() {
   const queryClient = useQueryClient();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const dataDiagnostics = useQuery({
+    queryKey: ["settings-data-diagnostics"],
+    queryFn: api.dataDiagnostics,
+    staleTime: 60_000
+  });
   const [local, setLocal] = useState<AppSettings | null>(null);
   const [dirty, setDirty] = useState(false);
   const settings = local ?? data ?? fallbackSettings;
@@ -48,6 +53,17 @@ export function SettingsPanel() {
         payload: { mode: "manual", source: "settings" }
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
+  });
+  const diagnosticJobMutation = useMutation({
+    mutationFn: (issue: DataDiagnosticIssue) =>
+      api.startJob({
+        type: issue.job_type!,
+        payload: { ...issue.job_payload, source: "settings_data_diagnostics" }
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["settings-data-diagnostics"] });
+    }
   });
 
   useEffect(() => {
@@ -277,17 +293,26 @@ export function SettingsPanel() {
           </SettingCard>
         </section>
 
-        <aside className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-          <h2 className="text-base font-semibold">Runtime Status</h2>
-          <div className="mt-4 space-y-3 text-sm">
-            <InfoRow label="Monitor" value={settings.position_monitor_enabled ? "aktiv" : "aus"} tone={settings.position_monitor_enabled ? "good" : "neutral"} />
-            <InfoRow label="Max. Verlust / Idee" value={`${settings.risk_per_position_pct.toFixed(1)}%`} />
-            <InfoRow label="Ziel Risikobeitrag" value={settings.target_risk_contribution.toFixed(2)} />
-            <InfoRow label="Intervall" value={`${settings.position_monitor_interval_minutes} min`} />
-            <InfoRow label="ATR Schwelle" value={`${settings.position_monitor_threshold_atr.toFixed(1)} ATR`} />
-            <InfoRow label="RS Quelle" value={settings.rs_rating_source} />
-            <InfoRow label="Pushover" value={settings.pushover_configured ? "konfiguriert" : "nicht konfiguriert"} tone={settings.pushover_configured ? "good" : "neutral"} />
-          </div>
+        <aside className="space-y-4">
+          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+            <h2 className="text-base font-semibold">Runtime Status</h2>
+            <div className="mt-4 space-y-3 text-sm">
+              <InfoRow label="Monitor" value={settings.position_monitor_enabled ? "aktiv" : "aus"} tone={settings.position_monitor_enabled ? "good" : "neutral"} />
+              <InfoRow label="Max. Verlust / Idee" value={`${settings.risk_per_position_pct.toFixed(1)}%`} />
+              <InfoRow label="Ziel Risikobeitrag" value={settings.target_risk_contribution.toFixed(2)} />
+              <InfoRow label="Intervall" value={`${settings.position_monitor_interval_minutes} min`} />
+              <InfoRow label="ATR Schwelle" value={`${settings.position_monitor_threshold_atr.toFixed(1)} ATR`} />
+              <InfoRow label="RS Quelle" value={settings.rs_rating_source} />
+              <InfoRow label="Pushover" value={settings.pushover_configured ? "konfiguriert" : "nicht konfiguriert"} tone={settings.pushover_configured ? "good" : "neutral"} />
+            </div>
+          </section>
+          <DataDiagnosticsPanel
+            data={dataDiagnostics.data}
+            isLoading={dataDiagnostics.isLoading}
+            startingKey={diagnosticJobMutation.isPending ? diagnosticJobMutation.variables?.key ?? null : null}
+            onRefresh={() => dataDiagnostics.refetch()}
+            onStartJob={(issue) => diagnosticJobMutation.mutate(issue)}
+          />
         </aside>
       </div>
     </div>
@@ -421,4 +446,101 @@ function InfoRow({
       <StatusChip tone={tone}>{value}</StatusChip>
     </div>
   );
+}
+
+function DataDiagnosticsPanel({
+  data,
+  isLoading,
+  startingKey,
+  onRefresh,
+  onStartJob
+}: {
+  data?: DataDiagnostics;
+  isLoading: boolean;
+  startingKey: string | null;
+  onRefresh: () => void;
+  onStartJob: (issue: DataDiagnosticIssue) => void;
+}) {
+  if (isLoading) {
+    return (
+      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+        Daten-Diagnose lädt...
+      </section>
+    );
+  }
+
+  if (!data) {
+    return (
+      <section className="rounded border border-rose-300/30 bg-rose-300/10 p-5 text-sm text-rose-100">
+        Daten-Diagnose ist aktuell nicht erreichbar.
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <DatabaseZap className="text-emerald-300" size={18} />
+            <h2 className="text-base font-semibold">Daten-Diagnose</h2>
+          </div>
+          <p className="mt-2 text-sm leading-5 text-[#a0a7b4]">{data.summary}</p>
+        </div>
+        <button
+          className="flex size-9 items-center justify-center rounded border border-[#2d333d] bg-[#111419] transition hover:border-emerald-300/60"
+          type="button"
+          onClick={onRefresh}
+        >
+          <RefreshCw size={15} />
+        </button>
+      </div>
+      <div className="grid gap-2 text-sm">
+        <InfoRow label="Offene Positionen" value={String(data.open_positions_count)} />
+        <InfoRow label="Price-Cache Ticker" value={String(data.price_cache_tickers_count)} />
+        <InfoRow label="Fehlende Kurse" value={String(data.missing_price_count)} tone={data.missing_price_count ? "bad" : "good"} />
+        <InfoRow label="Veraltete Kurse" value={String(data.stale_price_count)} tone={data.stale_price_count ? "warning" : "good"} />
+        <InfoRow label="ISIN-Mappings" value={String(data.isin_mappings_count)} />
+      </div>
+      <div className="mt-4 space-y-3">
+        {data.issues.map((issue) => (
+          <div key={issue.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div>
+                <div className="font-medium">{issue.label}</div>
+                <div className="mt-1 text-xs leading-5 text-[#77808f]">{issue.detail}</div>
+              </div>
+              <StatusChip tone={toneForSeverity(issue.severity)}>{issue.severity}</StatusChip>
+            </div>
+            {issue.tickers.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-1">
+                {issue.tickers.slice(0, 10).map((ticker) => (
+                  <span key={ticker} className="rounded bg-[#242a33] px-2 py-1 text-xs text-[#d8dde6]">
+                    {ticker}
+                  </span>
+                ))}
+              </div>
+            )}
+            {issue.job_type && (
+              <button
+                className="inline-flex w-full items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={startingKey === issue.key}
+                type="button"
+                onClick={() => onStartJob(issue)}
+              >
+                <Play size={14} />
+                {startingKey === issue.key ? "Startet" : issue.action_label || "Job starten"}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function toneForSeverity(severity: DataDiagnosticIssue["severity"]) {
+  if (severity === "critical") return "bad";
+  if (severity === "warning") return "warning";
+  return "neutral";
 }

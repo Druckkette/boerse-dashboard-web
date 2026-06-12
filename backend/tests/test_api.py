@@ -334,3 +334,14 @@ def test_sell_post_mortem_note_contract() -> None:
     diagnostics = client.get("/api/v1/sell/NOTE/diagnostics")
     assert diagnostics.status_code == 200
     assert any(note["check_key"] == "data_quality" for note in diagnostics.json()["post_mortem_notes"])
+
+
+def test_settings_data_diagnostics_contract() -> None:
+    response = client.get("/api/v1/settings/data-diagnostics")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["health_tone"] in {"good", "neutral", "warning", "bad"}
+    assert isinstance(payload["open_positions_count"], int)
+    assert isinstance(payload["issues"], list)
+    if payload["issues"]:
+        assert {"key", "label", "severity", "detail", "tickers"}.issubset(payload["issues"][0])

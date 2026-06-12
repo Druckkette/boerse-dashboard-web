@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   Breadth,
+  DataDiagnostics,
   Freshness,
   Job,
   JobType,
@@ -186,5 +187,6 @@ export const api = {
     return payload;
   },
   settings: () => getJson<AppSettings>("/settings"),
+  dataDiagnostics: () => getJson<DataDiagnostics>("/settings/data-diagnostics"),
   patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body)
 };

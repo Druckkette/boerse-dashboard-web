@@ -795,6 +795,30 @@ class JobCancelResponse(BaseModel):
     cancelled: bool
 
 
+class DataDiagnosticIssue(BaseModel):
+    key: str
+    label: str
+    severity: Literal["info", "warning", "critical"]
+    detail: str
+    tickers: list[str] = Field(default_factory=list)
+    action_label: str = ""
+    job_type: JobType | None = None
+    job_payload: dict = Field(default_factory=dict)
+
+
+class DataDiagnosticsResponse(BaseModel):
+    as_of: str
+    health_tone: Literal["good", "neutral", "warning", "bad"]
+    summary: str
+    open_positions_count: int = 0
+    price_cache_tickers_count: int = 0
+    missing_price_count: int = 0
+    stale_price_count: int = 0
+    missing_yahoo_symbol_count: int = 0
+    isin_mappings_count: int = 0
+    issues: list[DataDiagnosticIssue] = Field(default_factory=list)
+
+
 class AppSettings(BaseModel):
     atr_threshold: float
     risk_per_position_pct: float = 1.0

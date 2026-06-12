@@ -35,6 +35,7 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Market diagnostics endpoint and `/market` UI for the old `_tab_marktanalyse` daily checklist, Intermarket view and defensive/offensive sector rotation.
 - Persistent Sell post-mortem notes/actions with Postgres table, API and non-blocking detail-page editing.
 - Sell context chart annotations for stop, next tranche, full-exit levels and active signal markers.
+- Settings data diagnostics for missing/stale price cache, Yahoo-symbol gaps and ISIN mapping status with direct worker-job actions.
 
 ## Open Gaps
 
@@ -45,8 +46,6 @@ Target: `Druckkette/boerse-dashboard-web`.
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Market parity:
   - Full universe maintenance/rescue/remap workflows.
-- Technical settings parity:
-  - Worker diagnostics for missing tickers and Yahoo mapping.
 - Auth/private area:
   - Streamlit password gate equivalent for personal depot/settings.
   - Session handling suitable for NAS and later Hetzner.

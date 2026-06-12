@@ -866,3 +866,27 @@ export type AppSettings = {
   rs_rating_source: "csv_latest" | "computed";
   data_jobs_enabled: boolean;
 };
+
+export type DataDiagnosticIssue = {
+  key: string;
+  label: string;
+  severity: "info" | "warning" | "critical";
+  detail: string;
+  tickers: string[];
+  action_label: string;
+  job_type?: JobType | null;
+  job_payload: Record<string, unknown>;
+};
+
+export type DataDiagnostics = {
+  as_of: string;
+  health_tone: Tone;
+  summary: string;
+  open_positions_count: number;
+  price_cache_tickers_count: number;
+  missing_price_count: number;
+  stale_price_count: number;
+  missing_yahoo_symbol_count: number;
+  isin_mappings_count: number;
+  issues: DataDiagnosticIssue[];
+};
