@@ -712,6 +712,45 @@ export type SellEvaluation = {
   tranche_log: TrancheLogEntry[];
 };
 
+export type SellLiveMonitorMetric = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: Tone;
+};
+
+export type SellStrategyDiagnostic = {
+  strategy_key: string;
+  theme: string;
+  label: string;
+  status: "clear" | "watch" | "active";
+  tone: Tone;
+  active_signal_count: number;
+  watch_signal_count: number;
+  max_contribution_percent: number;
+  book_reference: string;
+  description: string;
+  signals: SellSignal[];
+};
+
+export type SellPostMortemCheck = {
+  key: string;
+  label: string;
+  status: "ok" | "review" | "fail";
+  tone: Tone;
+  evidence: string;
+};
+
+export type SellDiagnostics = {
+  ticker: string;
+  as_of: string;
+  price_context: SellLiveMonitorMetric[];
+  strategy_hub: SellStrategyDiagnostic[];
+  post_mortem: SellPostMortemCheck[];
+  next_action: string;
+};
+
 export type Job = {
   job_id: string;
   celery_task_id: string;

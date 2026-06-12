@@ -12,23 +12,28 @@ from app.domain.sell.metrics import build_sell_decision_metrics_payload
 from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision
 from app.domain.sell.schemas import (
     ManualInputResponse,
+    SellDiagnosticsResponse,
     SellEvaluationRequest,
     SellEvaluationResponse,
     SellHealthScore,
+    SellLiveMonitorMetric,
     SellManualInput,
     SellMetricsApiResponse,
     SellMetricsPayload,
     SellMetricsRequest,
+    SellPostMortemCheck,
     SellPositionRankingItem,
     SellRankingResponse,
     SellRecommendationState,
     SellSignal,
+    SellStrategyDiagnostic,
     SnoozeRequest,
     SnoozeResponse,
     TrancheLogEntry,
     TrancheLogResponse,
     default_snoozed_until,
 )
+from app.domain.sell.strategies import STRATEGIE_INFO, STRATEGY_THEMES
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.repositories import sell_state as sell_state_repository
@@ -155,6 +160,26 @@ def get_sell_position_ranking() -> SellRankingResponse:
     return SellRankingResponse(rows=rows)
 
 
+def get_sell_diagnostics_for_position(ticker: str) -> SellDiagnosticsResponse:
+    clean_ticker = _clean_ticker(ticker)
+    metrics = get_sell_metrics_for_position(clean_ticker)
+    evaluation = _evaluate_position_sell_decision(clean_ticker, None, persist_state=False)
+    all_signals = [
+        *evaluation.killer_signals,
+        *evaluation.tranche_signals,
+        *evaluation.warning_signals,
+        *evaluation.watch_signals,
+    ]
+    return SellDiagnosticsResponse(
+        ticker=clean_ticker,
+        as_of=metrics.as_of,
+        price_context=_live_monitor_metrics(metrics),
+        strategy_hub=_strategy_hub(all_signals),
+        post_mortem=_post_mortem_checks(metrics, evaluation),
+        next_action=_next_action_text(evaluation),
+    )
+
+
 def update_manual_sell_inputs(ticker: str, manual: SellManualInput) -> ManualInputResponse:
     clean_ticker = _clean_ticker(ticker)
     stored = manual.model_copy(update={"ticker": clean_ticker})
@@ -243,6 +268,158 @@ def monitor_open_positions(tickers: list[str] | None = None) -> dict[str, Any]:
         "records_written": len(items),
         "items": items,
     }
+
+
+def _live_monitor_metrics(metrics: SellMetricsApiResponse) -> list[SellLiveMonitorMetric]:
+    price_source = str(metrics.raw_payload.metrics.get("price_data_source") or "")
+    atr_pct = metrics.atr14 / metrics.current_price * 100 if metrics.atr14 and metrics.current_price else None
+    return [
+        SellLiveMonitorMetric(
+            key="price_source",
+            label="Datenquelle",
+            value=_data_source_label(price_source),
+            detail="Price Cache bevorzugt, Fallback nur als Warnung.",
+            tone="good" if price_source == "database" else "warning",
+        ),
+        SellLiveMonitorMetric(
+            key="current_price",
+            label="Letzter Kurs",
+            value=_fmt_number(metrics.current_price),
+            detail=f"Stand {metrics.as_of}",
+        ),
+        SellLiveMonitorMetric(
+            key="pnl_pct",
+            label="P&L",
+            value=_fmt_pct(metrics.pnl_pct),
+            detail="seit Einstieg",
+            tone="good" if (metrics.pnl_pct or 0) >= 0 else "bad",
+        ),
+        SellLiveMonitorMetric(
+            key="atr14",
+            label="ATR14",
+            value=_fmt_number(metrics.atr14),
+            detail=f"{_fmt_pct(atr_pct)} vom Kurs",
+            tone="warning" if atr_pct is not None and atr_pct >= 6 else "neutral",
+        ),
+        SellLiveMonitorMetric(
+            key="ema21",
+            label="21-EMA",
+            value=_fmt_number(metrics.ema21),
+            detail=f"{metrics.days_under_ema21} Tage darunter",
+            tone="warning" if metrics.days_under_ema21 > 0 else "good",
+        ),
+        SellLiveMonitorMetric(
+            key="sma50",
+            label="50-SMA",
+            value=_fmt_number(metrics.sma50),
+            detail="mittelfristiger Trendfilter",
+        ),
+        SellLiveMonitorMetric(
+            key="distribution_days",
+            label="Distribution",
+            value=str(metrics.distribution_days_25),
+            detail="Tage in 25 Sessions",
+            tone="warning" if metrics.distribution_days_25 >= 4 else "good",
+        ),
+        SellLiveMonitorMetric(
+            key="rs_trend",
+            label="RS Trend",
+            value=metrics.rs_trend,
+            detail="hoch / seitwärts / runter",
+            tone="good" if metrics.rs_trend == "hoch" else "bad" if metrics.rs_trend == "runter" else "neutral",
+        ),
+    ]
+
+
+def _strategy_hub(signals: list[SellSignal]) -> list[SellStrategyDiagnostic]:
+    by_strategy: dict[str, list[SellSignal]] = {}
+    for signal in signals:
+        key = signal.strategy_key or signal.id or signal.severity
+        by_strategy.setdefault(key, []).append(signal)
+
+    diagnostics: list[SellStrategyDiagnostic] = []
+    for key, items in by_strategy.items():
+        active = [item for item in items if item.severity in {"killer", "tranche"}]
+        watch = [item for item in items if item.severity in {"warning", "watch"}]
+        diagnostics.append(
+            SellStrategyDiagnostic(
+                strategy_key=key,
+                theme=STRATEGY_THEMES.get(key, "sonstige"),
+                label=_strategy_label(key),
+                status="active" if active else "watch" if watch else "clear",
+                tone=_strategy_tone(items),
+                active_signal_count=len(active),
+                watch_signal_count=len(watch),
+                max_contribution_percent=max((item.contribution_percent for item in items), default=0),
+                book_reference=_first_non_empty(item.book_reference for item in items),
+                description=_strategy_description(key),
+                signals=items,
+            )
+        )
+
+    diagnostics.sort(
+        key=lambda item: (
+            {"bad": 0, "warning": 1, "neutral": 2, "good": 3}[item.tone],
+            -item.max_contribution_percent,
+            item.strategy_key,
+        )
+    )
+    return diagnostics
+
+
+def _post_mortem_checks(
+    metrics: SellMetricsApiResponse,
+    evaluation: SellEvaluationResponse,
+) -> list[SellPostMortemCheck]:
+    price_source = str(metrics.raw_payload.metrics.get("price_data_source") or "")
+    pnl = float(metrics.pnl_pct or 0.0)
+    return [
+        SellPostMortemCheck(
+            key="data_quality",
+            label="Datenqualität",
+            status="ok" if price_source == "database" else "review",
+            tone="good" if price_source == "database" else "warning",
+            evidence=f"Kursdatenquelle: {_data_source_label(price_source)}",
+        ),
+        SellPostMortemCheck(
+            key="risk_budget",
+            label="Verlustrisiko",
+            status="fail" if pnl <= -7 else "ok" if pnl >= 0 else "review",
+            tone="bad" if pnl <= -7 else "good" if pnl >= 0 else "warning",
+            evidence=f"P&L {_fmt_pct(metrics.pnl_pct)}, Empfehlung {evaluation.sell_now_percent}%",
+        ),
+        SellPostMortemCheck(
+            key="trend_filter",
+            label="Trendfilter",
+            status="fail" if metrics.days_under_ema21 >= 3 else "review" if metrics.days_under_ema21 > 0 else "ok",
+            tone="bad" if metrics.days_under_ema21 >= 3 else "warning" if metrics.days_under_ema21 > 0 else "good",
+            evidence=f"{metrics.days_under_ema21} Tage unter 21-EMA",
+        ),
+        SellPostMortemCheck(
+            key="distribution",
+            label="Distribution",
+            status="review" if metrics.distribution_days_25 >= 4 else "ok",
+            tone="warning" if metrics.distribution_days_25 >= 4 else "good",
+            evidence=f"{metrics.distribution_days_25} Distributionstage in 25 Sessions",
+        ),
+        SellPostMortemCheck(
+            key="execution_state",
+            label="Ausführungsstand",
+            status="review" if evaluation.sell_now_percent > 0 and evaluation.already_sold_percent == 0 else "ok",
+            tone="warning" if evaluation.sell_now_percent > 0 and evaluation.already_sold_percent == 0 else "good",
+            evidence=f"{evaluation.already_sold_percent:.0f}% bereits verkauft, Ziel {evaluation.target_total_sold_percent}%",
+        ),
+    ]
+
+
+def _next_action_text(evaluation: SellEvaluationResponse) -> str:
+    if evaluation.sell_now_percent > 0:
+        return f"{evaluation.sell_now_percent}% Verkauf prüfen: {evaluation.explanation_short}"
+    if evaluation.pending_status == "snoozed":
+        return "Signal ist snoozed; nächster Check nach Ablauf des Snooze-Fensters."
+    if evaluation.watch_signals or evaluation.warning_signals:
+        return evaluation.explanation_short or "Watch-/Warnsignale weiter beobachten."
+    return "Keine aktive Verkaufsaktion. Position weiter monitoren."
 
 
 def _evaluate_position_sell_decision(
@@ -699,6 +876,53 @@ def _finite_float(value: Any, default: float | None = None) -> float | None:
     except (TypeError, ValueError):
         return default
     return parsed if np.isfinite(parsed) else default
+
+
+def _fmt_number(value: float | None) -> str:
+    return "-" if value is None else f"{value:.2f}"
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "-" if value is None else f"{value:+.1f}%"
+
+
+def _data_source_label(value: str) -> str:
+    if value == "database":
+        return "Price Cache"
+    if value == "synthetic_fixture":
+        return "Fixture"
+    if value == "synthetic_fallback":
+        return "Fallback"
+    return "unbekannt"
+
+
+def _strategy_tone(signals: list[SellSignal]) -> str:
+    if any(signal.severity == "killer" for signal in signals):
+        return "bad"
+    if any(signal.severity in {"tranche", "warning"} for signal in signals):
+        return "warning"
+    if signals:
+        return "neutral"
+    return "good"
+
+
+def _strategy_label(strategy_key: str) -> str:
+    clean = strategy_key.replace("lm_", "Live ").replace("_", " ").strip()
+    return clean[:1].upper() + clean[1:] if clean else "Sonstige Strategie"
+
+
+def _strategy_description(strategy_key: str) -> str:
+    info = STRATEGIE_INFO.get(strategy_key, "")
+    if not info:
+        return "Live-Monitor- oder Watch-Signal aus der Sell-Engine."
+    return info.strip()[:220].rstrip()
+
+
+def _first_non_empty(values: Any) -> str:
+    for value in values:
+        if value:
+            return str(value)
+    return ""
 
 
 def _json_safe(value: Any) -> Any:

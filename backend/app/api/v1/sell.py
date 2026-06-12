@@ -4,6 +4,7 @@ from app.domain.sell.schemas import (
     ManualInputResponse,
     SellEvaluationRequest,
     SellEvaluationResponse,
+    SellDiagnosticsResponse,
     SellManualInput,
     SellMetricsApiResponse,
     SellRankingResponse,
@@ -15,6 +16,7 @@ from app.domain.sell.schemas import (
 from app.domain.sell.service import (
     create_tranche_log_entry,
     evaluate_position_sell_decision,
+    get_sell_diagnostics_for_position,
     get_sell_metrics_for_position,
     get_sell_position_ranking,
     snooze_sell_signal,
@@ -41,6 +43,11 @@ def evaluate(
     payload: SellEvaluationRequest | None = None,
 ) -> SellEvaluationResponse:
     return evaluate_position_sell_decision(ticker, payload)
+
+
+@router.get("/{ticker}/diagnostics", response_model=SellDiagnosticsResponse)
+def diagnostics(ticker: str) -> SellDiagnosticsResponse:
+    return get_sell_diagnostics_for_position(ticker)
 
 
 @router.patch("/{ticker}/manual", response_model=ManualInputResponse)

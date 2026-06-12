@@ -1,14 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellOff, Minus, Plus, Save } from "lucide-react";
+import { Activity, BellOff, ClipboardCheck, Minus, Plus, Save, ShieldAlert } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { api } from "@/lib/api/client";
-import type { PendingStatus, SellManualInput, SellSignal } from "@/lib/types/api";
+import type { PendingStatus, SellDiagnostics, SellManualInput, SellSignal, Tone } from "@/lib/types/api";
 
 const toneByStatus = {
   Halten: "good",
@@ -29,6 +29,7 @@ export default function SellMonitorTickerPage() {
   const queryClient = useQueryClient();
   const metrics = useQuery({ queryKey: ["sell-metrics", ticker], queryFn: () => api.sellMetrics(ticker) });
   const evaluation = useQuery({ queryKey: ["sell-evaluation", ticker], queryFn: () => api.sellEvaluation(ticker) });
+  const diagnostics = useQuery({ queryKey: ["sell-diagnostics", ticker], queryFn: () => api.sellDiagnostics(ticker) });
   const [manualDraft, setManualDraft] = useState<{ ticker: string; value: SellManualInput } | null>(null);
   const [tranchePct, setTranchePct] = useState(25);
   const [trancheReason, setTrancheReason] = useState("Manuelle Tranche");
@@ -205,6 +206,8 @@ export default function SellMonitorTickerPage() {
 
           <StockPricePanel ticker={ticker} title="Sell Context" />
 
+          <SellDiagnosticsPanel diagnostics={diagnostics.data} isLoading={diagnostics.isLoading} />
+
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
             <h2 className="mb-4 text-base font-semibold">Hauptgründe</h2>
             <SignalList signals={mainSignals} empty="Keine aktiven Hauptsignale." />
@@ -350,6 +353,123 @@ export default function SellMonitorTickerPage() {
   );
 }
 
+function SellDiagnosticsPanel({
+  diagnostics,
+  isLoading
+}: {
+  diagnostics?: SellDiagnostics;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <div className="h-5 w-48 animate-pulse rounded bg-[#242a33]" />
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => (
+            <div key={item} className="h-24 animate-pulse rounded border border-[#242a33] bg-[#111419]" />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (!diagnostics) {
+    return (
+      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+        Sell-Diagnostik ist noch nicht verfügbar.
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-4 rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Activity className="size-5 text-[#8ea4c8]" />
+            <h2 className="text-base font-semibold">Live-Diagnostik</h2>
+          </div>
+          <p className="mt-1 text-sm text-[#a0a7b4]">Stand {diagnostics.as_of}</p>
+        </div>
+        <StatusChip tone="neutral">{diagnostics.strategy_hub.length} Strategien</StatusChip>
+      </div>
+
+      <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+          <ShieldAlert className="size-4 text-amber-200" />
+          Nächste Aktion
+        </div>
+        <div className="text-sm leading-6 text-[#d8dde6]">{diagnostics.next_action}</div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {diagnostics.price_context.map((item) => (
+          <DiagnosticMetric key={item.key} item={item} />
+        ))}
+      </div>
+
+      <div>
+        <div className="mb-3 flex items-center gap-2">
+          <ClipboardCheck className="size-4 text-[#8ea4c8]" />
+          <h3 className="text-sm font-semibold">Strategie-Hub</h3>
+        </div>
+        <div className="grid gap-3 xl:grid-cols-2">
+          {diagnostics.strategy_hub.length === 0 && (
+            <div className="rounded border border-[#242a33] bg-[#111419] p-4 text-sm text-[#a0a7b4]">
+              Keine aktiven Strategie- oder Watch-Signale.
+            </div>
+          )}
+          {diagnostics.strategy_hub.slice(0, 8).map((strategy) => (
+            <div key={strategy.strategy_key} className="rounded border border-[#242a33] bg-[#111419] p-4">
+              <div className="mb-2 flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium">{strategy.label}</div>
+                  <div className="mt-1 text-xs text-[#77808f]">{strategy.theme}</div>
+                </div>
+                <StatusChip tone={strategy.tone}>{strategy.max_contribution_percent}%</StatusChip>
+              </div>
+              <div className="line-clamp-2 text-sm leading-5 text-[#a0a7b4]">{strategy.description}</div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#77808f]">
+                <span>{strategy.active_signal_count} aktiv</span>
+                <span>{strategy.watch_signal_count} watch</span>
+                {strategy.book_reference && <span>{strategy.book_reference}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-sm font-semibold">Post-Mortem-Checks</h3>
+        <div className="grid gap-3 md:grid-cols-2">
+          {diagnostics.post_mortem.map((check) => (
+            <div key={check.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="font-medium">{check.label}</div>
+                <StatusChip tone={check.tone}>{check.status}</StatusChip>
+              </div>
+              <div className="text-sm text-[#a0a7b4]">{check.evidence}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DiagnosticMetric({ item }: { item: SellDiagnostics["price_context"][number] }) {
+  return (
+    <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-xs uppercase text-[#a0a7b4]">{item.label}</div>
+        <StatusChip tone={item.tone}>{toneLabel(item.tone)}</StatusChip>
+      </div>
+      <div className="text-xl font-semibold tabular-nums">{item.value}</div>
+      <div className="mt-1 text-xs leading-5 text-[#77808f]">{item.detail}</div>
+    </div>
+  );
+}
+
 function SignalList({ signals, empty }: { signals: SellSignal[]; empty: string }) {
   if (signals.length === 0) {
     return <div className="text-sm text-[#a0a7b4]">{empty}</div>;
@@ -369,6 +489,13 @@ function SignalList({ signals, empty }: { signals: SellSignal[]; empty: string }
       ))}
     </div>
   );
+}
+
+function toneLabel(tone: Tone) {
+  if (tone === "good") return "ok";
+  if (tone === "warning") return "watch";
+  if (tone === "bad") return "risk";
+  return "neutral";
 }
 
 function MetricTile({ label, value, detail }: { label: string; value: string; detail: string }) {

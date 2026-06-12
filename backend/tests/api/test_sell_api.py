@@ -49,6 +49,19 @@ def test_sell_evaluate_endpoint_returns_signals_and_state() -> None:
     assert payload["killer_signals"] or payload["tranche_signals"]
 
 
+def test_sell_diagnostics_endpoint_returns_strategy_context() -> None:
+    response = client.get("/api/v1/sell/PLTR/diagnostics")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["ticker"] == "PLTR"
+    assert isinstance(payload["price_context"], list)
+    assert isinstance(payload["strategy_hub"], list)
+    assert isinstance(payload["post_mortem"], list)
+    assert payload["next_action"]
+    assert {"strategy_key", "status", "signals"} <= set(payload["strategy_hub"][0])
+
+
 def test_manual_inputs_tranches_and_snooze_are_mutable_over_api() -> None:
     manual_response = client.patch(
         "/api/v1/sell/NVDA/manual",

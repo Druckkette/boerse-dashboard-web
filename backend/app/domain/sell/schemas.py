@@ -170,6 +170,45 @@ class SellMetricsApiResponse(BaseModel):
     raw_payload: SellMetricsPayload
 
 
+class SellLiveMonitorMetric(BaseModel):
+    key: str
+    label: str
+    value: str
+    detail: str = ""
+    tone: Literal["good", "neutral", "warning", "bad"] = "neutral"
+
+
+class SellStrategyDiagnostic(BaseModel):
+    strategy_key: str
+    theme: str
+    label: str
+    status: Literal["clear", "watch", "active"]
+    tone: Literal["good", "neutral", "warning", "bad"]
+    active_signal_count: int = 0
+    watch_signal_count: int = 0
+    max_contribution_percent: int = 0
+    book_reference: str = ""
+    description: str = ""
+    signals: list[SellSignal] = Field(default_factory=list)
+
+
+class SellPostMortemCheck(BaseModel):
+    key: str
+    label: str
+    status: Literal["ok", "review", "fail"]
+    tone: Literal["good", "neutral", "warning", "bad"]
+    evidence: str
+
+
+class SellDiagnosticsResponse(BaseModel):
+    ticker: str
+    as_of: str
+    price_context: list[SellLiveMonitorMetric]
+    strategy_hub: list[SellStrategyDiagnostic]
+    post_mortem: list[SellPostMortemCheck]
+    next_action: str
+
+
 class SellRankingResponse(BaseModel):
     rows: list[SellPositionRankingItem]
 
