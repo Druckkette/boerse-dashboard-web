@@ -6,12 +6,13 @@ from app.schemas import (
     Institutional13FTrendResponse,
     RsRatingDetailResponse,
     RsRatingRankingResponse,
+    StockAssessmentRankingResponse,
     StockAssessmentResponse,
 )
 from app.services.prices import PriceRange, get_price_history
 from app.services.relative_strength import get_relative_strength_for_ticker, get_relative_strength_ranking
 from app.services.sec13f import get_institutional_13f_for_ticker, get_institutional_13f_ranking
-from app.services.stocks import get_stock_assessment
+from app.services.stocks import get_stock_assessment, get_stock_assessment_ranking
 
 
 router = APIRouter()
@@ -25,6 +26,11 @@ def relative_strength_ranking(limit: int = Query(default=100, ge=1, le=500)) -> 
 @router.get("/institutional/13f", response_model=Institutional13FRankingResponse)
 def institutional_13f_ranking(limit: int = Query(default=100, ge=1, le=500)) -> Institutional13FRankingResponse:
     return get_institutional_13f_ranking(limit=limit)
+
+
+@router.get("/assessment/ranking", response_model=StockAssessmentRankingResponse)
+def stock_assessment_ranking(limit: int = Query(default=50, ge=1, le=120)) -> StockAssessmentRankingResponse:
+    return get_stock_assessment_ranking(limit=limit)
 
 
 @router.get("/{ticker}/prices", response_model=PriceHistoryResponse)

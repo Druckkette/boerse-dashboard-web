@@ -26,15 +26,14 @@ Target: `Druckkette/boerse-dashboard-web`.
 - Transaction-based depot curve from saved Trade-Republic transactions with cached price bars and trade-price fallback.
 - S&P 500 benchmark line for the depot curve when `^GSPC` or `SPY` is present in the Price Cache.
 - Persistent ISIN/Yahoo mapping maintenance in the portfolio import UI.
+- Stock assessment ranking table using the same score components as the single-stock assessment.
 
 ## Open Gaps
 
 - Stock assessment page parity:
   - Single-stock fundamental checks.
-  - Technical checklist and chart behavior signs.
-  - Combined 0-100 score from technical, fundamental, moving averages and chart behavior.
   - Earnings warning, institutional holder context, CMF, liquidity/dollar-volume filters.
-  - Comparison/ranking table parity beyond current RS ranking.
+  - Fundamental score is still neutral until a dedicated fundamentals cache exists.
 - Portfolio parity:
   - Broker-specific edge cases for dividends, taxes, split rows and derivatives need more golden fixtures.
 - Sell parity:

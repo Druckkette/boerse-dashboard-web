@@ -254,6 +254,31 @@ class StockAssessmentResponse(BaseModel):
     warnings: list[str]
 
 
+class StockAssessmentRankingItem(BaseModel):
+    ticker: str
+    name: str
+    as_of: str
+    verdict_label: str
+    verdict_tone: Literal["good", "neutral", "warning", "bad"]
+    overall_score: int
+    technical_score: float
+    fundamental_score: float
+    moving_average_score: float
+    chart_behavior_score: int
+    rs_rating: int | None = None
+    dollar_volume_mio: float | None = None
+    atr_pct: float | None = None
+    warnings_count: int
+    top_warning: str = ""
+    top_driver: str = ""
+
+
+class StockAssessmentRankingResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "missing"]
+    rows: list[StockAssessmentRankingItem]
+
+
 class Institutional13FTrendItem(BaseModel):
     ticker: str
     cusip: str

@@ -482,6 +482,31 @@ export type StockAssessment = {
   warnings: string[];
 };
 
+export type StockAssessmentRankingItem = {
+  ticker: string;
+  name: string;
+  as_of: string;
+  verdict_label: string;
+  verdict_tone: Tone;
+  overall_score: number;
+  technical_score: number;
+  fundamental_score: number;
+  moving_average_score: number;
+  chart_behavior_score: number;
+  rs_rating?: number | null;
+  dollar_volume_mio?: number | null;
+  atr_pct?: number | null;
+  warnings_count: number;
+  top_warning: string;
+  top_driver: string;
+};
+
+export type StockAssessmentRanking = {
+  as_of: string;
+  source: "database" | "missing";
+  rows: StockAssessmentRankingItem[];
+};
+
 export type Institutional13FTrendItem = {
   ticker: string;
   cusip: string;

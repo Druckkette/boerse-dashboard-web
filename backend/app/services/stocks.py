@@ -10,6 +10,8 @@ from app.repositories.relative_strength import RelativeStrengthRepositoryUnavail
 from app.schemas import (
     StockAssessmentCheck,
     StockAssessmentMetrics,
+    StockAssessmentRankingItem,
+    StockAssessmentRankingResponse,
     StockAssessmentResponse,
     StockAssessmentScores,
     StockAssessmentSignal,
@@ -34,6 +36,34 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
 
     result = compute_stock_assessment(clean, bars, rs_context=_rs_context(rs_row))
     return _to_response(result)
+
+
+def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingResponse:
+    try:
+        rs_rows = rs_repository.list_latest_rs_ratings(limit=max(1, min(120, limit)), source="computed")
+    except RelativeStrengthRepositoryUnavailable:
+        rs_rows = []
+    if not rs_rows:
+        return StockAssessmentRankingResponse(as_of=date.today().isoformat(), source="missing", rows=[])
+
+    rows: list[StockAssessmentRankingItem] = []
+    for rs_row in rs_rows:
+        start_date = date.today() - timedelta(days=ASSESSMENT_LOOKBACK_DAYS)
+        try:
+            bars = price_repository.list_price_bars(rs_row.ticker, start_date=start_date)
+        except PriceRepositoryUnavailable:
+            bars = []
+        result = compute_stock_assessment(rs_row.ticker, bars, rs_context=_rs_context(rs_row))
+        if result.source != "database":
+            continue
+        rows.append(_to_ranking_item(result, rs_row.name))
+
+    rows.sort(key=lambda item: (item.overall_score, item.technical_score, item.rs_rating or 0), reverse=True)
+    return StockAssessmentRankingResponse(
+        as_of=rows[0].as_of if rows else rs_rows[0].date.isoformat(),
+        source="database" if rows else "missing",
+        rows=rows,
+    )
 
 
 def _rs_context(row: RsRatingRow | None) -> dict:
@@ -119,4 +149,25 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
         ],
         drivers=result.drivers,
         warnings=result.warnings,
+    )
+
+
+def _to_ranking_item(result: StockAssessmentResult, name: str) -> StockAssessmentRankingItem:
+    return StockAssessmentRankingItem(
+        ticker=result.ticker,
+        name=name or result.ticker,
+        as_of=result.as_of,
+        verdict_label=result.verdict_label,
+        verdict_tone=result.verdict_tone,
+        overall_score=result.scores.overall,
+        technical_score=result.scores.technical,
+        fundamental_score=result.scores.fundamental,
+        moving_average_score=result.scores.moving_averages,
+        chart_behavior_score=result.scores.chart_behavior,
+        rs_rating=result.metrics.rs_rating,
+        dollar_volume_mio=result.metrics.dollar_volume_mio,
+        atr_pct=result.metrics.atr_pct,
+        warnings_count=len(result.warnings),
+        top_warning=result.warnings[0] if result.warnings else "",
+        top_driver=result.drivers[0] if result.drivers else "",
     )

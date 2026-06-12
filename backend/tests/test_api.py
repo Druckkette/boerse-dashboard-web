@@ -102,6 +102,16 @@ def test_stock_assessment_contract() -> None:
     assert isinstance(payload["chart_signals"], list)
 
 
+def test_stock_assessment_ranking_contract() -> None:
+    response = client.get("/api/v1/stocks/assessment/ranking?limit=10")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert isinstance(payload["rows"], list)
+    if payload["rows"]:
+        assert {"ticker", "overall_score", "technical_score", "verdict_label"}.issubset(payload["rows"][0])
+
+
 def test_stock_institutional_13f_contract() -> None:
     response = client.get("/api/v1/stocks/NVDA/institutional/13f")
     assert response.status_code == 200
