@@ -51,7 +51,8 @@ export function MarketAmpelPanel() {
     ema21: point.ema21,
     sma10: point.sma10,
     sma50: point.sma50,
-    sma200: point.sma200
+    sma200: point.sma200,
+    vol_sma50: point.vol_sma50
   }));
 
   return (
@@ -123,7 +124,7 @@ export function MarketAmpelPanel() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <TrafficLightPanel data={data} />
         <div className="grid gap-3 sm:grid-cols-2">
           {data.change_cards.map((card) => (
@@ -193,9 +194,9 @@ export function MarketAmpelPanel() {
 function TrafficLightPanel({ data }: { data: MarketAmpel }) {
   return (
     <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-      <div className="grid gap-5 xl:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)]">
+      <div className="grid gap-5 2xl:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)]">
         <div className="rounded border border-[#2d333d] bg-[#101318] p-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-2">
             {data.lights.map((light) => (
               <Light key={light.key} light={light} />
             ))}
@@ -204,13 +205,18 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
         <div className="min-w-0 flex-1">
           <div className={clsx("rounded border p-5", phaseCardClass(data.phase_info.tone))}>
             <div className="text-xs font-semibold uppercase tracking-normal text-[#a0a7b4]">Aktuelle Ampelphase</div>
-            <div className={clsx("mt-2 break-words text-3xl font-semibold tracking-normal md:text-4xl", toneText(data.phase_info.tone))}>
+            <div className={clsx("mt-2 break-words text-2xl font-semibold leading-tight tracking-normal md:text-3xl", toneText(data.phase_info.tone))}>
               {data.phase_info.label}
             </div>
-            <p className="mt-4 max-w-3xl text-base leading-7 text-[#d8dde6]">{data.phase_info.reason}</p>
-            <div className="mt-4 rounded border border-[#2d333d] bg-[#111419] p-4">
-              <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">Handlung</div>
-              <p className="mt-2 text-base leading-7 text-[#f2f5f8]">{data.phase_info.action}</p>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+                <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">Definition</div>
+                <p className="mt-2 text-sm leading-6 text-[#d8dde6]">{data.phase_info.reason}</p>
+              </div>
+              <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+                <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">Handlung</div>
+                <p className="mt-2 text-sm leading-6 text-[#f2f5f8]">{data.phase_info.action}</p>
+              </div>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
@@ -250,7 +256,15 @@ function Light({ light }: { light: MarketAmpelLight }) {
         <CircleDot size={22} />
       </span>
       <span className={clsx("max-w-full text-center text-xs font-semibold leading-4", light.active ? toneText(light.tone) : "text-[#77808f]")}>
-        {light.label}
+        {light.key === "aufwaertstrend" ? (
+          <>
+            AUFWÄRTS
+            <br />
+            TREND
+          </>
+        ) : (
+          light.label
+        )}
       </span>
     </div>
   );
@@ -373,12 +387,15 @@ function TrendOrderGrid({ data }: { data: MarketAmpel }) {
   const trendChecks = [
     maCheck("Schluss über 21-EMA", close, latest.ema21),
     maCheck("Tief über 21-EMA", low, latest.ema21),
+    booleanCheck("21-EMA gehalten", latest.ema21_held, latest.ema21 ? "Schlusskurs darüber" : "n/a", "Darunter"),
     heldCheck("3T Tief > 21-EMA", lastLowAbove(data.chart_points, "ema21")),
     maCheck("Schluss über 50-SMA", close, latest.sma50),
     maCheck("Tief über 50-SMA", low, latest.sma50),
+    booleanCheck("50-SMA gehalten", latest.sma50_held, latest.sma50 ? "Schlusskurs darüber" : "n/a", "Darunter"),
     heldCheck("3T Tief > 50-SMA", lastLowAbove(data.chart_points, "sma50")),
     maCheck("Schluss über 200-SMA", close, latest.sma200),
     maCheck("Tief über 200-SMA", low, latest.sma200),
+    booleanCheck("200-SMA gehalten", latest.sma200_held, latest.sma200 ? "Schlusskurs darüber" : "n/a", "Darunter"),
     heldCheck("3T Tief > 200-SMA", lastLowAbove(data.chart_points, "sma200"))
   ];
   const orderChecks = [
@@ -474,6 +491,14 @@ function orderCheck(label: string, fast?: number | null, slow?: number | null) {
   };
 }
 
+function booleanCheck(label: string, passed: boolean, okDetail: string, failDetail: string) {
+  return {
+    label,
+    passed,
+    detail: passed ? okDetail : failDetail
+  };
+}
+
 function heldCheck(label: string, count: number) {
   return {
     label,
@@ -497,7 +522,7 @@ function CycleMetric({ label, value, tone = "neutral" }: { label: string; value:
   return (
     <div className="min-h-[104px] rounded border border-[#2d333d] bg-[#111419] p-4">
       <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">{label}</div>
-      <div className={clsx("mt-3 break-words text-xl font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
+      <div className={clsx("mt-3 break-words text-lg font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
     </div>
   );
 }

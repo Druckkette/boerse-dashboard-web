@@ -1,4 +1,5 @@
 import { BreadthChartPanel } from "@/features/market/breadth-chart-panel";
+import { DeepAnalysisPanel } from "@/features/market/deep-analysis-panel";
 import { MarketAmpelPanel } from "@/features/market/market-ampel-panel";
 import { MarketDiagnosticsPanel } from "@/features/market/market-diagnostics-panel";
 import { MarketOverviewPanel } from "@/features/market/market-overview-panel";
@@ -24,6 +25,12 @@ export default function MarketPage() {
           <BreadthChartPanel />
           <VolatilityPanel />
         </div>
+      </MarketArea>
+      <MarketArea
+        title="Tiefenanalyse"
+        description="McClellan, NH/NL, Deemer Ratio und Divergenzprüfungen aus dem gespeicherten Aktienuniversum."
+      >
+        <DeepAnalysisPanel />
       </MarketArea>
     </div>
   );

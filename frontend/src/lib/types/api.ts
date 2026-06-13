@@ -108,6 +108,11 @@ export type MarketAmpelChartPoint = {
   sma10?: number | null;
   sma50?: number | null;
   sma200?: number | null;
+  vol_sma50?: number | null;
+  ema21_held: boolean;
+  sma50_held: boolean;
+  sma200_held: boolean;
+  up_vol_declining: boolean;
   phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
   is_distribution: boolean;
   is_stall: boolean;
@@ -153,6 +158,8 @@ export type BreadthPoint = {
   mcclellan: number;
   pct_above_50sma: number;
   pct_above_200sma: number;
+  new_highs: number;
+  new_lows: number;
 };
 
 export type Breadth = {
@@ -163,6 +170,46 @@ export type Breadth = {
   message: string;
   coverage_ratio: number;
   points: BreadthPoint[];
+};
+
+export type MarketDeepAnalysisMetric = {
+  label: string;
+  value: string;
+  detail: string;
+  tone: Tone;
+};
+
+export type MarketDeepAnalysisCheck = {
+  label: string;
+  passed: boolean;
+  detail: string;
+  tone: Tone;
+};
+
+export type MarketDeepAnalysisPoint = {
+  date: string;
+  ad_line?: number | null;
+  mcclellan?: number | null;
+  new_highs: number;
+  new_lows: number;
+  nh_nl_ratio?: number | null;
+  pct_above_50sma?: number | null;
+  pct_above_200sma?: number | null;
+  deemer_ratio?: number | null;
+};
+
+export type MarketDeepAnalysis = {
+  as_of: string;
+  source: "database" | "missing";
+  data_status: "fresh" | "stale" | "missing";
+  message: string;
+  universe: string;
+  coverage_ratio: number;
+  loaded_universe: number;
+  requested_universe?: number | null;
+  metrics: MarketDeepAnalysisMetric[];
+  checks: MarketDeepAnalysisCheck[];
+  points: MarketDeepAnalysisPoint[];
 };
 
 export type UniverseStatus = {

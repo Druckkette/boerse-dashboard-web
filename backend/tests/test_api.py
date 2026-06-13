@@ -158,6 +158,10 @@ def test_market_ampel_contract() -> None:
     assert isinstance(payload["distance_tiles"], list)
     assert isinstance(payload["warning_checks"], list)
     assert isinstance(payload["chart_points"], list)
+    if payload["chart_points"]:
+        assert {"ema21_held", "sma50_held", "sma200_held", "up_vol_declining", "vol_sma50"}.issubset(
+            payload["chart_points"][0]
+        )
 
 
 def test_market_ampel_etf_aliases_map_to_streamlit_indexes() -> None:
@@ -179,7 +183,22 @@ def test_market_breadth_contract() -> None:
     assert isinstance(payload["coverage_ratio"], int | float)
     assert isinstance(payload["points"], list)
     if payload["points"]:
-        assert {"date", "advancers", "decliners", "pct_above_50sma"}.issubset(payload["points"][0])
+        assert {"date", "advancers", "decliners", "pct_above_50sma", "new_highs", "new_lows"}.issubset(payload["points"][0])
+
+
+def test_market_deep_analysis_contract() -> None:
+    response = client.get("/api/v1/market/deep-analysis")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing"}
+    assert isinstance(payload["metrics"], list)
+    assert isinstance(payload["checks"], list)
+    assert isinstance(payload["points"], list)
+    if payload["metrics"]:
+        assert {"label", "value", "detail", "tone"}.issubset(payload["metrics"][0])
+    if payload["checks"]:
+        assert {"label", "passed", "detail", "tone"}.issubset(payload["checks"][0])
 
 
 def test_market_universe_contract() -> None:

@@ -41,6 +41,10 @@ from app.schemas import (
     MarketAmpelPhaseInfo,
     MarketAmpelResponse,
     MarketAmpelWarningCheck,
+    MarketDeepAnalysisCheck,
+    MarketDeepAnalysisMetric,
+    MarketDeepAnalysisPoint,
+    MarketDeepAnalysisResponse,
     MarketDiagnosticCheck,
     MarketDiagnosticsResponse,
     MarketIntermarketItem,
@@ -259,6 +263,8 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
             mcclellan=float(row.mcclellan or 0),
             pct_above_50sma=float(row.pct_above_50sma or 0),
             pct_above_200sma=float(row.pct_above_200sma or 0),
+            new_highs=int(row.new_highs or 0),
+            new_lows=int(row.new_lows or 0),
         )
         for row in rows
     ]
@@ -271,6 +277,144 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         message=_breadth_message(rows[-1].date, latest_meta),
         coverage_ratio=float(latest_meta.get("coverage_ratio") or 0),
         points=points,
+    )
+
+
+def get_market_deep_analysis(
+    universe: str = DEFAULT_MARKET_UNIVERSE_KEY,
+    *,
+    limit: int = 260,
+) -> MarketDeepAnalysisResponse:
+    clean_limit = max(60, min(500, int(limit)))
+    try:
+        rows = market_repository.list_breadth_daily(universe=universe, limit=clean_limit)
+    except MarketRepositoryUnavailable:
+        rows = []
+
+    if len(rows) <= 20:
+        return _missing_market_deep_analysis(universe)
+
+    points = _deep_analysis_points(rows)
+    valid_points = [point for point in points if point.mcclellan is not None or point.pct_above_50sma is not None]
+    if not valid_points:
+        return _missing_market_deep_analysis(universe)
+
+    latest = valid_points[-1]
+    latest_row = rows[-1]
+    latest_meta = latest_row.metadata_json or {}
+    coverage_ratio = float(latest_meta.get("coverage_ratio") or 0)
+    loaded_universe = int(latest_meta.get("covered_count") or latest_meta.get("loaded_universe") or 0)
+    requested_universe_raw = latest_meta.get("universe_size") or latest_meta.get("requested_universe")
+    requested_universe = int(requested_universe_raw) if requested_universe_raw else None
+    spx_at_high, ad_at_high, index_ad_detail = _index_ad_confirmation(points)
+    p50_divergence = bool(spx_at_high and latest.pct_above_50sma is not None and latest.pct_above_50sma < 70)
+    recent_thrust = any((point.deemer_ratio or 0) > 1.97 for point in valid_points[-20:])
+
+    metrics = [
+        MarketDeepAnalysisMetric(
+            label="McClellan Osc.",
+            value=_format_number(latest.mcclellan, digits=1),
+            detail=_mcclellan_label(latest.mcclellan),
+            tone=_tone_for_mcclellan(latest.mcclellan),
+        ),
+        MarketDeepAnalysisMetric(
+            label="NH/NL Ratio",
+            value=_format_number(latest.nh_nl_ratio, digits=2) if latest.nh_nl_ratio is not None else f"{latest.new_highs}/{latest.new_lows}",
+            detail=f"{latest.new_highs} Hochs / {latest.new_lows} Tiefs",
+            tone=_tone_for_ratio(latest.nh_nl_ratio, good=1.0, warning=0.5),
+        ),
+        MarketDeepAnalysisMetric(
+            label="% > 50-SMA",
+            value=_format_optional_pct(latest.pct_above_50sma),
+            detail="Überhitzt >70%, schwach <30%",
+            tone=_tone_for_deep_pct(latest.pct_above_50sma, good=70, warning=30),
+        ),
+        MarketDeepAnalysisMetric(
+            label="% > 200-SMA",
+            value=_format_optional_pct(latest.pct_above_200sma),
+            detail="Langfristige Marktteilnahme",
+            tone=_tone_for_deep_pct(latest.pct_above_200sma, good=55, warning=40),
+        ),
+        MarketDeepAnalysisMetric(
+            label="Deemer Ratio",
+            value=_format_number(latest.deemer_ratio, digits=2),
+            detail=_deemer_label(latest.deemer_ratio),
+            tone=_tone_for_deemer(latest.deemer_ratio),
+        ),
+    ]
+    checks = [
+        MarketDeepAnalysisCheck(
+            label="Keine Divergenz Index vs. A/D-Linie",
+            passed=not (spx_at_high and not ad_at_high),
+            detail=index_ad_detail,
+            tone="good" if not (spx_at_high and not ad_at_high) else "warning",
+        ),
+        MarketDeepAnalysisCheck(
+            label="Keine % > 50-SMA Divergenz",
+            passed=not p50_divergence,
+            detail=(
+                f"Divergenz: {latest.pct_above_50sma:.0f}% < 70%"
+                if p50_divergence and latest.pct_above_50sma is not None
+                else f"{latest.pct_above_50sma:.0f}% >= 70% - OK"
+                if latest.pct_above_50sma is not None
+                else "n/a"
+            ),
+            tone="good" if not p50_divergence else "warning",
+        ),
+        MarketDeepAnalysisCheck(
+            label="McClellan > 0",
+            passed=bool(latest.mcclellan is not None and latest.mcclellan > 0),
+            detail=f"McClellan: {_format_number(latest.mcclellan, digits=1)}",
+            tone="good" if latest.mcclellan is not None and latest.mcclellan > 0 else "warning",
+        ),
+        MarketDeepAnalysisCheck(
+            label="% über 50-SMA > 70%",
+            passed=bool(latest.pct_above_50sma is not None and latest.pct_above_50sma > 70),
+            detail=_format_optional_pct(latest.pct_above_50sma),
+            tone="good" if latest.pct_above_50sma is not None and latest.pct_above_50sma > 70 else "warning",
+        ),
+        MarketDeepAnalysisCheck(
+            label="NH/NL Ratio > 1",
+            passed=bool(latest.nh_nl_ratio is not None and latest.nh_nl_ratio > 1),
+            detail=f"Ratio: {_format_number(latest.nh_nl_ratio, digits=1)}",
+            tone="good" if latest.nh_nl_ratio is not None and latest.nh_nl_ratio > 1 else "warning",
+        ),
+        MarketDeepAnalysisCheck(
+            label="Deemer Ratio >= 1.97 (Breakaway)",
+            passed=bool(latest.deemer_ratio is not None and latest.deemer_ratio >= 1.97),
+            detail=f"Ratio: {_format_number(latest.deemer_ratio, digits=2)} · {_deemer_label(latest.deemer_ratio)}",
+            tone="good" if latest.deemer_ratio is not None and latest.deemer_ratio >= 1.97 else "warning",
+        ),
+    ]
+    if recent_thrust:
+        checks.append(
+            MarketDeepAnalysisCheck(
+                label="Breitenschub in den letzten 20 Tagen",
+                passed=True,
+                detail="Deemer Ratio > 1.97 erkannt.",
+                tone="good",
+            )
+        )
+
+    message = "Tiefenanalyse aus gespeicherten Breadth-Daten; Deemer nutzt aktuell Advancer/Decliner als Volumen-Proxy."
+    if requested_universe and loaded_universe and loaded_universe < requested_universe * 0.8:
+        message = (
+            f"Universe-Abdeckung unter 80% ({loaded_universe}/{requested_universe}). "
+            "Tiefenanalyse läuft mit den verfügbaren gespeicherten Kursdaten."
+        )
+
+    return MarketDeepAnalysisResponse(
+        as_of=latest.date,
+        source="database",
+        data_status=_data_status_for_date(latest_row.date),
+        message=message,
+        universe=universe,
+        coverage_ratio=coverage_ratio,
+        loaded_universe=loaded_universe,
+        requested_universe=requested_universe,
+        metrics=metrics,
+        checks=checks,
+        points=points[-clean_limit:],
     )
 
 
@@ -304,6 +448,22 @@ def _missing_breadth(universe: str) -> BreadthResponse:
         data_status="missing",
         message="Keine Breadth-Werte im Cache. Starte zuerst refresh_prices und danach refresh_breadth.",
         coverage_ratio=0.0,
+        points=[],
+    )
+
+
+def _missing_market_deep_analysis(universe: str) -> MarketDeepAnalysisResponse:
+    return MarketDeepAnalysisResponse(
+        as_of=date.today().isoformat(),
+        source="missing",
+        data_status="missing",
+        message="Keine ausreichenden Breadth-Daten im Cache. Starte refresh_prices und danach refresh_breadth.",
+        universe=universe,
+        coverage_ratio=0.0,
+        loaded_universe=0,
+        requested_universe=None,
+        metrics=[],
+        checks=[],
         points=[],
     )
 
@@ -814,6 +974,146 @@ def _cached_benchmark_drawdown_pct() -> float | None:
     return (closes[-1] / high - 1) * 100
 
 
+def _deep_analysis_points(rows: Sequence) -> list[MarketDeepAnalysisPoint]:
+    points: list[MarketDeepAnalysisPoint] = []
+    advancer_window: list[int] = []
+    decliner_window: list[int] = []
+    for row in rows:
+        advancers = int(row.advancers or 0)
+        decliners = int(row.decliners or 0)
+        advancer_window.append(advancers)
+        decliner_window.append(decliners)
+        if len(advancer_window) > 10:
+            advancer_window.pop(0)
+            decliner_window.pop(0)
+        deemer_ratio = None
+        if len(advancer_window) >= 10 and sum(decliner_window) > 0:
+            deemer_ratio = sum(advancer_window) / sum(decliner_window)
+        nh_nl_ratio = _safe_ratio(int(row.new_highs or 0), int(row.new_lows or 0))
+        points.append(
+            MarketDeepAnalysisPoint(
+                date=row.date.isoformat(),
+                ad_line=float(row.ad_line) if row.ad_line is not None else None,
+                mcclellan=float(row.mcclellan) if row.mcclellan is not None else None,
+                new_highs=int(row.new_highs or 0),
+                new_lows=int(row.new_lows or 0),
+                nh_nl_ratio=nh_nl_ratio,
+                pct_above_50sma=float(row.pct_above_50sma) if row.pct_above_50sma is not None else None,
+                pct_above_200sma=float(row.pct_above_200sma) if row.pct_above_200sma is not None else None,
+                deemer_ratio=deemer_ratio,
+            )
+        )
+    return points
+
+
+def _index_ad_confirmation(points: Sequence[MarketDeepAnalysisPoint]) -> tuple[bool, bool, str]:
+    bars, _used_ticker = _load_cached_index_ohlcv(
+        MARKET_TREND_BENCHMARK,
+        start_date=date.today() - timedelta(days=120),
+    )
+    if len(bars) < 21 or len(points) < 21:
+        return False, False, "S&P- oder A/D-Historie im Cache zu kurz."
+
+    latest_close = bars[-1].close
+    previous_highs = [point.high for point in bars[:-1]][-20:]
+    previous_ad_values = [point.ad_line for point in points[:-1] if point.ad_line is not None][-20:]
+    latest_ad = points[-1].ad_line
+    if latest_ad is None or len(previous_highs) < 10 or len(previous_ad_values) < 10:
+        return False, False, "A/D-Linie oder 20T-Referenzhoch nicht verfügbar."
+
+    reference_high = max(previous_highs)
+    reference_ad_high = max(previous_ad_values)
+    spx_at_high = latest_close >= reference_high * 0.998
+    ad_at_high = latest_ad >= reference_ad_high * 0.998
+    if spx_at_high and ad_at_high:
+        detail = "S&P 500 und A/D-Linie bestätigen sich."
+    elif spx_at_high:
+        detail = "S&P 500 nahe 20T-Hoch, A/D-Linie bestätigt nicht."
+    else:
+        detail = "S&P 500 nicht nahe 20T-Hoch; keine aktive Divergenz."
+    return spx_at_high, ad_at_high, detail
+
+
+def _safe_ratio(numerator: int, denominator: int) -> float | None:
+    if denominator > 0:
+        return numerator / denominator
+    if numerator > 0:
+        return float(numerator)
+    return None
+
+
+def _mcclellan_label(value: float | None) -> str:
+    if value is None:
+        return "Nicht verfügbar"
+    if value > 125:
+        return "Extrem aufwärts"
+    if value > 80:
+        return "Überdehnt aufwärts"
+    if value > 50:
+        return "Impuls aufwärts"
+    if value > 0:
+        return "Konstruktiv"
+    if value > -50:
+        return "Schwach"
+    if value > -80:
+        return "Impuls abwärts"
+    if value > -125:
+        return "Überdehnt abwärts"
+    return "Extrem abwärts"
+
+
+def _deemer_label(value: float | None) -> str:
+    if value is None:
+        return "Nicht verfügbar"
+    if value >= 1.97:
+        return "Sehr gut - Breakaway Momentum"
+    if value >= 1.50:
+        return "Gut - konstruktiv"
+    if value >= 1.00:
+        return "Neutral"
+    return "Schlecht - schwache Breite"
+
+
+def _tone_for_mcclellan(value: float | None) -> str:
+    if value is None:
+        return "neutral"
+    if value > 0:
+        return "good"
+    if value > -50:
+        return "warning"
+    return "bad"
+
+
+def _tone_for_ratio(value: float | None, *, good: float, warning: float) -> str:
+    if value is None:
+        return "neutral"
+    if value > good:
+        return "good"
+    if value >= warning:
+        return "warning"
+    return "bad"
+
+
+def _tone_for_deep_pct(value: float | None, *, good: float, warning: float) -> str:
+    if value is None:
+        return "neutral"
+    if value >= good:
+        return "good"
+    if value >= warning:
+        return "warning"
+    return "bad"
+
+
+def _tone_for_deemer(value: float | None) -> str:
+    if value is None:
+        return "neutral"
+    if value >= 1.50:
+        return "good"
+    if value >= 1.0:
+        return "warning"
+    return "bad"
+
+
 def _build_market_diagnostic_checks(
     *,
     overview: MarketOverviewResponse,
@@ -1093,14 +1393,60 @@ def _normalize_ampel_ticker(value: str) -> str:
 
 
 def _load_cached_index_ohlcv(ticker: str, *, start_date: date) -> tuple[list[MarketOhlcvPoint], str | None]:
+    primary_rows: list[MarketOhlcvPoint] = []
+    primary_ticker: str | None = None
     for candidate in [ticker, *MARKET_INDEX_FALLBACK_TICKERS.get(ticker, [])]:
         try:
             rows = market_repository.load_cached_ohlcv(candidate, start_date=start_date)
         except MarketRepositoryUnavailable:
             return [], None
         if rows:
-            return rows, candidate
-    return [], None
+            primary_rows = rows
+            primary_ticker = candidate
+            break
+    if not primary_rows:
+        return [], None
+
+    if primary_ticker == ticker and _volume_series_unusable(primary_rows):
+        for proxy_ticker in MARKET_INDEX_FALLBACK_TICKERS.get(ticker, []):
+            try:
+                proxy_rows = market_repository.load_cached_ohlcv(proxy_ticker, start_date=start_date)
+            except MarketRepositoryUnavailable:
+                return primary_rows, primary_ticker
+            if proxy_rows and not _volume_series_unusable(proxy_rows):
+                return _merge_proxy_volume(primary_rows, proxy_rows), primary_ticker
+    return primary_rows, primary_ticker
+
+
+def _volume_series_unusable(rows: Sequence[MarketOhlcvPoint]) -> bool:
+    volumes = [float(point.volume or 0) for point in rows]
+    positive = [value for value in volumes if value > 0]
+    if len(positive) < min(20, max(1, len(rows) // 4)):
+        return True
+    return len({round(value) for value in positive[-60:]}) <= 2
+
+
+def _merge_proxy_volume(
+    price_rows: Sequence[MarketOhlcvPoint],
+    volume_rows: Sequence[MarketOhlcvPoint],
+) -> list[MarketOhlcvPoint]:
+    volume_by_date = {point.date: float(point.volume or 0) for point in volume_rows if point.volume and point.volume > 0}
+    if not volume_by_date:
+        return list(price_rows)
+    merged: list[MarketOhlcvPoint] = []
+    for point in price_rows:
+        merged.append(
+            MarketOhlcvPoint(
+                ticker=point.ticker,
+                date=point.date,
+                open=point.open,
+                high=point.high,
+                low=point.low,
+                close=point.close,
+                volume=volume_by_date.get(point.date, point.volume),
+            )
+        )
+    return merged
 
 
 def _ampel_data_message(*, ticker: str, price_ticker: str | None) -> str:
@@ -1644,6 +1990,11 @@ def _ampel_chart_points(points: Sequence[TrendAmpelPoint]) -> list[MarketAmpelCh
             sma10=point.sma10,
             sma50=point.sma50,
             sma200=point.sma200,
+            vol_sma50=point.vol_sma50,
+            ema21_held=bool(point.ema21_held),
+            sma50_held=bool(point.sma50_held),
+            sma200_held=bool(point.sma200_held),
+            up_vol_declining=bool(point.up_vol_declining),
             phase=point.phase,
             is_distribution=bool(point.is_distribution),
             is_stall=bool(point.is_stall),
@@ -1774,10 +2125,10 @@ def _tone_for_vix_regime(regime: str) -> str:
     return "warning"
 
 
-def _format_number(value: float | None) -> str:
+def _format_number(value: float | None, *, digits: int = 2) -> str:
     if value is None:
         return "-"
-    return f"{value:,.2f}"
+    return f"{value:,.{digits}f}"
 
 
 def _format_date_de(value: str) -> str:

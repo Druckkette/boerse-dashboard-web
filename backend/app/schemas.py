@@ -130,6 +130,11 @@ class MarketAmpelChartPoint(BaseModel):
     sma10: float | None = None
     sma50: float | None = None
     sma200: float | None = None
+    vol_sma50: float | None = None
+    ema21_held: bool = False
+    sma50_held: bool = False
+    sma200_held: bool = False
+    up_vol_declining: bool = False
     phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
     is_distribution: bool = False
     is_stall: bool = False
@@ -190,6 +195,48 @@ class BreadthPoint(BaseModel):
     mcclellan: float
     pct_above_50sma: float
     pct_above_200sma: float
+    new_highs: int = 0
+    new_lows: int = 0
+
+
+class MarketDeepAnalysisMetric(BaseModel):
+    label: str
+    value: str
+    detail: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class MarketDeepAnalysisCheck(BaseModel):
+    label: str
+    passed: bool
+    detail: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+
+
+class MarketDeepAnalysisPoint(BaseModel):
+    date: str
+    ad_line: float | None = None
+    mcclellan: float | None = None
+    new_highs: int = 0
+    new_lows: int = 0
+    nh_nl_ratio: float | None = None
+    pct_above_50sma: float | None = None
+    pct_above_200sma: float | None = None
+    deemer_ratio: float | None = None
+
+
+class MarketDeepAnalysisResponse(BaseModel):
+    as_of: str
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "stale", "missing"]
+    message: str = ""
+    universe: str
+    coverage_ratio: float
+    loaded_universe: int = 0
+    requested_universe: int | None = None
+    metrics: list[MarketDeepAnalysisMetric]
+    checks: list[MarketDeepAnalysisCheck]
+    points: list[MarketDeepAnalysisPoint]
 
 
 class BreadthResponse(BaseModel):
