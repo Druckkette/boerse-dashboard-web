@@ -82,7 +82,7 @@ export default function PortfolioImportsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Portfolio Imports</h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-            CSV-Positionen direkt im Browser importieren. Es wird keine Datei auf der NAS abgelegt.
+            Daten direkt im Browser hochladen. Es wird keine Datei auf der NAS manuell abgelegt.
           </p>
         </div>
         <StatusChip tone={result?.ok ? "good" : result ? "bad" : "neutral"}>
@@ -90,12 +90,14 @@ export default function PortfolioImportsPage() {
         </StatusChip>
       </div>
 
+      <ImportModeGuide />
+
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.25fr]">
         <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold">CSV Quelle</h2>
-              <div className="text-sm text-[#a0a7b4]">Erlaubte Pflichtspalten: Ticker, Shares, Entry_Price.</div>
+              <h2 className="text-base font-semibold">Positions-CSV direkt</h2>
+              <div className="text-sm text-[#a0a7b4]">Für fertige Positionslisten mit Ticker, Shares und Entry_Price.</div>
             </div>
             <Upload className="text-emerald-300" size={20} />
           </div>
@@ -228,6 +230,27 @@ export default function PortfolioImportsPage() {
   );
 }
 
+function ImportModeGuide() {
+  return (
+    <section className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+        <h2 className="text-base font-semibold">Positions-CSV</h2>
+        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+          Nutze diesen Weg, wenn die Datei bereits offene Positionen enthält. Pflichtfelder: Ticker, Shares,
+          Entry_Price. Die App speichert daraus direkt offene Positionen.
+        </p>
+      </div>
+      <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+        <h2 className="text-base font-semibold">Trade-Republic-Transaktionsexport</h2>
+        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+          Nutze diesen Weg für den TR-Export mit Käufen, Verkäufen, Dividenden und Cashflows. Daraus werden offene
+          Positionen rekonstruiert; ISINs werden dabei dauerhaft auf Yahoo-Ticker gemappt.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function TradeRepublicTransactionImportPanel() {
   const queryClient = useQueryClient();
   const [fileName, setFileName] = useState("trade-republic-transactions.csv");
@@ -292,7 +315,19 @@ function TradeRepublicTransactionImportPanel() {
   }
 
   const result = lastResult;
-  const canSave = Boolean(result?.ok && result.positions.length > 0);
+  const missingMappingCount = result?.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length ?? 0;
+  const canSave = Boolean(result?.ok && result.dry_run && result.transactions_total > 0);
+  const saveHint = !result
+    ? "Erst TR-Vorschau prüfen."
+    : !result.ok
+      ? "Vorschau enthält Fehler."
+      : !result.dry_run
+        ? "Dieser Import wurde bereits gespeichert."
+        : result.transactions_total === 0
+          ? "Keine Buchungen erkannt."
+          : missingMappingCount > 0
+            ? `${missingMappingCount} ISINs ohne Yahoo-Ticker. Speichern ist möglich; diese offenen Positionen werden übersprungen, bis die Zuordnung ergänzt ist.`
+            : "Speichert Transaktionen, Cashflows, ISIN-Zuordnungen und rekonstruierte offene Positionen.";
   const cashLabel = result
     ? result.cash_balance_estimate.toLocaleString("de-DE", { maximumFractionDigits: 2, style: "currency", currency: "EUR" })
     : "-";
@@ -304,7 +339,7 @@ function TradeRepublicTransactionImportPanel() {
           <h2 className="text-lg font-semibold">Trade-Republic-Transaktionsexport</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
             CSV direkt hochladen, ISINs in Yahoo-Ticker prüfen und offene Positionen plus Transaktionen speichern. Es
-            du musst nichts manuell auf der NAS ablegen.
+            muss nichts manuell auf der NAS abgelegt werden.
           </p>
         </div>
         <StatusChip tone={result?.ok ? "good" : result ? "bad" : "neutral"}>
@@ -383,6 +418,9 @@ function TradeRepublicTransactionImportPanel() {
               {saveMutation.isPending ? "Speichert" : "TR-Import speichern"}
             </button>
           </div>
+          <div className="mt-3 rounded border border-[#2d333d] bg-[#111419] p-3 text-xs leading-5 text-[#a0a7b4]">
+            {saveHint}
+          </div>
 
           {(previewMutation.error || saveMutation.error) && (
             <div className="mt-4 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
@@ -455,17 +493,33 @@ function MappingEditor({
   onChange: (value: Record<string, string>) => void;
 }) {
   if (!result?.mappings.length) return null;
+  const missingCount = result.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length;
+  const recognizedCount = result.mappings.length - missingCount;
   return (
     <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="font-semibold">ISIN zu Yahoo-Ticker</h3>
-        <StatusChip tone="neutral">{result.mappings.length} ISINs</StatusChip>
+      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="font-semibold">ISIN zu Yahoo-Ticker</h3>
+          <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">
+            Trade Republic liefert ISINs. Für Kursdaten und Sell-Monitor braucht die Web-App Yahoo-Ticker. Erkannte
+            Zuordnungen werden beim Speichern dauerhaft übernommen und beim nächsten Import automatisch genutzt.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusChip tone={recognizedCount > 0 ? "good" : "neutral"}>{recognizedCount} erkannt</StatusChip>
+          <StatusChip tone={missingCount > 0 ? "warning" : "good"}>{missingCount} offen</StatusChip>
+        </div>
       </div>
       <div className="max-h-72 space-y-2 overflow-auto pr-1">
         {result.mappings.map((mapping) => (
           <label key={mapping.isin} className="grid gap-2 rounded border border-[#242a33] p-3 text-sm md:grid-cols-[1fr_160px]">
             <span>
-              <span className="block font-medium">{mapping.name || mapping.isin}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="block font-medium">{mapping.name || mapping.isin}</span>
+                <StatusChip tone={(overrides[mapping.isin] || mapping.ticker) ? "good" : "warning"}>
+                  {(overrides[mapping.isin] || mapping.ticker) ? "importfähig" : "Ticker fehlt"}
+                </StatusChip>
+              </span>
               <span className="text-xs text-[#a0a7b4]">
                 {mapping.isin} · {mapping.asset_class} · {mapping.source}
               </span>
@@ -523,7 +577,8 @@ function IsinMappingMaintenancePanel() {
         <div>
           <h2 className="text-lg font-semibold">Gespeicherte ISIN-Zuordnungen</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-            Diese Zuordnungen werden dauerhaft gespeichert und beim Trade-Republic-Import automatisch vorgeschlagen.
+            Permanentes Wörterbuch für Trade-Republic-ISINs. Was hier gespeichert ist, muss beim nächsten TR-Import
+            nicht erneut eingetragen werden.
           </p>
         </div>
         <StatusChip tone={saveMutation.isPending ? "warning" : "neutral"}>

@@ -15,16 +15,25 @@ import type {
 } from "@/lib/types/api";
 
 const jobTypes: { type: JobType; label: string; description: string }[] = [
-  { type: "refresh_prices", label: "Prices", description: "Inkrementelle OHLC-Aktualisierung" },
-  { type: "refresh_breadth", label: "Breadth", description: "Marktbreite und Snapshots" },
-  { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking" },
-  { type: "refresh_fundamentals", label: "Fundamentals", description: "EPS, ROE, Marge, Earnings" },
-  { type: "refresh_universe", label: "Universe", description: "US Common Stocks von Nasdaq Trader" },
-  { type: "yahoo_symbol_diagnostics", label: "Yahoo Diagnose", description: "Fehlende Universe-Symbole testen" },
-  { type: "yahoo_symbol_rescue", label: "Yahoo Rescue", description: "Validierte Yahoo-Mappings speichern" },
-  { type: "refresh_sec13f", label: "13F / SEC", description: "Offizielle SEC-Datensätze, monatlich/manuell" },
-  { type: "position_atr_monitor", label: "ATR Monitor", description: "Offene Positionen prüfen" }
+  { type: "refresh_prices", label: "Market Prices", description: "OHLC-Kurse in den Cache laden" },
+  { type: "refresh_breadth", label: "Market Breadth", description: "Marktbreite und Snapshot berechnen" },
+  { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking berechnen" },
+  { type: "refresh_fundamentals", label: "Fundamentals", description: "Fundamentaldaten je Aktie laden" },
+  { type: "refresh_universe", label: "Aktienuniversum", description: "US-Common-Stocks-Liste aktualisieren" },
+  { type: "yahoo_symbol_diagnostics", label: "Yahoo Diagnose", description: "Ticker-Mapping nur prüfen" },
+  { type: "yahoo_symbol_rescue", label: "Yahoo Auto-Rescue", description: "gültige Yahoo-Mappings speichern" },
+  { type: "refresh_sec13f", label: "13F / SEC", description: "SEC-Institutional-Daten laden" },
+  { type: "position_atr_monitor", label: "Positionsmonitor", description: "offene Positionen prüfen" }
 ];
+
+const pricePresetHelp: Record<PricePreset, string> = {
+  all: "Empfohlen für den Start: Marktindizes, Equal-Weight-ETFs, Starter-Aktien, VIX/VIXY und Sektor-ETFs.",
+  market_core: "Kleiner Streamlit-Kern: S&P 500, Nasdaq, Russell 2000, RSP, QQEW und Starter-Aktien.",
+  stored_universe: "Das vorher geladene US-Aktienuniversum. Gut für breite Analysen, auf der NAS aber deutlich schwerer.",
+  volatility: "Nur SPY, VIX und VIXY. Reicht für Volatilitätskarten, aber nicht für Marktbreite/RS.",
+  sector: "Nur SPDR-Sektor-ETFs. Reicht für Sektorrotation, aber nicht für Aktien-Rankings.",
+  custom: "Nur die manuell eingetragenen Ticker plus Benchmark/Volatility-Hilfsticker."
+};
 
 const statusTone: Record<JobStatus, "good" | "neutral" | "warning" | "bad"> = {
   queued: "neutral",
@@ -91,7 +100,7 @@ function UniverseStatusPanel({
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">Aktienuniversum</h2>
             <StatusChip tone={source === "nasdaq_trader" ? "good" : "warning"}>{source}</StatusChip>
@@ -101,11 +110,15 @@ function UniverseStatusPanel({
           <div className="mt-1 text-sm text-[#a0a7b4]">
             {updatedAt ? `Aktualisiert ${new Date(updatedAt).toLocaleString("de-DE")}` : "Noch kein gespeichertes Live-Universe."}
           </div>
+          <div className="mt-2 max-w-4xl text-xs leading-5 text-[#77808f]">
+            Dieser Button lädt nur die handelbare Aktienliste von Nasdaq Trader. Er lädt keine Kurse und berechnet keine
+            Marktbreite; dafür danach Market Prices und Market Breadth starten.
+          </div>
           <div className="mt-2 max-w-4xl truncate text-xs text-[#697386]">
             {sampleTickers.length ? sampleTickers.join(", ") : "Fallback-Starterliste wird verwendet."}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
           <button
             className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
@@ -115,7 +128,7 @@ function UniverseStatusPanel({
             Status
           </button>
           <button
-            className="inline-flex items-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex max-w-full items-center justify-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             disabled={disabled}
             onClick={onStart}
@@ -422,8 +435,8 @@ function YahooDiagnosticsPanel({
             )}
           </div>
           <div className="mt-1 max-w-4xl text-sm leading-6 text-[#a0a7b4]">
-            Prüft fehlgeschlagene oder ungemappte Universe-Ticker gegen yfinance. Auto-Rescue speichert nur Kandidaten,
-            die echte Daily-Bars liefern; Kursdaten werden danach über den normalen Price-Refresh geladen.
+            Diagnose prüft nur Kandidaten und schreibt nichts. Auto-Rescue speichert nur Kandidaten, die echte
+            Daily-Bars liefern; Kursdaten werden danach über den normalen Market-Prices-Job geladen.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -540,6 +553,7 @@ export default function JobsPage() {
     staleTime: 60_000
   });
   const jobs = data ?? [];
+  const visibleJobs = jobs.slice(0, 3);
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
   const latestUniverseJob = latestJobForType(jobs, "refresh_universe");
   const latestYahooDiagnosticsJob = latestJobForType(jobs, "yahoo_symbol_diagnostics");
@@ -662,7 +676,8 @@ export default function JobsPage() {
           <div>
             <h2 className="text-base font-semibold">Job manuell starten</h2>
             <div className="text-sm text-[#a0a7b4]">
-              Auf NAS wird nur ein schwerer Job gleichzeitig angenommen.
+              Expert-Modus mit festen Default-Einstellungen. Für die Erstbefüllung die Box „Marktdaten initial laden“
+              oben verwenden.
             </div>
           </div>
           <StatusChip tone={activeJob ? "warning" : "good"}>
@@ -704,6 +719,16 @@ export default function JobsPage() {
             `boerse-dashboard-web name@example.com`. Nach dem Ändern den Worker neu erstellen.
           </div>
         )}
+        <details className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+          <summary className="cursor-pointer text-[#d8dde6]">Default-Einstellungen für diesen manuellen Start</summary>
+          <p className="mt-2 leading-6 text-[#a0a7b4]">
+            Diese Werte sind unabhängig von der Initialisierungsbox. Sie sind bewusst klein und allgemein, damit ein
+            manueller Start auf der NAS nicht versehentlich das volle Universe mehrfach lädt.
+          </p>
+          <pre className="mt-3 max-h-44 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-3 text-xs text-[#d8dde6]">
+            {JSON.stringify(defaultPayloadForJob(selectedType), null, 2)}
+          </pre>
+        </details>
         {startMutation.isError && (
           <div className="mt-3 text-sm text-rose-200">
             {startMutation.error instanceof Error ? startMutation.error.message : "Job konnte nicht gestartet werden."}
@@ -712,12 +737,21 @@ export default function JobsPage() {
       </section>
 
       <div className="space-y-3">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold">Letzte Jobs</h2>
+            <p className="text-sm text-[#a0a7b4]">
+              Angezeigt werden nur die letzten drei Einträge. Details bleiben aufklappbar.
+            </p>
+          </div>
+          <StatusChip tone="neutral">{jobs.length.toLocaleString("de-DE")} gesamt</StatusChip>
+        </div>
         {jobs.length === 0 && (
           <div className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
             Noch keine Jobs vorhanden. Das Frontend bleibt auch ohne laufenden Worker nutzbar.
           </div>
         )}
-        {jobs.map((job) => (
+        {visibleJobs.map((job) => (
           <JobRow key={job.job_id} job={job} onCancel={(jobId) => cancelMutation.mutate(jobId)} />
         ))}
       </div>
@@ -837,6 +871,7 @@ function RefreshSequence({
           />
         </label>
       </div>
+      <BootstrapExplanation config={config} />
       {customPresetNeedsTickers && (
         <div className="mb-4 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
           Für das Custom-Universum bitte mindestens einen Ticker eintragen.
@@ -874,11 +909,43 @@ function RefreshSequence({
                 <Play size={15} />
                 {startingType === step.type ? "Startet" : running ? "aktiv" : "Starten"}
               </button>
+              <details className="mt-3 rounded border border-[#242a33] bg-[#171a20] p-3 text-xs">
+                <summary className="cursor-pointer text-[#a0a7b4]">Einstellungen anzeigen</summary>
+                <p className="mt-2 leading-5 text-[#77808f]">{step.settings}</p>
+                <pre className="mt-2 max-h-32 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-2 text-[#d8dde6]">
+                  {JSON.stringify(step.payload, null, 2)}
+                </pre>
+              </details>
             </div>
           );
         })}
       </div>
     </section>
+  );
+}
+
+function BootstrapExplanation({ config }: { config: MarketDataBootstrapConfig }) {
+  return (
+    <div className="mb-4 grid gap-3 xl:grid-cols-2">
+      <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+        <h3 className="text-sm font-semibold">Was bedeutet Price-Universum?</h3>
+        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">{pricePresetHelp[config.pricePreset]}</p>
+        <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-2">
+          <span>Range: {config.priceRange}</span>
+          <span>Universe-Limit: {config.storedUniverseLimit.toLocaleString("de-DE")} Ticker</span>
+          <span>Breadth: {config.breadthLookbackDays.toLocaleString("de-DE")} Tage</span>
+          <span>RS: {config.rsLookbackDays.toLocaleString("de-DE")} Tage gegen {normalizeTicker(config.rsBenchmarkTicker) || "SPY"}</span>
+        </div>
+      </div>
+      <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+        <h3 className="text-sm font-semibold">Initialisierung auf der NAS</h3>
+        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+          Für den ersten Start: Market Prices, danach Market Breadth, danach RS Ratings. Fundamentals und
+          Positionsmonitor sind optional und können später laufen. Auf der DS220+ wird nur ein schwerer Job gleichzeitig
+          gestartet.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -1047,6 +1114,7 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
   type: JobType;
   label: string;
   description: string;
+  settings: string;
   payload: Record<string, unknown>;
   disabled?: boolean;
 }[] {
@@ -1078,6 +1146,7 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
       type: "refresh_prices",
       label: "1. Market Prices",
       description: "OHLC-Cache für Market-, Benchmark- und Volatility-Ticker füllen.",
+      settings: `Lädt Tageskurse für ${config.pricePreset}; Zeitraum ${config.priceRange}. Bei stored_universe werden maximal ${config.storedUniverseLimit} Ticker verwendet.`,
       payload: pricePayload,
       disabled: config.pricePreset === "custom" && customTickers.length === 0
     },
@@ -1085,12 +1154,14 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
       type: "refresh_breadth",
       label: "2. Market Breadth",
       description: "Marktbreite und MarketSnapshot aus dem Price Cache vorberechnen.",
+      settings: `Nutzt vorhandene Kurse aus Postgres, Lookback ${config.breadthLookbackDays} Tage. Kein yfinance im Request.`,
       payload: { mode: "manual", lookback_days: config.breadthLookbackDays, ...customUniversePayload }
     },
     {
       type: "refresh_relative_strength",
       label: "3. RS Ratings",
       description: "Relative Stärke aus gecachten Kursen berechnen.",
+      settings: `Berechnet RS-Ratings gegen ${rsBenchmarkTicker} über ${config.rsLookbackDays} Tage aus dem Price Cache.`,
       payload: {
         mode: "manual",
         lookback_days: config.rsLookbackDays,
@@ -1102,12 +1173,14 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
       type: "refresh_fundamentals",
       label: "4. Fundamentals",
       description: "EPS, Umsatz, ROE, Marge, Beta und Earnings in den Cache laden.",
+      settings: "Lädt fundamentale Kennzahlen für das gewählte Universe. Dieser Job ist langsamer und für die Marktampel nicht zwingend nötig.",
       payload: { mode: "manual", include_holders: true, ...customUniversePayload }
     },
     {
       type: "position_atr_monitor",
       label: "5. Positionsmonitor",
       description: "Offene Positionen gegen Price Cache und Sell-Engine prüfen.",
+      settings: "Prüft importierte offene Positionen, aktualisiert Sell-Recommendation-State und nutzt vorhandene Kursdaten.",
       payload: { mode: "manual" }
     }
   ];

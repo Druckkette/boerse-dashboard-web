@@ -656,8 +656,9 @@ def compute_intermarket_divergence(
         latest = points[-1]
         previous = points[-2]
         day_pct = _safe_pct_change(latest.close, previous.close)
-        high_window = points[-21:-1]
-        reference_high = max((point.high for point in high_window), default=None)
+        previous_highs = [point.high for point in points[:-1]][-20:]
+        valid_previous_highs = [value for value in previous_highs if value is not None]
+        reference_high = max(valid_previous_highs) if len(valid_previous_highs) >= 10 else None
         dist_to_high = _safe_pct_change(latest.close, reference_high)
         at_20d_high = bool(reference_high and latest.close >= reference_high * 0.998)
         tone = _tone_for_intermarket(at_20d_high, dist_to_high)

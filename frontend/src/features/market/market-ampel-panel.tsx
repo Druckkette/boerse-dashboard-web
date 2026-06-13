@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, CircleDot, RotateCw } from "lucide-react";
@@ -165,7 +165,27 @@ export function MarketAmpelPanel() {
         statusTone={warningTone(data.warning_count)}
       />
 
-      <WarningGrid checks={data.warning_checks} />
+      <StreamlitSection
+        defaultOpen
+        title="Frühwarnzeichen und Warnzeichen"
+        description="Gleiche Warnlogik wie in der Streamlit-Marktampel, mit expliziter Anzeige jeder aktiven Regel."
+      >
+        <WarningGrid checks={data.warning_checks} />
+      </StreamlitSection>
+
+      <StreamlitSection
+        title="Trendprüfung und Ordnung"
+        description="Schlusskurs, Tagestief und gleitende Durchschnitte wie im Streamlit-Bereich Trendcheck."
+      >
+        <TrendOrderGrid data={data} />
+      </StreamlitSection>
+
+      <StreamlitSection
+        title="Tägliche Checkliste"
+        description="Operative Kurzprüfung aus Ampelphase, Marktbreite, Volatilität und Warnzeichen."
+      >
+        <DailyChecklist data={data} />
+      </StreamlitSection>
     </section>
   );
 }
@@ -216,7 +236,7 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
 
 function Light({ light }: { light: MarketAmpelLight }) {
   return (
-    <div className="flex w-[132px] flex-col items-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3">
+    <div className="flex min-h-[118px] min-w-[132px] flex-1 flex-col items-center justify-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3 sm:flex-none">
       <span
         className={clsx(
           "grid size-12 place-items-center rounded-full border transition",
@@ -241,7 +261,7 @@ function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
           <p className="text-sm text-[#a0a7b4]">Die Ampelphasen aus der Streamlit-Logik, lesbar statt im Mini-Popup.</p>
         </div>
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3">
         {lights.map((light) => (
           <div key={light.key} className={clsx("rounded border bg-[#171a20] p-4", light.active ? tileBorder(light.tone) : "border-[#242a33]")}>
             <div className="mb-2 flex items-center gap-2">
@@ -291,7 +311,7 @@ function WarningGrid({ checks }: { checks: MarketAmpel["warning_checks"] }) {
           {checks.filter((check) => check.active_warning).length} aktiv
         </StatusChip>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2">
         {checks.map((check) => (
           <div key={check.label} className="rounded border border-[#242a33] bg-[#111419] p-3">
             <div className="flex items-start gap-3">
@@ -310,6 +330,163 @@ function WarningGrid({ checks }: { checks: MarketAmpel["warning_checks"] }) {
       </div>
     </div>
   );
+}
+
+function StreamlitSection({
+  children,
+  defaultOpen = false,
+  description,
+  title
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean;
+  description: string;
+  title: string;
+}) {
+  return (
+    <details className="group rounded border border-[#2d333d] bg-[#171a20]" open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4">
+        <span>
+          <span className="block text-base font-semibold">{title}</span>
+          <span className="mt-1 block text-sm leading-6 text-[#a0a7b4]">{description}</span>
+        </span>
+        <span className="mt-1 shrink-0 rounded border border-[#2d333d] bg-[#111419] px-2 py-1 text-xs text-[#a0a7b4] group-open:text-emerald-200">
+          öffnen
+        </span>
+      </summary>
+      <div className="border-t border-[#2d333d] p-5">{children}</div>
+    </details>
+  );
+}
+
+function TrendOrderGrid({ data }: { data: MarketAmpel }) {
+  const latest = data.chart_points[data.chart_points.length - 1];
+  if (!latest) {
+    return <div className="rounded border border-[#2d333d] bg-[#111419] p-4 text-sm text-[#a0a7b4]">Keine Trenddaten im Cache.</div>;
+  }
+  const close = latest.close;
+  const low = latest.low;
+  const trendChecks = [
+    maCheck("Schluss über 21-EMA", close, latest.ema21),
+    maCheck("Tief über 21-EMA", low, latest.ema21),
+    heldCheck("3T Tief > 21-EMA", lastLowAbove(data.chart_points, "ema21")),
+    maCheck("Schluss über 50-SMA", close, latest.sma50),
+    maCheck("Tief über 50-SMA", low, latest.sma50),
+    heldCheck("3T Tief > 50-SMA", lastLowAbove(data.chart_points, "sma50")),
+    maCheck("Schluss über 200-SMA", close, latest.sma200),
+    maCheck("Tief über 200-SMA", low, latest.sma200),
+    heldCheck("3T Tief > 200-SMA", lastLowAbove(data.chart_points, "sma200"))
+  ];
+  const orderChecks = [
+    orderCheck("21-EMA > 50-SMA", latest.ema21, latest.sma50),
+    orderCheck("21-EMA > 200-SMA", latest.ema21, latest.sma200),
+    orderCheck("50-SMA > 200-SMA", latest.sma50, latest.sma200)
+  ];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
+      <CheckPanel title="Trendprüfung" checks={trendChecks} />
+      <CheckPanel title="Ordnung" checks={orderChecks} />
+    </div>
+  );
+}
+
+function DailyChecklist({ data }: { data: MarketAmpel }) {
+  const phase = data.phase_info.phase;
+  const checks = [
+    {
+      label: "Stabilisierung?",
+      passed: phase !== "rot" || Boolean(data.cycle.anchor_date),
+      detail: data.cycle.anchor_date ? `Ankertag: ${data.cycle.anchor_date}` : `Phase: ${data.phase_info.label}`
+    },
+    {
+      label: "Startschuss (>= Gelb)?",
+      passed: phase === "gelb" || phase === "gruen" || phase === "aufwaertstrend",
+      detail: `Phase: ${data.phase_info.label}`
+    },
+    {
+      label: "Marktbreite?",
+      passed: data.breadth_mode !== "schutz",
+      detail: `Modus: ${breadthLabel(data.breadth_mode)}`
+    },
+    {
+      label: "VIX Regime nicht Stress?",
+      passed: data.vix_regime !== "Stress",
+      detail: `Regime: ${data.vix_regime || "n/a"}`
+    },
+    {
+      label: "Warnzeichen <=2?",
+      passed: data.warning_count <= 2,
+      detail: `${data.warning_count} aktiv`
+    }
+  ];
+  return <CheckPanel title="Tägliche Checkliste" checks={checks} />;
+}
+
+function CheckPanel({
+  checks,
+  title
+}: {
+  checks: { label: string; passed: boolean; detail: string }[];
+  title: string;
+}) {
+  return (
+    <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+      <h3 className="mb-3 text-sm font-semibold text-[#d8dde6]">{title}</h3>
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
+        {checks.map((check) => (
+          <div key={check.label} className="flex items-start gap-3 rounded border border-[#242a33] bg-[#171a20] p-3">
+            {check.passed ? (
+              <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={18} />
+            ) : (
+              <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={18} />
+            )}
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-[#d8dde6]">{check.label}</div>
+              <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function maCheck(label: string, value?: number | null, average?: number | null) {
+  const hasData = value !== null && value !== undefined && average !== null && average !== undefined;
+  return {
+    label,
+    passed: Boolean(hasData && value > average),
+    detail: hasData ? `${formatNumber(value)} vs ${formatNumber(average)}` : "n/a"
+  };
+}
+
+function orderCheck(label: string, fast?: number | null, slow?: number | null) {
+  const hasData = fast !== null && fast !== undefined && slow !== null && slow !== undefined;
+  return {
+    label,
+    passed: Boolean(hasData && fast > slow),
+    detail: hasData ? `${formatNumber(fast)} vs ${formatNumber(slow)}` : "n/a"
+  };
+}
+
+function heldCheck(label: string, count: number) {
+  return {
+    label,
+    passed: count >= 3,
+    detail: `${count} Tage`
+  };
+}
+
+function lastLowAbove(points: MarketAmpel["chart_points"], averageKey: "ema21" | "sma50" | "sma200") {
+  let count = 0;
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    const point = points[index];
+    const average = point[averageKey];
+    if (point.low === null || point.low === undefined || average === null || average === undefined || point.low <= average) break;
+    count += 1;
+  }
+  return count;
 }
 
 function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {
@@ -384,4 +561,9 @@ function formatValueWithDistance(value?: number | null, pct?: number | null) {
   const formattedValue = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
   if (pct === null || pct === undefined) return formattedValue;
   return `${formattedValue} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)`;
+}
+
+function formatNumber(value?: number | null) {
+  if (value === null || value === undefined) return "-";
+  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
 }

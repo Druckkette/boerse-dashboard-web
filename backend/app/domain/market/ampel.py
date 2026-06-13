@@ -90,7 +90,7 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     df["ATR21"] = _atr(df, 21)
     df["ATR_pct"] = df["ATR21"] / df["Close"] * 100
     df["Vol_SMA50"] = _sma(df["Volume"], 50)
-    df["Pct_Change"] = df["Close"].pct_change(fill_method=None) * 100
+    df["Pct_Change"] = pd.to_numeric(df["Close"], errors="coerce").ffill().pct_change(fill_method=None) * 100
 
     daily_range = df["High"] - df["Low"]
     df["Closing_Range"] = np.where(
