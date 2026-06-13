@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CircleDashed, Play, RotateCw, Save, SearchCheck, WandSparkles, XCircle } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -10,6 +11,8 @@ import type {
   JobStatus,
   JobType,
   PriceRange,
+  SetupStatus,
+  SetupStep,
   UniverseSymbolMappingReview,
   UniverseSymbolMappingUpdate
 } from "@/lib/types/api";
@@ -537,11 +540,17 @@ export default function JobsPage() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<JobType>("bootstrap_market_data");
   const [startingType, setStartingType] = useState<JobType | null>(null);
-  const [bootstrapConfig, setBootstrapConfig] = useState<MarketDataBootstrapConfig>(defaultBootstrapConfig);
+  const [bootstrapConfig, setBootstrapConfig] = useState<MarketDataBootstrapConfig>(loadBootstrapConfig);
   const { data, isFetching, refetch } = useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs,
     refetchInterval: 5000
+  });
+  const setupQuery = useQuery({
+    queryKey: ["setup-status"],
+    queryFn: api.setupStatus,
+    refetchInterval: 5000,
+    staleTime: 3000
   });
   const universeQuery = useQuery({
     queryKey: ["market-universe"],
@@ -569,6 +578,8 @@ export default function JobsPage() {
     onSettled: () => {
       setStartingType(null);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["setup-status"] });
+      queryClient.invalidateQueries({ queryKey: ["freshness"] });
     },
     onSuccess: (job) => {
       if (job.job_type === "refresh_universe") {
@@ -619,6 +630,21 @@ export default function JobsPage() {
           Aktualisieren
         </button>
       </div>
+
+      <JobsSetupStatusPanel
+        activeJob={activeJob}
+        isFetching={setupQuery.isFetching}
+        setupStatus={setupQuery.data}
+        startingType={startingType}
+        onRefresh={() => setupQuery.refetch()}
+        onStart={(step) => {
+          if (!step.job_type) return;
+          startMutation.mutate({
+            type: step.job_type,
+            payload: { ...step.job_payload, source: "jobs_status" }
+          });
+        }}
+      />
 
       <MarketDataAssistantPanel
         activeJob={activeJob}
@@ -775,6 +801,96 @@ export default function JobsPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+function JobsSetupStatusPanel({
+  activeJob,
+  isFetching,
+  onRefresh,
+  onStart,
+  setupStatus,
+  startingType
+}: {
+  activeJob?: Job;
+  isFetching: boolean;
+  onRefresh: () => void;
+  onStart: (step: SetupStep) => void;
+  setupStatus?: SetupStatus;
+  startingType: JobType | null;
+}) {
+  const steps = setupStatus?.steps ?? [];
+  const nextStep = steps.find((step) => step.key === setupStatus?.next_step_key);
+  const blockedByActiveJob = Boolean(activeJob);
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">Betriebsstatus</h2>
+            <StatusChip tone={setupStatus ? toneForSetupOverall(setupStatus.status) : "neutral"}>
+              {setupStatus?.status ?? "lädt"}
+            </StatusChip>
+            {activeJob ? <StatusChip tone="warning">läuft: {activeJob.job_type}</StatusChip> : null}
+          </div>
+          <p className="max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+            {setupStatus?.summary ?? "Prüfe System, Depot, Kursdaten, Marktbreite, RS-Ratings und Positionsmonitor."}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            type="button"
+            onClick={onRefresh}
+          >
+            <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            Status prüfen
+          </button>
+          {nextStep?.job_type ? (
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={blockedByActiveJob || startingType === nextStep.job_type}
+              type="button"
+              onClick={() => onStart(nextStep)}
+            >
+              <Play size={15} />
+              {startingType === nextStep.job_type ? "Startet" : nextStep.action_label}
+            </button>
+          ) : nextStep?.href ? (
+            <Link
+              className="inline-flex items-center justify-center gap-2 rounded bg-emerald-300 px-3 py-2 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200"
+              href={nextStep.href}
+            >
+              {nextStep.action_label}
+            </Link>
+          ) : null}
+        </div>
+      </div>
+      {nextStep ? (
+        <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="font-medium">Nächste Aktion: {nextStep.label}</div>
+              <div className="mt-1 text-xs leading-5 text-[#8e97a6]">{nextStep.detail}</div>
+            </div>
+            <StatusChip tone={toneForSetupStep(nextStep.status)}>{nextStep.status}</StatusChip>
+          </div>
+        </div>
+      ) : null}
+      {steps.length > 0 ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+          {steps.map((step) => (
+            <div key={step.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="truncate text-xs font-medium">{step.label}</span>
+                <StatusChip tone={toneForSetupStep(step.status)}>{shortSetupStatus(step.status)}</StatusChip>
+              </div>
+              <div className="line-clamp-2 text-xs leading-5 text-[#77808f]">{step.detail}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1330,6 +1446,54 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
   return { mode: "manual" };
 }
 
+function loadBootstrapConfig(): MarketDataBootstrapConfig {
+  if (typeof window === "undefined") return defaultBootstrapConfig;
+  try {
+    const raw = window.localStorage.getItem(BOOTSTRAP_CONFIG_STORAGE_KEY);
+    if (!raw) return defaultBootstrapConfig;
+    return sanitizeBootstrapConfig(JSON.parse(raw));
+  } catch {
+    return defaultBootstrapConfig;
+  }
+}
+
+function sanitizeBootstrapConfig(value: unknown): MarketDataBootstrapConfig {
+  if (!value || typeof value !== "object") return defaultBootstrapConfig;
+  const candidate = value as Partial<MarketDataBootstrapConfig>;
+  return {
+    pricePreset: isPricePreset(candidate.pricePreset) ? candidate.pricePreset : defaultBootstrapConfig.pricePreset,
+    priceRange: isPriceRange(candidate.priceRange) ? candidate.priceRange : defaultBootstrapConfig.priceRange,
+    storedUniverseLimit: clampNumber(
+      Number(candidate.storedUniverseLimit),
+      25,
+      5000,
+      defaultBootstrapConfig.storedUniverseLimit
+    ),
+    customTickers: typeof candidate.customTickers === "string" ? candidate.customTickers : "",
+    breadthLookbackDays: clampNumber(
+      Number(candidate.breadthLookbackDays),
+      90,
+      2000,
+      defaultBootstrapConfig.breadthLookbackDays
+    ),
+    rsLookbackDays: clampNumber(
+      Number(candidate.rsLookbackDays),
+      120,
+      2000,
+      defaultBootstrapConfig.rsLookbackDays
+    ),
+    rsBenchmarkTicker: normalizeTicker(candidate.rsBenchmarkTicker || defaultBootstrapConfig.rsBenchmarkTicker) || "SPY"
+  };
+}
+
+function isPricePreset(value: unknown): value is PricePreset {
+  return ["all", "stored_universe", "market_core", "volatility", "sector", "custom"].includes(String(value));
+}
+
+function isPriceRange(value: unknown): value is PriceRange {
+  return ["1m", "3m", "6m", "1y", "2y", "5y"].includes(String(value));
+}
+
 function parseTickers(value: string) {
   return uniqueTickers(value.replaceAll(";", ",").split(","));
 }
@@ -1351,4 +1515,27 @@ function normalizeTicker(value: string) {
 function clampNumber(value: number, min: number, max: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function toneForSetupOverall(status: SetupStatus["status"]): "good" | "neutral" | "warning" | "bad" {
+  if (status === "ready") return "good";
+  if (status === "running") return "warning";
+  if (status === "blocked") return "bad";
+  return "warning";
+}
+
+function toneForSetupStep(status: SetupStep["status"]): "good" | "neutral" | "warning" | "bad" {
+  if (status === "complete") return "good";
+  if (status === "running" || status === "warning") return "warning";
+  if (status === "blocked" || status === "error") return "bad";
+  return "neutral";
+}
+
+function shortSetupStatus(status: SetupStep["status"]) {
+  if (status === "complete") return "ok";
+  if (status === "pending") return "offen";
+  if (status === "running") return "läuft";
+  if (status === "warning") return "prüfen";
+  if (status === "blocked") return "blockiert";
+  return "fehler";
 }
