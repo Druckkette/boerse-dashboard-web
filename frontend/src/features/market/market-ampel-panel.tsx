@@ -193,23 +193,27 @@ export function MarketAmpelPanel() {
 function TrafficLightPanel({ data }: { data: MarketAmpel }) {
   return (
     <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+      <div className="grid gap-5 xl:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)]">
         <div className="rounded border border-[#2d333d] bg-[#101318] p-4">
-          <div className="flex flex-wrap justify-center gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
             {data.lights.map((light) => (
               <Light key={light.key} light={light} />
             ))}
           </div>
         </div>
         <div className="min-w-0 flex-1">
-          <div className={clsx("text-lg font-semibold tracking-normal", toneText(data.phase_info.tone))}>
-            {data.phase_info.label}
+          <div className={clsx("rounded border p-5", phaseCardClass(data.phase_info.tone))}>
+            <div className="text-xs font-semibold uppercase tracking-normal text-[#a0a7b4]">Aktuelle Ampelphase</div>
+            <div className={clsx("mt-2 break-words text-3xl font-semibold tracking-normal md:text-4xl", toneText(data.phase_info.tone))}>
+              {data.phase_info.label}
+            </div>
+            <p className="mt-4 max-w-3xl text-base leading-7 text-[#d8dde6]">{data.phase_info.reason}</p>
+            <div className="mt-4 rounded border border-[#2d333d] bg-[#111419] p-4">
+              <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">Handlung</div>
+              <p className="mt-2 text-base leading-7 text-[#f2f5f8]">{data.phase_info.action}</p>
+            </div>
           </div>
-          <p className="mt-2 text-sm leading-6 text-[#c9d0da]">{data.phase_info.reason}</p>
-          <p className="mt-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm leading-5 text-[#a0a7b4]">
-            {data.phase_info.action}
-          </p>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
             <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} />
             <CycleMetric
               label="Bodenmarke"
@@ -236,7 +240,7 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
 
 function Light({ light }: { light: MarketAmpelLight }) {
   return (
-    <div className="flex min-h-[118px] min-w-[132px] flex-1 flex-col items-center justify-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3 sm:flex-none">
+    <div className="flex min-h-[112px] min-w-0 flex-col items-center justify-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3">
       <span
         className={clsx(
           "grid size-12 place-items-center rounded-full border transition",
@@ -245,7 +249,7 @@ function Light({ light }: { light: MarketAmpelLight }) {
       >
         <CircleDot size={22} />
       </span>
-      <span className={clsx("text-center text-xs font-semibold", light.active ? toneText(light.tone) : "text-[#77808f]")}>
+      <span className={clsx("max-w-full text-center text-xs font-semibold leading-4", light.active ? toneText(light.tone) : "text-[#77808f]")}>
         {light.label}
       </span>
     </div>
@@ -491,9 +495,9 @@ function lastLowAbove(points: MarketAmpel["chart_points"], averageKey: "ema21" |
 
 function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#111419] p-3">
-      <div className="text-xs uppercase text-[#77808f]">{label}</div>
-      <div className={clsx("mt-2 text-sm font-semibold", toneText(tone))}>{value}</div>
+    <div className="min-h-[104px] rounded border border-[#2d333d] bg-[#111419] p-4">
+      <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">{label}</div>
+      <div className={clsx("mt-3 break-words text-xl font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
     </div>
   );
 }
@@ -503,6 +507,13 @@ function heroToneClasses(tone: Tone) {
   if (tone === "bad") return "border-rose-300/30 bg-rose-300/10";
   if (tone === "warning") return "border-amber-300/30 bg-amber-300/10";
   return "border-[#2d333d] bg-[#171a20]";
+}
+
+function phaseCardClass(tone: Tone) {
+  if (tone === "good") return "border-emerald-300/35 bg-emerald-300/10";
+  if (tone === "bad") return "border-rose-300/35 bg-rose-300/10";
+  if (tone === "warning") return "border-amber-300/35 bg-amber-300/10";
+  return "border-[#2d333d] bg-[#111419]";
 }
 
 function activeLightClass(tone: Tone, key?: MarketAmpelLight["key"]) {
