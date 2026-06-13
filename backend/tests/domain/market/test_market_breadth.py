@@ -27,7 +27,10 @@ def test_compute_breadth_series_is_reproducible() -> None:
     assert latest.coverage_ratio == pytest.approx(1.0)
     assert latest.pct_above_50sma == pytest.approx(2 / 3 * 100)
     assert latest.pct_above_200sma == pytest.approx(2 / 3 * 100)
-    assert latest.mcclellan > 0
+    # Streamlit computes McClellan from ratio-adjusted net advances (RANA).
+    # With a perfectly constant 2:1 advance/decline mix, both EMAs converge to
+    # the same value and the oscillator is neutral.
+    assert latest.mcclellan == pytest.approx(0.0)
 
 
 def test_market_snapshot_classifies_constructive_breadth() -> None:

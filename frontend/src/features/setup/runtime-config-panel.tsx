@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Database, KeyRound, LockKeyhole, RotateCw, Save, ShieldAlert, Trash2 } from "lucide-react";
+import { CheckCircle2, Database, KeyRound, LockKeyhole, RotateCw, Save, ShieldAlert, TestTube2, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { RuntimeConfigItem } from "@/lib/types/api";
+import type { RuntimeConfigItem, RuntimeConfigTestResponse } from "@/lib/types/api";
 
 const categoryLabels: Record<RuntimeConfigItem["category"], string> = {
   external_api: "API & Datenquellen",
@@ -22,6 +22,7 @@ export function RuntimeConfigPanel() {
   const query = useQuery({ queryKey: ["runtime-config"], queryFn: api.runtimeConfig, staleTime: 30_000 });
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [clearKeys, setClearKeys] = useState<string[]>([]);
+  const [testResults, setTestResults] = useState<Record<string, RuntimeConfigTestResponse>>({});
   const mutation = useMutation({
     mutationFn: () => api.patchRuntimeConfig({ values: cleanDraft(draft), clear_keys: clearKeys }),
     onSuccess: (updated) => {
@@ -30,6 +31,10 @@ export function RuntimeConfigPanel() {
       setDraft({});
       setClearKeys([]);
     }
+  });
+  const testMutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value?: string }) => api.testRuntimeConfig({ key, value }),
+    onSuccess: (result) => setTestResults((current) => ({ ...current, [result.key]: result }))
   });
 
   const grouped = useMemo(() => {
@@ -124,6 +129,9 @@ export function RuntimeConfigPanel() {
                   key={item.key}
                   onClear={() => toggleClear(item.key)}
                   onChange={(value) => setValue(item.key, value)}
+                  onTest={() => testMutation.mutate({ key: item.key, value: draft[item.key] })}
+                  testPending={testMutation.isPending && testMutation.variables?.key === item.key}
+                  testResult={testResults[item.key]}
                 />
               ))}
             </div>
@@ -139,13 +147,19 @@ function RuntimeConfigField({
   draftValue,
   item,
   onChange,
-  onClear
+  onClear,
+  onTest,
+  testPending,
+  testResult
 }: {
   clearSelected: boolean;
   draftValue: string;
   item: RuntimeConfigItem;
   onChange: (value: string) => void;
   onClear: () => void;
+  onTest: () => void;
+  testPending: boolean;
+  testResult?: RuntimeConfigTestResponse;
 }) {
   return (
     <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
@@ -163,7 +177,7 @@ function RuntimeConfigField({
           {item.restart_required ? (
             <div className="mt-2 flex gap-2 text-xs leading-5 text-amber-100">
               <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
-              Änderung braucht `.env.nas`/Compose und Container-Neustart.
+              Änderung wird gespeichert, greift aber erst nach Container-Neustart.
             </div>
           ) : null}
         </div>
@@ -197,6 +211,25 @@ function RuntimeConfigField({
             <CheckCircle2 size={13} className="text-emerald-300" />
             Neuer Wert wird erst beim Speichern ersetzt.
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              className="inline-flex items-center gap-2 rounded border border-sky-300/35 bg-sky-300/10 px-3 py-2 text-xs text-sky-100 transition hover:border-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={testPending}
+              type="button"
+              onClick={onTest}
+            >
+              <TestTube2 size={13} />
+              {testPending ? "Prüft" : item.key === "DATABASE_URL" ? "Neon testen" : "Testen"}
+            </button>
+            {testResult ? (
+              <StatusChip tone={testResult.ok ? "good" : "bad"}>{testResult.status}</StatusChip>
+            ) : null}
+          </div>
+          {testResult ? (
+            <div className={["mt-2 rounded border p-3 text-xs leading-5", testResult.ok ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100" : "border-rose-300/30 bg-rose-300/10 text-rose-100"].join(" ")}>
+              {testResult.detail}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mt-3 rounded border border-dashed border-[#2d333d] bg-[#111419] p-3 text-sm leading-6 text-[#a0a7b4]">

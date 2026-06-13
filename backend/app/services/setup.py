@@ -116,14 +116,14 @@ def _prices_step(
     freshness: ServiceFreshness | None,
     jobs: list[Job],
 ) -> SetupStep:
-    latest_job = _latest_job(jobs, "refresh_prices")
+    latest_job = _latest_job(jobs, "bootstrap_market_data") or _latest_job(jobs, "refresh_prices")
     if _is_active(latest_job):
         return _job_step(
             key="prices",
             label="Kursdaten",
             status="running",
             detail="Price-Cache-Refresh läuft im Worker.",
-            job_type="refresh_prices",
+            job_type="bootstrap_market_data",
             job_payload={},
             latest_job=latest_job,
         )
@@ -136,7 +136,7 @@ def _prices_step(
             label="Kursdaten",
             status="pending",
             detail=missing_issue.detail,
-            job_type="refresh_prices",
+            job_type="bootstrap_market_data",
             job_payload=missing_issue.job_payload,
             latest_job=latest_job,
             action_label=missing_issue.action_label or "Kurse laden",
@@ -147,7 +147,7 @@ def _prices_step(
             label="Kursdaten",
             status="warning",
             detail=stale_issue.detail,
-            job_type="refresh_prices",
+            job_type="bootstrap_market_data",
             job_payload=stale_issue.job_payload,
             latest_job=latest_job,
             action_label=stale_issue.action_label or "Kurse aktualisieren",
@@ -158,8 +158,8 @@ def _prices_step(
             label="Kursdaten",
             status="pending",
             detail="Noch kein Price-Cache vorhanden.",
-            job_type="refresh_prices",
-            job_payload={"mode": "manual", "range": "1y", "preset": "all"},
+            job_type="bootstrap_market_data",
+            job_payload={"mode": "initial", "source": "setup", "range": "2y", "universe": "us_common_stocks", "limit_universe": 5000},
             latest_job=latest_job,
             action_label="Kurse laden",
         )
@@ -170,7 +170,7 @@ def _prices_step(
             status="warning",
             detail=f"Price-Cache ist vorhanden, aber veraltet ({freshness.as_of}).",
             job_type="refresh_prices",
-            job_payload={"mode": "manual", "range": "6m", "preset": "all"},
+            job_payload={"mode": "update", "source": "setup", "range": "6m", "universe": "us_common_stocks", "limit_universe": 5000},
             latest_job=latest_job,
             action_label="Kurse aktualisieren",
         )
@@ -179,8 +179,8 @@ def _prices_step(
         label="Kursdaten",
         status="complete",
         detail=f"Price-Cache ist aktuell ({freshness.as_of}).",
-        job_type="refresh_prices",
-        job_payload={"mode": "manual", "range": "6m", "preset": "all"},
+        job_type="bootstrap_market_data",
+        job_payload={"mode": "update", "source": "setup", "range": "6m", "universe": "us_common_stocks", "limit_universe": 5000},
         latest_job=latest_job,
         action_label="Kurse aktualisieren",
     )
@@ -210,7 +210,7 @@ def _breadth_step(
             job_type="refresh_breadth",
             latest_job=latest_job,
         )
-    payload = {"mode": "manual", "lookback_days": 370, "universe": "us_common_stocks", "limit_universe": 500}
+    payload = {"mode": "manual", "lookback_days": 550, "universe": "us_common_stocks", "limit_universe": 5000}
     if freshness is None or freshness.status == "missing":
         return _job_step(
             key="market_breadth",
@@ -274,7 +274,7 @@ def _relative_strength_step(
         "lookback_days": 430,
         "benchmark_ticker": "SPY",
         "universe": "us_common_stocks",
-        "limit_universe": 500,
+        "limit_universe": 5000,
     }
     if freshness is None or freshness.status == "missing":
         return _job_step(

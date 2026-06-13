@@ -633,13 +633,24 @@ def test_runtime_config_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "SEC_USER_AGENT" in payload["editable_keys"]
-    assert "DATABASE_URL" in payload["bootstrap_keys"]
+    assert "DATABASE_URL" in payload["editable_keys"]
     sec_item = next(item for item in payload["items"] if item["key"] == "SEC_USER_AGENT")
     db_item = next(item for item in payload["items"] if item["key"] == "DATABASE_URL")
     assert sec_item["editable"] is True
     assert sec_item["runtime_applied"] is True
-    assert db_item["editable"] is False
+    assert db_item["editable"] is True
     assert db_item["restart_required"] is True
+
+
+def test_runtime_config_test_endpoint_validates_sec_user_agent() -> None:
+    response = client.post(
+        "/api/v1/settings/runtime-config/test",
+        json={"key": "SEC_USER_AGENT", "value": "boerse-dashboard-web tests@example.com"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["status"] == "ok"
 
 
 def test_runtime_config_patch_masks_secret() -> None:

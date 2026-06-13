@@ -132,7 +132,7 @@ def _row_to_payload(row: RsRatingRow) -> dict:
 
 
 def _normalize_tickers(tickers: list[str]) -> list[str]:
-    return list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))[:120]
+    return list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))[:5000]
 
 
 def _float_or_none(value: object) -> float | None:

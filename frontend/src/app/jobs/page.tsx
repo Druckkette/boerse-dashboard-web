@@ -15,6 +15,7 @@ import type {
 } from "@/lib/types/api";
 
 const jobTypes: { type: JobType; label: string; description: string }[] = [
+  { type: "bootstrap_market_data", label: "Alles", description: "Universe, Kurse, Breadth, RS und Monitor" },
   { type: "refresh_prices", label: "Market Prices", description: "OHLC-Kurse in den Cache laden" },
   { type: "refresh_breadth", label: "Market Breadth", description: "Marktbreite und Snapshot berechnen" },
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking berechnen" },
@@ -56,14 +57,14 @@ type MarketDataBootstrapConfig = {
   rsBenchmarkTicker: string;
 };
 
-const BOOTSTRAP_CONFIG_STORAGE_KEY = "boerse-dashboard.market-data-bootstrap.v1";
+const BOOTSTRAP_CONFIG_STORAGE_KEY = "boerse-dashboard.market-data-bootstrap.v2";
 
 const defaultBootstrapConfig: MarketDataBootstrapConfig = {
-  pricePreset: "all",
-  priceRange: "1y",
-  storedUniverseLimit: 500,
+  pricePreset: "stored_universe",
+  priceRange: "2y",
+  storedUniverseLimit: 5000,
   customTickers: "",
-  breadthLookbackDays: 370,
+  breadthLookbackDays: 550,
   rsLookbackDays: 430,
   rsBenchmarkTicker: "SPY"
 };
@@ -534,9 +535,9 @@ function YahooDiagnosticsPanel({
 
 export default function JobsPage() {
   const queryClient = useQueryClient();
-  const [selectedType, setSelectedType] = useState<JobType>("refresh_prices");
+  const [selectedType, setSelectedType] = useState<JobType>("bootstrap_market_data");
   const [startingType, setStartingType] = useState<JobType | null>(null);
-  const [bootstrapConfig, setBootstrapConfig] = useState<MarketDataBootstrapConfig>(readBootstrapConfigFromStorage);
+  const [bootstrapConfig, setBootstrapConfig] = useState<MarketDataBootstrapConfig>(defaultBootstrapConfig);
   const { data, isFetching, refetch } = useQuery({
     queryKey: ["jobs"],
     queryFn: api.jobs,
@@ -619,60 +620,78 @@ export default function JobsPage() {
         </button>
       </div>
 
-      <RefreshSequence
+      <MarketDataAssistantPanel
         activeJob={activeJob}
         config={bootstrapConfig}
-        onConfigChange={(patch) => setBootstrapConfig((current) => ({ ...current, ...patch }))}
         jobs={jobs}
         onStart={(type, payload) => startMutation.mutate({ type, payload })}
         startingType={startingType}
       />
 
-      <UniverseStatusPanel
-        activeJob={activeJob}
-        latestJob={latestUniverseJob}
-        memberCount={universeQuery.data?.member_count ?? 0}
-        source={universeQuery.data?.source ?? "missing"}
-        updatedAt={universeQuery.data?.updated_at ?? null}
-        sampleTickers={universeQuery.data?.sample_tickers ?? []}
-        isFetching={universeQuery.isFetching}
-        onRefresh={() => universeQuery.refetch()}
-        onStart={() => startMutation.mutate({ type: "refresh_universe", payload: defaultPayloadForJob("refresh_universe") })}
-        startError={
-          startMutation.isError &&
-          startMutation.variables?.type === "refresh_universe" &&
-          startMutation.error instanceof Error
-            ? startMutation.error.message
-            : ""
-        }
-        starting={startingType === "refresh_universe"}
-      />
+      <details className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <summary className="cursor-pointer text-base font-semibold text-[#d8dde6]">
+          Expert-Werkzeuge: Universe, Yahoo-Mapping und Einzeljobs
+        </summary>
+        <div className="mt-4 space-y-5">
+          <RefreshSequence
+            activeJob={activeJob}
+            config={bootstrapConfig}
+            onConfigChange={(patch) => setBootstrapConfig((current) => ({ ...current, ...patch }))}
+            jobs={jobs}
+            onStart={(type, payload) => startMutation.mutate({ type, payload })}
+            startingType={startingType}
+          />
 
-      <UniverseSymbolMappingPanel
-        failedTickers={priceFailures}
-        isFetching={universeMappingsQuery.isFetching}
-        review={universeMappingsQuery.data}
-        saving={mappingMutation.isPending}
-        saveError={
-          mappingMutation.isError && mappingMutation.error instanceof Error
-            ? mappingMutation.error.message
-            : ""
-        }
-        onRefresh={() => universeMappingsQuery.refetch()}
-        onSave={(payload) => mappingMutation.mutate(payload)}
-      />
+          <UniverseStatusPanel
+            activeJob={activeJob}
+            latestJob={latestUniverseJob}
+            memberCount={universeQuery.data?.member_count ?? 0}
+            source={universeQuery.data?.source ?? "missing"}
+            updatedAt={universeQuery.data?.updated_at ?? null}
+            sampleTickers={universeQuery.data?.sample_tickers ?? []}
+            isFetching={universeQuery.isFetching}
+            onRefresh={() => universeQuery.refetch()}
+            onStart={() => startMutation.mutate({ type: "refresh_universe", payload: defaultPayloadForJob("refresh_universe") })}
+            startError={
+              startMutation.isError &&
+              startMutation.variables?.type === "refresh_universe" &&
+              startMutation.error instanceof Error
+                ? startMutation.error.message
+                : ""
+            }
+            starting={startingType === "refresh_universe"}
+          />
 
-      <YahooDiagnosticsPanel
-        activeJob={activeJob}
-        failedTickers={priceFailures}
-        latestDiagnosticsJob={latestYahooDiagnosticsJob}
-        latestRescueJob={latestYahooRescueJob}
-        onStart={(type, payload) => startMutation.mutate({ type, payload })}
-        startingType={startingType}
-      />
+          <UniverseSymbolMappingPanel
+            failedTickers={priceFailures}
+            isFetching={universeMappingsQuery.isFetching}
+            review={universeMappingsQuery.data}
+            saving={mappingMutation.isPending}
+            saveError={
+              mappingMutation.isError && mappingMutation.error instanceof Error
+                ? mappingMutation.error.message
+                : ""
+            }
+            onRefresh={() => universeMappingsQuery.refetch()}
+            onSave={(payload) => mappingMutation.mutate(payload)}
+          />
 
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <YahooDiagnosticsPanel
+            activeJob={activeJob}
+            failedTickers={priceFailures}
+            latestDiagnosticsJob={latestYahooDiagnosticsJob}
+            latestRescueJob={latestYahooRescueJob}
+            onStart={(type, payload) => startMutation.mutate({ type, payload })}
+            startingType={startingType}
+          />
+        </div>
+      </details>
+
+      <details className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <summary className="cursor-pointer text-base font-semibold text-[#d8dde6]">
+          Einzeljob manuell starten
+        </summary>
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-base font-semibold">Job manuell starten</h2>
             <div className="text-sm text-[#a0a7b4]">
@@ -722,8 +741,8 @@ export default function JobsPage() {
         <details className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
           <summary className="cursor-pointer text-[#d8dde6]">Default-Einstellungen für diesen manuellen Start</summary>
           <p className="mt-2 leading-6 text-[#a0a7b4]">
-            Diese Werte sind unabhängig von der Initialisierungsbox. Sie sind bewusst klein und allgemein, damit ein
-            manueller Start auf der NAS nicht versehentlich das volle Universe mehrfach lädt.
+            Diese Werte sind unabhängig von den Hauptbuttons. Für Marktbreite und RS wird das volle gespeicherte
+            US-Common-Stocks-Universum verwendet; Spezialjobs wie 13F bleiben bewusst separat.
           </p>
           <pre className="mt-3 max-h-44 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-3 text-xs text-[#d8dde6]">
             {JSON.stringify(defaultPayloadForJob(selectedType), null, 2)}
@@ -734,7 +753,7 @@ export default function JobsPage() {
             {startMutation.error instanceof Error ? startMutation.error.message : "Job konnte nicht gestartet werden."}
           </div>
         )}
-      </section>
+      </details>
 
       <div className="space-y-3">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -756,6 +775,88 @@ export default function JobsPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+function MarketDataAssistantPanel({
+  activeJob,
+  config,
+  jobs,
+  onStart,
+  startingType
+}: {
+  activeJob?: Job;
+  config: MarketDataBootstrapConfig;
+  jobs: Job[];
+  onStart: (type: JobType, payload: Record<string, unknown>) => void;
+  startingType: JobType | null;
+}) {
+  const latestBootstrap = latestJobForType(jobs, "bootstrap_market_data");
+  const disabled = Boolean(activeJob) || startingType === "bootstrap_market_data";
+  const initialPayload = buildBootstrapPayload(config, "initial");
+  const updatePayload = buildBootstrapPayload(config, "update");
+
+  return (
+    <section className="rounded border border-emerald-300/25 bg-[#171a20] p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="max-w-4xl">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold">Marktdaten-Assistent</h2>
+            <StatusChip tone={activeJob ? "warning" : "good"}>{activeJob ? `läuft: ${activeJob.job_type}` : "bereit"}</StatusChip>
+            {latestBootstrap && <StatusChip tone={statusTone[latestBootstrap.status]}>{latestBootstrap.status}</StatusChip>}
+          </div>
+          <p className="text-sm leading-6 text-[#a0a7b4]">
+            Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
+            Diese beiden Buttons starten den kompletten Ablauf im Worker; die Oberfläche bleibt dabei bedienbar.
+          </p>
+          <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-4">
+            <span>Universe: US Common Stocks</span>
+            <span>Limit: {config.storedUniverseLimit.toLocaleString("de-DE")} Ticker</span>
+            <span>Initial: {config.priceRange}</span>
+            <span>Breadth: {config.breadthLookbackDays.toLocaleString("de-DE")} Tage</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row xl:flex-col">
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/50 bg-emerald-300/15 px-4 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled}
+            type="button"
+            onClick={() => onStart("bootstrap_market_data", initialPayload)}
+          >
+            <WandSparkles size={16} />
+            {startingType === "bootstrap_market_data" ? "Startet" : "Alles initialisieren"}
+          </button>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-sm text-[#d8dde6] transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled}
+            type="button"
+            onClick={() => onStart("bootstrap_market_data", updatePayload)}
+          >
+            <RotateCw size={16} />
+            Alles aktualisieren
+          </button>
+        </div>
+      </div>
+      {latestBootstrap && (
+        <div className="mt-4 rounded border border-[#2d333d] bg-[#111419] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">{latestBootstrap.current_step}</div>
+              <div className="mt-1 text-xs text-[#8e97a6]">{latestBootstrap.message || "Noch keine Detailmeldung."}</div>
+            </div>
+            <StatusChip tone={statusTone[latestBootstrap.status]}>{latestBootstrap.progress}%</StatusChip>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#242a33]">
+            <div className="h-full rounded-full bg-emerald-300" style={{ width: `${latestBootstrap.progress}%` }} />
+          </div>
+          {latestBootstrap.error_message ? (
+            <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+              {latestBootstrap.error_message}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1186,10 +1287,39 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
   ];
 }
 
+function buildBootstrapPayload(config: MarketDataBootstrapConfig, mode: "initial" | "update"): Record<string, unknown> {
+  return {
+    mode,
+    source: "dashboard",
+    universe: "us_common_stocks",
+    limit_universe: config.storedUniverseLimit,
+    range: mode === "initial" ? config.priceRange : "6m",
+    breadth_lookback_days: config.breadthLookbackDays,
+    rs_lookback_days: config.rsLookbackDays,
+    benchmark_ticker: normalizeTicker(config.rsBenchmarkTicker) || "SPY",
+    refresh_universe: mode === "initial"
+  };
+}
+
 function defaultPayloadForJob(type: JobType): Record<string, unknown> {
+  if (type === "bootstrap_market_data") {
+    return {
+      mode: "update",
+      source: "dashboard",
+      range: "6m",
+      universe: "us_common_stocks",
+      limit_universe: 5000,
+      breadth_lookback_days: 550,
+      rs_lookback_days: 430,
+      benchmark_ticker: "SPY",
+      refresh_universe: false
+    };
+  }
   if (type === "refresh_prices") return { mode: "manual", range: "1y", preset: "all" };
-  if (type === "refresh_breadth") return { mode: "manual", lookback_days: 370 };
-  if (type === "refresh_relative_strength") return { mode: "manual", lookback_days: 430 };
+  if (type === "refresh_breadth") return { mode: "manual", lookback_days: 550, universe: "us_common_stocks", limit_universe: 5000 };
+  if (type === "refresh_relative_strength") {
+    return { mode: "manual", lookback_days: 430, universe: "us_common_stocks", limit_universe: 5000 };
+  }
   if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
   if (type === "refresh_universe") return { mode: "manual", source: "dashboard" };
   if (type === "yahoo_symbol_diagnostics") return { mode: "manual", source: "dashboard", universe: "us_common_stocks", limit: 40 };
@@ -1221,40 +1351,4 @@ function normalizeTicker(value: string) {
 function clampNumber(value: number, min: number, max: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-function normalizeBootstrapConfig(value: unknown): MarketDataBootstrapConfig {
-  const raw = value && typeof value === "object" ? (value as Partial<MarketDataBootstrapConfig>) : {};
-  const pricePreset = ["all", "stored_universe", "market_core", "volatility", "sector", "custom"].includes(String(raw.pricePreset))
-    ? (raw.pricePreset as PricePreset)
-    : defaultBootstrapConfig.pricePreset;
-  const priceRange = ["1m", "3m", "6m", "1y", "2y", "5y"].includes(String(raw.priceRange))
-    ? (raw.priceRange as PriceRange)
-    : defaultBootstrapConfig.priceRange;
-
-  return {
-    pricePreset,
-    priceRange,
-    storedUniverseLimit: clampNumber(Number(raw.storedUniverseLimit), 25, 5000, defaultBootstrapConfig.storedUniverseLimit),
-    customTickers: typeof raw.customTickers === "string" ? raw.customTickers : "",
-    breadthLookbackDays: clampNumber(
-      Number(raw.breadthLookbackDays),
-      90,
-      2000,
-      defaultBootstrapConfig.breadthLookbackDays
-    ),
-    rsLookbackDays: clampNumber(Number(raw.rsLookbackDays), 120, 2000, defaultBootstrapConfig.rsLookbackDays),
-    rsBenchmarkTicker: normalizeTicker(String(raw.rsBenchmarkTicker || defaultBootstrapConfig.rsBenchmarkTicker))
-  };
-}
-
-function readBootstrapConfigFromStorage() {
-  if (typeof window === "undefined") return defaultBootstrapConfig;
-  const raw = window.localStorage.getItem(BOOTSTRAP_CONFIG_STORAGE_KEY);
-  if (!raw) return defaultBootstrapConfig;
-  try {
-    return normalizeBootstrapConfig(JSON.parse(raw));
-  } catch {
-    return defaultBootstrapConfig;
-  }
 }

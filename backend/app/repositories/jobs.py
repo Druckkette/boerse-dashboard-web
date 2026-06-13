@@ -15,6 +15,7 @@ from app.schemas import Job, JobType
 TERMINAL_JOB_STATUSES: set[str] = {"done", "failed", "skipped", "cancelled"}
 ACTIVE_JOB_STATUSES: set[str] = {"queued", "running"}
 SUPPORTED_JOB_TYPES: set[str] = {
+    "bootstrap_market_data",
     "refresh_prices",
     "refresh_breadth",
     "refresh_relative_strength",

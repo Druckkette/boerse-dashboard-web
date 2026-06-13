@@ -32,7 +32,11 @@ services:
     profiles: ["migrate"]
     env_file:
       - .env.nas
+    environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     command: ["alembic", "upgrade", "head"]
+    volumes:
+      - backend_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,10 +49,12 @@ services:
     environment:
       APP_ENV: nas
       BACKEND_CACHE_DIR: /app/.cache
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     volumes:
       - backend_cache:/app/.cache
+      - backend_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,9 +75,11 @@ services:
       APP_ENV: nas
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       BACKEND_CACHE_DIR: /app/.cache
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default"]
     volumes:
       - backend_cache:/app/.cache
+      - backend_runtime:/app/runtime
       - worker_logs:/app/logs
     depends_on:
       postgres:
@@ -86,7 +94,10 @@ services:
       - .env.nas
     environment:
       APP_ENV: nas
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     command: ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    volumes:
+      - backend_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,4 +122,5 @@ volumes:
   postgres_data:
   redis_data:
   backend_cache:
+  backend_runtime:
   worker_logs:

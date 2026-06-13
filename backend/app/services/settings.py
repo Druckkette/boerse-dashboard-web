@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
-from datetime import date, timedelta
+import re
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+import requests
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core_config import get_settings
@@ -19,6 +21,8 @@ from app.schemas import (
     RuntimeConfigItem,
     RuntimeConfigPatch,
     RuntimeConfigResponse,
+    RuntimeConfigTestRequest,
+    RuntimeConfigTestResponse,
     SettingsPatch,
 )
 
@@ -99,11 +103,11 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "placeholder": "0 oder 1",
     },
     "DATABASE_URL": {
-        "label": "Postgres / Neon DATABASE_URL",
+        "label": "Neon / externe Postgres DATABASE_URL",
         "category": "database",
-        "description": "Bootstrap-Wert: muss beim Containerstart vorhanden sein, bevor die Weboberfläche speichern kann.",
+        "description": "Optionale Neon- oder externe Postgres-Verbindung. Vor dem Speichern testen; nach dem Speichern Container neu starten.",
         "secret": True,
-        "editable": False,
+        "editable": True,
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "postgresql+psycopg://...",
@@ -118,6 +122,7 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "langes Passwort",
+        "visible": False,
     },
     "REDIS_URL": {
         "label": "Redis URL",
@@ -129,6 +134,7 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "runtime_applied": False,
         "placeholder": "redis://redis:6379/0",
         "attr": "redis_url",
+        "visible": False,
     },
     "APP_AUTH_ENABLED": {
         "label": "Frontend Basic Auth aktiv",
@@ -169,6 +175,7 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "druckkette",
+        "visible": False,
     },
     "IMAGE_TAG": {
         "label": "Docker Image Tag",
@@ -179,6 +186,7 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "latest",
+        "visible": False,
     },
 }
 
@@ -209,14 +217,19 @@ def get_runtime_config() -> RuntimeConfigResponse:
 
 
 def _runtime_config_response(stored: dict) -> RuntimeConfigResponse:
-    items = [_runtime_config_item(key, definition, stored) for key, definition in RUNTIME_CONFIG_DEFINITIONS.items()]
+    visible_definitions = {
+        key: definition
+        for key, definition in RUNTIME_CONFIG_DEFINITIONS.items()
+        if bool(definition.get("visible", True))
+    }
+    items = [_runtime_config_item(key, definition, stored) for key, definition in visible_definitions.items()]
     return RuntimeConfigResponse(
         items=items,
         editable_keys=[item.key for item in items if item.editable],
         bootstrap_keys=[item.key for item in items if not item.editable and item.restart_required],
         note=(
-            "Runtime-Werte werden in Postgres gespeichert und von Backend/Worker ohne Container-Rebuild gelesen. "
-            "Bootstrap-Werte wie DATABASE_URL/Neon oder Frontend Basic Auth müssen beim Containerstart vorhanden sein."
+            "API- und Secret-Werte werden in Postgres gespeichert und in eine persistente Runtime-Env-Datei gespiegelt. "
+            "Neon/DATABASE_URL wird nach Container-Neustart von Backend, Worker und Scheduler gelesen."
         ),
     )
 
@@ -237,7 +250,57 @@ def update_runtime_config(payload: RuntimeConfigPatch) -> RuntimeConfigResponse:
         settings_repository.write_runtime_config(stored)
     except SettingsRepositoryUnavailable:
         return _runtime_config_response(stored)
+    _write_runtime_env_file(stored)
     return get_runtime_config()
+
+
+def test_runtime_config(payload: RuntimeConfigTestRequest) -> RuntimeConfigTestResponse:
+    key = payload.key.strip().upper()
+    definition = RUNTIME_CONFIG_DEFINITIONS.get(key)
+    checked_at = datetime.now(UTC)
+    if not definition or not bool(definition.get("visible", True)):
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="unsupported",
+            detail="Dieser Wert ist kein prüfbarer Setup-Eintrag.",
+            checked_at=checked_at,
+        )
+
+    value = str(payload.value or "").strip() or get_runtime_config_value(key)
+    if key == "SEC_USER_AGENT":
+        ok = bool(value and re.search(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) and len(value.split()) >= 2)
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=ok,
+            status="ok" if ok else "invalid",
+            detail="SEC User Agent sieht gültig aus." if ok else "Format erwartet: '<project> <contact-email>'.",
+            checked_at=checked_at,
+        )
+    if key == "DATABASE_URL":
+        return _test_database_url(key=key, value=value, checked_at=checked_at)
+    if key == "FMP_API_KEY":
+        return _test_fmp_api_key(key=key, value=value, checked_at=checked_at)
+    if key in {"PUSHOVER_USER_KEY", "PUSHOVER_APP_TOKEN"}:
+        return _test_pushover(key=key, candidate_key=payload.value, checked_at=checked_at)
+    if key == "PUSHOVER_DRY_RUN":
+        clean = value.lower()
+        ok = clean in {"0", "1", "true", "false", "yes", "no", "on", "off"}
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=ok,
+            status="ok" if ok else "invalid",
+            detail="Boolean-Wert ist gültig." if ok else "Erlaubt sind 0/1, true/false, yes/no oder on/off.",
+            checked_at=checked_at,
+        )
+    return RuntimeConfigTestResponse(
+        key=key,
+        ok=False,
+        status="unsupported",
+        detail="Für diesen Eintrag ist noch kein Verbindungstest hinterlegt.",
+        checked_at=checked_at,
+        restart_required=bool(definition.get("restart_required", False)),
+    )
 
 
 def get_runtime_config_value(key: str) -> str:
@@ -256,6 +319,168 @@ def get_runtime_config_bool(key: str, fallback: bool = False) -> bool:
     if not value:
         return fallback
     return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _test_database_url(*, key: str, value: str, checked_at: datetime) -> RuntimeConfigTestResponse:
+    if not value:
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="missing",
+            detail="Keine DATABASE_URL angegeben.",
+            checked_at=checked_at,
+            restart_required=True,
+        )
+    url = _normalize_database_url(value)
+    try:
+        engine = create_engine(url, pool_pre_ping=True, connect_args={"connect_timeout": 10})
+        with engine.connect() as connection:
+            connection.execute(text("select 1"))
+        engine.dispose()
+    except Exception as exc:
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="failed",
+            detail=f"Verbindung fehlgeschlagen: {type(exc).__name__}: {exc}",
+            checked_at=checked_at,
+            restart_required=True,
+        )
+    return RuntimeConfigTestResponse(
+        key=key,
+        ok=True,
+        status="ok",
+        detail="Datenbankverbindung erfolgreich. Speichern schreibt die Runtime-Konfiguration; danach Container neu starten.",
+        checked_at=checked_at,
+        restart_required=True,
+    )
+
+
+def _test_fmp_api_key(*, key: str, value: str, checked_at: datetime) -> RuntimeConfigTestResponse:
+    if not value:
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="missing",
+            detail="Kein FMP API Key angegeben.",
+            checked_at=checked_at,
+        )
+    try:
+        response = requests.get(
+            "https://financialmodelingprep.com/api/v3/profile/AAPL",
+            params={"apikey": value},
+            timeout=12,
+        )
+        if response.status_code != 200:
+            return RuntimeConfigTestResponse(
+                key=key,
+                ok=False,
+                status="failed",
+                detail=f"FMP antwortet mit HTTP {response.status_code}.",
+                checked_at=checked_at,
+            )
+        payload = response.json()
+        ok = isinstance(payload, list) and bool(payload) and "symbol" in payload[0]
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=ok,
+            status="ok" if ok else "invalid",
+            detail="FMP API Key funktioniert." if ok else "FMP-Antwort hatte nicht das erwartete Profilformat.",
+            checked_at=checked_at,
+        )
+    except Exception as exc:
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="failed",
+            detail=f"FMP-Test fehlgeschlagen: {type(exc).__name__}: {exc}",
+            checked_at=checked_at,
+        )
+
+
+def _test_pushover(*, key: str, candidate_key: str | None, checked_at: datetime) -> RuntimeConfigTestResponse:
+    stored = _read_runtime_config()
+    user_key = str(stored.get("PUSHOVER_USER_KEY") or _environment_value("PUSHOVER_USER_KEY", RUNTIME_CONFIG_DEFINITIONS["PUSHOVER_USER_KEY"]) or "").strip()
+    app_token = str(stored.get("PUSHOVER_APP_TOKEN") or _environment_value("PUSHOVER_APP_TOKEN", RUNTIME_CONFIG_DEFINITIONS["PUSHOVER_APP_TOKEN"]) or "").strip()
+    if key == "PUSHOVER_USER_KEY" and candidate_key:
+        user_key = candidate_key.strip()
+    if key == "PUSHOVER_APP_TOKEN" and candidate_key:
+        app_token = candidate_key.strip()
+    if not user_key or not app_token:
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="missing",
+            detail="Pushover-Test benötigt User Key und App Token.",
+            checked_at=checked_at,
+        )
+    try:
+        response = requests.post(
+            "https://api.pushover.net/1/users/validate.json",
+            data={"token": app_token, "user": user_key},
+            timeout=12,
+        )
+        ok = response.status_code == 200 and bool(response.json().get("status") == 1)
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=ok,
+            status="ok" if ok else "failed",
+            detail="Pushover-Zugang ist gültig." if ok else f"Pushover validiert die Daten nicht (HTTP {response.status_code}).",
+            checked_at=checked_at,
+        )
+    except Exception as exc:
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=False,
+            status="failed",
+            detail=f"Pushover-Test fehlgeschlagen: {type(exc).__name__}: {exc}",
+            checked_at=checked_at,
+        )
+
+
+def _write_runtime_env_file(stored: dict) -> None:
+    path = os.environ.get("APP_RUNTIME_ENV_FILE", "/app/runtime/runtime.env")
+    runtime_values = {
+        key: str(stored.get(key) or "").strip()
+        for key in (
+            "DATABASE_URL",
+            "SEC_USER_AGENT",
+            "FMP_API_KEY",
+            "PUSHOVER_USER_KEY",
+            "PUSHOVER_APP_TOKEN",
+            "PUSHOVER_DRY_RUN",
+        )
+        if str(stored.get(key) or "").strip()
+    }
+    if runtime_values.get("DATABASE_URL"):
+        runtime_values["DATABASE_URL"] = _normalize_database_url(runtime_values["DATABASE_URL"])
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if not runtime_values:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+        tmp_path = f"{path}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            handle.write("# Generated by boerse-dashboard-web setup. Do not commit.\n")
+            for key, value in runtime_values.items():
+                handle.write(f"{key}={_shell_quote(value)}\n")
+        os.replace(tmp_path, path)
+    except OSError:
+        return
+
+
+def _normalize_database_url(value: str) -> str:
+    clean = value.strip()
+    if clean.startswith("postgres://"):
+        return "postgresql+psycopg://" + clean.removeprefix("postgres://")
+    if clean.startswith("postgresql://"):
+        return "postgresql+psycopg://" + clean.removeprefix("postgresql://")
+    return clean
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 def get_data_diagnostics() -> DataDiagnosticsResponse:

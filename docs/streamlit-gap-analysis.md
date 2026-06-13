@@ -72,9 +72,10 @@ Target: `Druckkette/boerse-dashboard-web`.
   now has a multi-ticker compare view with category switching for overall,
   technical, fundamental, moving-average and chart-behavior rankings backed by
   the FastAPI assessment-compare endpoint.
-- Runtime integration setup added: `/setup` can persist SEC User-Agent, FMP API key
-  and Pushover credentials in Postgres for backend/worker use, while bootstrap-only
-  values such as Neon/Postgres URLs remain visible but intentionally not runtime-switched.
+- Runtime integration setup added: `/setup` can persist SEC User-Agent, FMP API key,
+  Pushover credentials and optional Neon/Postgres `DATABASE_URL`; each editable field
+  has a test action. Editable runtime secrets are mirrored to a persistent runtime
+  env file; Neon is applied after recreating backend, worker and scheduler.
 
 ## Open Gaps
 

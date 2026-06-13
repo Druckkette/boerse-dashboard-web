@@ -120,13 +120,13 @@ price cache, market breadth, RS ratings and the ATR monitor, then offers the nex
 No files have to be placed manually on the NAS; portfolio data is imported through
 `/portfolio/imports`.
 
-For operational refreshes you can still open `/jobs`, use **Marktdaten initial laden**, set the
-desired range, lookback windows and optional custom ticker list, then start the jobs in this order:
+For operational refreshes open `/jobs` and use the two primary actions:
 
-1. `Market Prices`
-2. `Market Breadth`
-3. `RS Ratings`
-4. `Positionsmonitor` after importing a portfolio
+1. **Alles initialisieren** loads the US common-stock universe, price cache, market breadth,
+   RS ratings and the position monitor in one worker job.
+2. **Alles aktualisieren** refreshes the same prepared data path without rebuilding the universe.
+
+The older individual jobs remain available under the expert tools section for diagnostics.
 
 The setup and jobs pages store only UI preferences in the browser. The market data itself is stored
 in the Postgres Docker volume. You only need to repeat the full bootstrap when the database volume
@@ -167,9 +167,11 @@ cd /volume1/docker/boerse-dashboard-web/infra
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
 ```
 
-FMP and Pushover credentials can also be entered in `/setup`. Bootstrap values such as
-`DATABASE_URL`/Neon, Redis and frontend Basic Auth still have to exist before the containers start,
-so the setup page shows their status but does not apply them at runtime.
+FMP, Pushover and Neon/Postgres credentials can also be entered and tested in `/setup`.
+These values are stored in Postgres and mirrored into a persistent runtime env file so they survive a
+later Neon database switch without manual file edits. `DATABASE_URL`/Neon is picked up after
+recreating `backend`, `worker` and `scheduler`. General Compose defaults such as Redis stay
+hard-coded in the repository and are not shown as setup fields.
 
 The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
 EPS/revenue growth and acceleration with FMP and SEC Company Facts. `FMP_API_KEY` is optional and

@@ -1,4 +1,4 @@
-DEFAULT_MARKET_UNIVERSE_KEY = "us_largecap_starter"
+DEFAULT_MARKET_UNIVERSE_KEY = "us_common_stocks"
 
 DEFAULT_MARKET_UNIVERSE_TICKERS = [
     "SPY",

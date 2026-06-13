@@ -1039,6 +1039,7 @@ class SellEvaluateResponse(BaseModel):
 
 JobStatus = Literal["queued", "running", "done", "failed", "skipped", "cancelled"]
 JobType = Literal[
+    "bootstrap_market_data",
     "refresh_prices",
     "refresh_breadth",
     "refresh_relative_strength",
@@ -1217,3 +1218,17 @@ class RuntimeConfigResponse(BaseModel):
 class RuntimeConfigPatch(BaseModel):
     values: dict[str, str] = Field(default_factory=dict)
     clear_keys: list[str] = Field(default_factory=list)
+
+
+class RuntimeConfigTestRequest(BaseModel):
+    key: str
+    value: str | None = None
+
+
+class RuntimeConfigTestResponse(BaseModel):
+    key: str
+    ok: bool
+    status: Literal["ok", "missing", "invalid", "failed", "unsupported"]
+    detail: str
+    checked_at: datetime
+    restart_required: bool = False

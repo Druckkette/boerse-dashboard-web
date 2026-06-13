@@ -1,10 +1,19 @@
 from fastapi import APIRouter
 
-from app.schemas import AppSettings, DataDiagnosticsResponse, RuntimeConfigPatch, RuntimeConfigResponse, SettingsPatch
+from app.schemas import (
+    AppSettings,
+    DataDiagnosticsResponse,
+    RuntimeConfigPatch,
+    RuntimeConfigResponse,
+    RuntimeConfigTestRequest,
+    RuntimeConfigTestResponse,
+    SettingsPatch,
+)
 from app.services.settings import (
     get_app_settings,
     get_data_diagnostics,
     get_runtime_config,
+    test_runtime_config,
     update_app_settings,
     update_runtime_config,
 )
@@ -36,3 +45,8 @@ def read_runtime_config() -> RuntimeConfigResponse:
 @router.patch("/runtime-config", response_model=RuntimeConfigResponse)
 def patch_runtime_config(payload: RuntimeConfigPatch) -> RuntimeConfigResponse:
     return update_runtime_config(payload)
+
+
+@router.post("/runtime-config/test", response_model=RuntimeConfigTestResponse)
+def test_runtime_config_value(payload: RuntimeConfigTestRequest) -> RuntimeConfigTestResponse:
+    return test_runtime_config(payload)

@@ -20,9 +20,9 @@ def refresh_breadth(self, job_id: str | None = None, payload: dict | None = None
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
         fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-        limit=int(payload.get("limit_universe") or 500),
+        limit=int(payload.get("limit_universe") or 5000),
     )
-    lookback_days = int(payload.get("lookback_days") or 370)
+    lookback_days = int(payload.get("lookback_days") or 550)
 
     job_repository.mark_running(job.job_id, step="Market-Price-Cache lesen")
     try:

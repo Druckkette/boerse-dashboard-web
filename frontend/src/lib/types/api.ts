@@ -1135,6 +1135,7 @@ export type Job = {
 export type JobStatus = "queued" | "running" | "done" | "failed" | "skipped" | "cancelled";
 
 export type JobType =
+  | "bootstrap_market_data"
   | "refresh_prices"
   | "refresh_breadth"
   | "refresh_relative_strength"
@@ -1190,6 +1191,20 @@ export type RuntimeConfig = {
 export type RuntimeConfigPatch = {
   values?: Record<string, string>;
   clear_keys?: string[];
+};
+
+export type RuntimeConfigTestRequest = {
+  key: string;
+  value?: string | null;
+};
+
+export type RuntimeConfigTestResponse = {
+  key: string;
+  ok: boolean;
+  status: "ok" | "missing" | "invalid" | "failed" | "unsupported";
+  detail: string;
+  checked_at: string;
+  restart_required: boolean;
 };
 
 export type DataDiagnosticIssue = {

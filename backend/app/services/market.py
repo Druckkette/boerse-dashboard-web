@@ -306,6 +306,19 @@ def get_market_deep_analysis(
     loaded_universe = int(latest_meta.get("covered_count") or latest_meta.get("loaded_universe") or 0)
     requested_universe_raw = latest_meta.get("universe_size") or latest_meta.get("requested_universe")
     requested_universe = int(requested_universe_raw) if requested_universe_raw else None
+    min_required = max(350, int((requested_universe or 0) * 0.18))
+    if requested_universe and loaded_universe < min_required:
+        return _missing_market_deep_analysis(
+            universe,
+            message=(
+                "Tiefenanalyse ist unvollständig. Das gespeicherte Universe enthält nur "
+                f"{loaded_universe}/{requested_universe} auswertbare Titel; benötigt werden mindestens {min_required}. "
+                "Starte auf der Jobs-Seite 'Alles initialisieren'."
+            ),
+            coverage_ratio=coverage_ratio,
+            loaded_universe=loaded_universe,
+            requested_universe=requested_universe,
+        )
     spx_at_high, ad_at_high, index_ad_detail = _index_ad_confirmation(points)
     p50_divergence = bool(spx_at_high and latest.pct_above_50sma is not None and latest.pct_above_50sma < 70)
     recent_thrust = any((point.deemer_ratio or 0) > 1.97 for point in valid_points[-20:])
@@ -452,16 +465,23 @@ def _missing_breadth(universe: str) -> BreadthResponse:
     )
 
 
-def _missing_market_deep_analysis(universe: str) -> MarketDeepAnalysisResponse:
+def _missing_market_deep_analysis(
+    universe: str,
+    *,
+    message: str = "Keine ausreichenden Breadth-Daten im Cache. Starte refresh_prices und danach refresh_breadth.",
+    coverage_ratio: float = 0.0,
+    loaded_universe: int = 0,
+    requested_universe: int | None = None,
+) -> MarketDeepAnalysisResponse:
     return MarketDeepAnalysisResponse(
         as_of=date.today().isoformat(),
         source="missing",
         data_status="missing",
-        message="Keine ausreichenden Breadth-Daten im Cache. Starte refresh_prices und danach refresh_breadth.",
+        message=message,
         universe=universe,
-        coverage_ratio=0.0,
-        loaded_universe=0,
-        requested_universe=None,
+        coverage_ratio=coverage_ratio,
+        loaded_universe=loaded_universe,
+        requested_universe=requested_universe,
         metrics=[],
         checks=[],
         points=[],
@@ -570,7 +590,7 @@ def refresh_market_breadth(
 ) -> dict:
     clean_tickers = _normalize_tickers(tickers or DEFAULT_MARKET_UNIVERSE_TICKERS)
     start_date = date.today() - timedelta(days=max(90, min(2000, lookback_days)))
-    series = market_repository.load_cached_prices(clean_tickers, start_date=start_date)
+    series = market_repository.load_cached_ohlcv_for_tickers(clean_tickers, start_date=start_date)
     computed = compute_breadth_series(series, universe=universe, universe_size=len(clean_tickers))
     if not computed:
         return {
@@ -631,7 +651,7 @@ def refresh_market_breadth(
 
 
 def compute_breadth_series(
-    series: Mapping[str, list[MarketPricePoint]],
+    series: Mapping[str, list[MarketPricePoint | MarketOhlcvPoint]],
     *,
     universe: str,
     universe_size: int | None = None,
@@ -645,8 +665,8 @@ def compute_breadth_series(
     if not clean_series or total_universe_size <= 0:
         return []
 
-    histories: dict[str, list[MarketPricePoint]] = {ticker: [] for ticker in clean_series}
-    by_date: dict[date, dict[str, MarketPricePoint]] = {}
+    histories: dict[str, list[MarketPricePoint | MarketOhlcvPoint]] = {ticker: [] for ticker in clean_series}
+    by_date: dict[date, dict[str, MarketPricePoint | MarketOhlcvPoint]] = {}
     for ticker, points in clean_series.items():
         for point in points:
             by_date.setdefault(point.date, {})[ticker] = point
@@ -655,8 +675,10 @@ def compute_breadth_series(
     ema_19: float | None = None
     ema_39: float | None = None
     computed: list[BreadthComputationPoint] = []
+    dates = sorted(by_date)
+    nh_window = min(252, len(dates) - 2) if len(dates) > 22 else 20
 
-    for current_date in sorted(by_date):
+    for current_date in dates:
         todays_points = by_date[current_date]
         advancers = 0
         decliners = 0
@@ -689,17 +711,22 @@ def compute_breadth_series(
                 eligible_200 += 1
                 above_200 += int(point.close > _mean(closes_with_current[-200:]))
 
-            high_low_window = closes_with_current[-252:]
-            if len(high_low_window) >= 20:
-                new_highs += int(point.close >= max(high_low_window))
-                new_lows += int(point.close <= min(high_low_window))
+            previous_highs = [_point_high(item) for item in history]
+            previous_lows = [_point_low(item) for item in history]
+            if len(previous_highs) >= 20:
+                new_highs += int(_point_high(point) > max(previous_highs[-nh_window:]))
+            if len(previous_lows) >= 20:
+                new_lows += int(_point_low(point) < min(previous_lows[-nh_window:]))
             history.append(point)
 
         net_advances = advancers - decliners
         ad_line += net_advances
-        ema_19 = _ema(net_advances, previous=ema_19, period=19)
-        ema_39 = _ema(net_advances, previous=ema_39, period=39)
-        mcclellan = ema_19 - ema_39
+        breadth_base = advancers + decliners
+        if breadth_base > 0:
+            rana = (net_advances / breadth_base) * 1000.0
+            ema_19 = _ema(rana, previous=ema_19, period=19)
+            ema_39 = _ema(rana, previous=ema_39, period=39)
+        mcclellan = (ema_19 - ema_39) if ema_19 is not None and ema_39 is not None else 0.0
         covered_count = len(todays_points)
 
         computed.append(
@@ -2285,6 +2312,14 @@ def _pct(count: int, total: int) -> float | None:
 def _ema(value: float, *, previous: float | None, period: int) -> float:
     alpha = 2 / (period + 1)
     return value if previous is None else alpha * value + (1 - alpha) * previous
+
+
+def _point_high(point: MarketPricePoint | MarketOhlcvPoint) -> float:
+    return float(getattr(point, "high", point.close) or point.close)
+
+
+def _point_low(point: MarketPricePoint | MarketOhlcvPoint) -> float:
+    return float(getattr(point, "low", point.close) or point.close)
 
 
 def _mean(values: list[float]) -> float:

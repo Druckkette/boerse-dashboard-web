@@ -54,9 +54,11 @@ and revenue history; when absent, the worker still uses yfinance and configured 
 After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
 marked `skipped` instead of crashing the app.
 
-Open `http://NAS-IP-ODER-HOSTNAME:3000/setup` for the first data bootstrap. The setup page guides
-portfolio import, price cache refresh, market breadth, RS ratings and ATR monitor jobs through the
-web UI. You do not have to copy CSV files into a container or run `curl` commands manually.
+Open `http://NAS-IP-ODER-HOSTNAME:3000/jobs` for the first data bootstrap and click
+**Alles initialisieren**. This one worker job loads the US common-stock universe, price cache,
+market breadth, RS ratings and the ATR position monitor path. For later refreshes click
+**Alles aktualisieren**. You do not have to copy CSV files into a container or run `curl` commands
+manually.
 
 The bootstrap does not have to be repeated after normal container restarts. Postgres data lives in
 the Docker volume; repeat the full setup only after an empty/reset database, after restoring a clean
@@ -97,11 +99,15 @@ Prefer the web setup page for runtime integration secrets:
 
 1. Open `http://NAS-IP-ODER-HOSTNAME:3000/setup`.
 2. In `Konfiguration & Secrets`, enter `SEC_USER_AGENT`, optional `FMP_API_KEY` and optional
-   Pushover credentials.
-3. Click `Speichern`.
+   Pushover credentials, or an optional Neon/Postgres `DATABASE_URL`.
+3. Use the field-level `Testen` button before saving. For Neon, this runs a real database
+   connection test from the backend container.
+4. Click `Speichern`.
 
-Backend and worker read these values from Postgres. No `.env.nas` edit or worker restart is needed
-for these runtime-applied values.
+Backend and worker read SEC/FMP/Pushover values from Postgres; the setup flow also mirrors editable
+runtime secrets into the generated runtime env file. No `.env.nas` edit or worker restart is needed
+for those runtime-applied values during normal operation. Neon/Postgres is handled below because a
+database switch must be applied before the processes open new connections.
 
 As an environment fallback, set `SEC_USER_AGENT` before running real 13F/SEC jobs:
 
@@ -119,9 +125,16 @@ cd /volume1/docker/boerse-dashboard-web/infra
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
 ```
 
-Neon/Postgres `DATABASE_URL`, Redis and frontend Basic Auth remain bootstrap settings. They are shown
-in the setup page for visibility, but cannot be switched from inside the running app because the app
-needs those values before it can start and persist anything.
+For Neon/Postgres, saving writes `/app/runtime/runtime.env` into the persistent
+`backend_runtime` volume. The same file also contains editable runtime secrets so a switch to an
+empty Neon database does not force you to re-enter API keys immediately. Recreate `backend`,
+`worker` and `scheduler` so all three processes read the new database URL:
+
+```bash
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate backend worker scheduler
+```
+
+Redis and image/deployment values remain Compose defaults and are intentionally not shown in setup.
 
 ## Updates
 

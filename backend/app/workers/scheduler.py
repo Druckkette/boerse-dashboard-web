@@ -13,7 +13,16 @@ def get_beat_schedule() -> dict:
         "refresh-prices-daily": {
             "task": "refresh_prices",
             "schedule": crontab(hour=22, minute=15),
-            "args": (None, {"mode": "incremental", "source": "scheduler"}),
+            "args": (
+                None,
+                {
+                    "mode": "incremental",
+                    "source": "scheduler",
+                    "range": "6m",
+                    "universe": "us_common_stocks",
+                    "limit_universe": 5000,
+                },
+            ),
         },
         "refresh-universe-weekly": {
             "task": "refresh_universe",
@@ -23,12 +32,30 @@ def get_beat_schedule() -> dict:
         "refresh-breadth-daily": {
             "task": "refresh_breadth",
             "schedule": crontab(hour=22, minute=45),
-            "args": (None, {"mode": "incremental", "source": "scheduler"}),
+            "args": (
+                None,
+                {
+                    "mode": "incremental",
+                    "source": "scheduler",
+                    "universe": "us_common_stocks",
+                    "lookback_days": 550,
+                    "limit_universe": 5000,
+                },
+            ),
         },
         "refresh-relative-strength-daily": {
             "task": "refresh_relative_strength",
             "schedule": crontab(hour=23, minute=10),
-            "args": (None, {"mode": "incremental", "source": "scheduler"}),
+            "args": (
+                None,
+                {
+                    "mode": "incremental",
+                    "source": "scheduler",
+                    "universe": "us_common_stocks",
+                    "lookback_days": 430,
+                    "limit_universe": 5000,
+                },
+            ),
         },
         "position-atr-monitor": {
             "task": "position_atr_monitor",
