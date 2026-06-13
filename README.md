@@ -168,9 +168,9 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recre
 ```
 
 FMP, Pushover and Neon/Postgres credentials can also be entered and tested in `/setup`.
-These values are stored in Postgres and mirrored into a persistent runtime env file so they survive a
-later Neon database switch without manual file edits. `DATABASE_URL`/Neon is picked up after
-recreating `backend`, `worker` and `scheduler`. General Compose defaults such as Redis stay
+Saving the Neon URL does not switch the running database. Use the database target controls to choose
+between local Postgres and Neon, then click **Dienste neu starten** so `backend`, `worker` and
+`scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
 hard-coded in the repository and are not shown as setup fields.
 
 The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly

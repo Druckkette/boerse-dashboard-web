@@ -1232,3 +1232,29 @@ class RuntimeConfigTestResponse(BaseModel):
     detail: str
     checked_at: datetime
     restart_required: bool = False
+
+
+DatabaseTarget = Literal["local", "neon"]
+
+
+class DatabaseTargetResponse(BaseModel):
+    target: DatabaseTarget
+    running_target: DatabaseTarget
+    restart_required: bool
+    neon_configured: bool
+    neon_value_preview: str = ""
+    local_value_preview: str = ""
+    active_value_preview: str = ""
+    message: str
+
+
+class DatabaseTargetSwitchRequest(BaseModel):
+    target: DatabaseTarget
+
+
+class RuntimeServicesRestartResponse(BaseModel):
+    ok: bool
+    status: Literal["scheduled", "disabled", "failed"]
+    detail: str
+    services: list[str] = Field(default_factory=list)
+    started_at: datetime

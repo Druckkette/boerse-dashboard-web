@@ -99,7 +99,7 @@ Prefer the web setup page for runtime integration secrets:
 
 1. Open `http://NAS-IP-ODER-HOSTNAME:3000/setup`.
 2. In `Konfiguration & Secrets`, enter `SEC_USER_AGENT`, optional `FMP_API_KEY` and optional
-   Pushover credentials, or an optional Neon/Postgres `DATABASE_URL`.
+   Pushover credentials, or an optional Neon/Postgres URL.
 3. Use the field-level `Testen` button before saving. For Neon, this runs a real database
    connection test from the backend container.
 4. Click `Speichern`.
@@ -125,14 +125,26 @@ cd /volume1/docker/boerse-dashboard-web/infra
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
 ```
 
-For Neon/Postgres, saving writes `/app/runtime/runtime.env` into the persistent
-`backend_runtime` volume. The same file also contains editable runtime secrets so a switch to an
-empty Neon database does not force you to re-enter API keys immediately. Recreate `backend`,
-`worker` and `scheduler` so all three processes read the new database URL:
+Saving a Neon URL only stores and tests the candidate. It does not switch the app. Use the
+**Datenbank-Ziel** controls in `/setup`:
+
+1. Click **Neon verwenden** or **Lokale Postgres verwenden**.
+2. Click **Dienste neu starten**.
+
+The button restarts `worker`, `scheduler` and then `backend` through the Docker socket. This replaces
+running the following command manually for normal runtime database switches:
 
 ```bash
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate backend worker scheduler
 ```
+
+For Neon/Postgres, the switch writes `/app/runtime/runtime.env` into the persistent
+`backend_runtime` volume. The same file also contains editable runtime secrets so a switch to an
+empty Neon database does not force you to re-enter API keys immediately.
+
+The restart button needs Docker socket access. In `docker-compose.nas.yml` the backend mounts
+`/var/run/docker.sock` and `NAS_CONTROL_ENABLED=1` by default. Disable it with
+`NAS_CONTROL_ENABLED=0` if you prefer to run the compose command manually.
 
 Redis and image/deployment values remain Compose defaults and are intentionally not shown in setup.
 

@@ -73,9 +73,9 @@ Target: `Druckkette/boerse-dashboard-web`.
   technical, fundamental, moving-average and chart-behavior rankings backed by
   the FastAPI assessment-compare endpoint.
 - Runtime integration setup added: `/setup` can persist SEC User-Agent, FMP API key,
-  Pushover credentials and optional Neon/Postgres `DATABASE_URL`; each editable field
-  has a test action. Editable runtime secrets are mirrored to a persistent runtime
-  env file; Neon is applied after recreating backend, worker and scheduler.
+  Pushover credentials and optional Neon/Postgres URL; each editable field has a
+  test action. Neon is only applied after the explicit database-target switch and
+  backend/worker/scheduler restart.
 
 ## Open Gaps
 

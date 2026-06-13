@@ -1207,6 +1207,31 @@ export type RuntimeConfigTestResponse = {
   restart_required: boolean;
 };
 
+export type DatabaseTarget = "local" | "neon";
+
+export type DatabaseTargetResponse = {
+  target: DatabaseTarget;
+  running_target: DatabaseTarget;
+  restart_required: boolean;
+  neon_configured: boolean;
+  neon_value_preview: string;
+  local_value_preview: string;
+  active_value_preview: string;
+  message: string;
+};
+
+export type DatabaseTargetSwitchRequest = {
+  target: DatabaseTarget;
+};
+
+export type RuntimeServicesRestartResponse = {
+  ok: boolean;
+  status: "scheduled" | "disabled" | "failed";
+  detail: string;
+  services: string[];
+  started_at: string;
+};
+
 export type DataDiagnosticIssue = {
   key: string;
   label: string;

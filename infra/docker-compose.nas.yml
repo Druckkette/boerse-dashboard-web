@@ -50,11 +50,16 @@ services:
       APP_ENV: nas
       BACKEND_CACHE_DIR: /app/.cache
       APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
+      NAS_CONTROL_ENABLED: ${NAS_CONTROL_ENABLED:-1}
+      NAS_DOCKER_SOCKET: /var/run/docker.sock
+      NAS_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-infra}
+      NAS_RESTART_SERVICES: worker,scheduler,backend
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     volumes:
       - backend_cache:/app/.cache
       - backend_runtime:/app/runtime
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

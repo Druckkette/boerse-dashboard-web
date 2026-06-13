@@ -633,13 +633,23 @@ def test_runtime_config_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert "SEC_USER_AGENT" in payload["editable_keys"]
-    assert "DATABASE_URL" in payload["editable_keys"]
+    assert "NEON_DATABASE_URL" in payload["editable_keys"]
     sec_item = next(item for item in payload["items"] if item["key"] == "SEC_USER_AGENT")
-    db_item = next(item for item in payload["items"] if item["key"] == "DATABASE_URL")
+    db_item = next(item for item in payload["items"] if item["key"] == "NEON_DATABASE_URL")
     assert sec_item["editable"] is True
     assert sec_item["runtime_applied"] is True
     assert db_item["editable"] is True
     assert db_item["restart_required"] is True
+
+
+def test_database_target_contract() -> None:
+    response = client.get("/api/v1/settings/database-target")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target"] in {"local", "neon"}
+    assert payload["running_target"] in {"local", "neon"}
+    assert "neon_configured" in payload
+    assert "restart_required" in payload
 
 
 def test_runtime_config_test_endpoint_validates_sec_user_agent() -> None:

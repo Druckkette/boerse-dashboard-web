@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import socket
+import threading
+import time
 from datetime import UTC, date, datetime, timedelta
+from json import dumps, loads
 from typing import Any
 
 import requests
@@ -18,11 +22,14 @@ from app.schemas import (
     AppSettings,
     DataDiagnosticIssue,
     DataDiagnosticsResponse,
+    DatabaseTargetResponse,
+    DatabaseTargetSwitchRequest,
     RuntimeConfigItem,
     RuntimeConfigPatch,
     RuntimeConfigResponse,
     RuntimeConfigTestRequest,
     RuntimeConfigTestResponse,
+    RuntimeServicesRestartResponse,
     SettingsPatch,
 )
 
@@ -102,16 +109,27 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "runtime_applied": True,
         "placeholder": "0 oder 1",
     },
-    "DATABASE_URL": {
-        "label": "Neon / externe Postgres DATABASE_URL",
+    "NEON_DATABASE_URL": {
+        "label": "Neon DATABASE_URL",
         "category": "database",
-        "description": "Optionale Neon- oder externe Postgres-Verbindung. Vor dem Speichern testen; nach dem Speichern Container neu starten.",
+        "description": "Optionale Neon-Verbindung. Speichern und Testen schaltet nicht um; die aktive Datenbank wird separat gewählt.",
         "secret": True,
         "editable": True,
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "postgresql+psycopg://...",
+    },
+    "DATABASE_URL": {
+        "label": "Aktive DATABASE_URL",
+        "category": "database",
+        "description": "Interner aktiver Datenbankwert; wird über den lokalen/Neon-Schalter erzeugt.",
+        "secret": True,
+        "editable": False,
+        "restart_required": True,
+        "runtime_applied": False,
+        "placeholder": "postgresql+psycopg://...",
         "attr": "database_url",
+        "visible": False,
     },
     "POSTGRES_PASSWORD": {
         "label": "Postgres Passwort",
@@ -229,7 +247,7 @@ def _runtime_config_response(stored: dict) -> RuntimeConfigResponse:
         bootstrap_keys=[item.key for item in items if not item.editable and item.restart_required],
         note=(
             "API- und Secret-Werte werden in Postgres gespeichert und in eine persistente Runtime-Env-Datei gespiegelt. "
-            "Neon/DATABASE_URL wird nach Container-Neustart von Backend, Worker und Scheduler gelesen."
+            "Neon wird nur vorbereitet; die aktive Datenbank wird unten separat zwischen lokal und Neon umgeschaltet."
         ),
     )
 
@@ -240,6 +258,8 @@ def update_runtime_config(payload: RuntimeConfigPatch) -> RuntimeConfigResponse:
     for key in payload.clear_keys:
         if key in editable:
             stored.pop(key, None)
+            if key == "NEON_DATABASE_URL":
+                stored.pop("DATABASE_URL", None)
     for key, raw_value in payload.values.items():
         if key not in editable:
             continue
@@ -277,7 +297,7 @@ def test_runtime_config(payload: RuntimeConfigTestRequest) -> RuntimeConfigTestR
             detail="SEC User Agent sieht gültig aus." if ok else "Format erwartet: '<project> <contact-email>'.",
             checked_at=checked_at,
         )
-    if key == "DATABASE_URL":
+    if key == "NEON_DATABASE_URL":
         return _test_database_url(key=key, value=value, checked_at=checked_at)
     if key == "FMP_API_KEY":
         return _test_fmp_api_key(key=key, value=value, checked_at=checked_at)
@@ -303,12 +323,77 @@ def test_runtime_config(payload: RuntimeConfigTestRequest) -> RuntimeConfigTestR
     )
 
 
+def get_database_target() -> DatabaseTargetResponse:
+    stored = _read_runtime_config()
+    return _database_target_response(stored)
+
+
+def switch_database_target(payload: DatabaseTargetSwitchRequest) -> DatabaseTargetResponse:
+    stored = _read_runtime_config()
+    target = payload.target
+    if target == "neon" and not _stored_neon_database_url(stored):
+        raise ValueError("NEON_DATABASE_URL ist nicht gespeichert. Bitte zuerst Neon-Adresse eintragen und testen.")
+
+    if target == "neon" and not str(stored.get("LOCAL_DATABASE_URL") or "").strip():
+        current_url = get_settings().database_url
+        if _database_target_for_url(current_url) == "local":
+            stored["LOCAL_DATABASE_URL"] = current_url
+
+    stored["DATABASE_TARGET"] = target
+    try:
+        settings_repository.write_runtime_config(stored)
+    except SettingsRepositoryUnavailable:
+        pass
+    _write_runtime_env_file(stored)
+    return _database_target_response(stored)
+
+
+def restart_runtime_services() -> RuntimeServicesRestartResponse:
+    started_at = datetime.now(UTC)
+    services = _runtime_restart_services()
+    if not get_runtime_config_bool("NAS_CONTROL_ENABLED", fallback=_env_bool("NAS_CONTROL_ENABLED", False)):
+        return RuntimeServicesRestartResponse(
+            ok=False,
+            status="disabled",
+            detail="NAS-Control ist deaktiviert. Setze NAS_CONTROL_ENABLED=1, damit die App Docker-Dienste neu starten darf.",
+            services=services,
+            started_at=started_at,
+        )
+    try:
+        _list_compose_containers(project=_nas_compose_project(), services=services)
+    except Exception as exc:
+        return RuntimeServicesRestartResponse(
+            ok=False,
+            status="failed",
+            detail=f"Docker-Socket nicht erreichbar oder Compose-Container nicht gefunden: {type(exc).__name__}: {exc}",
+            services=services,
+            started_at=started_at,
+        )
+
+    thread = threading.Thread(
+        target=_restart_runtime_services_background,
+        kwargs={"project": _nas_compose_project(), "services": services},
+        daemon=True,
+    )
+    thread.start()
+    return RuntimeServicesRestartResponse(
+        ok=True,
+        status="scheduled",
+        detail=(
+            "Neustart wurde geplant. Worker und Scheduler werden zuerst neu gestartet, Backend zuletzt. "
+            "Die Weboberfläche kann kurz nicht erreichbar sein."
+        ),
+        services=services,
+        started_at=started_at,
+    )
+
+
 def get_runtime_config_value(key: str) -> str:
     definition = RUNTIME_CONFIG_DEFINITIONS.get(key)
     if not definition:
         return ""
     stored = _read_runtime_config()
-    stored_value = str(stored.get(key) or "").strip()
+    stored_value = _stored_runtime_value(key, stored)
     if stored_value:
         return stored_value
     return _environment_value(key, definition).strip()
@@ -443,7 +528,6 @@ def _write_runtime_env_file(stored: dict) -> None:
     runtime_values = {
         key: str(stored.get(key) or "").strip()
         for key in (
-            "DATABASE_URL",
             "SEC_USER_AGENT",
             "FMP_API_KEY",
             "PUSHOVER_USER_KEY",
@@ -452,8 +536,12 @@ def _write_runtime_env_file(stored: dict) -> None:
         )
         if str(stored.get(key) or "").strip()
     }
-    if runtime_values.get("DATABASE_URL"):
-        runtime_values["DATABASE_URL"] = _normalize_database_url(runtime_values["DATABASE_URL"])
+    target = _stored_database_target(stored)
+    runtime_values["DATABASE_TARGET"] = target
+    if target == "neon":
+        runtime_values["DATABASE_URL"] = _normalize_database_url(_stored_neon_database_url(stored))
+    elif str(stored.get("LOCAL_DATABASE_URL") or "").strip():
+        runtime_values["DATABASE_URL"] = _normalize_database_url(str(stored.get("LOCAL_DATABASE_URL") or ""))
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if not runtime_values:
@@ -468,6 +556,152 @@ def _write_runtime_env_file(stored: dict) -> None:
         os.replace(tmp_path, path)
     except OSError:
         return
+
+
+def _database_target_response(stored: dict) -> DatabaseTargetResponse:
+    target = _stored_database_target(stored)
+    running_url = get_settings().database_url
+    running_target = _database_target_for_url(running_url)
+    neon_url = _stored_neon_database_url(stored)
+    local_url = str(stored.get("LOCAL_DATABASE_URL") or os.environ.get("LOCAL_DATABASE_URL") or "").strip()
+    if not local_url and running_target == "local":
+        local_url = running_url
+    restart_required = target != running_target
+    if target == "neon" and neon_url and _preview_value(running_url, secret=True) != _preview_value(neon_url, secret=True):
+        restart_required = True
+    message = (
+        "Neon ist vorbereitet; Backend, Worker und Scheduler neu starten, damit es aktiv wird."
+        if restart_required and target == "neon"
+        else "Lokale Postgres ist vorbereitet; Dienste neu starten, damit sie wieder lokal laufen."
+        if restart_required
+        else "Die laufenden Dienste verwenden bereits das ausgewählte Datenbankziel."
+    )
+    return DatabaseTargetResponse(
+        target=target,
+        running_target=running_target,
+        restart_required=restart_required,
+        neon_configured=bool(neon_url),
+        neon_value_preview=_preview_value(neon_url, secret=True),
+        local_value_preview=_preview_value(local_url, secret=True),
+        active_value_preview=_preview_value(running_url, secret=True),
+        message=message,
+    )
+
+
+def _stored_database_target(stored: dict) -> str:
+    target = str(stored.get("DATABASE_TARGET") or "").strip().lower()
+    return "neon" if target == "neon" else "local"
+
+
+def _stored_neon_database_url(stored: dict) -> str:
+    return str(stored.get("NEON_DATABASE_URL") or stored.get("DATABASE_URL") or "").strip()
+
+
+def _database_target_for_url(value: str) -> str:
+    clean = value.lower()
+    return "neon" if "neon.tech" in clean or "pooler" in clean and "neon" in clean else "local"
+
+
+def _env_bool(key: str, fallback: bool = False) -> bool:
+    raw = str(os.environ.get(key) or "").strip().lower()
+    if not raw:
+        return fallback
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _runtime_restart_services() -> list[str]:
+    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,scheduler,backend")
+    services = [item.strip() for item in raw.split(",") if item.strip()]
+    ordered = [service for service in services if service != "backend"]
+    if "backend" in services:
+        ordered.append("backend")
+    return ordered or ["worker", "scheduler", "backend"]
+
+
+def _nas_compose_project() -> str:
+    return str(os.environ.get("NAS_COMPOSE_PROJECT") or "infra").strip() or "infra"
+
+
+def _docker_socket_path() -> str:
+    return str(os.environ.get("NAS_DOCKER_SOCKET") or "/var/run/docker.sock")
+
+
+def _restart_runtime_services_background(*, project: str, services: list[str]) -> None:
+    time.sleep(1.5)
+    containers = _list_compose_containers(project=project, services=services)
+    by_service = {container["service"]: container["id"] for container in containers}
+    for service in services:
+        container_id = by_service.get(service)
+        if not container_id:
+            continue
+        _docker_request("POST", f"/containers/{container_id}/restart?t=10")
+
+
+def _list_compose_containers(*, project: str, services: list[str]) -> list[dict[str, str]]:
+    response = _docker_request("GET", "/containers/json?all=1")
+    containers: list[dict[str, str]] = []
+    for item in loads(response or "[]"):
+        labels = item.get("Labels") or {}
+        if labels.get("com.docker.compose.project") != project:
+            continue
+        service = labels.get("com.docker.compose.service")
+        if service not in services:
+            continue
+        containers.append({"id": str(item.get("Id")), "service": str(service)})
+    missing = [service for service in services if service not in {item["service"] for item in containers}]
+    if missing:
+        raise RuntimeError(f"Compose-Services nicht gefunden: {', '.join(missing)}")
+    return containers
+
+
+def _docker_request(method: str, path: str, body: dict | None = None) -> str:
+    payload = dumps(body).encode("utf-8") if body is not None else b""
+    headers = [
+        f"{method} {path} HTTP/1.1",
+        "Host: docker",
+        "Connection: close",
+    ]
+    if body is not None:
+        headers.extend(["Content-Type: application/json", f"Content-Length: {len(payload)}"])
+    request = ("\r\n".join(headers) + "\r\n\r\n").encode("utf-8") + payload
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(15)
+        client.connect(_docker_socket_path())
+        client.sendall(request)
+        chunks: list[bytes] = []
+        while True:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    raw = b"".join(chunks)
+    header_bytes, _, body_bytes = raw.partition(b"\r\n\r\n")
+    header_text = header_bytes.decode("iso-8859-1", errors="replace")
+    status_line = header_text.splitlines()[0]
+    status_code = int(status_line.split()[1])
+    if "transfer-encoding: chunked" in header_text.lower():
+        body_bytes = _decode_http_chunked_body(body_bytes)
+    if status_code >= 400:
+        raise RuntimeError(f"Docker API HTTP {status_code}: {body_bytes.decode('utf-8', errors='replace')}")
+    return body_bytes.decode("utf-8", errors="replace")
+
+
+def _decode_http_chunked_body(body: bytes) -> bytes:
+    output = bytearray()
+    rest = body
+    while rest:
+        line, separator, remainder = rest.partition(b"\r\n")
+        if not separator:
+            break
+        try:
+            size = int(line.split(b";", 1)[0], 16)
+        except ValueError:
+            return body
+        if size == 0:
+            break
+        output.extend(remainder[:size])
+        rest = remainder[size + 2 :]
+    return bytes(output)
 
 
 def _normalize_database_url(value: str) -> str:
@@ -626,7 +860,7 @@ def _read_runtime_config() -> dict:
 
 
 def _runtime_config_item(key: str, definition: dict[str, Any], stored: dict) -> RuntimeConfigItem:
-    stored_value = str(stored.get(key) or "").strip()
+    stored_value = _stored_runtime_value(key, stored)
     env_value = _environment_value(key, definition).strip()
     effective = stored_value or env_value
     if stored_value:
@@ -651,6 +885,12 @@ def _runtime_config_item(key: str, definition: dict[str, Any], stored: dict) -> 
         placeholder=str(definition.get("placeholder") or ""),
         value_preview=_preview_value(effective, secret=bool(definition.get("secret", True))),
     )
+
+
+def _stored_runtime_value(key: str, stored: dict) -> str:
+    if key == "NEON_DATABASE_URL":
+        return str(stored.get("NEON_DATABASE_URL") or stored.get("DATABASE_URL") or "").strip()
+    return str(stored.get(key) or "").strip()
 
 
 def _environment_value(key: str, definition: dict[str, Any]) -> str:

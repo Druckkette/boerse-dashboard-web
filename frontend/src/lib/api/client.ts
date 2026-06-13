@@ -2,6 +2,8 @@ import type {
   AppSettings,
   Breadth,
   DataDiagnostics,
+  DatabaseTargetResponse,
+  DatabaseTargetSwitchRequest,
   Freshness,
   Job,
   JobType,
@@ -35,6 +37,7 @@ import type {
   RuntimeConfigPatch,
   RuntimeConfigTestRequest,
   RuntimeConfigTestResponse,
+  RuntimeServicesRestartResponse,
   SectorRanking,
   SellDiagnostics,
   StockAssessment,
@@ -253,6 +256,11 @@ export const api = {
   patchRuntimeConfig: (body: RuntimeConfigPatch) => patchJson<RuntimeConfig>("/settings/runtime-config", body),
   testRuntimeConfig: (body: RuntimeConfigTestRequest) =>
     postJson<RuntimeConfigTestResponse>("/settings/runtime-config/test", body),
+  databaseTarget: () => getJson<DatabaseTargetResponse>("/settings/database-target"),
+  switchDatabaseTarget: (body: DatabaseTargetSwitchRequest) =>
+    postJson<DatabaseTargetResponse>("/settings/database-target", body),
+  restartRuntimeServices: () =>
+    postJson<RuntimeServicesRestartResponse>("/settings/runtime-services/restart"),
   dataDiagnostics: () => getJson<DataDiagnostics>("/settings/data-diagnostics"),
   patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body),
   workspace: () => getJson<WorkspaceState>("/workspace"),

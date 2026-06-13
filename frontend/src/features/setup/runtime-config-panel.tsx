@@ -5,7 +5,7 @@ import { CheckCircle2, Database, KeyRound, LockKeyhole, RotateCw, Save, ShieldAl
 import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { RuntimeConfigItem, RuntimeConfigTestResponse } from "@/lib/types/api";
+import type { DatabaseTarget, DatabaseTargetResponse, RuntimeConfigItem, RuntimeConfigTestResponse } from "@/lib/types/api";
 
 const categoryLabels: Record<RuntimeConfigItem["category"], string> = {
   external_api: "API & Datenquellen",
@@ -20,6 +20,7 @@ const categoryOrder: RuntimeConfigItem["category"][] = ["external_api", "notific
 export function RuntimeConfigPanel() {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["runtime-config"], queryFn: api.runtimeConfig, staleTime: 30_000 });
+  const databaseTargetQuery = useQuery({ queryKey: ["database-target"], queryFn: api.databaseTarget, staleTime: 15_000 });
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [clearKeys, setClearKeys] = useState<string[]>([]);
   const [testResults, setTestResults] = useState<Record<string, RuntimeConfigTestResponse>>({});
@@ -35,6 +36,17 @@ export function RuntimeConfigPanel() {
   const testMutation = useMutation({
     mutationFn: ({ key, value }: { key: string; value?: string }) => api.testRuntimeConfig({ key, value }),
     onSuccess: (result) => setTestResults((current) => ({ ...current, [result.key]: result }))
+  });
+  const switchDatabaseMutation = useMutation({
+    mutationFn: (target: DatabaseTarget) => api.switchDatabaseTarget({ target }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["database-target"], updated);
+      queryClient.invalidateQueries({ queryKey: ["runtime-config"] });
+    }
+  });
+  const restartServicesMutation = useMutation({
+    mutationFn: api.restartRuntimeServices,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["database-target"] })
   });
 
   const grouped = useMemo(() => {
@@ -112,6 +124,22 @@ export function RuntimeConfigPanel() {
           {mutation.error instanceof Error ? mutation.error.message : "Runtime-Konfiguration konnte nicht gespeichert werden."}
         </div>
       )}
+      <DatabaseTargetControls
+        data={databaseTargetQuery.data}
+        isFetching={databaseTargetQuery.isFetching}
+        restartError={
+          restartServicesMutation.error instanceof Error ? restartServicesMutation.error.message : ""
+        }
+        restartPending={restartServicesMutation.isPending}
+        restartResult={restartServicesMutation.data}
+        switchError={
+          switchDatabaseMutation.error instanceof Error ? switchDatabaseMutation.error.message : ""
+        }
+        switchPending={switchDatabaseMutation.isPending ? switchDatabaseMutation.variables : null}
+        onRefresh={() => databaseTargetQuery.refetch()}
+        onRestart={() => restartServicesMutation.mutate()}
+        onSwitch={(target) => switchDatabaseMutation.mutate(target)}
+      />
 
       <div className="mt-5 space-y-4">
         {grouped.map((group) => (
@@ -139,6 +167,105 @@ export function RuntimeConfigPanel() {
         ))}
       </div>
     </section>
+  );
+}
+
+function DatabaseTargetControls({
+  data,
+  isFetching,
+  onRefresh,
+  onRestart,
+  onSwitch,
+  restartError,
+  restartPending,
+  restartResult,
+  switchError,
+  switchPending
+}: {
+  data?: DatabaseTargetResponse;
+  isFetching: boolean;
+  onRefresh: () => void;
+  onRestart: () => void;
+  onSwitch: (target: DatabaseTarget) => void;
+  restartError: string;
+  restartPending: boolean;
+  restartResult?: { ok: boolean; status: string; detail: string; services: string[] };
+  switchError: string;
+  switchPending: DatabaseTarget | null;
+}) {
+  return (
+    <div className="mt-5 rounded border border-[#242a33] bg-[#111419] p-4">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Database className="text-sky-200" size={18} />
+            <h3 className="text-base font-semibold">Datenbank-Ziel</h3>
+            <StatusChip tone={data?.target === "neon" ? "warning" : "good"}>
+              Ziel: {data?.target === "neon" ? "Neon" : "lokal"}
+            </StatusChip>
+            <StatusChip tone={data?.running_target === "neon" ? "warning" : "good"}>
+              Läuft: {data?.running_target === "neon" ? "Neon" : "lokal"}
+            </StatusChip>
+            {data?.restart_required ? <StatusChip tone="warning">Neustart nötig</StatusChip> : <StatusChip tone="good">aktiv</StatusChip>}
+          </div>
+          <p className="max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+            Die Neon-Adresse kann gespeichert und getestet werden, ohne die laufende App umzuschalten.
+            Der Wechsel passiert erst über diese Buttons und wird nach dem Neustart der Backend-Dienste aktiv.
+          </p>
+          <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-3">
+            <span>Aktiv: {data?.active_value_preview || "n/a"}</span>
+            <span>Lokal: {data?.local_value_preview || "aus ENV/Default"}</span>
+            <span>Neon: {data?.neon_configured ? data.neon_value_preview : "nicht gespeichert"}</span>
+          </div>
+          {data?.message ? <div className="mt-3 text-sm text-amber-100">{data.message}</div> : null}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row xl:flex-col">
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={switchPending !== null || data?.target === "local"}
+            type="button"
+            onClick={() => onSwitch("local")}
+          >
+            Lokale Postgres verwenden
+          </button>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-sky-300/35 bg-sky-300/10 px-3 py-2 text-sm text-sky-100 transition hover:border-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={switchPending !== null || data?.target === "neon" || !data?.neon_configured}
+            type="button"
+            onClick={() => onSwitch("neon")}
+          >
+            Neon verwenden
+          </button>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-sm text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={restartPending}
+            type="button"
+            onClick={onRestart}
+          >
+            <RotateCw size={15} className={restartPending || isFetching ? "animate-spin" : ""} />
+            Dienste neu starten
+          </button>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            type="button"
+            onClick={onRefresh}
+          >
+            Status prüfen
+          </button>
+        </div>
+      </div>
+      {switchError ? (
+        <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">{switchError}</div>
+      ) : null}
+      {restartError ? (
+        <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">{restartError}</div>
+      ) : null}
+      {restartResult ? (
+        <div className={["mt-3 rounded border p-3 text-sm leading-6", restartResult.ok ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100" : "border-amber-300/30 bg-amber-300/10 text-amber-100"].join(" ")}>
+          {restartResult.detail}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -219,7 +346,7 @@ function RuntimeConfigField({
               onClick={onTest}
             >
               <TestTube2 size={13} />
-              {testPending ? "Prüft" : item.key === "DATABASE_URL" ? "Neon testen" : "Testen"}
+              {testPending ? "Prüft" : item.key === "NEON_DATABASE_URL" ? "Neon testen" : "Testen"}
             </button>
             {testResult ? (
               <StatusChip tone={testResult.ok ? "good" : "bad"}>{testResult.status}</StatusChip>
