@@ -125,8 +125,10 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     )
     df["Low_CR"] = df["Closing_Range"] < 0.25
     df["Low_CR_5d"] = df["Low_CR"].rolling(5, min_periods=1).sum().fillna(0).astype(int)
+    # Streamlit parity: warning is active when the 5-day average volume
+    # difference is negative while price is higher than five sessions ago.
     df["Up_Vol_Declining"] = (df["Close"] > df["Close"].shift(5)) & (
-        df["Volume"].diff().rolling(5).max() < 0
+        df["Volume"].diff().rolling(5, min_periods=5).mean() < 0
     )
     return df
 
@@ -144,7 +146,7 @@ def detect_distribution_days(frame: pd.DataFrame) -> pd.DataFrame:
         & (df["Volume"] >= previous_volume * 0.95)
         & (df["Closing_Range"] < 0.5)
     ).fillna(False)
-    df["Dist_Count_25"] = df["Is_Distribution"].rolling(25, min_periods=1).sum().fillna(0).astype(int)
+    df["Dist_Count_25"] = _count_active_distribution_days(df["Is_Distribution"], df["Close"], 25, 6.0)
     return df
 
 

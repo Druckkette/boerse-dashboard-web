@@ -153,6 +153,90 @@ def test_trend_ampel_exposes_streamlit_market_indicators() -> None:
     assert latest.low_cr_5d == 0
 
 
+def test_trend_ampel_uses_streamlit_up_volume_warning_rule() -> None:
+    start = date(2025, 1, 2)
+    bars = [
+        TrendAmpelBar(
+            date=start + timedelta(days=index),
+            open=100 + index * 0.25,
+            high=101 + index * 0.25,
+            low=99 + index * 0.25,
+            close=100 + index * 0.25,
+            volume=1_000_000 + index * 100,
+        )
+        for index in range(254)
+    ]
+    last_volumes = [1_000_000, 900_000, 950_000, 800_000, 780_000, 760_000]
+    for offset, volume in enumerate(last_volumes, start=254):
+        bars.append(
+            TrendAmpelBar(
+                date=start + timedelta(days=offset),
+                open=100 + offset * 0.25,
+                high=101 + offset * 0.25,
+                low=99 + offset * 0.25,
+                close=100 + offset * 0.25,
+                volume=volume,
+            )
+        )
+
+    points = compute_trend_ampel(bars)
+    latest = points[-1]
+
+    assert latest.close and points[-6].close and latest.close > points[-6].close
+    assert latest.up_vol_declining is True
+
+
+def test_distribution_days_are_removed_after_six_percent_recovery() -> None:
+    start = date(2025, 1, 2)
+    bars = [
+        TrendAmpelBar(
+            date=start + timedelta(days=index),
+            open=100 + index * 0.2,
+            high=101 + index * 0.2,
+            low=99 + index * 0.2,
+            close=100 + index * 0.2,
+            volume=1_000_000,
+        )
+        for index in range(220)
+    ]
+    bars.extend(
+        [
+            TrendAmpelBar(
+                date=start + timedelta(days=220),
+                open=144.0,
+                high=145.0,
+                low=129.0,
+                close=130.0,
+                volume=1_800_000,
+            ),
+            TrendAmpelBar(
+                date=start + timedelta(days=221),
+                open=130.0,
+                high=140.0,
+                low=129.5,
+                close=138.0,
+                volume=1_100_000,
+            ),
+        ]
+    )
+    bars.extend(
+        TrendAmpelBar(
+            date=start + timedelta(days=index),
+            open=138 + (index - 221) * 0.4,
+            high=139 + (index - 221) * 0.4,
+            low=137 + (index - 221) * 0.4,
+            close=138 + (index - 221) * 0.4,
+            volume=1_000_000,
+        )
+        for index in range(222, 232)
+    )
+
+    points = compute_trend_ampel(bars)
+
+    assert points[220].is_distribution is True
+    assert points[-1].dist_count_25 == 0
+
+
 def test_market_core_price_tickers_include_streamlit_indexes() -> None:
     assert {"^GSPC", "^IXIC", "^RUT", "RSP", "QQEW"}.issubset(MARKET_CORE_PRICE_TICKERS)
 
