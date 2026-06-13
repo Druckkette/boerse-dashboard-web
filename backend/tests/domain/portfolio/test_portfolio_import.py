@@ -5,14 +5,15 @@ from types import SimpleNamespace
 import pytest
 
 from app.domain.portfolio.trade_republic import parse_transaction_export_csv, reconstruct_open_positions
-from app.repositories.portfolio import PortfolioImportResult
+from app.repositories.portfolio import PortfolioImportResult, TradeRepublicImportResult
 from app.repositories.portfolio import PortfolioPositionRow
-from app.schemas import PortfolioImportRequest
+from app.schemas import PortfolioImportRequest, TradeRepublicTransactionImportRequest
 from app.services import portfolio as portfolio_service
 from app.services.portfolio import parse_positions_csv
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "portfolio"
+REFERENCE_TR_EXPORT = Path(__file__).resolve().parents[5] / "boerse-dashboard-github" / "TR" / "Transaktionsexport.csv"
 
 
 def test_parse_positions_csv_supports_semicolon_and_decimal_comma() -> None:
@@ -127,6 +128,102 @@ def test_trade_republic_parser_handles_broker_edge_cases() -> None:
     assert positions[0].ticker == "NVDA"
     assert positions[0].shares == pytest.approx(15)
     assert positions[0].avg_buy_price == pytest.approx(50.25)
+
+
+def test_trade_republic_import_maps_current_reference_sample(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    content = (FIXTURE_DIR / "trade_republic_reference_sample.csv").read_text()
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name="trade_republic_reference_sample.csv",
+            content=content,
+            dry_run=True,
+            replace_open_positions=False,
+        )
+    )
+
+    assert result.ok is True
+    assert result.transactions_total == 5
+    assert {position.ticker for position in result.positions} == {"APP", "VRT", "ARKK.L"}
+    assert {mapping.isin: mapping.ticker for mapping in result.mappings} == {
+        "US03831W1080": "APP",
+        "US92537N1081": "VRT",
+        "IE000GA3D489": "ARKK.L",
+    }
+    assert [item.asset_class for item in result.skipped_positions] == ["DERIVATIVE"]
+
+
+def test_trade_republic_import_save_calls_repository_with_transactions(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    def fake_import(*, transactions, positions, mappings, file_name: str, replace_open_positions: bool):
+        captured["transactions"] = transactions
+        captured["positions"] = positions
+        captured["mappings"] = mappings
+        captured["file_name"] = file_name
+        captured["replace_open_positions"] = replace_open_positions
+        return TradeRepublicImportResult(
+            import_id="tr-import-1",
+            rows_imported=len(positions),
+            transactions_imported=len(transactions),
+        )
+
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "import_trade_republic_transactions", fake_import)
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name="tr-export.csv",
+            content=(FIXTURE_DIR / "trade_republic_reference_sample.csv").read_text(),
+            dry_run=False,
+            replace_open_positions=True,
+        )
+    )
+
+    assert result.ok is True
+    assert result.import_id == "tr-import-1"
+    assert result.rows_imported == 3
+    assert result.transactions_total == 5
+    assert captured["file_name"] == "tr-export.csv"
+    assert captured["replace_open_positions"] is True
+    assert {position.ticker for position in captured["positions"]} == {"APP", "VRT", "ARKK.L"}
+    assert captured["mappings"]["US03831W1080"] == "APP"
+
+
+@pytest.mark.skipif(not REFERENCE_TR_EXPORT.exists(), reason="Reference Streamlit TR export is not checked out locally.")
+def test_trade_republic_import_matches_github_reference_export(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    content = REFERENCE_TR_EXPORT.read_text(encoding="utf-8-sig")
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name=REFERENCE_TR_EXPORT.name,
+            content=content,
+            dry_run=True,
+            replace_open_positions=False,
+        )
+    )
+
+    expected_open_tickers = {
+        "APP",
+        "ARKK.L",
+        "BE",
+        "2318.HK",
+        "ALAB",
+        "CLS",
+        "GLW",
+        "LRCX",
+        "MRVL",
+        "MU",
+        "NVDA",
+        "VRT",
+    }
+    assert result.ok is True
+    assert result.rows_total > 2000
+    assert expected_open_tickers.issubset({position.ticker for position in result.positions})
+    assert len(result.mappings) <= 20
+    assert {item.asset_class for item in result.skipped_positions} == {"DERIVATIVE"}
 
 
 def _price_bars(periods: int = 40):

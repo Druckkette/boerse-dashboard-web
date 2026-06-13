@@ -88,10 +88,11 @@ cd infra
 ./update-nas.sh
 ```
 
-Use a private `.env` on the NAS for database passwords, API keys and future notification credentials. Do not commit secrets.
-Enable the private dashboard gate on the NAS with `APP_AUTH_ENABLED=1`, `APP_AUTH_USER` and
-`APP_AUTH_PASSWORD`. The frontend should stay the public entry point; the backend port binds to
-`127.0.0.1` by default and is only meant for local NAS/container access.
+Use a private `.env` on the NAS for the first bootstrap values. Do not commit secrets.
+Enable the private dashboard gate initially with `APP_AUTH_ENABLED=1`, `APP_AUTH_USER` and
+`APP_AUTH_PASSWORD`; after the first start these Security values can be changed in `/setup` without
+manually editing `.env.nas`. The frontend should stay the public entry point; the backend port binds
+to `127.0.0.1` by default and is only meant for local NAS/container access.
 Keep `API_RATE_LIMIT_ENABLED=1` on NAS unless you are debugging locally. The default
 `API_RATE_LIMIT_REQUESTS=240` per `API_RATE_LIMIT_WINDOW_SECONDS=60` is intended as a guardrail for
 direct backend access while leaving normal dashboard polling usable.
@@ -160,17 +161,17 @@ As a fallback, set it in `/volume1/docker/boerse-dashboard-web/infra/.env.nas`:
 SEC_USER_AGENT=boerse-dashboard-web name@example.com
 ```
 
-After changing `.env.nas`, recreate at least the worker so the new environment is loaded:
+After changing `.env.nas`, recreate the affected services so the new environment is loaded:
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web/infra
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker scheduler backend
 ```
 
-FMP, Pushover and Neon/Postgres credentials can also be entered and tested in `/setup`.
+FMP, Pushover, Security/Basic Auth and Neon/Postgres credentials can also be entered and tested in `/setup`.
 Saving the Neon URL does not switch the running database. Use the database target controls to choose
-between local Postgres and Neon, then click **Dienste neu starten** so `backend`, `worker` and
-`scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
+between local Postgres and Neon, then click **Dienste neu starten** so `frontend`, `backend`,
+`worker` and `scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
 hard-coded in the repository and are not shown as setup fields.
 
 The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
@@ -227,8 +228,9 @@ Repository settings required:
 
 ## Private Access
 
-The NAS deployment uses a lightweight Basic Auth gate in the Next.js frontend. Set these values only
-in the private NAS environment file:
+The NAS deployment uses a lightweight Basic Auth gate in the Next.js frontend. Set these values in
+the private NAS environment file for the first start, then manage them under `/setup` in the
+collapsible **Security** section:
 
 - `APP_AUTH_ENABLED=1`
 - `APP_AUTH_USER=<your-user>`

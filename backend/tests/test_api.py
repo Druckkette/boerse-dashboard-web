@@ -634,12 +634,18 @@ def test_runtime_config_contract() -> None:
     payload = response.json()
     assert "SEC_USER_AGENT" in payload["editable_keys"]
     assert "NEON_DATABASE_URL" in payload["editable_keys"]
+    assert "APP_AUTH_ENABLED" in payload["editable_keys"]
+    assert "APP_AUTH_USER" in payload["editable_keys"]
+    assert "APP_AUTH_PASSWORD" in payload["editable_keys"]
     sec_item = next(item for item in payload["items"] if item["key"] == "SEC_USER_AGENT")
     db_item = next(item for item in payload["items"] if item["key"] == "NEON_DATABASE_URL")
+    auth_item = next(item for item in payload["items"] if item["key"] == "APP_AUTH_PASSWORD")
     assert sec_item["editable"] is True
     assert sec_item["runtime_applied"] is True
     assert db_item["editable"] is True
     assert db_item["restart_required"] is True
+    assert auth_item["editable"] is True
+    assert auth_item["restart_required"] is True
 
 
 def test_database_target_contract() -> None:
@@ -661,6 +667,18 @@ def test_runtime_config_test_endpoint_validates_sec_user_agent() -> None:
     payload = response.json()
     assert payload["ok"] is True
     assert payload["status"] == "ok"
+
+
+def test_runtime_config_test_endpoint_validates_app_auth_password() -> None:
+    response = client.post(
+        "/api/v1/settings/runtime-config/test",
+        json={"key": "APP_AUTH_PASSWORD", "value": "long-enough-password"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["status"] == "ok"
+    assert payload["restart_required"] is True
 
 
 def test_runtime_config_patch_masks_secret() -> None:

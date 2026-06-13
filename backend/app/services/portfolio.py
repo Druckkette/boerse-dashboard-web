@@ -11,6 +11,7 @@ from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.domain.portfolio.trade_republic import (
     NON_SHARE_TYPES,
+    POSITION_ASSET_CLASSES,
     SHARE_DECREASE_TYPES,
     SHARE_INCREASE_TYPES,
     estimate_cash_balance,
@@ -747,6 +748,13 @@ def import_trade_republic_transaction_export(
         if str(item.get("ticker") or "").strip()
     }
     reconstructed, skipped = reconstruct_open_positions(rows, ticker_by_isin)
+    open_mapping_isins = {item.isin for item in reconstructed}
+    open_mapping_isins.update(item.isin for item in skipped if item.asset_class in POSITION_ASSET_CLASSES)
+    response_diagnostics = [
+        item
+        for item in diagnostics
+        if str(item.get("isin") or "").upper() in open_mapping_isins
+    ]
     positions = [
         PortfolioImportRow(
             ticker=item.ticker,
@@ -771,7 +779,7 @@ def import_trade_republic_transaction_export(
             ticker=str(item["ticker"] or ""),
             source=item["source"],
         )
-        for item in diagnostics
+        for item in response_diagnostics
     ]
     skipped_positions = [
         TradeRepublicSkippedPosition(

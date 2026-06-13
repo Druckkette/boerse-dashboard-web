@@ -143,30 +143,77 @@ export function RuntimeConfigPanel() {
 
       <div className="mt-5 space-y-4">
         {grouped.map((group) => (
-          <div key={group.category} className="rounded border border-[#242a33] bg-[#111419] p-4">
-            <div className="mb-3 flex items-center gap-2">
-              {iconForCategory(group.category)}
-              <h3 className="text-base font-semibold">{categoryLabels[group.category]}</h3>
-            </div>
-            <div className="grid gap-3 xl:grid-cols-2">
-              {group.items.map((item) => (
-                <RuntimeConfigField
-                  clearSelected={clearKeys.includes(item.key)}
-                  draftValue={draft[item.key] ?? ""}
-                  item={item}
-                  key={item.key}
-                  onClear={() => toggleClear(item.key)}
-                  onChange={(value) => setValue(item.key, value)}
-                  onTest={() => testMutation.mutate({ key: item.key, value: draft[item.key] })}
-                  testPending={testMutation.isPending && testMutation.variables?.key === item.key}
-                  testResult={testResults[item.key]}
-                />
-              ))}
-            </div>
-          </div>
+          <RuntimeConfigGroup
+            category={group.category}
+            clearKeys={clearKeys}
+            draft={draft}
+            items={group.items}
+            key={group.category}
+            onClear={toggleClear}
+            onChange={setValue}
+            onTest={(key) => testMutation.mutate({ key, value: draft[key] })}
+            testPendingKey={testMutation.isPending ? testMutation.variables?.key : undefined}
+            testResults={testResults}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+function RuntimeConfigGroup({
+  category,
+  clearKeys,
+  draft,
+  items,
+  onChange,
+  onClear,
+  onTest,
+  testPendingKey,
+  testResults
+}: {
+  category: RuntimeConfigItem["category"];
+  clearKeys: string[];
+  draft: Record<string, string>;
+  items: RuntimeConfigItem[];
+  onChange: (key: string, value: string) => void;
+  onClear: (key: string) => void;
+  onTest: (key: string) => void;
+  testPendingKey?: string;
+  testResults: Record<string, RuntimeConfigTestResponse>;
+}) {
+  const [open, setOpen] = useState(category !== "security");
+  return (
+    <details
+      className="group rounded border border-[#242a33] bg-[#111419] p-4"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <span className="flex items-center gap-2">
+          {iconForCategory(category)}
+          <span className="text-base font-semibold">{categoryLabels[category]}</span>
+          <StatusChip tone="neutral">{items.length}</StatusChip>
+        </span>
+        <span className="text-xs text-[#77808f] group-open:hidden">aufklappen</span>
+        <span className="hidden text-xs text-[#77808f] group-open:inline">einklappen</span>
+      </summary>
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        {items.map((item) => (
+          <RuntimeConfigField
+            clearSelected={clearKeys.includes(item.key)}
+            draftValue={draft[item.key] ?? ""}
+            item={item}
+            key={item.key}
+            onClear={() => onClear(item.key)}
+            onChange={(value) => onChange(item.key, value)}
+            onTest={() => onTest(item.key)}
+            testPending={testPendingKey === item.key}
+            testResult={testResults[item.key]}
+          />
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -210,7 +257,7 @@ function DatabaseTargetControls({
           </div>
           <p className="max-w-4xl text-sm leading-6 text-[#a0a7b4]">
             Die Neon-Adresse kann gespeichert und getestet werden, ohne die laufende App umzuschalten.
-            Der Wechsel passiert erst über diese Buttons und wird nach dem Neustart der Backend-Dienste aktiv.
+            Der Wechsel passiert erst über diese Buttons und wird nach dem Neustart der betroffenen Dienste aktiv.
           </p>
           <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-3">
             <span>Aktiv: {data?.active_value_preview || "n/a"}</span>

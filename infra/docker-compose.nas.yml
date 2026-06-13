@@ -53,7 +53,7 @@ services:
       NAS_CONTROL_ENABLED: ${NAS_CONTROL_ENABLED:-1}
       NAS_DOCKER_SOCKET: /var/run/docker.sock
       NAS_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-infra}
-      NAS_RESTART_SERVICES: worker,scheduler,backend
+      NAS_RESTART_SERVICES: worker,scheduler,frontend,backend
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -117,6 +117,9 @@ services:
     environment:
       API_INTERNAL_BASE_URL: http://backend:8000
       NEXT_PUBLIC_API_BASE_URL: /api/v1
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
+    volumes:
+      - backend_runtime:/app/runtime:ro
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

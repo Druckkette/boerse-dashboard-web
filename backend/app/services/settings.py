@@ -157,19 +157,19 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
     "APP_AUTH_ENABLED": {
         "label": "Frontend Basic Auth aktiv",
         "category": "security",
-        "description": "Frontend-Bootstrap-Wert; Next.js liest ihn beim Containerstart.",
+        "description": "Aktiviert den Passwortschutz vor dem Dashboard. Änderung greift nach Frontend-Neustart.",
         "secret": False,
-        "editable": False,
+        "editable": True,
         "restart_required": True,
         "runtime_applied": False,
-        "placeholder": "1",
+        "placeholder": "0 oder 1",
     },
     "APP_AUTH_USER": {
         "label": "Frontend Auth User",
         "category": "security",
-        "description": "Frontend-Bootstrap-Wert; gehört weiter in die Container-Umgebung.",
+        "description": "Benutzername für den Dashboard-Passwortschutz. Änderung greift nach Frontend-Neustart.",
         "secret": True,
-        "editable": False,
+        "editable": True,
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "boerse",
@@ -177,9 +177,9 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
     "APP_AUTH_PASSWORD": {
         "label": "Frontend Auth Passwort",
         "category": "security",
-        "description": "Frontend-Bootstrap-Wert; gehört weiter in die Container-Umgebung.",
+        "description": "Passwort für den Dashboard-Passwortschutz. Änderung greift nach Frontend-Neustart.",
         "secret": True,
-        "editable": False,
+        "editable": True,
         "restart_required": True,
         "runtime_applied": False,
         "placeholder": "langes Passwort",
@@ -247,7 +247,7 @@ def _runtime_config_response(stored: dict) -> RuntimeConfigResponse:
         bootstrap_keys=[item.key for item in items if not item.editable and item.restart_required],
         note=(
             "API- und Secret-Werte werden in Postgres gespeichert und in eine persistente Runtime-Env-Datei gespiegelt. "
-            "Neon wird nur vorbereitet; die aktive Datenbank wird unten separat zwischen lokal und Neon umgeschaltet."
+            "Security-Werte und Neon/Postgres werden vorbereitet; sie greifen nach dem Neustart der betroffenen Container."
         ),
     )
 
@@ -312,6 +312,46 @@ def test_runtime_config(payload: RuntimeConfigTestRequest) -> RuntimeConfigTestR
             status="ok" if ok else "invalid",
             detail="Boolean-Wert ist gültig." if ok else "Erlaubt sind 0/1, true/false, yes/no oder on/off.",
             checked_at=checked_at,
+        )
+    if key == "APP_AUTH_ENABLED":
+        clean = value.lower()
+        ok = clean in {"0", "1", "true", "false", "yes", "no", "on", "off"}
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=ok,
+            status="ok" if ok else "invalid",
+            detail="Boolean-Wert ist gültig." if ok else "Erlaubt sind 0/1, true/false, yes/no oder on/off.",
+            checked_at=checked_at,
+            restart_required=True,
+        )
+    if key == "APP_AUTH_USER":
+        ok = bool(value)
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=ok,
+            status="ok" if ok else "missing",
+            detail="Auth-Benutzername ist gesetzt." if ok else "Bitte einen Benutzername eintragen.",
+            checked_at=checked_at,
+            restart_required=True,
+        )
+    if key == "APP_AUTH_PASSWORD":
+        if not value:
+            return RuntimeConfigTestResponse(
+                key=key,
+                ok=False,
+                status="missing",
+                detail="Bitte ein Passwort eintragen.",
+                checked_at=checked_at,
+                restart_required=True,
+            )
+        strong_enough = len(value) >= 12
+        return RuntimeConfigTestResponse(
+            key=key,
+            ok=strong_enough,
+            status="ok" if strong_enough else "invalid",
+            detail="Passwortlänge ist ausreichend." if strong_enough else "Nutze mindestens 12 Zeichen.",
+            checked_at=checked_at,
+            restart_required=True,
         )
     return RuntimeConfigTestResponse(
         key=key,
@@ -533,6 +573,9 @@ def _write_runtime_env_file(stored: dict) -> None:
             "PUSHOVER_USER_KEY",
             "PUSHOVER_APP_TOKEN",
             "PUSHOVER_DRY_RUN",
+            "APP_AUTH_ENABLED",
+            "APP_AUTH_USER",
+            "APP_AUTH_PASSWORD",
         )
         if str(stored.get(key) or "").strip()
     }
@@ -610,12 +653,12 @@ def _env_bool(key: str, fallback: bool = False) -> bool:
 
 
 def _runtime_restart_services() -> list[str]:
-    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,scheduler,backend")
+    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,scheduler,frontend,backend")
     services = [item.strip() for item in raw.split(",") if item.strip()]
     ordered = [service for service in services if service != "backend"]
     if "backend" in services:
         ordered.append("backend")
-    return ordered or ["worker", "scheduler", "backend"]
+    return ordered or ["worker", "scheduler", "frontend", "backend"]
 
 
 def _nas_compose_project() -> str:

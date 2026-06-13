@@ -31,6 +31,32 @@ ISIN_TO_YAHOO: dict[str, str] = {
     "KYG7397A1067": "1337.HK",
     "US20717M1036": "CFLT",
     "US4878361082": "K",
+    "US38268T1034": "GPRO",
+    "US64110L1061": "NFLX",
+    "US3696043013": "GE",
+    "US36467W1099": "GME",
+    "US00165C3025": "AMC",
+    "CA0084741085": "AEM",
+    "US0970231058": "BA",
+    "KYG4124C1096": "GRAB",
+    "US11135F1012": "AVGO",
+    "US29362U1043": "ENTG",
+    "IE0005711209": "ICLR",
+    "US69608A1088": "PLTR",
+    "US1729674242": "C",
+    "US5949724083": "MSTR",
+    "US0200021014": "ALL",
+    "US03831W1080": "APP",
+    "US92537N1081": "VRT",
+    "CA15101Q2071": "CLS",
+    "CNE1000003X6": "2318.HK",
+    "IE000GA3D489": "ARKK.L",
+    "US2193501051": "GLW",
+    "US0937121079": "BE",
+    "US5128073062": "LRCX",
+    "US5951121038": "MU",
+    "US5738741041": "MRVL",
+    "US04626A1034": "ALAB",
 }
 
 REQUIRED_TRANSACTION_COLUMNS = {"date", "type", "asset_class", "name", "symbol", "shares", "price", "currency"}
@@ -134,7 +160,7 @@ def parse_transaction_export_csv(content: str) -> list[TradeRepublicTransactionR
     if not content.strip():
         raise ValueError("CSV-Inhalt ist leer.")
     try:
-        df = pd.read_csv(StringIO(content))
+        df = _read_transaction_export_frame(content)
     except Exception as exc:
         raise ValueError(f"CSV konnte nicht gelesen werden: {exc}") from exc
     if df.empty:
@@ -187,6 +213,29 @@ def parse_transaction_export_csv(content: str) -> list[TradeRepublicTransactionR
             )
         )
     return rows
+
+
+def _read_transaction_export_frame(content: str) -> pd.DataFrame:
+    normalized_content = content.lstrip("\ufeff")
+    attempts = (
+        {"sep": None, "engine": "python"},
+        {"sep": ","},
+        {"sep": ";"},
+        {"sep": "\t"},
+    )
+    last_error: Exception | None = None
+    for kwargs in attempts:
+        try:
+            df = pd.read_csv(StringIO(normalized_content), **kwargs)
+        except Exception as exc:
+            last_error = exc
+            continue
+        columns = {str(col).strip().lower() for col in df.columns}
+        if {"date", "type", "asset_class", "name", "symbol"}.issubset(columns):
+            return df
+    if last_error:
+        raise last_error
+    return pd.read_csv(StringIO(normalized_content))
 
 
 def resolve_isin_mappings(

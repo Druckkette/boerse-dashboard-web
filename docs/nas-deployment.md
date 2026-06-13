@@ -24,8 +24,9 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml --profile migrate r
 docker compose --env-file .env.nas -f docker-compose.nas.yml up -d
 ```
 
-Set at least `POSTGRES_PASSWORD`, `DATABASE_URL`, `APP_AUTH_USER` and `APP_AUTH_PASSWORD`.
-Keep `APP_AUTH_ENABLED=1` for NAS use. Browser API traffic goes through the protected Next.js
+Set at least `POSTGRES_PASSWORD`, `DATABASE_URL`, `APP_AUTH_USER` and `APP_AUTH_PASSWORD` for the
+first start. Later Security/Auth changes can be made in `/setup`. Keep `APP_AUTH_ENABLED=1` for NAS
+use. Browser API traffic goes through the protected Next.js
 frontend at `/api/v1`; the internal FastAPI target `http://backend:8000` is set centrally in
 `docker-compose.nas.yml` and does not need to be configured in `.env.nas`.
 Keep `API_RATE_LIMIT_ENABLED=1` for NAS use. The default example allows 240 backend requests per
@@ -98,16 +99,17 @@ them; the compose file now owns those non-secret defaults.
 Prefer the web setup page for runtime integration secrets:
 
 1. Open `http://NAS-IP-ODER-HOSTNAME:3000/setup`.
-2. In `Konfiguration & Secrets`, enter `SEC_USER_AGENT`, optional `FMP_API_KEY` and optional
-   Pushover credentials, or an optional Neon/Postgres URL.
+2. In `Konfiguration & Secrets`, enter `SEC_USER_AGENT`, optional `FMP_API_KEY`, optional
+   Pushover credentials, Security/Basic-Auth values, or an optional Neon/Postgres URL.
 3. Use the field-level `Testen` button before saving. For Neon, this runs a real database
    connection test from the backend container.
 4. Click `Speichern`.
 
 Backend and worker read SEC/FMP/Pushover values from Postgres; the setup flow also mirrors editable
 runtime secrets into the generated runtime env file. No `.env.nas` edit or worker restart is needed
-for those runtime-applied values during normal operation. Neon/Postgres is handled below because a
-database switch must be applied before the processes open new connections.
+for those runtime-applied values during normal operation. Security/Basic Auth and Neon/Postgres use
+the same setup flow, but they apply after the affected containers restart because Next.js and
+SQLAlchemy read those values at process start.
 
 As an environment fallback, set `SEC_USER_AGENT` before running real 13F/SEC jobs:
 
@@ -122,7 +124,7 @@ recreate the containers that read the variable:
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web/infra
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate worker scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker scheduler backend
 ```
 
 Saving a Neon URL only stores and tests the candidate. It does not switch the app. Use the
@@ -131,16 +133,17 @@ Saving a Neon URL only stores and tests the candidate. It does not switch the ap
 1. Click **Neon verwenden** or **Lokale Postgres verwenden**.
 2. Click **Dienste neu starten**.
 
-The button restarts `worker`, `scheduler` and then `backend` through the Docker socket. This replaces
+The button restarts `worker`, `scheduler`, `frontend` and then `backend` through the Docker socket. This replaces
 running the following command manually for normal runtime database switches:
 
 ```bash
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate backend worker scheduler
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker scheduler backend
 ```
 
-For Neon/Postgres, the switch writes `/app/runtime/runtime.env` into the persistent
-`backend_runtime` volume. The same file also contains editable runtime secrets so a switch to an
-empty Neon database does not force you to re-enter API keys immediately.
+For Neon/Postgres and Security/Basic Auth, the setup screen writes `/app/runtime/runtime.env` into
+the persistent `backend_runtime` volume. Backend, worker, scheduler and frontend mount that file so
+saved runtime settings survive normal container pulls/recreates. A switch to an empty Neon database
+can still require re-entering values because the active database is the source of truth.
 
 The restart button needs Docker socket access. In `docker-compose.nas.yml` the backend mounts
 `/var/run/docker.sock` and `NAS_CONTROL_ENABLED=1` by default. Disable it with
@@ -234,12 +237,15 @@ http://NAS-IP-ODER-HOSTNAME:3000
 ```
 
 The browser receives a Basic Auth challenge from the Next.js frontend when `APP_AUTH_ENABLED=1`.
-Those credentials are:
+Bootstrap credentials can be set in `.env.nas` for the first start:
 
 ```bash
 APP_AUTH_USER=...
 APP_AUTH_PASSWORD=...
 ```
+
+After the first start, change them in `/setup` under **Konfiguration & Secrets > Security**,
+save, then click **Dienste neu starten**. The Security section is collapsed by default.
 
 The FastAPI backend still runs on port `8000` for container health checks and local diagnostics, but
 it is bound to `127.0.0.1` by default. That keeps personal depot, settings and job APIs behind the

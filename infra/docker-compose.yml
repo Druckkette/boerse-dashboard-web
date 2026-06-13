@@ -131,6 +131,9 @@ services:
       APP_AUTH_ENABLED: ${APP_AUTH_ENABLED:-0}
       APP_AUTH_USER: ${APP_AUTH_USER:-}
       APP_AUTH_PASSWORD: ${APP_AUTH_PASSWORD:-}
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
+    volumes:
+      - backend_runtime:/app/runtime:ro
     ports:
       - "3000:3000"
     depends_on:
