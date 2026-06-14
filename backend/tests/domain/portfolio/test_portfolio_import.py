@@ -226,6 +226,44 @@ def test_trade_republic_import_matches_github_reference_export(monkeypatch: pyte
     assert {item.asset_class for item in result.skipped_positions} == {"DERIVATIVE"}
 
 
+@pytest.mark.skipif(not REFERENCE_TR_EXPORT.exists(), reason="Reference Streamlit TR export is not checked out locally.")
+def test_trade_republic_save_accepts_github_reference_export(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    def fake_import(*, transactions, positions, mappings, file_name: str, replace_open_positions: bool):
+        captured["transactions"] = transactions
+        captured["positions"] = positions
+        captured["mappings"] = mappings
+        captured["file_name"] = file_name
+        captured["replace_open_positions"] = replace_open_positions
+        return TradeRepublicImportResult(
+            import_id="tr-reference-import",
+            rows_imported=len(positions),
+            transactions_imported=len(transactions),
+        )
+
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "import_trade_republic_transactions", fake_import)
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name=REFERENCE_TR_EXPORT.name,
+            content=REFERENCE_TR_EXPORT.read_text(encoding="utf-8-sig"),
+            dry_run=False,
+            replace_open_positions=True,
+        )
+    )
+
+    assert result.ok is True
+    assert result.import_id == "tr-reference-import"
+    assert result.rows_imported == 12
+    assert result.transactions_total == 2317
+    assert captured["file_name"] == "Transaktionsexport.csv"
+    assert captured["replace_open_positions"] is True
+    assert {position.ticker for position in captured["positions"]} >= {"NVDA", "APP", "VRT", "ALAB"}
+    assert captured["mappings"]["US67066G1040"] == "NVDA"
+
+
 def _price_bars(periods: int = 40):
     return [
         SimpleNamespace(

@@ -6,48 +6,38 @@ import { useMemo, useState, type DragEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type {
+  PortfolioImportRequest,
   PortfolioImportResponse,
   PortfolioImportRow,
+  TradeRepublicTransactionImportRequest,
   TradeRepublicTransactionImportResponse
 } from "@/lib/types/api";
 
-const sampleCsv = `Ticker,Name,Shares,Entry_Price,Current_Price,Currency,Buy_Date
+const positionCsvPlaceholder = `Ticker,Name,Shares,Entry_Price,Current_Price,Currency,Buy_Date
 NVDA,NVIDIA,12,91.20,126.80,USD,2025-01-15
 MSFT,Microsoft,6,382.10,449.40,USD,2025-02-01
 `;
 
-const sampleTradeRepublicCsv = `date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax
+const tradeRepublicCsvPlaceholder = `date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax
 2025-01-02,2025-01-02T10:00:00Z,BUY,STOCK,NVIDIA,US67066G1040,10,100,USD,-1000,-1,0
 2025-01-10,2025-01-10T10:00:00Z,SELL,STOCK,NVIDIA,US67066G1040,2,120,USD,240,-1,-10
 `;
 
 export default function PortfolioImportsPage() {
   const queryClient = useQueryClient();
-  const [fileName, setFileName] = useState("positions.csv");
-  const [content, setContent] = useState(sampleCsv);
+  const [fileName, setFileName] = useState("");
+  const [content, setContent] = useState("");
   const [replaceOpenPositions, setReplaceOpenPositions] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [lastResult, setLastResult] = useState<PortfolioImportResponse | null>(null);
 
   const previewMutation = useMutation({
-    mutationFn: () =>
-      api.importPortfolioPositions({
-        file_name: fileName || "positions.csv",
-        content,
-        dry_run: true,
-        replace_open_positions: replaceOpenPositions
-      }),
+    mutationFn: (payload: PortfolioImportRequest) => api.importPortfolioPositions(payload),
     onSuccess: setLastResult
   });
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      api.importPortfolioPositions({
-        file_name: fileName || "positions.csv",
-        content,
-        dry_run: false,
-        replace_open_positions: replaceOpenPositions
-      }),
+    mutationFn: (payload: PortfolioImportRequest) => api.importPortfolioPositions(payload),
     onSuccess: (result) => {
       setLastResult(result);
       queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
@@ -63,11 +53,30 @@ export default function PortfolioImportsPage() {
   }, [result]);
   const canSave = Boolean(result?.ok && result.positions.length > 0 && result.dry_run);
 
+  function positionPayload({
+    dryRun,
+    nextContent = content,
+    nextFileName = fileName
+  }: {
+    dryRun: boolean;
+    nextContent?: string;
+    nextFileName?: string;
+  }): PortfolioImportRequest {
+    return {
+      file_name: nextFileName || "positions.csv",
+      content: nextContent,
+      dry_run: dryRun,
+      replace_open_positions: replaceOpenPositions
+    };
+  }
+
   async function handleFile(file: File | null) {
     if (!file) return;
+    const nextContent = await file.text();
     setFileName(file.name);
-    setContent(await file.text());
+    setContent(nextContent);
     setLastResult(null);
+    previewMutation.mutate(positionPayload({ dryRun: true, nextContent, nextFileName: file.name }));
   }
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
@@ -126,7 +135,9 @@ export default function PortfolioImportsPage() {
             />
             <FileText className="mx-auto mb-3 text-[#a0a7b4]" />
             <span className="font-medium">CSV auswählen oder hier ablegen</span>
-            <span className="mt-1 block text-xs text-[#a0a7b4]">{fileName}</span>
+            <span className="mt-1 block text-xs text-[#a0a7b4]">
+              {fileName || "Upload prüft automatisch eine Vorschau."}
+            </span>
           </label>
 
           <label className="mt-4 block text-sm">
@@ -142,6 +153,7 @@ export default function PortfolioImportsPage() {
             <span className="mb-1 block text-[#a0a7b4]">CSV Inhalt</span>
             <textarea
               className="min-h-64 w-full rounded border border-[#2d333d] bg-[#111419] px-3 py-2 font-mono text-xs leading-5"
+              placeholder={positionCsvPlaceholder}
               value={content}
               onChange={(event) => {
                 setContent(event.target.value);
@@ -165,7 +177,7 @@ export default function PortfolioImportsPage() {
               className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={previewMutation.isPending || saveMutation.isPending || !content.trim()}
               type="button"
-              onClick={() => previewMutation.mutate()}
+              onClick={() => previewMutation.mutate(positionPayload({ dryRun: true }))}
             >
               <CheckCircle2 size={16} />
               {previewMutation.isPending ? "Prüft" : "Vorschau prüfen"}
@@ -174,7 +186,7 @@ export default function PortfolioImportsPage() {
               className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canSave || saveMutation.isPending}
               type="button"
-              onClick={() => saveMutation.mutate()}
+              onClick={() => saveMutation.mutate(positionPayload({ dryRun: false }))}
             >
               <Save size={16} />
               {saveMutation.isPending ? "Speichert" : "Import speichern"}
@@ -253,22 +265,15 @@ function ImportModeGuide() {
 
 function TradeRepublicTransactionImportPanel() {
   const queryClient = useQueryClient();
-  const [fileName, setFileName] = useState("trade-republic-transactions.csv");
-  const [content, setContent] = useState(sampleTradeRepublicCsv);
+  const [fileName, setFileName] = useState("");
+  const [content, setContent] = useState("");
   const [replaceOpenPositions, setReplaceOpenPositions] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [lastResult, setLastResult] = useState<TradeRepublicTransactionImportResponse | null>(null);
 
   const previewMutation = useMutation({
-    mutationFn: () =>
-      api.importTradeRepublicTransactions({
-        file_name: fileName || "trade-republic-transactions.csv",
-        content,
-        dry_run: true,
-        replace_open_positions: replaceOpenPositions,
-        isin_overrides: overrides
-      }),
+    mutationFn: (payload: TradeRepublicTransactionImportRequest) => api.importTradeRepublicTransactions(payload),
     onSuccess: (result) => {
       setLastResult(result);
       setOverrides((current) => {
@@ -282,14 +287,7 @@ function TradeRepublicTransactionImportPanel() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      api.importTradeRepublicTransactions({
-        file_name: fileName || "trade-republic-transactions.csv",
-        content,
-        dry_run: false,
-        replace_open_positions: replaceOpenPositions,
-        isin_overrides: overrides
-      }),
+    mutationFn: (payload: TradeRepublicTransactionImportRequest) => api.importTradeRepublicTransactions(payload),
     onSuccess: (result) => {
       setLastResult(result);
       queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
@@ -301,11 +299,31 @@ function TradeRepublicTransactionImportPanel() {
     }
   });
 
+  function tradeRepublicPayload({
+    dryRun,
+    nextContent = content,
+    nextFileName = fileName
+  }: {
+    dryRun: boolean;
+    nextContent?: string;
+    nextFileName?: string;
+  }): TradeRepublicTransactionImportRequest {
+    return {
+      file_name: nextFileName || "trade-republic-transactions.csv",
+      content: nextContent,
+      dry_run: dryRun,
+      replace_open_positions: replaceOpenPositions,
+      isin_overrides: overrides
+    };
+  }
+
   async function handleFile(file: File | null) {
     if (!file) return;
+    const nextContent = await file.text();
     setFileName(file.name);
-    setContent(await file.text());
+    setContent(nextContent);
     setLastResult(null);
+    previewMutation.mutate(tradeRepublicPayload({ dryRun: true, nextContent, nextFileName: file.name }));
   }
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
@@ -316,9 +334,9 @@ function TradeRepublicTransactionImportPanel() {
 
   const result = lastResult;
   const missingMappingCount = result?.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length ?? 0;
-  const canSave = Boolean(result?.ok && result.dry_run && result.transactions_total > 0);
+  const canSave = Boolean(result?.ok && result.dry_run && result.transactions_total > 0 && content.trim());
   const saveHint = !result
-    ? "Erst TR-Vorschau prüfen."
+    ? "CSV hochladen oder einfügen. Nach Upload wird automatisch geprüft."
     : !result.ok
       ? "Vorschau enthält Fehler."
       : !result.dry_run
@@ -338,8 +356,8 @@ function TradeRepublicTransactionImportPanel() {
         <div>
           <h2 className="text-lg font-semibold">Trade-Republic-Transaktionsexport</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-            CSV direkt hochladen, ISINs in Yahoo-Ticker prüfen und offene Positionen plus Transaktionen speichern. Es
-            muss nichts manuell auf der NAS abgelegt werden.
+            CSV direkt hochladen; die Vorschau startet automatisch. Danach kannst du offene Positionen plus
+            Transaktionen speichern. Es muss nichts manuell auf der NAS abgelegt werden.
           </p>
         </div>
         <StatusChip tone={result?.ok ? "good" : result ? "bad" : "neutral"}>
@@ -373,13 +391,16 @@ function TradeRepublicTransactionImportPanel() {
             />
             <FileText className="mx-auto mb-3 text-[#a0a7b4]" />
             <span className="font-medium">TR-CSV auswählen oder hier ablegen</span>
-            <span className="mt-1 block text-xs text-[#a0a7b4]">{fileName}</span>
+            <span className="mt-1 block text-xs text-[#a0a7b4]">
+              {fileName || "Upload prüft automatisch eine Vorschau."}
+            </span>
           </label>
 
           <label className="mt-4 block text-sm">
             <span className="mb-1 block text-[#a0a7b4]">CSV Inhalt</span>
             <textarea
               className="min-h-56 w-full rounded border border-[#2d333d] bg-[#111419] px-3 py-2 font-mono text-xs leading-5"
+              placeholder={tradeRepublicCsvPlaceholder}
               value={content}
               onChange={(event) => {
                 setContent(event.target.value);
@@ -403,7 +424,7 @@ function TradeRepublicTransactionImportPanel() {
               className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={previewMutation.isPending || saveMutation.isPending || !content.trim()}
               type="button"
-              onClick={() => previewMutation.mutate()}
+              onClick={() => previewMutation.mutate(tradeRepublicPayload({ dryRun: true }))}
             >
               <CheckCircle2 size={16} />
               {previewMutation.isPending ? "Prüft" : "TR-Vorschau prüfen"}
@@ -412,7 +433,7 @@ function TradeRepublicTransactionImportPanel() {
               className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canSave || saveMutation.isPending}
               type="button"
-              onClick={() => saveMutation.mutate()}
+              onClick={() => saveMutation.mutate(tradeRepublicPayload({ dryRun: false }))}
             >
               <Save size={16} />
               {saveMutation.isPending ? "Speichert" : "TR-Import speichern"}
