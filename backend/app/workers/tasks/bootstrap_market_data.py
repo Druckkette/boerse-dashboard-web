@@ -32,6 +32,8 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
             payload,
             requested_by=str(payload.get("source") or "dashboard"),
         )
+    elif job.status == "done" and isinstance(job.result, dict) and job.result.get("ok") is True:
+        return {**job.result, "already_completed": True}
 
     mode = str(payload.get("mode") or "initial").strip().lower()
     is_initial = mode in {"initial", "bootstrap", "full"}

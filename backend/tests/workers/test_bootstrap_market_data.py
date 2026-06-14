@@ -82,6 +82,31 @@ def test_bootstrap_resumes_completed_steps_after_redelivery(monkeypatch: pytest.
     assert updated.status == "done"
 
 
+def test_bootstrap_redelivery_of_completed_job_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        bootstrap_module,
+        "refresh_us_common_stock_universe",
+        lambda: pytest.fail("done bootstrap must not execute again"),
+    )
+    job = job_repository.create_job("bootstrap_market_data", {"mode": "initial"})
+    job_repository.mark_done(
+        job.job_id,
+        result={
+            "ok": True,
+            "job_type": "bootstrap_market_data",
+            "steps": ["universe", "prices", "breadth", "relative_strength", "position_monitor"],
+        },
+        message="done",
+    )
+
+    result = bootstrap_module.bootstrap_market_data.run(job.job_id, job.payload)
+    updated = job_repository.get_job(job.job_id)
+
+    assert result["already_completed"] is True
+    assert updated is not None
+    assert updated.status == "done"
+
+
 def test_price_refresh_checkpoint_skips_completed_tickers(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
 
