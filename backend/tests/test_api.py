@@ -159,9 +159,17 @@ def test_market_ampel_contract() -> None:
     assert isinstance(payload["warning_checks"], list)
     assert isinstance(payload["chart_points"], list)
     if payload["chart_points"]:
-        assert {"ema21_held", "sma50_held", "sma200_held", "up_vol_declining", "vol_sma50"}.issubset(
-            payload["chart_points"][0]
-        )
+        assert {
+            "ema21_held",
+            "sma50_held",
+            "sma200_held",
+            "up_vol_declining",
+            "vol_sma50",
+            "dist_52w_pct",
+            "consec_low_above_21",
+            "consec_low_above_50",
+            "consec_low_above_200",
+        }.issubset(payload["chart_points"][0])
 
 
 def test_market_ampel_etf_aliases_map_to_streamlit_indexes() -> None:

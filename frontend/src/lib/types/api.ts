@@ -109,6 +109,10 @@ export type MarketAmpelChartPoint = {
   sma50?: number | null;
   sma200?: number | null;
   vol_sma50?: number | null;
+  dist_52w_pct?: number | null;
+  consec_low_above_21: number;
+  consec_low_above_50: number;
+  consec_low_above_200: number;
   ema21_held: boolean;
   sma50_held: boolean;
   sma200_held: boolean;

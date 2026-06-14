@@ -52,7 +52,8 @@ export function MarketAmpelPanel() {
     sma10: point.sma10,
     sma50: point.sma50,
     sma200: point.sma200,
-    vol_sma50: point.vol_sma50
+    vol_sma50: point.vol_sma50,
+    dist_52w_pct: point.dist_52w_pct
   }));
 
   return (
@@ -194,48 +195,62 @@ export function MarketAmpelPanel() {
 function TrafficLightPanel({ data }: { data: MarketAmpel }) {
   return (
     <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-      <div className="grid gap-5 2xl:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)]">
-        <div className="rounded border border-[#2d333d] bg-[#101318] p-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-2">
+      <div className="grid gap-6 2xl:grid-cols-[minmax(240px,0.42fr)_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold tracking-normal">Trendwende-Ampel</h2>
+            <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">Rot, Gelb, Grün und Aufwärtstrend wie im Streamlit-Dashboard.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-1">
             {data.lights.map((light) => (
               <Light key={light.key} light={light} />
             ))}
           </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className={clsx("rounded border p-5", phaseCardClass(data.phase_info.tone))}>
-            <div className="text-xs font-semibold uppercase tracking-normal text-[#a0a7b4]">Aktuelle Ampelphase</div>
-            <div className={clsx("mt-2 break-words text-2xl font-semibold leading-tight tracking-normal md:text-3xl", toneText(data.phase_info.tone))}>
-              {data.phase_info.label}
-            </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
-                <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">Definition</div>
-                <p className="mt-2 text-sm leading-6 text-[#d8dde6]">{data.phase_info.reason}</p>
-              </div>
-              <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
-                <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">Handlung</div>
-                <p className="mt-2 text-sm leading-6 text-[#f2f5f8]">{data.phase_info.action}</p>
+        <div className={clsx("min-w-0 rounded border p-5 sm:p-6", phaseCardClass(data.phase_info.tone))}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-normal text-[#a0a7b4]">Aktuelle Ampelphase</div>
+              <div
+                className={clsx(
+                  "mt-2 break-words text-3xl font-semibold leading-tight tracking-normal sm:text-4xl",
+                  toneText(data.phase_info.tone)
+                )}
+              >
+                {data.phase_info.label}
               </div>
             </div>
+            <StatusChip tone={warningTone(data.warning_count)}>{data.warning_count} Warnzeichen aktiv</StatusChip>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-            <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} />
-            <CycleMetric
-              label="Bodenmarke"
-              value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
-              tone={distanceTone(data.cycle.floor_distance_pct)}
-            />
-            <CycleMetric
-              label="Startschuss-Tief"
-              value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
-              tone={distanceTone(data.cycle.startschuss_distance_pct)}
-            />
-            <CycleMetric
-              label="MA-Ordnung"
-              value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
-              tone={data.cycle.ma_order ? "good" : "bad"}
-            />
+
+          <div className="mt-6 grid gap-5 lg:grid-cols-2">
+            <InfoBlock title="Definition" text={data.phase_info.reason} />
+            <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
+          </div>
+
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-normal text-[#77808f]">Letzter Startschuss und Zykluswerte</div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} />
+              <CycleMetric
+                label="Bodenmarke"
+                value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
+                tone={distanceTone(data.cycle.floor_distance_pct)}
+              />
+              <CycleMetric
+                label="Startschuss-Tief"
+                value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
+                tone={distanceTone(data.cycle.startschuss_distance_pct)}
+              />
+              <CycleMetric
+                label="MA-Ordnung"
+                value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
+                tone={data.cycle.ma_order ? "good" : "bad"}
+              />
+            </div>
+            {data.cycle.diagnostics.length > 0 ? (
+              <div className="mt-3 text-xs leading-5 text-[#8e97a6]">{data.cycle.diagnostics.join(" · ")}</div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -244,24 +259,34 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
   );
 }
 
+function InfoBlock({ emphasis = false, text, title }: { emphasis?: boolean; text: string; title: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">{title}</div>
+      <p className={clsx("mt-2 text-sm leading-7", emphasis ? "text-[#f2f5f8]" : "text-[#d8dde6]")}>{text}</p>
+    </div>
+  );
+}
+
 function Light({ light }: { light: MarketAmpelLight }) {
   return (
-    <div className="flex min-h-[112px] min-w-0 flex-col items-center justify-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3">
+    <div
+      className={clsx(
+        "flex min-h-[88px] min-w-0 items-center gap-3 rounded border p-3",
+        light.active ? tileBorder(light.tone) : "border-[#242a33] bg-[#111419]"
+      )}
+    >
       <span
         className={clsx(
-          "grid size-12 place-items-center rounded-full border transition",
+          "grid size-11 shrink-0 place-items-center rounded-full border transition",
           light.active ? activeLightClass(light.tone, light.key) : "border-[#3b4350] bg-[#141820] text-[#586071]"
         )}
       >
         <CircleDot size={22} />
       </span>
-      <span className={clsx("max-w-full text-center text-xs font-semibold leading-4", light.active ? toneText(light.tone) : "text-[#77808f]")}>
+      <span className={clsx("min-w-0 text-sm font-semibold leading-5", light.active ? toneText(light.tone) : "text-[#77808f]")}>
         {light.key === "aufwaertstrend" ? (
-          <>
-            AUFWÄRTS
-            <br />
-            TREND
-          </>
+          "AUFWÄRTSTREND"
         ) : (
           light.label
         )}
@@ -272,14 +297,17 @@ function Light({ light }: { light: MarketAmpelLight }) {
 
 function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
   return (
-    <div className="mt-4 rounded border border-[#2d333d] bg-[#111419] p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold">Regeldefinitionen</h3>
-          <p className="text-sm text-[#a0a7b4]">Die Ampelphasen aus der Streamlit-Logik, lesbar statt im Mini-Popup.</p>
-        </div>
-      </div>
-      <div className="grid gap-3">
+    <details className="group mt-4 rounded border border-[#2d333d] bg-[#111419]">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3">
+        <span>
+          <span className="block text-base font-semibold">Regeldefinitionen</span>
+          <span className="mt-1 block text-sm leading-6 text-[#a0a7b4]">Ampelphasen aus der Streamlit-Logik.</span>
+        </span>
+        <span className="mt-1 shrink-0 rounded border border-[#2d333d] bg-[#171a20] px-2 py-1 text-xs text-[#a0a7b4] group-open:text-emerald-200">
+          Details
+        </span>
+      </summary>
+      <div className="grid gap-3 border-t border-[#2d333d] p-4 md:grid-cols-2">
         {lights.map((light) => (
           <div key={light.key} className={clsx("rounded border bg-[#171a20] p-4", light.active ? tileBorder(light.tone) : "border-[#242a33]")}>
             <div className="mb-2 flex items-center gap-2">
@@ -293,7 +321,7 @@ function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -388,15 +416,15 @@ function TrendOrderGrid({ data }: { data: MarketAmpel }) {
     maCheck("Schluss über 21-EMA", close, latest.ema21),
     maCheck("Tief über 21-EMA", low, latest.ema21),
     booleanCheck("21-EMA gehalten", latest.ema21_held, latest.ema21 ? "Schlusskurs darüber" : "n/a", "Darunter"),
-    heldCheck("3T Tief > 21-EMA", lastLowAbove(data.chart_points, "ema21")),
+    heldCheck("3T Tief > 21-EMA", latest.consec_low_above_21),
     maCheck("Schluss über 50-SMA", close, latest.sma50),
     maCheck("Tief über 50-SMA", low, latest.sma50),
     booleanCheck("50-SMA gehalten", latest.sma50_held, latest.sma50 ? "Schlusskurs darüber" : "n/a", "Darunter"),
-    heldCheck("3T Tief > 50-SMA", lastLowAbove(data.chart_points, "sma50")),
+    heldCheck("3T Tief > 50-SMA", latest.consec_low_above_50),
     maCheck("Schluss über 200-SMA", close, latest.sma200),
     maCheck("Tief über 200-SMA", low, latest.sma200),
     booleanCheck("200-SMA gehalten", latest.sma200_held, latest.sma200 ? "Schlusskurs darüber" : "n/a", "Darunter"),
-    heldCheck("3T Tief > 200-SMA", lastLowAbove(data.chart_points, "sma200"))
+    heldCheck("3T Tief > 200-SMA", latest.consec_low_above_200)
   ];
   const orderChecks = [
     orderCheck("21-EMA > 50-SMA", latest.ema21, latest.sma50),
@@ -414,7 +442,19 @@ function TrendOrderGrid({ data }: { data: MarketAmpel }) {
 
 function DailyChecklist({ data }: { data: MarketAmpel }) {
   const phase = data.phase_info.phase;
+  const latest = data.chart_points[data.chart_points.length - 1];
+  const drawdownPct = latest?.dist_52w_pct;
   const checks = [
+    {
+      label: "Kein substanzieller Drawdown (> -8%)",
+      passed: drawdownPct === null || drawdownPct === undefined || drawdownPct > -8,
+      detail:
+        drawdownPct === null || drawdownPct === undefined
+          ? "Drawdown: n/a"
+          : `Drawdown: ${drawdownPct.toFixed(1)}%${
+              drawdownPct <= -8 ? " - Korrektur läuft, Ampel aktiv" : " - Markt im Normalbereich"
+            }`
+    },
     {
       label: "Stabilisierung?",
       passed: phase !== "rot" || Boolean(data.cycle.anchor_date),
@@ -505,17 +545,6 @@ function heldCheck(label: string, count: number) {
     passed: count >= 3,
     detail: `${count} Tage`
   };
-}
-
-function lastLowAbove(points: MarketAmpel["chart_points"], averageKey: "ema21" | "sma50" | "sma200") {
-  let count = 0;
-  for (let index = points.length - 1; index >= 0; index -= 1) {
-    const point = points[index];
-    const average = point[averageKey];
-    if (point.low === null || point.low === undefined || average === null || average === undefined || point.low <= average) break;
-    count += 1;
-  }
-  return count;
 }
 
 function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {

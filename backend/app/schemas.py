@@ -131,6 +131,10 @@ class MarketAmpelChartPoint(BaseModel):
     sma50: float | None = None
     sma200: float | None = None
     vol_sma50: float | None = None
+    dist_52w_pct: float | None = None
+    consec_low_above_21: int = 0
+    consec_low_above_50: int = 0
+    consec_low_above_200: int = 0
     ema21_held: bool = False
     sma50_held: bool = False
     sma200_held: bool = False
