@@ -91,7 +91,10 @@ class BreadthComputationPoint:
     new_lows: int
     coverage_ratio: float
     universe_size: int
+    loaded_universe: int
     covered_count: int
+    valid_for_50sma: int
+    valid_for_200sma: int
 
 
 def get_market_overview() -> MarketOverviewResponse:
@@ -268,7 +271,7 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         )
         for row in rows
     ]
-    latest_meta = rows[-1].metadata_json or {}
+    latest_meta = _breadth_metadata_with_legacy_fallback(rows)
     return BreadthResponse(
         as_of=points[-1].date,
         universe=universe,
@@ -301,11 +304,11 @@ def get_market_deep_analysis(
 
     latest = valid_points[-1]
     latest_row = rows[-1]
-    latest_meta = latest_row.metadata_json or {}
-    coverage_ratio = float(latest_meta.get("coverage_ratio") or 0)
-    loaded_universe = int(latest_meta.get("covered_count") or latest_meta.get("loaded_universe") or 0)
+    latest_meta = _breadth_metadata_with_legacy_fallback(rows)
     requested_universe_raw = latest_meta.get("universe_size") or latest_meta.get("requested_universe")
     requested_universe = int(requested_universe_raw) if requested_universe_raw else None
+    loaded_universe = int(latest_meta.get("loaded_universe") or latest_meta.get("covered_count") or 0)
+    coverage_ratio = float(latest_meta.get("coverage_ratio") or 0)
     min_required = max(350, int((requested_universe or 0) * 0.18))
     if requested_universe and loaded_universe < min_required:
         return _missing_market_deep_analysis(
@@ -409,7 +412,11 @@ def get_market_deep_analysis(
             )
         )
 
-    message = "Tiefenanalyse aus gespeicherten Breadth-Daten; Deemer nutzt aktuell Advancer/Decliner als Volumen-Proxy."
+    nhnl_note = "NH/NL auf Tageshoch/-tief" if latest_meta.get("nhnl_uses_intraday") else "NH/NL fallback auf Schlusskurs"
+    message = (
+        "Tiefenanalyse aus gespeicherten Breadth-Daten; "
+        f"{nhnl_note}; Deemer nutzt aktuell Advancer/Decliner als Volumen-Proxy."
+    )
     if requested_universe and loaded_universe and loaded_universe < requested_universe * 0.8:
         message = (
             f"Universe-Abdeckung unter 80% ({loaded_universe}/{requested_universe}). "
@@ -618,7 +625,12 @@ def refresh_market_breadth(
             metadata_json={
                 "coverage_ratio": point.coverage_ratio,
                 "universe_size": point.universe_size,
+                "loaded_universe": point.loaded_universe,
                 "covered_count": point.covered_count,
+                "daily_covered_count": point.covered_count,
+                "valid_for_50sma": point.valid_for_50sma,
+                "valid_for_200sma": point.valid_for_200sma,
+                "nhnl_uses_intraday": True,
             },
         )
         for point in computed
@@ -639,6 +651,7 @@ def refresh_market_breadth(
         "universe": universe,
         "universe_size": len(clean_tickers),
         "covered_tickers": len(series),
+        "loaded_universe": len(series),
         "records_seen": sum(len(points) for points in series.values()),
         "records_written": rows_written + 1,
         "breadth_rows_written": rows_written,
@@ -661,7 +674,8 @@ def compute_breadth_series(
         for ticker, points in series.items()
         if len(points) >= 2
     }
-    total_universe_size = universe_size or len(clean_series)
+    loaded_universe = len(clean_series)
+    total_universe_size = universe_size or loaded_universe
     if not clean_series or total_universe_size <= 0:
         return []
 
@@ -742,9 +756,12 @@ def compute_breadth_series(
                 pct_above_200sma=_pct(above_200, eligible_200),
                 new_highs=new_highs,
                 new_lows=new_lows,
-                coverage_ratio=covered_count / total_universe_size,
+                coverage_ratio=loaded_universe / total_universe_size,
                 universe_size=total_universe_size,
+                loaded_universe=loaded_universe,
                 covered_count=covered_count,
+                valid_for_50sma=eligible_50,
+                valid_for_200sma=eligible_200,
             )
         )
 
@@ -919,7 +936,7 @@ def build_market_snapshot(
             new_lows=point.new_lows,
             coverage_ratio=point.coverage_ratio,
             universe_size=point.universe_size,
-            covered_count=point.covered_count,
+            covered_count=point.loaded_universe,
             volatility_regime=volatility_regime,
             volatility_summary=volatility_summary or {},
         )
@@ -929,6 +946,9 @@ def build_market_snapshot(
         **regime.metrics,
         "breadth_phase": regime.phase,
         "trend_ampel": trend_ampel,
+        "daily_covered_count": point.covered_count,
+        "valid_for_50sma": point.valid_for_50sma,
+        "valid_for_200sma": point.valid_for_200sma,
     }
     if trend_point is not None:
         metrics["action"] = _combined_market_action(
@@ -2296,15 +2316,39 @@ def _market_snapshot_message(snapshot_date: date, metrics: dict) -> str:
     return f"{prefix}; Coverage {_format_pct(coverage * 100)}. Bei Bedarf refresh_prices und refresh_breadth starten."
 
 
+def _breadth_metadata_with_legacy_fallback(rows: Sequence) -> dict:
+    latest_meta = dict(rows[-1].metadata_json or {}) if rows else {}
+    historic_loaded_universe = max(
+        (
+            int((row.metadata_json or {}).get("loaded_universe") or (row.metadata_json or {}).get("covered_count") or 0)
+            for row in rows
+        ),
+        default=0,
+    )
+    if "loaded_universe" not in latest_meta and historic_loaded_universe:
+        latest_meta["loaded_universe"] = historic_loaded_universe
+    requested_raw = latest_meta.get("universe_size") or latest_meta.get("requested_universe")
+    try:
+        requested = int(requested_raw) if requested_raw else 0
+    except (TypeError, ValueError):
+        requested = 0
+    loaded = int(latest_meta.get("loaded_universe") or 0)
+    if requested and loaded and ("coverage_ratio" not in latest_meta or not latest_meta.get("coverage_ratio")):
+        latest_meta["coverage_ratio"] = loaded / requested
+    return latest_meta
+
+
 def _breadth_message(breadth_date: date, metadata: dict) -> str:
     status = _data_status_for_date(breadth_date)
-    covered = int(metadata.get("covered_count") or 0)
+    loaded = int(metadata.get("loaded_universe") or metadata.get("covered_count") or 0)
+    daily_covered = int(metadata.get("daily_covered_count") or metadata.get("covered_count") or 0)
     universe_size = int(metadata.get("universe_size") or 0)
     coverage = float(metadata.get("coverage_ratio") or 0)
     prefix = "Breitenwerte aus Postgres"
     if status == "stale":
         prefix = "Breitenwerte sind älter"
-    return f"{prefix}; Coverage {_format_pct(coverage * 100)} ({covered}/{universe_size})."
+    daily_note = f", letzter Tag {daily_covered} Titel" if daily_covered and daily_covered != loaded else ""
+    return f"{prefix}; Coverage {_format_pct(coverage * 100)} ({loaded}/{universe_size}{daily_note})."
 
 
 def _pct(count: int, total: int) -> float | None:

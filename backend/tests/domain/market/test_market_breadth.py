@@ -5,7 +5,7 @@ import pytest
 from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
 from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
-from app.repositories.market import MarketPricePoint
+from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
 from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking
 
 
@@ -31,6 +31,39 @@ def test_compute_breadth_series_is_reproducible() -> None:
     # With a perfectly constant 2:1 advance/decline mix, both EMAs converge to
     # the same value and the oscillator is neutral.
     assert latest.mcclellan == pytest.approx(0.0)
+
+
+def test_breadth_coverage_tracks_loaded_universe_not_only_latest_day() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "AAA": _series("AAA", start, [100 + index for index in range(80)]),
+        "BBB": _series("BBB", start, [200 - index for index in range(79)]),
+        "CCC": _series("CCC", start, [50 + index * 0.5 for index in range(80)]),
+    }
+
+    latest = compute_breadth_series(series, universe="test_universe", universe_size=3)[-1]
+
+    assert latest.loaded_universe == 3
+    assert latest.covered_count == 2
+    assert latest.coverage_ratio == pytest.approx(1.0)
+
+
+def test_breadth_uses_streamlit_rana_and_intraday_new_high_low_rules() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "AAA": _ohlcv_series("AAA", start, [100 + index for index in range(30)]),
+        "BBB": _ohlcv_series("BBB", start, [100 - index for index in range(30)]),
+        "CCC": _ohlcv_series("CCC", start, [50 for _index in range(30)]),
+    }
+
+    points = compute_breadth_series(series, universe="test_universe", universe_size=3)
+    latest = points[-1]
+
+    assert latest.advancers == 1
+    assert latest.decliners == 1
+    assert latest.mcclellan == pytest.approx(0.0)
+    assert latest.new_highs == 1
+    assert latest.new_lows == 1
 
 
 def test_market_snapshot_classifies_constructive_breadth() -> None:
@@ -270,5 +303,20 @@ def test_sector_ranking_orders_latest_daily_return() -> None:
 def _series(ticker: str, start: date, closes: list[float]) -> list[MarketPricePoint]:
     return [
         MarketPricePoint(ticker=ticker, date=start + timedelta(days=index), close=close)
+        for index, close in enumerate(closes)
+    ]
+
+
+def _ohlcv_series(ticker: str, start: date, closes: list[float]) -> list[MarketOhlcvPoint]:
+    return [
+        MarketOhlcvPoint(
+            ticker=ticker,
+            date=start + timedelta(days=index),
+            open=close,
+            high=close + 0.5,
+            low=close - 0.5,
+            close=close,
+            volume=1_000_000,
+        )
         for index, close in enumerate(closes)
     ]
