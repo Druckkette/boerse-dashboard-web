@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.repositories import jobs as job_repository
 from app.repositories.jobs import clear_memory_jobs
 
 
@@ -76,3 +78,29 @@ def test_parallel_heavy_jobs_are_rejected(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert first.status_code == 202
     assert second.status_code == 409
+
+
+def test_active_jobs_remain_visible_when_older_than_recent_limit() -> None:
+    active = job_repository.create_job("refresh_relative_strength", {"mode": "test"}, requested_by="test")
+    old_started_at = datetime.now(UTC) - timedelta(days=2)
+    job_repository.update_job(
+        active.job_id,
+        status="running",
+        progress=42,
+        current_step="RS Refresh läuft im Worker",
+        created_at=old_started_at,
+        requested_at=old_started_at,
+        started_at=old_started_at,
+    )
+
+    for index in range(5):
+        job = job_repository.create_job("refresh_prices", {"index": index}, requested_by="test")
+        job_repository.mark_done(job.job_id, result={"index": index})
+
+    response = client.get("/api/v1/jobs?limit=3")
+
+    assert response.status_code == 200
+    jobs = response.json()["jobs"]
+    assert jobs[0]["job_id"] == active.job_id
+    assert jobs[0]["status"] == "running"
+    assert len(jobs) == 4

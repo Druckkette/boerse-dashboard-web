@@ -58,6 +58,10 @@ def list_jobs(limit: int = 50) -> list[Job]:
     return _with_db(lambda db: _list_jobs_db(db, limit), fallback=lambda: _list_jobs_memory(limit))
 
 
+def list_active_jobs() -> list[Job]:
+    return _with_db(_list_active_jobs_db, fallback=_list_active_jobs_memory)
+
+
 def get_job(job_id: str) -> Job | None:
     return _with_db(lambda db: _get_job_db(db, job_id), fallback=lambda: _MEMORY_JOBS.get(job_id))
 
@@ -190,8 +194,22 @@ def _create_job_db(db: Session, job: Job) -> Job:
 
 
 def _list_jobs_db(db: Session, limit: int) -> list[Job]:
+    normalized_limit = max(1, min(200, limit))
+    active_rows = db.scalars(
+        select(JobModel).where(JobModel.status.in_(ACTIVE_JOB_STATUSES)).order_by(JobModel.created_at.desc())
+    ).all()
+    recent_rows = db.scalars(
+        select(JobModel).order_by(JobModel.created_at.desc()).limit(normalized_limit)
+    ).all()
+    return _merge_active_and_recent(
+        [_row_to_schema(row) for row in active_rows],
+        [_row_to_schema(row) for row in recent_rows],
+    )
+
+
+def _list_active_jobs_db(db: Session) -> list[Job]:
     rows = db.scalars(
-        select(JobModel).order_by(JobModel.created_at.desc()).limit(max(1, min(200, limit)))
+        select(JobModel).where(JobModel.status.in_(ACTIVE_JOB_STATUSES)).order_by(JobModel.created_at.desc())
     ).all()
     return [_row_to_schema(row) for row in rows]
 
@@ -225,7 +243,30 @@ def _store_memory(job: Job) -> Job:
 
 
 def _list_jobs_memory(limit: int) -> list[Job]:
-    return sorted(_MEMORY_JOBS.values(), key=lambda job: job.created_at, reverse=True)[:limit]
+    normalized_limit = max(1, min(200, limit))
+    jobs = sorted(_MEMORY_JOBS.values(), key=lambda job: job.created_at, reverse=True)
+    active_jobs = [job for job in jobs if job.status in ACTIVE_JOB_STATUSES]
+    recent_jobs = jobs[:normalized_limit]
+    return _merge_active_and_recent(active_jobs, recent_jobs)
+
+
+def _list_active_jobs_memory() -> list[Job]:
+    return sorted(
+        (job for job in _MEMORY_JOBS.values() if job.status in ACTIVE_JOB_STATUSES),
+        key=lambda job: job.created_at,
+        reverse=True,
+    )
+
+
+def _merge_active_and_recent(active_jobs: list[Job], recent_jobs: list[Job]) -> list[Job]:
+    merged: list[Job] = []
+    seen: set[str] = set()
+    for job in [*active_jobs, *recent_jobs]:
+        if job.job_id in seen:
+            continue
+        merged.append(job)
+        seen.add(job.job_id)
+    return merged
 
 
 def _update_job_memory(job_id: str, values: dict) -> Job | None:

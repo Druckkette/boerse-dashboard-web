@@ -11,7 +11,8 @@ import {
   RefreshCw,
   Rocket,
   ServerCog,
-  Upload
+  Upload,
+  XCircle
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -41,6 +42,16 @@ export default function SetupPage() {
         payload: { ...step.job_payload, source: "setup" }
       });
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["setup-status"] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["freshness"] });
+      queryClient.invalidateQueries({ queryKey: ["settings-data-diagnostics"] });
+    }
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (jobId: string) => api.cancelJob(jobId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["setup-status"] });
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -101,8 +112,10 @@ export default function SetupPage() {
           {setup.data?.steps.map((step, index) => (
             <SetupStepCard
               activeJob={activeJob}
+              cancellingJobId={cancelMutation.isPending ? cancelMutation.variables : null}
               index={index}
               key={step.key}
+              onCancel={(jobId) => cancelMutation.mutate(jobId)}
               onStart={() => startMutation.mutate(step)}
               starting={startMutation.isPending && startMutation.variables?.key === step.key}
               step={step}
@@ -134,6 +147,33 @@ export default function SetupPage() {
             {startMutation.error && (
               <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
                 {startMutation.error instanceof Error ? startMutation.error.message : "Job konnte nicht gestartet werden."}
+              </div>
+            )}
+            {activeJob && (
+              <div className="mt-3 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="font-medium">Aktiver Worker-Job: {activeJob.job_type}</div>
+                    <div className="mt-1 text-xs leading-5 text-amber-100/80">
+                      {activeJob.current_step || activeJob.message || "Der Worker hat noch keinen Detailstatus gemeldet."}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-amber-100/60">{activeJob.job_id}</div>
+                  </div>
+                  <button
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded border border-amber-200/50 bg-[#111419] px-3 py-2 text-xs text-amber-100 transition hover:border-rose-200/70 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={cancelMutation.isPending}
+                    type="button"
+                    onClick={() => cancelMutation.mutate(activeJob.job_id)}
+                  >
+                    <XCircle size={14} />
+                    {cancelMutation.isPending && cancelMutation.variables === activeJob.job_id ? "Bricht ab" : "Job abbrechen"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {cancelMutation.error && (
+              <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+                {cancelMutation.error instanceof Error ? cancelMutation.error.message : "Job konnte nicht abgebrochen werden."}
               </div>
             )}
           </section>
@@ -168,17 +208,22 @@ export default function SetupPage() {
 
 function SetupStepCard({
   activeJob,
+  cancellingJobId,
   index,
+  onCancel,
   onStart,
   starting,
   step
 }: {
   activeJob?: Job;
+  cancellingJobId: string | null;
   index: number;
+  onCancel: (jobId: string) => void;
   onStart: () => void;
   starting: boolean;
   step: SetupStep;
 }) {
+  const latestJobIsActive = step.latest_job?.status === "running" || step.latest_job?.status === "queued";
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -201,14 +246,28 @@ function SetupStepCard({
         </div>
         <StepAction activeJob={activeJob} onStart={onStart} starting={starting} step={step} />
       </div>
-      {step.latest_job && (step.latest_job.status === "running" || step.latest_job.status === "queued") && (
+      {step.latest_job && latestJobIsActive && (
         <div className="mt-4">
           <div className="h-2 overflow-hidden rounded bg-[#111419]">
             <div className="h-2 rounded bg-emerald-300" style={{ width: `${step.latest_job.progress}%` }} />
           </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#77808f]">
-            <span>{step.latest_job.current_step || step.latest_job.message}</span>
-            <span className="tabular-nums">{step.latest_job.progress}%</span>
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[#77808f] sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div>{step.latest_job.current_step || step.latest_job.message}</div>
+              <div className="mt-1 truncate text-[#697386]">{step.latest_job.job_id}</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className="tabular-nums">{step.latest_job.progress}%</span>
+              <button
+                className="inline-flex items-center gap-1 rounded border border-[#2d333d] bg-[#111419] px-2 py-1 text-xs text-[#d8dde6] transition hover:border-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={cancellingJobId === step.latest_job.job_id}
+                type="button"
+                onClick={() => onCancel(step.latest_job!.job_id)}
+              >
+                <XCircle size={13} />
+                {cancellingJobId === step.latest_job.job_id ? "Abbruch" : "Abbrechen"}
+              </button>
+            </div>
           </div>
         </div>
       )}

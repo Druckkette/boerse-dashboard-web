@@ -563,8 +563,9 @@ export default function JobsPage() {
     staleTime: 60_000
   });
   const jobs = data ?? [];
-  const visibleJobs = jobs.slice(0, 3);
-  const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
+  const activeJobs = jobs.filter(isActiveJob);
+  const activeJob = activeJobs[0];
+  const visibleJobs = mergeJobs(activeJobs, jobs.filter((job) => !isActiveJob(job)).slice(0, 3));
   const latestUniverseJob = latestJobForType(jobs, "refresh_universe");
   const latestYahooDiagnosticsJob = latestJobForType(jobs, "yahoo_symbol_diagnostics");
   const latestYahooRescueJob = latestJobForType(jobs, "yahoo_symbol_rescue");
@@ -591,7 +592,12 @@ export default function JobsPage() {
 
   const cancelMutation = useMutation({
     mutationFn: (jobId: string) => api.cancelJob(jobId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["setup-status"] });
+      queryClient.invalidateQueries({ queryKey: ["freshness"] });
+      queryClient.invalidateQueries({ queryKey: ["settings-data-diagnostics"] });
+    }
   });
 
   const mappingMutation = useMutation({
@@ -633,7 +639,9 @@ export default function JobsPage() {
 
       <JobsSetupStatusPanel
         activeJob={activeJob}
+        cancellingJobId={cancelMutation.isPending ? cancelMutation.variables : null}
         isFetching={setupQuery.isFetching}
+        onCancel={(jobId) => cancelMutation.mutate(jobId)}
         setupStatus={setupQuery.data}
         startingType={startingType}
         onRefresh={() => setupQuery.refetch()}
@@ -786,10 +794,13 @@ export default function JobsPage() {
           <div>
             <h2 className="text-base font-semibold">Letzte Jobs</h2>
             <p className="text-sm text-[#a0a7b4]">
-              Angezeigt werden nur die letzten drei Einträge. Details bleiben aufklappbar.
+              Aktive Jobs werden immer angezeigt, plus die letzten drei abgeschlossenen Einträge.
             </p>
           </div>
-          <StatusChip tone="neutral">{jobs.length.toLocaleString("de-DE")} gesamt</StatusChip>
+          <div className="flex flex-wrap gap-2">
+            {activeJobs.length > 0 && <StatusChip tone="warning">{activeJobs.length} aktiv</StatusChip>}
+            <StatusChip tone="neutral">{jobs.length.toLocaleString("de-DE")} geladen</StatusChip>
+          </div>
         </div>
         {jobs.length === 0 && (
           <div className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
@@ -806,14 +817,18 @@ export default function JobsPage() {
 
 function JobsSetupStatusPanel({
   activeJob,
+  cancellingJobId,
   isFetching,
+  onCancel,
   onRefresh,
   onStart,
   setupStatus,
   startingType
 }: {
   activeJob?: Job;
+  cancellingJobId: string | null;
   isFetching: boolean;
+  onCancel: (jobId: string) => void;
   onRefresh: () => void;
   onStart: (step: SetupStep) => void;
   setupStatus?: SetupStatus;
@@ -864,8 +879,36 @@ function JobsSetupStatusPanel({
               {nextStep.action_label}
             </Link>
           ) : null}
+          {activeJob ? (
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded border border-amber-200/50 bg-[#111419] px-3 py-2 text-sm text-amber-100 transition hover:border-rose-200/70 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={cancellingJobId === activeJob.job_id}
+              type="button"
+              onClick={() => onCancel(activeJob.job_id)}
+            >
+              <XCircle size={15} />
+              {cancellingJobId === activeJob.job_id ? "Bricht ab" : "Job abbrechen"}
+            </button>
+          ) : null}
         </div>
       </div>
+      {activeJob ? (
+        <div className="mt-4 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <div className="font-medium">Aktiver Job: {activeJob.job_type}</div>
+              <div className="mt-1 text-xs leading-5 text-amber-100/80">
+                {activeJob.current_step || activeJob.message || "Der Worker hat noch keinen Detailstatus gemeldet."}
+              </div>
+              <div className="mt-1 truncate text-xs text-amber-100/60">{activeJob.job_id}</div>
+            </div>
+            <div className="text-xs tabular-nums text-amber-100/80">{activeJob.progress}%</div>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded bg-[#111419]">
+            <div className="h-2 rounded bg-emerald-300" style={{ width: `${activeJob.progress}%` }} />
+          </div>
+        </div>
+      ) : null}
       {nextStep ? (
         <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -1272,6 +1315,19 @@ function formatDate(value: string) {
 
 function latestJobForType(jobs: Job[], type: JobType) {
   return jobs.find((job) => job.job_type === type);
+}
+
+function isActiveJob(job: Job) {
+  return job.status === "queued" || job.status === "running";
+}
+
+function mergeJobs(...groups: Job[][]) {
+  const seen = new Set<string>();
+  return groups.flat().filter((job) => {
+    if (seen.has(job.job_id)) return false;
+    seen.add(job.job_id);
+    return true;
+  });
 }
 
 function newerJob(left?: Job, right?: Job) {
