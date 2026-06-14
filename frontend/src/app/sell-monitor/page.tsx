@@ -34,7 +34,7 @@ const toneByPending: Record<PendingStatus, "good" | "neutral" | "warning" | "bad
 export default function SellMonitorPage() {
   const router = useRouter();
   const { data, isLoading } = useQuery({ queryKey: ["sell-ranking"], queryFn: api.sellRanking });
-  const rows = data ?? [];
+  const rows = data?.rows ?? [];
   const [sorting, setSorting] = useState<SortingState>([
     { id: "recommendation_pct", desc: true }
   ]);
@@ -152,6 +152,24 @@ export default function SellMonitorPage() {
         <StatusChip tone={isLoading ? "warning" : "good"}>
           {isLoading ? "lädt" : `${rows.length} Positionen`}
         </StatusChip>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[1.2fr_2fr]">
+        <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+          <div className="text-xs uppercase text-[#77808f]">Ranking-Quelle</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <StatusChip tone={data?.source === "snapshot" ? "good" : "warning"}>
+              {data?.source === "snapshot" ? "Worker Snapshot" : "Live Fallback"}
+            </StatusChip>
+            <span className="text-sm text-[#d8dde6]">
+              {data?.generated_at ? new Date(data.generated_at).toLocaleString("de-DE") : "noch nicht vorcomputet"}
+            </span>
+          </div>
+        </div>
+        <div className="rounded border border-[#2d333d] bg-[#171a20] p-4 text-sm text-[#a0a7b4]">
+          {data?.message || "Nach dem ersten Positionsmonitor-Lauf liest diese Seite den vorcomputeten Snapshot."}
+          {data?.source_job_id ? <span className="ml-2 text-[#77808f]">Job: {data.source_job_id}</span> : null}
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

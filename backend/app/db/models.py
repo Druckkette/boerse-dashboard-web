@@ -323,6 +323,26 @@ class SellRecommendationState(Base):
     )
 
 
+class SellRankingSnapshot(Base):
+    __tablename__ = "sell_ranking_snapshots"
+    __table_args__ = (
+        UniqueConstraint("ticker", name="uq_sell_ranking_snapshot_ticker"),
+        Index("ix_sell_ranking_snapshots_status_recommendation", "status", "recommendation_pct"),
+        Index("ix_sell_ranking_snapshots_generated_at", "generated_at"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    pending_status: Mapped[str] = mapped_column(String(32), index=True)
+    health_score: Mapped[float] = mapped_column(Float, default=0)
+    recommendation_pct: Mapped[int] = mapped_column(Integer, default=0)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    source_job_id: Mapped[str] = mapped_column(String(96), default="", index=True)
+    item_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
 class TrancheLog(Base):
     __tablename__ = "tranche_log"
     __table_args__ = (Index("ix_tranche_log_ticker_date", "ticker", "date"),)

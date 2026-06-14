@@ -21,6 +21,8 @@ def test_sell_ranking_endpoint_returns_actionable_rows() -> None:
     payload = response.json()
 
     assert len(payload["rows"]) >= 4
+    assert payload["source"] in {"live", "snapshot"}
+    assert "generated_at" in payload
     first = payload["rows"][0]
     assert {
         "ticker",

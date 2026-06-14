@@ -244,6 +244,10 @@ class SellPostMortemNoteResponse(BaseModel):
 
 class SellRankingResponse(BaseModel):
     rows: list[SellPositionRankingItem]
+    source: Literal["snapshot", "live"] = "live"
+    generated_at: str = ""
+    source_job_id: str = ""
+    message: str = ""
 
 
 class ManualInputResponse(BaseModel):

@@ -125,6 +125,20 @@ def evaluate_position_sell_decision(
 
 
 def get_sell_position_ranking() -> SellRankingResponse:
+    snapshot_rows, generated_at, source_job_id = sell_state_repository.list_ranking_snapshot()
+    if snapshot_rows:
+        return SellRankingResponse(
+            rows=snapshot_rows,
+            source="snapshot",
+            generated_at=generated_at.isoformat() if generated_at else "",
+            source_job_id=source_job_id,
+            message="Vorberechneter Positionsmonitor-Snapshot aus Postgres.",
+        )
+
+    return _compute_sell_position_ranking_live()
+
+
+def _compute_sell_position_ranking_live() -> SellRankingResponse:
     rows: list[SellPositionRankingItem] = []
     for context in _ranking_contexts():
         ticker = str(context["ticker"])
@@ -165,7 +179,11 @@ def get_sell_position_ranking() -> SellRankingResponse:
             row.health_score,
         )
     )
-    return SellRankingResponse(rows=rows)
+    return SellRankingResponse(
+        rows=rows,
+        source="live",
+        message="Live berechnet, weil noch kein Positionsmonitor-Snapshot vorhanden ist.",
+    )
 
 
 def get_sell_diagnostics_for_position(ticker: str) -> SellDiagnosticsResponse:
@@ -267,6 +285,7 @@ def monitor_open_positions(
         }
 
     items: list[dict[str, Any]] = []
+    ranking_items: list[SellPositionRankingItem] = []
     for row in portfolio_rows:
         metrics_request = _metrics_request_from_portfolio_row(row)
         metrics = get_sell_metrics_for_position(row.ticker, metrics_request)
@@ -281,6 +300,23 @@ def monitor_open_positions(
         if metrics.atr14 is not None and metrics.current_price:
             atr_pct = metrics.atr14 / metrics.current_price * 100
         monitor_state = _monitor_state_from_metrics(row, metrics, settings)
+        ranking_items.append(
+            SellPositionRankingItem(
+                ticker=row.ticker,
+                name=row.name or row.ticker,
+                pnl_pct=float(metrics.pnl_pct or 0.0),
+                health_score=float(metrics.health.health_score),
+                recommendation_pct=int(evaluation.recommendation_percent),
+                status=_ranking_status(metrics.health.status, evaluation.recommendation_percent),
+                reason=evaluation.explanation_short,
+                pending_status=evaluation.pending_status,
+                primary_signal=_primary_signal_label(evaluation),
+                last_seen_date=evaluation.next_recommendation_state.last_seen_date,
+                consecutive_days=evaluation.next_recommendation_state.consecutive_days,
+                snoozed_until=evaluation.next_recommendation_state.snoozed_until,
+                snoozed_pct=evaluation.next_recommendation_state.snoozed_pct,
+            )
+        )
         items.append(
             {
                 "ticker": row.ticker,
@@ -300,10 +336,16 @@ def monitor_open_positions(
             }
         )
 
+    snapshot_count = sell_state_repository.upsert_ranking_snapshot(
+        ranking_items,
+        source_job_id=str(settings.get("source_job_id") or ""),
+        replace_all=not bool(allowed),
+    )
     return {
         "ok": True,
         "records_seen": len(portfolio_rows),
         "records_written": len(items),
+        "ranking_snapshot_written": snapshot_count,
         "items": items,
     }
 

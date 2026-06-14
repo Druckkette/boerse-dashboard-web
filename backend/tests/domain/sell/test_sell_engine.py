@@ -200,11 +200,15 @@ def test_monitor_open_positions_persists_recommendation_state(monkeypatch: pytes
     monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", lambda *args, **kwargs: [])
 
     result = sell_service.monitor_open_positions()
+    ranking = get_sell_position_ranking()
 
     assert result["ok"] is True
     assert result["records_seen"] == 1
+    assert result["ranking_snapshot_written"] == 1
     assert result["items"][0]["ticker"] == "AAPL"
     assert result["items"][0]["recommendation_percent"] >= 0
+    assert ranking.source == "snapshot"
+    assert [row.ticker for row in ranking.rows] == ["AAPL"]
 
 
 def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -148,6 +148,8 @@ yet, they return explicit missing-data states rather than blocking the UI.
 
 The monitor evaluates open imported positions against cached bars, stores recommendation state and
 reports ATR/health/signal status through the Jobs page. It does not run yfinance in the request path.
+After a monitor run, `/sell-monitor` reads the precomputed ranking snapshot from Postgres and only
+falls back to live Sell-Engine evaluation when no snapshot exists yet.
 
 The 13F/SEC job downloads official SEC Form-13F quarterly data sets in the worker, caches ZIP files
 under the backend cache volume and persists aggregate ticker trends. It requires `SEC_USER_AGENT`;

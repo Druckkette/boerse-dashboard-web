@@ -3,15 +3,22 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import SellManualInput as SellManualInputModel
 from app.db.models import SellPostMortemNote as SellPostMortemNoteModel
+from app.db.models import SellRankingSnapshot as SellRankingSnapshotModel
 from app.db.models import SellRecommendationState as SellRecommendationStateModel
 from app.db.models import TrancheLog as TrancheLogModel
 from app.db.session import SessionLocal
-from app.domain.sell.schemas import SellManualInput, SellPostMortemNote, SellRecommendationState, TrancheLogEntry
+from app.domain.sell.schemas import (
+    SellManualInput,
+    SellPositionRankingItem,
+    SellPostMortemNote,
+    SellRecommendationState,
+    TrancheLogEntry,
+)
 
 
 class SellStateRepositoryUnavailable(RuntimeError):
@@ -22,6 +29,7 @@ _MEMORY_MANUAL_INPUTS: dict[str, SellManualInput] = {}
 _MEMORY_TRANCHE_LOG: dict[str, list[TrancheLogEntry]] = {}
 _MEMORY_RECOMMENDATION_STATE: dict[str, SellRecommendationState] = {}
 _MEMORY_POST_MORTEM_NOTES: dict[str, dict[str, SellPostMortemNote]] = {}
+_MEMORY_RANKING_SNAPSHOT: dict[str, tuple[SellPositionRankingItem, datetime, str]] = {}
 
 
 def get_manual_input(ticker: str) -> SellManualInput | None:
@@ -133,6 +141,76 @@ def upsert_recommendation_state(ticker: str, state: SellRecommendationState) -> 
         return state
 
 
+def list_ranking_snapshot() -> tuple[list[SellPositionRankingItem], datetime | None, str]:
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(SellRankingSnapshotModel).order_by(
+                    SellRankingSnapshotModel.status.asc(),
+                    SellRankingSnapshotModel.recommendation_pct.desc(),
+                    SellRankingSnapshotModel.health_score.asc(),
+                    SellRankingSnapshotModel.ticker.asc(),
+                )
+            ).all()
+            items = [_ranking_item_from_model(row) for row in rows]
+            generated_at = max((row.generated_at for row in rows if row.generated_at), default=None)
+            source_job_id = next((row.source_job_id for row in rows if row.source_job_id), "")
+            return items, generated_at, source_job_id
+    except SQLAlchemyError:
+        if not _MEMORY_RANKING_SNAPSHOT:
+            return [], None, ""
+        rows = sorted(
+            _MEMORY_RANKING_SNAPSHOT.values(),
+            key=lambda item: (
+                {"Verkaufen": 0, "Beobachten": 1, "Halten": 2}.get(item[0].status, 3),
+                -item[0].recommendation_pct,
+                item[0].health_score,
+                item[0].ticker,
+            ),
+        )
+        generated_at = max((item[1] for item in rows), default=None)
+        source_job_id = next((item[2] for item in rows if item[2]), "")
+        return [item[0] for item in rows], generated_at, source_job_id
+
+
+def upsert_ranking_snapshot(
+    items: list[SellPositionRankingItem],
+    *,
+    generated_at: datetime | None = None,
+    source_job_id: str = "",
+    replace_all: bool = False,
+) -> int:
+    now = generated_at or datetime.now(UTC)
+    normalized = [item.model_copy(update={"ticker": _clean_ticker(item.ticker)}) for item in items if item.ticker]
+    try:
+        with SessionLocal() as db:
+            if replace_all:
+                db.execute(delete(SellRankingSnapshotModel))
+            for item in normalized:
+                row = db.scalars(
+                    select(SellRankingSnapshotModel).where(SellRankingSnapshotModel.ticker == item.ticker)
+                ).first()
+                if row is None:
+                    row = SellRankingSnapshotModel(ticker=item.ticker)
+                    db.add(row)
+                row.name = item.name
+                row.status = item.status
+                row.pending_status = item.pending_status
+                row.health_score = item.health_score
+                row.recommendation_pct = item.recommendation_pct
+                row.generated_at = now
+                row.source_job_id = source_job_id
+                row.item_json = item.model_dump(mode="json")
+            db.commit()
+            return len(normalized)
+    except SQLAlchemyError:
+        if replace_all:
+            _MEMORY_RANKING_SNAPSHOT.clear()
+        for item in normalized:
+            _MEMORY_RANKING_SNAPSHOT[item.ticker] = (item, now, source_job_id)
+        return len(normalized)
+
+
 def list_post_mortem_notes(ticker: str) -> list[SellPostMortemNote]:
     clean = _clean_ticker(ticker)
     try:
@@ -193,6 +271,7 @@ def clear_memory_sell_state() -> None:
     _MEMORY_TRANCHE_LOG.clear()
     _MEMORY_RECOMMENDATION_STATE.clear()
     _MEMORY_POST_MORTEM_NOTES.clear()
+    _MEMORY_RANKING_SNAPSHOT.clear()
 
 
 def _manual_from_model(row: SellManualInputModel) -> SellManualInput:
@@ -232,6 +311,17 @@ def _state_from_model(row: SellRecommendationStateModel) -> SellRecommendationSt
         snoozed_until=row.snoozed_until.isoformat() if row.snoozed_until else "",
         snoozed_pct=row.snoozed_pct,
     )
+
+
+def _ranking_item_from_model(row: SellRankingSnapshotModel) -> SellPositionRankingItem:
+    payload = dict(row.item_json or {})
+    payload.setdefault("ticker", row.ticker)
+    payload.setdefault("name", row.name or row.ticker)
+    payload.setdefault("status", row.status or "Halten")
+    payload.setdefault("pending_status", row.pending_status or "halten")
+    payload.setdefault("health_score", row.health_score or 0)
+    payload.setdefault("recommendation_pct", row.recommendation_pct or 0)
+    return SellPositionRankingItem.model_validate(payload)
 
 
 def _post_mortem_note_from_model(row: SellPostMortemNoteModel) -> SellPostMortemNote:

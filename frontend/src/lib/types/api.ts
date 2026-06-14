@@ -966,6 +966,14 @@ export type SellRankingRow = {
   snoozed_pct: number;
 };
 
+export type SellRankingResponse = {
+  rows: SellRankingRow[];
+  source: "snapshot" | "live";
+  generated_at: string;
+  source_job_id: string;
+  message: string;
+};
+
 export type PendingStatus = "halten" | "in_bestaetigung" | "snoozed" | "scharf";
 
 export type SellManualInput = {

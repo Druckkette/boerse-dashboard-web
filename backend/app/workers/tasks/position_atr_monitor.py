@@ -23,9 +23,11 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
     try:
         settings = get_app_settings()
         monitor_settings = settings.model_dump()
+        monitor_settings["source_job_id"] = job.job_id
         payload_settings = payload.get("monitor_settings")
         if isinstance(payload_settings, dict):
             monitor_settings.update(payload_settings)
+        monitor_settings["source_job_id"] = job.job_id
 
         requested_by = str(payload.get("source") or job.requested_by or "").lower()
         is_scheduler_run = requested_by == "scheduler"
