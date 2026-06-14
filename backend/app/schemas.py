@@ -238,6 +238,10 @@ class MarketDeepAnalysisResponse(BaseModel):
     coverage_ratio: float
     loaded_universe: int = 0
     requested_universe: int | None = None
+    daily_covered_count: int = 0
+    valid_for_50sma: int = 0
+    valid_for_200sma: int = 0
+    nhnl_uses_intraday: bool = False
     metrics: list[MarketDeepAnalysisMetric]
     checks: list[MarketDeepAnalysisCheck]
     points: list[MarketDeepAnalysisPoint]
@@ -250,6 +254,12 @@ class BreadthResponse(BaseModel):
     data_status: Literal["fresh", "stale", "missing", "fallback"]
     message: str = ""
     coverage_ratio: float
+    loaded_universe: int = 0
+    requested_universe: int | None = None
+    daily_covered_count: int = 0
+    valid_for_50sma: int = 0
+    valid_for_200sma: int = 0
+    nhnl_uses_intraday: bool = False
     points: list[BreadthPoint]
 
 

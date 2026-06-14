@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,7 +7,7 @@ from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_tren
 from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
-from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking
+from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking, get_breadth
 
 
 def test_compute_breadth_series_is_reproducible() -> None:
@@ -46,6 +47,48 @@ def test_breadth_coverage_tracks_loaded_universe_not_only_latest_day() -> None:
     assert latest.loaded_universe == 3
     assert latest.covered_count == 2
     assert latest.coverage_ratio == pytest.approx(1.0)
+
+
+def test_breadth_response_exposes_streamlit_coverage_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    start = date(2025, 1, 2)
+    rows = [
+        SimpleNamespace(
+            date=start + timedelta(days=index),
+            advancers=1,
+            decliners=1,
+            ad_line=float(index),
+            mcclellan=0.0,
+            pct_above_50sma=50.0,
+            pct_above_200sma=25.0,
+            new_highs=1,
+            new_lows=0,
+            metadata_json={},
+        )
+        for index in range(24)
+    ]
+    rows[-1].metadata_json = {
+        "coverage_ratio": 1.0,
+        "universe_size": 3,
+        "loaded_universe": 3,
+        "daily_covered_count": 2,
+        "covered_count": 2,
+        "valid_for_50sma": 2,
+        "valid_for_200sma": 1,
+        "nhnl_uses_intraday": True,
+    }
+    monkeypatch.setattr("app.services.market.market_repository.list_breadth_daily", lambda **_kwargs: rows)
+
+    response = get_breadth("test_universe", limit=24)
+
+    assert response.coverage_ratio == pytest.approx(1.0)
+    assert response.loaded_universe == 3
+    assert response.requested_universe == 3
+    assert response.daily_covered_count == 2
+    assert response.valid_for_50sma == 2
+    assert response.valid_for_200sma == 1
+    assert response.nhnl_uses_intraday is True
+    assert "3/3" in response.message
+    assert "letzter Tag 2" in response.message
 
 
 def test_breadth_uses_streamlit_rana_and_intraday_new_high_low_rules() -> None:

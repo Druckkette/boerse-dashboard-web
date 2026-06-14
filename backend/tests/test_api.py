@@ -189,6 +189,11 @@ def test_market_breadth_contract() -> None:
     assert payload["source"] in {"database", "synthetic_fixture", "missing"}
     assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
     assert isinstance(payload["coverage_ratio"], int | float)
+    assert isinstance(payload["loaded_universe"], int)
+    assert isinstance(payload["daily_covered_count"], int)
+    assert isinstance(payload["valid_for_50sma"], int)
+    assert isinstance(payload["valid_for_200sma"], int)
+    assert isinstance(payload["nhnl_uses_intraday"], bool)
     assert isinstance(payload["points"], list)
     if payload["points"]:
         assert {"date", "advancers", "decliners", "pct_above_50sma", "new_highs", "new_lows"}.issubset(payload["points"][0])
@@ -200,6 +205,12 @@ def test_market_deep_analysis_contract() -> None:
     payload = response.json()
     assert payload["source"] in {"database", "missing"}
     assert payload["data_status"] in {"fresh", "stale", "missing"}
+    assert isinstance(payload["coverage_ratio"], int | float)
+    assert isinstance(payload["loaded_universe"], int)
+    assert isinstance(payload["daily_covered_count"], int)
+    assert isinstance(payload["valid_for_50sma"], int)
+    assert isinstance(payload["valid_for_200sma"], int)
+    assert isinstance(payload["nhnl_uses_intraday"], bool)
     assert isinstance(payload["metrics"], list)
     assert isinstance(payload["checks"], list)
     assert isinstance(payload["points"], list)

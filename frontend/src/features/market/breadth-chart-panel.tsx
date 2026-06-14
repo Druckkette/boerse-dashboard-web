@@ -17,7 +17,7 @@ export function BreadthChartPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-5">
         {breadthSignals(breadth).map((signal) => (
           <BreadthSignalCard key={signal.title} {...signal} />
         ))}
@@ -25,7 +25,7 @@ export function BreadthChartPanel() {
       <LineChartCard
         caption={
           breadth
-            ? `${breadth.universe}, Coverage ${(breadth.coverage_ratio * 100).toFixed(0)}%, Stand ${breadth.as_of}. ${breadth.message}`
+            ? `${breadth.universe}, ${coverageCaption(breadth)}, Stand ${breadth.as_of}. ${breadth.message}`
             : "A/D- und SMA-Breitenwerte aus dem Market-Backend"
         }
         error={query.error}
@@ -66,15 +66,23 @@ function breadthSignals(breadth?: Breadth) {
   const latest = breadth?.points.at(-1);
   return [
     {
+      title: "Universum",
+      status: breadth ? `${(breadth.coverage_ratio * 100).toFixed(0)}%` : "-",
+      detail: breadth ? coverageCaption(breadth) : "Universe-Abdeckung fehlt.",
+      tone: breadth ? coverageTone(breadth.coverage_ratio) : "neutral"
+    },
+    {
       title: "50-SMA Breite",
       status: latest ? formatPct(latest.pct_above_50sma) : "-",
-      detail: latest ? `${latest.advancers}/${latest.decliners} Advancer/Decliner` : "Breadth-Daten fehlen.",
+      detail: latest
+        ? `${validCountLabel(breadth?.valid_for_50sma, breadth?.daily_covered_count)} · ${latest.advancers}/${latest.decliners} A/D`
+        : "Breadth-Daten fehlen.",
       tone: toneForPct(latest?.pct_above_50sma, 70, 50)
     },
     {
       title: "200-SMA Breite",
       status: latest ? formatPct(latest.pct_above_200sma) : "-",
-      detail: "Langfristige Marktteilnahme",
+      detail: latest ? `${validCountLabel(breadth?.valid_for_200sma, breadth?.daily_covered_count)} · langfristige Teilnahme` : "Nicht berechnet",
       tone: toneForPct(latest?.pct_above_200sma, 55, 40)
     },
     {
@@ -86,10 +94,32 @@ function breadthSignals(breadth?: Breadth) {
     {
       title: "NH/NL",
       status: latest ? `${latest.new_highs}/${latest.new_lows}` : "-",
-      detail: "Neue Hochs / neue Tiefs",
+      detail: breadth?.nhnl_uses_intraday ? "Neue Hochs/Tiefs auf Tageshoch/-tief" : "Neue Hochs/Tiefs per Schlusskurs",
       tone: latest ? toneForRatio(latest.new_highs, latest.new_lows) : "neutral"
     }
   ] as const;
+}
+
+function coverageCaption(breadth: Breadth) {
+  const requested = breadth.requested_universe ?? 0;
+  const loaded = breadth.loaded_universe ?? 0;
+  const daily = breadth.daily_covered_count ?? 0;
+  const base = requested > 0 ? `Coverage ${(breadth.coverage_ratio * 100).toFixed(0)}% (${loaded}/${requested} geladen)` : `Coverage ${(breadth.coverage_ratio * 100).toFixed(0)}%`;
+  if (daily > 0 && loaded > 0 && daily !== loaded) {
+    return `${base}, letzter Tag ${daily}`;
+  }
+  return base;
+}
+
+function validCountLabel(value?: number, fallback?: number) {
+  const count = value && value > 0 ? value : fallback;
+  return count && count > 0 ? `${count} gültige Titel` : "gültige Titel n/a";
+}
+
+function coverageTone(value: number): Tone {
+  if (value >= 0.8) return "good";
+  if (value >= 0.5) return "warning";
+  return "bad";
 }
 
 function BreadthSignalCard({

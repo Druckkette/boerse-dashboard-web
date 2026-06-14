@@ -63,6 +63,7 @@ export function DeepAnalysisPanel() {
             Aktualisieren
           </button>
         </div>
+        <DeepAnalysisMeta data={data} />
       </div>
 
       <MetricGrid metrics={data.metrics} />
@@ -88,6 +89,60 @@ export function DeepAnalysisPanel() {
         </div>
       </details>
     </section>
+  );
+}
+
+function DeepAnalysisMeta({ data }: { data: MarketDeepAnalysis }) {
+  const requested = data.requested_universe ?? 0;
+  const loaded = data.loaded_universe ?? 0;
+  const daily = data.daily_covered_count ?? 0;
+  return (
+    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MetaTile
+        label="Universe-Abdeckung"
+        value={requested > 0 ? `${loaded}/${requested}` : loaded ? `${loaded}` : "-"}
+        detail={daily > 0 && daily !== loaded ? `Letzter Tag: ${daily} Titel` : "Historisch geladene Titel"}
+        tone={coverageTone(data.coverage_ratio)}
+      />
+      <MetaTile
+        label="50-SMA Basis"
+        value={data.valid_for_50sma > 0 ? data.valid_for_50sma.toLocaleString("de-DE") : "-"}
+        detail="Titel mit ausreichender Historie"
+        tone={data.valid_for_50sma > 0 ? "neutral" : "warning"}
+      />
+      <MetaTile
+        label="200-SMA Basis"
+        value={data.valid_for_200sma > 0 ? data.valid_for_200sma.toLocaleString("de-DE") : "-"}
+        detail="Titel mit langfristiger Historie"
+        tone={data.valid_for_200sma > 0 ? "neutral" : "warning"}
+      />
+      <MetaTile
+        label="NH/NL Quelle"
+        value={data.nhnl_uses_intraday ? "High/Low" : "Close"}
+        detail={data.nhnl_uses_intraday ? "Wie Streamlit: Tageshoch/-tief" : "Fallback auf Schlusskurs"}
+        tone={data.nhnl_uses_intraday ? "good" : "warning"}
+      />
+    </div>
+  );
+}
+
+function MetaTile({
+  detail,
+  label,
+  tone,
+  value
+}: {
+  detail: string;
+  label: string;
+  tone: Tone;
+  value: string;
+}) {
+  return (
+    <div className={["rounded border bg-[#111419] p-3", cardClass(tone)].join(" ")}>
+      <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
+      <div className={["mt-2 text-xl font-semibold tracking-normal tabular-nums", toneText(tone)].join(" ")}>{value}</div>
+      <div className="mt-1 text-xs leading-5 text-[#a0a7b4]">{detail}</div>
+    </div>
   );
 }
 

@@ -272,6 +272,8 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         for row in rows
     ]
     latest_meta = _breadth_metadata_with_legacy_fallback(rows)
+    requested_universe = _metadata_int(latest_meta, "universe_size", "requested_universe")
+    loaded_universe = _metadata_int(latest_meta, "loaded_universe", "covered_count")
     return BreadthResponse(
         as_of=points[-1].date,
         universe=universe,
@@ -279,6 +281,12 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         data_status=_data_status_for_date(rows[-1].date),
         message=_breadth_message(rows[-1].date, latest_meta),
         coverage_ratio=float(latest_meta.get("coverage_ratio") or 0),
+        loaded_universe=loaded_universe,
+        requested_universe=requested_universe or None,
+        daily_covered_count=_metadata_int(latest_meta, "daily_covered_count", "covered_count"),
+        valid_for_50sma=_metadata_int(latest_meta, "valid_for_50sma"),
+        valid_for_200sma=_metadata_int(latest_meta, "valid_for_200sma"),
+        nhnl_uses_intraday=bool(latest_meta.get("nhnl_uses_intraday")),
         points=points,
     )
 
@@ -305,9 +313,13 @@ def get_market_deep_analysis(
     latest = valid_points[-1]
     latest_row = rows[-1]
     latest_meta = _breadth_metadata_with_legacy_fallback(rows)
-    requested_universe_raw = latest_meta.get("universe_size") or latest_meta.get("requested_universe")
-    requested_universe = int(requested_universe_raw) if requested_universe_raw else None
-    loaded_universe = int(latest_meta.get("loaded_universe") or latest_meta.get("covered_count") or 0)
+    requested_universe_raw = _metadata_int(latest_meta, "universe_size", "requested_universe")
+    requested_universe = requested_universe_raw or None
+    loaded_universe = _metadata_int(latest_meta, "loaded_universe", "covered_count")
+    daily_covered_count = _metadata_int(latest_meta, "daily_covered_count", "covered_count")
+    valid_for_50sma = _metadata_int(latest_meta, "valid_for_50sma")
+    valid_for_200sma = _metadata_int(latest_meta, "valid_for_200sma")
+    nhnl_uses_intraday = bool(latest_meta.get("nhnl_uses_intraday"))
     coverage_ratio = float(latest_meta.get("coverage_ratio") or 0)
     min_required = max(350, int((requested_universe or 0) * 0.18))
     if requested_universe and loaded_universe < min_required:
@@ -321,6 +333,10 @@ def get_market_deep_analysis(
             coverage_ratio=coverage_ratio,
             loaded_universe=loaded_universe,
             requested_universe=requested_universe,
+            daily_covered_count=daily_covered_count,
+            valid_for_50sma=valid_for_50sma,
+            valid_for_200sma=valid_for_200sma,
+            nhnl_uses_intraday=nhnl_uses_intraday,
         )
     spx_at_high, ad_at_high, index_ad_detail = _index_ad_confirmation(points)
     p50_divergence = bool(spx_at_high and latest.pct_above_50sma is not None and latest.pct_above_50sma < 70)
@@ -412,7 +428,7 @@ def get_market_deep_analysis(
             )
         )
 
-    nhnl_note = "NH/NL auf Tageshoch/-tief" if latest_meta.get("nhnl_uses_intraday") else "NH/NL fallback auf Schlusskurs"
+    nhnl_note = "NH/NL auf Tageshoch/-tief" if nhnl_uses_intraday else "NH/NL fallback auf Schlusskurs"
     message = (
         "Tiefenanalyse aus gespeicherten Breadth-Daten; "
         f"{nhnl_note}; Deemer nutzt aktuell Advancer/Decliner als Volumen-Proxy."
@@ -432,6 +448,10 @@ def get_market_deep_analysis(
         coverage_ratio=coverage_ratio,
         loaded_universe=loaded_universe,
         requested_universe=requested_universe,
+        daily_covered_count=daily_covered_count,
+        valid_for_50sma=valid_for_50sma,
+        valid_for_200sma=valid_for_200sma,
+        nhnl_uses_intraday=nhnl_uses_intraday,
         metrics=metrics,
         checks=checks,
         points=points[-clean_limit:],
@@ -479,6 +499,10 @@ def _missing_market_deep_analysis(
     coverage_ratio: float = 0.0,
     loaded_universe: int = 0,
     requested_universe: int | None = None,
+    daily_covered_count: int = 0,
+    valid_for_50sma: int = 0,
+    valid_for_200sma: int = 0,
+    nhnl_uses_intraday: bool = False,
 ) -> MarketDeepAnalysisResponse:
     return MarketDeepAnalysisResponse(
         as_of=date.today().isoformat(),
@@ -489,6 +513,10 @@ def _missing_market_deep_analysis(
         coverage_ratio=coverage_ratio,
         loaded_universe=loaded_universe,
         requested_universe=requested_universe,
+        daily_covered_count=daily_covered_count,
+        valid_for_50sma=valid_for_50sma,
+        valid_for_200sma=valid_for_200sma,
+        nhnl_uses_intraday=nhnl_uses_intraday,
         metrics=[],
         checks=[],
         points=[],
@@ -2336,6 +2364,18 @@ def _breadth_metadata_with_legacy_fallback(rows: Sequence) -> dict:
     if requested and loaded and ("coverage_ratio" not in latest_meta or not latest_meta.get("coverage_ratio")):
         latest_meta["coverage_ratio"] = loaded / requested
     return latest_meta
+
+
+def _metadata_int(metadata: Mapping[str, object], *keys: str) -> int:
+    for key in keys:
+        value = metadata.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _breadth_message(breadth_date: date, metadata: dict) -> str:

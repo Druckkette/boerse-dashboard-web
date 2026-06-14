@@ -173,6 +173,12 @@ export type Breadth = {
   data_status: "fresh" | "stale" | "missing" | "fallback";
   message: string;
   coverage_ratio: number;
+  loaded_universe: number;
+  requested_universe?: number | null;
+  daily_covered_count: number;
+  valid_for_50sma: number;
+  valid_for_200sma: number;
+  nhnl_uses_intraday: boolean;
   points: BreadthPoint[];
 };
 
@@ -211,6 +217,10 @@ export type MarketDeepAnalysis = {
   coverage_ratio: number;
   loaded_universe: number;
   requested_universe?: number | null;
+  daily_covered_count: number;
+  valid_for_50sma: number;
+  valid_for_200sma: number;
+  nhnl_uses_intraday: boolean;
   metrics: MarketDeepAnalysisMetric[];
   checks: MarketDeepAnalysisCheck[];
   points: MarketDeepAnalysisPoint[];
