@@ -40,6 +40,26 @@ def test_jobs_can_be_started_and_listed(monkeypatch: pytest.MonkeyPatch) -> None
     assert list_response.json()["jobs"][0]["job_id"] == job["job_id"]
 
 
+def test_smart_refresh_job_can_be_started(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.jobs as job_service
+
+    monkeypatch.setattr(
+        job_service.celery_app,
+        "send_task",
+        lambda *args, **kwargs: SimpleNamespace(id="celery-smart-id"),
+    )
+
+    response = client.post(
+        "/api/v1/jobs",
+        json={"type": "smart_refresh_market_data", "payload": {"mode": "smart"}},
+    )
+
+    assert response.status_code == 202
+    job = response.json()["job"]
+    assert job["job_type"] == "smart_refresh_market_data"
+    assert job["celery_task_id"] == "celery-smart-id"
+
+
 def test_jobs_cancel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.services.jobs as job_service
 

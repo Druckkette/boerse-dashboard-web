@@ -56,10 +56,11 @@ After restart, open `/settings` and run **Pushover-Testjob**. If either secret i
 marked `skipped` instead of crashing the app.
 
 Open `http://NAS-IP-ODER-HOSTNAME:3000/jobs` for the first data bootstrap and click
-**Alles initialisieren**. This one worker job loads the US common-stock universe, price cache,
-market breadth, RS ratings and the ATR position monitor path. For later refreshes click
-**Alles aktualisieren**. You do not have to copy CSV files into a container or run `curl` commands
-manually.
+**Alles initialisieren** only when the database is empty or you deliberately want a full rebuild.
+For normal operation use **Prüfen & fehlendes aktualisieren**. This smart worker job checks
+freshness first and runs only the missing or stale parts: position prices, market prices, breadth,
+RS ratings and the ATR position monitor path where needed. You do not have to copy CSV files into a
+container or run `curl` commands manually.
 
 The bootstrap does not have to be repeated after normal container restarts. Postgres data lives in
 the Docker volume; repeat the full setup only after an empty/reset database, after restoring a clean

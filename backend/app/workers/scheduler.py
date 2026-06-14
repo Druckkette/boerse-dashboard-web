@@ -10,50 +10,22 @@ def get_beat_schedule() -> dict:
     artefacts are large and do not need frequent refreshes.
     """
     return {
-        "refresh-prices-daily": {
-            "task": "refresh_prices",
+        "smart-market-refresh-daily": {
+            "task": "smart_refresh_market_data",
             "schedule": crontab(hour=22, minute=15),
             "args": (
                 None,
                 {
-                    "mode": "incremental",
+                    "mode": "scheduled",
                     "source": "scheduler",
                     "range": "6m",
+                    "initial_range": "2y",
                     "universe": "us_common_stocks",
                     "limit_universe": 5000,
-                },
-            ),
-        },
-        "refresh-universe-weekly": {
-            "task": "refresh_universe",
-            "schedule": crontab(day_of_week="sun", hour=2, minute=15),
-            "args": (None, {"mode": "weekly", "source": "scheduler"}),
-        },
-        "refresh-breadth-daily": {
-            "task": "refresh_breadth",
-            "schedule": crontab(hour=22, minute=45),
-            "args": (
-                None,
-                {
-                    "mode": "incremental",
-                    "source": "scheduler",
-                    "universe": "us_common_stocks",
-                    "lookback_days": 550,
-                    "limit_universe": 5000,
-                },
-            ),
-        },
-        "refresh-relative-strength-daily": {
-            "task": "refresh_relative_strength",
-            "schedule": crontab(hour=23, minute=10),
-            "args": (
-                None,
-                {
-                    "mode": "incremental",
-                    "source": "scheduler",
-                    "universe": "us_common_stocks",
-                    "lookback_days": 430,
-                    "limit_universe": 5000,
+                    "breadth_lookback_days": 550,
+                    "rs_lookback_days": 430,
+                    "benchmark_ticker": "SPY",
+                    "include_position_monitor": True,
                 },
             ),
         },

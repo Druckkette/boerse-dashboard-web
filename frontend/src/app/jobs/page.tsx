@@ -18,6 +18,7 @@ import type {
 } from "@/lib/types/api";
 
 const jobTypes: { type: JobType; label: string; description: string }[] = [
+  { type: "smart_refresh_market_data", label: "Smart Update", description: "Prüfen und nur fehlende/veraltete Daten aktualisieren" },
   { type: "bootstrap_market_data", label: "Alles", description: "Universe, Kurse, Breadth, RS und Monitor" },
   { type: "refresh_prices", label: "Market Prices", description: "OHLC-Kurse in den Cache laden" },
   { type: "refresh_breadth", label: "Market Breadth", description: "Marktbreite und Snapshot berechnen" },
@@ -950,10 +951,13 @@ function MarketDataAssistantPanel({
   onStart: (type: JobType, payload: Record<string, unknown>) => void;
   startingType: JobType | null;
 }) {
+  const latestSmart = latestJobForType(jobs, "smart_refresh_market_data");
   const latestBootstrap = latestJobForType(jobs, "bootstrap_market_data");
-  const disabled = Boolean(activeJob) || startingType === "bootstrap_market_data";
+  const disabled = Boolean(activeJob) || startingType === "smart_refresh_market_data" || startingType === "bootstrap_market_data";
+  const smartPayload = buildSmartRefreshPayload(config);
   const initialPayload = buildBootstrapPayload(config, "initial");
   const updatePayload = buildBootstrapPayload(config, "update");
+  const latestAssistantJob = newerJob(latestSmart, latestBootstrap);
 
   return (
     <section className="rounded border border-emerald-300/25 bg-[#171a20] p-5">
@@ -962,11 +966,11 @@ function MarketDataAssistantPanel({
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold">Marktdaten-Assistent</h2>
             <StatusChip tone={activeJob ? "warning" : "good"}>{activeJob ? `läuft: ${activeJob.job_type}` : "bereit"}</StatusChip>
-            {latestBootstrap && <StatusChip tone={statusTone[latestBootstrap.status]}>{latestBootstrap.status}</StatusChip>}
+            {latestAssistantJob && <StatusChip tone={statusTone[latestAssistantJob.status]}>{latestAssistantJob.status}</StatusChip>}
           </div>
           <p className="text-sm leading-6 text-[#a0a7b4]">
             Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
-            Diese beiden Buttons starten den kompletten Ablauf im Worker; die Oberfläche bleibt dabei bedienbar.
+            Smart Update prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile.
           </p>
           <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-4">
             <span>Universe: US Common Stocks</span>
@@ -976,6 +980,15 @@ function MarketDataAssistantPanel({
           </div>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row xl:flex-col">
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/60 bg-emerald-300 px-4 py-3 text-sm font-semibold text-[#101318] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled}
+            type="button"
+            onClick={() => onStart("smart_refresh_market_data", smartPayload)}
+          >
+            <SearchCheck size={16} />
+            {startingType === "smart_refresh_market_data" ? "Prüft" : "Prüfen & fehlendes aktualisieren"}
+          </button>
           <button
             className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/50 bg-emerald-300/15 px-4 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled}
@@ -996,21 +1009,21 @@ function MarketDataAssistantPanel({
           </button>
         </div>
       </div>
-      {latestBootstrap && (
+      {latestAssistantJob && (
         <div className="mt-4 rounded border border-[#2d333d] bg-[#111419] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-medium">{latestBootstrap.current_step}</div>
-              <div className="mt-1 text-xs text-[#8e97a6]">{latestBootstrap.message || "Noch keine Detailmeldung."}</div>
+              <div className="text-sm font-medium">{latestAssistantJob.current_step}</div>
+              <div className="mt-1 text-xs text-[#8e97a6]">{latestAssistantJob.message || "Noch keine Detailmeldung."}</div>
             </div>
-            <StatusChip tone={statusTone[latestBootstrap.status]}>{latestBootstrap.progress}%</StatusChip>
+            <StatusChip tone={statusTone[latestAssistantJob.status]}>{latestAssistantJob.progress}%</StatusChip>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#242a33]">
-            <div className="h-full rounded-full bg-emerald-300" style={{ width: `${latestBootstrap.progress}%` }} />
+            <div className="h-full rounded-full bg-emerald-300" style={{ width: `${latestAssistantJob.progress}%` }} />
           </div>
-          {latestBootstrap.error_message ? (
+          {latestAssistantJob.error_message ? (
             <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
-              {latestBootstrap.error_message}
+              {latestAssistantJob.error_message}
             </div>
           ) : null}
         </div>
@@ -1473,7 +1486,36 @@ function buildBootstrapPayload(config: MarketDataBootstrapConfig, mode: "initial
   };
 }
 
+function buildSmartRefreshPayload(config: MarketDataBootstrapConfig): Record<string, unknown> {
+  return {
+    mode: "smart",
+    source: "dashboard",
+    universe: "us_common_stocks",
+    limit_universe: config.storedUniverseLimit,
+    range: "6m",
+    initial_range: config.priceRange,
+    breadth_lookback_days: config.breadthLookbackDays,
+    rs_lookback_days: config.rsLookbackDays,
+    benchmark_ticker: normalizeTicker(config.rsBenchmarkTicker) || "SPY",
+    include_position_monitor: true
+  };
+}
+
 function defaultPayloadForJob(type: JobType): Record<string, unknown> {
+  if (type === "smart_refresh_market_data") {
+    return {
+      mode: "smart",
+      source: "dashboard",
+      range: "6m",
+      initial_range: "2y",
+      universe: "us_common_stocks",
+      limit_universe: 5000,
+      breadth_lookback_days: 550,
+      rs_lookback_days: 430,
+      benchmark_ticker: "SPY",
+      include_position_monitor: true
+    };
+  }
   if (type === "bootstrap_market_data") {
     return {
       mode: "update",

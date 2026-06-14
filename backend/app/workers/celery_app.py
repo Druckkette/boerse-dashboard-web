@@ -31,6 +31,7 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_default_queue="default",
     imports=(
+        "app.workers.tasks.smart_refresh_market_data",
         "app.workers.tasks.bootstrap_market_data",
         "app.workers.tasks.refresh_prices",
         "app.workers.tasks.refresh_breadth",
