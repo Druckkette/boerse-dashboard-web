@@ -9,6 +9,9 @@ from app.workers.scheduler import get_beat_schedule
 settings = get_settings()
 broker_url = settings.celery_broker_url or settings.redis_url
 result_backend = settings.celery_result_backend or settings.redis_url
+task_time_limit = max(60 * 60, int(settings.celery_task_time_limit_seconds))
+task_soft_time_limit = max(60, min(int(settings.celery_task_soft_time_limit_seconds), task_time_limit - 60))
+visibility_timeout = max(task_time_limit + 60 * 60, int(settings.celery_visibility_timeout_seconds))
 
 celery_app = Celery("boerse_dashboard_web", broker=broker_url, backend=result_backend)
 celery_app.conf.update(
@@ -19,9 +22,12 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
     worker_disable_rate_limits=settings.worker_disable_rate_limits,
-    task_time_limit=6 * 60 * 60,
-    task_soft_time_limit=5 * 60 * 60 + 45 * 60,
+    task_time_limit=task_time_limit,
+    task_soft_time_limit=task_soft_time_limit,
     result_expires=60 * 60 * 24,
+    broker_transport_options={"visibility_timeout": visibility_timeout},
+    result_backend_transport_options={"visibility_timeout": visibility_timeout},
+    visibility_timeout=visibility_timeout,
     broker_connection_retry_on_startup=True,
     task_default_queue="default",
     imports=(

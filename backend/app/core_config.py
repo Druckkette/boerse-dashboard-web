@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
+    celery_visibility_timeout_seconds: int = 72 * 60 * 60
+    celery_task_time_limit_seconds: int = 48 * 60 * 60
+    celery_task_soft_time_limit_seconds: int = 47 * 60 * 60
     worker_concurrency: int = 1
     worker_disable_rate_limits: bool = True
     scheduler_enabled: bool = True

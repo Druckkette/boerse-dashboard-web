@@ -54,10 +54,20 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
         "benchmark_ticker": benchmark_ticker,
         "steps": [],
     }
+    result = _resume_result(job.result, result)
+    completed_steps = set(_normalize_steps(result.get("steps")))
 
     job_repository.mark_running(job.job_id, step="Marktdaten-Bootstrap startet")
     try:
-        if is_initial or payload.get("refresh_universe", True):
+        if "universe" in completed_steps:
+            job_repository.update_progress(
+                job.job_id,
+                progress=7,
+                step="Aktienuniversum bereits geladen",
+                message="Bootstrap wurde fortgesetzt; Universe-Refresh ist bereits abgeschlossen.",
+                result=result,
+            )
+        elif is_initial or payload.get("refresh_universe", True):
             raise_if_cancelled(job.job_id)
             job_repository.update_progress(
                 job.job_id,
@@ -69,6 +79,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
             universe_result = refresh_us_common_stock_universe()
             result["universe_refresh"] = _compact_step_result(universe_result)
             result["steps"].append("universe")
+            completed_steps.add("universe")
 
         universe_symbols = resolve_universe_price_symbols(
             explicit_tickers=payload.get("tickers"),
@@ -86,59 +97,97 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
         price_symbols = _merge_price_symbols(universe_symbols, benchmark_ticker=benchmark_ticker)
         result["universe_size"] = len(universe_tickers)
         result["price_ticker_count"] = len(price_symbols)
-        price_result = _refresh_prices_for_symbols(
-            job_id=job.job_id,
-            symbols=price_symbols,
-            range_key=range_key,
-            result=result,
-        )
-        result["prices"] = price_result
-        result["steps"].append("prices")
+        if "prices" in completed_steps and result.get("prices"):
+            price_result = dict(result["prices"])
+            job_repository.update_progress(
+                job.job_id,
+                progress=71,
+                step="Price Cache bereits geladen",
+                message="Bootstrap wurde fortgesetzt; Price Cache ist bereits abgeschlossen.",
+                result=result,
+            )
+        else:
+            price_result = _refresh_prices_for_symbols(
+                job_id=job.job_id,
+                symbols=price_symbols,
+                range_key=range_key,
+                result=result,
+                existing_result=result.get("prices") if isinstance(result.get("prices"), dict) else None,
+            )
+            result["prices"] = price_result
+            if "prices" not in completed_steps:
+                result["steps"].append("prices")
+                completed_steps.add("prices")
 
         raise_if_cancelled(job.job_id)
-        job_repository.update_progress(
-            job.job_id,
-            progress=72,
-            step="Marktbreite berechnen",
-            message="Advancers/Decliners, RANA-McClellan, NH/NL und SMA-Breite werden aus dem Price Cache berechnet.",
-            result=result,
-        )
-        breadth_result = refresh_market_breadth(
-            tickers=universe_tickers,
-            universe=universe_key,
-            lookback_days=breadth_lookback_days,
-        )
-        result["breadth"] = _compact_step_result(breadth_result)
-        result["steps"].append("breadth")
+        if "breadth" in completed_steps and result.get("breadth"):
+            breadth_result = dict(result["breadth"])
+            job_repository.update_progress(
+                job.job_id,
+                progress=83,
+                step="Marktbreite bereits berechnet",
+                message="Bootstrap wurde fortgesetzt; Marktbreite ist bereits abgeschlossen.",
+                result=result,
+            )
+        else:
+            job_repository.update_progress(
+                job.job_id,
+                progress=72,
+                step="Marktbreite berechnen",
+                message="Advancers/Decliners, RANA-McClellan, NH/NL und SMA-Breite werden aus dem Price Cache berechnet.",
+                result=result,
+            )
+            breadth_result = refresh_market_breadth(
+                tickers=universe_tickers,
+                universe=universe_key,
+                lookback_days=breadth_lookback_days,
+            )
+            result["breadth"] = _compact_step_result(breadth_result)
+            result["steps"].append("breadth")
+            completed_steps.add("breadth")
 
         raise_if_cancelled(job.job_id)
-        job_repository.update_progress(
-            job.job_id,
-            progress=84,
-            step="Relative Stärke berechnen",
-            message=f"RS-Ratings werden gegen {benchmark_ticker} aus gecachten Kursen berechnet.",
-            result=result,
-        )
-        rs_result = refresh_relative_strength_ratings(
-            tickers=universe_tickers,
-            benchmark_ticker=benchmark_ticker,
-            lookback_days=rs_lookback_days,
-            source="computed",
-        )
-        result["relative_strength"] = _compact_step_result(rs_result)
-        result["steps"].append("relative_strength")
+        if "relative_strength" in completed_steps and result.get("relative_strength"):
+            rs_result = dict(result["relative_strength"])
+            job_repository.update_progress(
+                job.job_id,
+                progress=93,
+                step="Relative Stärke bereits berechnet",
+                message="Bootstrap wurde fortgesetzt; RS-Ratings sind bereits abgeschlossen.",
+                result=result,
+            )
+        else:
+            job_repository.update_progress(
+                job.job_id,
+                progress=84,
+                step="Relative Stärke berechnen",
+                message=f"RS-Ratings werden gegen {benchmark_ticker} aus gecachten Kursen berechnet.",
+                result=result,
+            )
+            rs_result = refresh_relative_strength_ratings(
+                tickers=universe_tickers,
+                benchmark_ticker=benchmark_ticker,
+                lookback_days=rs_lookback_days,
+                source="computed",
+            )
+            result["relative_strength"] = _compact_step_result(rs_result)
+            result["steps"].append("relative_strength")
+            completed_steps.add("relative_strength")
 
         raise_if_cancelled(job.job_id)
-        job_repository.update_progress(
-            job.job_id,
-            progress=94,
-            step="Positionsmonitor prüfen",
-            message="Offene Positionen werden gegen Sell-Engine und Price Cache geprüft, falls ein Depot importiert ist.",
-            result=result,
-        )
-        monitor_result = monitor_open_positions(tickers=None)
-        result["position_monitor"] = _compact_step_result(monitor_result)
-        result["steps"].append("position_monitor")
+        if "position_monitor" in completed_steps and result.get("position_monitor"):
+            monitor_result = dict(result["position_monitor"])
+        else:
+            job_repository.update_progress(
+                job.job_id,
+                progress=94,
+                step="Positionsmonitor prüfen",
+                message="Offene Positionen werden gegen Sell-Engine und Price Cache geprüft, falls ein Depot importiert ist.",
+                result=result,
+            )
+            monitor_result = monitor_open_positions(tickers=None)
+            result["position_monitor"] = _compact_step_result(monitor_result)
+            result["steps"].append("position_monitor")
 
         result["ok"] = bool(price_result.get("success_count")) and not breadth_result.get("skipped")
         result["partial"] = bool(price_result.get("failure_count")) or bool(rs_result.get("skipped")) or bool(monitor_result.get("skipped"))
@@ -163,20 +212,27 @@ def _refresh_prices_for_symbols(
     symbols: list[dict[str, str]],
     range_key: PriceRange,
     result: dict[str, Any],
+    existing_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    completed_tickers = _normalize_ticker_list((existing_result or {}).get("completed_tickers"))
     price_result: dict[str, Any] = {
         "ok": False,
-        "success_count": 0,
+        "success_count": len(completed_tickers),
         "failure_count": 0,
         "failed_tickers": [],
-        "records_seen": 0,
-        "records_written": 0,
+        "completed_tickers": list(completed_tickers),
+        "records_seen": int((existing_result or {}).get("records_seen") or 0),
+        "records_written": int((existing_result or {}).get("records_written") or 0),
+        "resumed": bool(completed_tickers),
     }
+    completed_set = set(completed_tickers)
     total = max(1, len(symbols))
     for index, symbol in enumerate(symbols, start=1):
         raise_if_cancelled(job_id)
         ticker = symbol["source_ticker"]
         yahoo_symbol = symbol["yahoo_symbol"]
+        if ticker in completed_set:
+            continue
         progress = min(70, 8 + int(index / total * 60))
         if index == 1 or index == total or index % 25 == 0:
             job_repository.update_progress(
@@ -201,12 +257,43 @@ def _refresh_prices_for_symbols(
             continue
 
         price_result["success_count"] += 1
+        price_result["completed_tickers"].append(ticker)
+        completed_set.add(ticker)
         price_result["records_seen"] += int(item.get("records_seen") or 0)
         price_result["records_written"] += int(item.get("records_written") or 0)
 
     price_result["ok"] = price_result["success_count"] > 0 and price_result["failure_count"] == 0
     price_result["partial"] = price_result["success_count"] > 0 and price_result["failure_count"] > 0
     return price_result
+
+
+def _resume_result(existing: dict[str, Any] | None, fresh: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(existing, dict) or existing.get("job_type") != "bootstrap_market_data":
+        return fresh
+    resumed = {**fresh, **existing}
+    resumed["ok"] = False
+    resumed["mode"] = fresh["mode"]
+    resumed["universe"] = fresh["universe"]
+    resumed["limit_universe"] = fresh["limit_universe"]
+    resumed["range"] = fresh["range"]
+    resumed["breadth_lookback_days"] = fresh["breadth_lookback_days"]
+    resumed["rs_lookback_days"] = fresh["rs_lookback_days"]
+    resumed["benchmark_ticker"] = fresh["benchmark_ticker"]
+    resumed["steps"] = _normalize_steps(existing.get("steps"))
+    resumed["resumed"] = True
+    return resumed
+
+
+def _normalize_steps(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+
+
+def _normalize_ticker_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(str(item).strip().upper() for item in value if str(item).strip()))
 
 
 def _merge_price_symbols(universe_symbols: list[Any], *, benchmark_ticker: str) -> list[dict[str, str]]:

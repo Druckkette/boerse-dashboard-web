@@ -134,6 +134,11 @@ in the Postgres Docker volume. You only need to repeat the full bootstrap when t
 is empty, after a deliberate reset, or when you want to load a different universe or longer history.
 Normal updates should be handled by scheduler/worker jobs.
 
+Long-running bootstrap jobs are configured for NAS runtimes: Celery has a 48 hour hard task limit
+and a 72 hour Redis visibility timeout by default. The bootstrap stores checkpoints in the job
+result, so if Redis redelivers the task or the worker is recreated, completed stages such as
+Universe, Price Cache and Breadth are skipped instead of starting again at `Price Cache 25/5026`.
+
 `refresh_prices` loads the starter universe plus the Streamlit-compatible market indexes `^GSPC`,
 `^IXIC`, `^RUT`, the equal-weight ETFs `RSP`/`QQEW`, and the volatility tickers `SPY`, `^VIX` and
 `VIXY`. It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also
