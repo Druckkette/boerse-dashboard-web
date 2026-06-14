@@ -8,10 +8,11 @@ import {
   SortingState,
   useReactTable
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -83,9 +84,16 @@ export default function SellMonitorPage() {
         accessorKey: "pending_status",
         header: "State",
         cell: ({ row }) => (
-          <StatusChip tone={toneByPending[row.original.pending_status]}>
-            {row.original.pending_status}
-          </StatusChip>
+          <div className="space-y-1">
+            <StatusChip tone={toneByPending[row.original.pending_status]}>
+              {row.original.pending_status}
+            </StatusChip>
+            <div className="text-xs text-[#77808f]">
+              {row.original.pending_status === "snoozed" && row.original.snoozed_until
+                ? `bis ${row.original.snoozed_until}`
+                : `${row.original.consecutive_days} Tage`}
+            </div>
+          </div>
         )
       },
       {
@@ -111,6 +119,20 @@ export default function SellMonitorPage() {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel()
   });
+  const tableRows = table.getRowModel().rows;
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: tableRows.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 60,
+    overscan: 10
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom =
+    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
+  const visibleColumnCount = table.getVisibleLeafColumns().length;
 
   const sellCount = rows.filter((row) => row.status === "Verkaufen").length;
   const watchCount = rows.filter((row) => row.status === "Beobachten").length;
@@ -140,7 +162,7 @@ export default function SellMonitorPage() {
       </div>
 
       <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
-        <div className="max-h-[560px] overflow-auto">
+        <div ref={scrollParentRef} className="max-h-[560px] overflow-auto">
           <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -163,21 +185,37 @@ export default function SellMonitorPage() {
               ))}
             </thead>
             <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
-                  onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-4 py-3">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+              {paddingTop > 0 && (
+                <tr aria-hidden="true">
+                  <td colSpan={visibleColumnCount} style={{ height: paddingTop }} />
                 </tr>
-              ))}
+              )}
+              {virtualRows.map((virtualRow) => {
+                const row = tableRows[virtualRow.index];
+                return (
+                  <tr
+                    key={row.id}
+                    className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
+                    onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-3">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+              {paddingBottom > 0 && (
+                <tr aria-hidden="true">
+                  <td colSpan={visibleColumnCount} style={{ height: paddingBottom }} />
+                </tr>
+              )}
             </tbody>
           </table>
+        </div>
+        <div className="border-t border-[#2d333d] px-4 py-2 text-xs text-[#a0a7b4]">
+          Sortierbare, klickbare TanStack Table mit Virtualisierung. State zeigt Streak oder Snooze-Fenster aus Postgres.
         </div>
       </div>
     </div>

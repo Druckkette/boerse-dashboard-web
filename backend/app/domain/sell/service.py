@@ -140,6 +140,7 @@ def get_sell_position_ranking() -> SellRankingResponse:
             metrics_request=metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
         )
         primary_signal = _primary_signal_label(evaluation)
+        state = evaluation.next_recommendation_state
         rows.append(
             SellPositionRankingItem(
                 ticker=ticker,
@@ -151,6 +152,10 @@ def get_sell_position_ranking() -> SellRankingResponse:
                 reason=evaluation.explanation_short,
                 pending_status=evaluation.pending_status,
                 primary_signal=primary_signal,
+                last_seen_date=state.last_seen_date,
+                consecutive_days=state.consecutive_days,
+                snoozed_until=state.snoozed_until,
+                snoozed_pct=state.snoozed_pct,
             )
         )
     rows.sort(

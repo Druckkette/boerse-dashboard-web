@@ -150,6 +150,10 @@ class SellPositionRankingItem(BaseModel):
     reason: str
     pending_status: PendingStatus
     primary_signal: str = ""
+    last_seen_date: str = ""
+    consecutive_days: int = 0
+    snoozed_until: str = ""
+    snoozed_pct: int = 0
 
 
 class SellMetricsApiResponse(BaseModel):

@@ -22,8 +22,18 @@ def test_sell_ranking_endpoint_returns_actionable_rows() -> None:
 
     assert len(payload["rows"]) >= 4
     first = payload["rows"][0]
-    assert {"ticker", "health_score", "recommendation_pct", "pending_status"} <= set(first)
+    assert {
+        "ticker",
+        "health_score",
+        "recommendation_pct",
+        "pending_status",
+        "last_seen_date",
+        "consecutive_days",
+        "snoozed_until",
+        "snoozed_pct",
+    } <= set(first)
     assert first["status"] in {"Halten", "Beobachten", "Verkaufen"}
+    assert isinstance(first["consecutive_days"], int)
 
 
 def test_sell_metrics_endpoint_returns_stable_schema() -> None:

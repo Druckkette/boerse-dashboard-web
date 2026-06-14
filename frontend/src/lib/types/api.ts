@@ -960,6 +960,10 @@ export type SellRankingRow = {
   reason: string;
   pending_status: PendingStatus;
   primary_signal: string;
+  last_seen_date: string;
+  consecutive_days: number;
+  snoozed_until: string;
+  snoozed_pct: number;
 };
 
 export type PendingStatus = "halten" | "in_bestaetigung" | "snoozed" | "scharf";

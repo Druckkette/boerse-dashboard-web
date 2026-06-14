@@ -111,6 +111,18 @@ def test_snooze_state_changes_pending_status() -> None:
     assert after.next_recommendation_state.snoozed_pct == 100
 
 
+def test_sell_ranking_exposes_persisted_recommendation_state() -> None:
+    snooze_sell_signal("NVDA", SnoozeRequest(snoozed_pct=100, days=5))
+
+    ranking = get_sell_position_ranking()
+    nvda = next(row for row in ranking.rows if row.ticker == "NVDA")
+
+    assert nvda.pending_status == "snoozed"
+    assert nvda.snoozed_pct == 100
+    assert nvda.snoozed_until
+    assert nvda.consecutive_days >= 0
+
+
 def test_sell_ranking_prefers_imported_portfolio_positions(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
         PortfolioPositionRow(
