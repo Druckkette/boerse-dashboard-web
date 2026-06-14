@@ -8,10 +8,11 @@ import {
   SortingState,
   useReactTable
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUpDown, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { PortfolioPosition } from "@/lib/types/api";
 
@@ -105,6 +106,20 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
     getSortedRowModel: getSortedRowModel(),
     getCoreRowModel: getCoreRowModel()
   });
+  const rows = table.getRowModel().rows;
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => 56,
+    overscan: 10
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom =
+    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
+  const visibleColumnCount = table.getVisibleLeafColumns().length;
 
   if (positions.length === 0) {
     return (
@@ -130,7 +145,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
 
   return (
     <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
-      <div className="max-h-[460px] overflow-auto">
+      <div ref={scrollParentRef} className="max-h-[460px] overflow-auto">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -155,24 +170,37 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
-                onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+            {paddingTop > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={visibleColumnCount} style={{ height: paddingTop }} />
               </tr>
-            ))}
+            )}
+            {virtualRows.map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              return (
+                <tr
+                  key={row.id}
+                  className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
+                  onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-4 py-3">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+            {paddingBottom > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={visibleColumnCount} style={{ height: paddingBottom }} />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
       <div className="border-t border-[#2d333d] px-4 py-2 text-xs text-[#a0a7b4]">
-        Sortierbare TanStack Table; Virtualisierung wird bei sehr großen Depots ergänzt.
+        Sortierbare, klickbare TanStack Table mit Virtualisierung für große Depots.
       </div>
     </div>
   );
