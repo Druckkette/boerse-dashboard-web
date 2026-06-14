@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw } from "lucide-react";
+import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -60,6 +60,7 @@ const MIN_VISIBLE_POINTS = 24;
 type VisibleRange = {
   start: number;
   end: number;
+  total: number;
 };
 
 type DragState = {
@@ -89,10 +90,14 @@ export function LineChartCard({
   const dragRef = useRef<DragState | null>(null);
   const [visibleRange, setVisibleRange] = useState<VisibleRange>(() => ({
     start: 0,
-    end: Math.max(0, points.length - 1)
+    end: Math.max(0, points.length - 1),
+    total: points.length
   }));
   const normalizedRange = useMemo(
-    () => clampVisibleRange(visibleRange, points.length),
+    () =>
+      visibleRange.total === points.length
+        ? clampVisibleRange(visibleRange, points.length)
+        : fullVisibleRange(points.length),
     [points.length, visibleRange]
   );
   const visiblePoints = useMemo(
@@ -140,6 +145,10 @@ export function LineChartCard({
   const latest = visiblePoints.at(-1);
   const hasError = Boolean(error);
   const empty = !isLoading && (!visiblePoints.length || !numericValues.length);
+  const currentWindow = normalizedRange.end - normalizedRange.start + 1;
+  const minWindow = Math.min(MIN_VISIBLE_POINTS, points.length);
+  const canZoomIn = points.length > 1 && currentWindow > minWindow;
+  const canZoomOut = points.length > 1 && currentWindow < points.length;
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     if (points.length <= 1) return;
@@ -156,6 +165,19 @@ export function LineChartCard({
     const cursorRatio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
     const anchor = current.start + cursorRatio * Math.max(1, currentWindow - 1);
     const nextStart = Math.round(anchor - cursorRatio * Math.max(1, nextWindow - 1));
+    setVisibleRange(clampVisibleRange({ start: nextStart, end: nextStart + nextWindow - 1 }, points.length));
+  }
+
+  function zoomBy(factor: number) {
+    if (points.length <= 1) return;
+    const current = clampVisibleRange(normalizedRange, points.length);
+    const windowSize = current.end - current.start + 1;
+    const nextWindow = Math.max(
+      minWindow,
+      Math.min(points.length, Math.round(windowSize * factor))
+    );
+    const center = current.start + Math.max(1, windowSize - 1) / 2;
+    const nextStart = Math.round(center - Math.max(1, nextWindow - 1) / 2);
     setVisibleRange(clampVisibleRange({ start: nextStart, end: nextStart + nextWindow - 1 }, points.length));
   }
 
@@ -202,10 +224,30 @@ export function LineChartCard({
           <button
             className="inline-flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#20252e] text-[#d8dde6] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-45"
             type="button"
+            title="In den Chart hineinzoomen"
+            aria-label="In den Chart hineinzoomen"
+            disabled={!canZoomIn}
+            onClick={() => zoomBy(0.72)}
+          >
+            <Plus size={15} />
+          </button>
+          <button
+            className="inline-flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#20252e] text-[#d8dde6] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-45"
+            type="button"
+            title="Aus dem Chart herauszoomen"
+            aria-label="Aus dem Chart herauszoomen"
+            disabled={!canZoomOut}
+            onClick={() => zoomBy(1.38)}
+          >
+            <Minus size={15} />
+          </button>
+          <button
+            className="inline-flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#20252e] text-[#d8dde6] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-45"
+            type="button"
             title="Chart zurücksetzen"
             aria-label="Chart zurücksetzen"
             disabled={!isZoomed}
-            onClick={() => setVisibleRange({ start: 0, end: Math.max(0, points.length - 1) })}
+            onClick={() => setVisibleRange(fullVisibleRange(points.length))}
           >
             <RotateCcw size={15} />
           </button>
@@ -481,8 +523,8 @@ function xForIndex(index: number, total: number) {
   return PAD_X + (index / (total - 1)) * (WIDTH - PAD_X * 2);
 }
 
-function clampVisibleRange(range: VisibleRange, total: number) {
-  if (total <= 0) return { start: 0, end: 0 };
+function clampVisibleRange(range: Pick<VisibleRange, "start" | "end">, total: number) {
+  if (total <= 0) return { start: 0, end: 0, total };
   const minWindow = Math.min(MIN_VISIBLE_POINTS, total);
   let start = Math.max(0, Math.min(total - 1, Math.floor(range.start)));
   let end = Math.max(0, Math.min(total - 1, Math.floor(range.end)));
@@ -497,7 +539,11 @@ function clampVisibleRange(range: VisibleRange, total: number) {
       start = Math.max(0, end - minWindow + 1);
     }
   }
-  return { start, end };
+  return { start, end, total };
+}
+
+function fullVisibleRange(total: number): VisibleRange {
+  return { start: 0, end: Math.max(0, total - 1), total };
 }
 
 function yForValue(value: number, yMin: number, yMax: number, top: number, bottom: number) {
