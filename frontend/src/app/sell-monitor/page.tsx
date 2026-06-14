@@ -9,8 +9,8 @@ import {
   useReactTable
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowUpDown } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowUpDown, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -33,7 +33,20 @@ const toneByPending: Record<PendingStatus, "good" | "neutral" | "warning" | "bad
 
 export default function SellMonitorPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["sell-ranking"], queryFn: api.sellRanking });
+  const monitorMutation = useMutation({
+    mutationFn: () =>
+      api.startJob({
+        type: "position_atr_monitor",
+        payload: { mode: "manual", source: "sell_monitor", force: true }
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
+      window.setTimeout(() => queryClient.invalidateQueries({ queryKey: ["sell-ranking"] }), 2500);
+    }
+  });
   const rows = data?.rows ?? [];
   const [sorting, setSorting] = useState<SortingState>([
     { id: "recommendation_pct", desc: true }
@@ -149,9 +162,20 @@ export default function SellMonitorPage() {
             Ranking aus der extrahierten Sell-Engine, ohne Jobs im Click-Pfad.
           </p>
         </div>
-        <StatusChip tone={isLoading ? "warning" : "good"}>
-          {isLoading ? "lädt" : `${rows.length} Positionen`}
-        </StatusChip>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#20252e] px-3 py-2 text-sm text-[#f4f7fb] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-55"
+            type="button"
+            disabled={monitorMutation.isPending}
+            onClick={() => monitorMutation.mutate()}
+          >
+            <RefreshCw size={15} className={monitorMutation.isPending ? "animate-spin" : ""} />
+            {monitorMutation.isPending ? "Monitor startet" : "Positionsmonitor starten"}
+          </button>
+          <StatusChip tone={isLoading ? "warning" : "good"}>
+            {isLoading ? "lädt" : `${rows.length} Positionen`}
+          </StatusChip>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-[1.2fr_2fr]">
@@ -167,7 +191,9 @@ export default function SellMonitorPage() {
           </div>
         </div>
         <div className="rounded border border-[#2d333d] bg-[#171a20] p-4 text-sm text-[#a0a7b4]">
-          {data?.message || "Nach dem ersten Positionsmonitor-Lauf liest diese Seite den vorcomputeten Snapshot."}
+          {monitorMutation.data
+            ? `Positionsmonitor gestartet: ${monitorMutation.data.job_id}`
+            : data?.message || "Nach dem ersten Positionsmonitor-Lauf liest diese Seite den vorcomputeten Snapshot."}
           {data?.source_job_id ? <span className="ml-2 text-[#77808f]">Job: {data.source_job_id}</span> : null}
         </div>
       </div>
