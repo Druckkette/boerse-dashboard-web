@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -75,3 +76,98 @@ def test_position_atr_monitor_allows_manual_run_when_disabled(monkeypatch: pytes
     assert captured["settings"]["position_monitor_threshold_atr"] == 1.25
     assert updated is not None
     assert updated.status == "done"
+
+
+def test_monitor_trade_day_resets_at_0730_berlin() -> None:
+    before_reset = datetime(2026, 6, 18, 5, 29, tzinfo=UTC)
+    at_reset = datetime(2026, 6, 18, 5, 30, tzinfo=UTC)
+
+    assert monitor_module._monitor_trade_day(before_reset) == "2026-06-17"
+    assert monitor_module._monitor_trade_day(at_reset) == "2026-06-18"
+
+
+def test_position_monitor_cooldown_suppresses_same_trade_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored_state = {
+        "tickers": {
+            "AAPL": {
+                "trade_day": "2026-06-18",
+                "last_alert_at": "2026-06-18T07:35:00+02:00",
+                "last_distance_atr": 1.8,
+                "threshold_atr": 1.5,
+                "escalated_2x": False,
+            }
+        }
+    }
+    written: dict = {}
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
+    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: written.update(values) or values)
+
+    result = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": True,
+                        "distance_atr": 2.2,
+                        "threshold_atr": 1.5,
+                        "reference": "previous_close",
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
+    )
+
+    monitor = result["items"][0]["monitor"]
+    assert result["alerts"] == []
+    assert result["alerts_suppressed"][0]["ticker"] == "AAPL"
+    assert monitor["alert_allowed"] is False
+    assert monitor["alert_reason"] == "cooldown_same_trade_day"
+    assert written["last_summary"]["suppressed"] == 1
+
+
+def test_position_monitor_allows_2x_atr_escalation_same_trade_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored_state = {
+        "tickers": {
+            "AAPL": {
+                "trade_day": "2026-06-18",
+                "last_alert_at": "2026-06-18T07:35:00+02:00",
+                "last_distance_atr": 1.8,
+                "threshold_atr": 1.5,
+                "escalated_2x": False,
+            }
+        }
+    }
+    written: dict = {}
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
+    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: written.update(values) or values)
+
+    result = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": True,
+                        "distance_atr": 3.1,
+                        "threshold_atr": 1.5,
+                        "reference": "previous_close",
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
+    )
+
+    monitor = result["items"][0]["monitor"]
+    assert result["alerts"][0]["ticker"] == "AAPL"
+    assert monitor["alert_allowed"] is True
+    assert monitor["alert_reason"] == "2x_atr_escalation"
+    assert written["tickers"]["AAPL"]["escalated_2x"] is True

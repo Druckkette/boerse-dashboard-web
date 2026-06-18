@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from app.domain.sell import service as sell_service
@@ -250,6 +251,35 @@ def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pyte
     assert monitor["atr_period"] == 21
     assert monitor["threshold_crossed"] is True
     assert monitor["distance_atr"] >= 1.0
+
+
+def test_monitor_reference_price_uses_previous_close() -> None:
+    row = PortfolioPositionRow(
+        ticker="AAPL",
+        name="Apple",
+        shares=3,
+        entry_price=95,
+        current_price=90,
+        currency="USD",
+        buy_date=date(2025, 1, 15),
+        broker="Test",
+        account="Main",
+    )
+    frame = pd.DataFrame(
+        {"high": [102.0, 103.0, 94.0], "low": [98.0, 99.0, 88.0], "close": [100.0, 101.5, 90.0]},
+        index=pd.to_datetime(["2025-02-03", "2025-02-04", "2025-02-05"]),
+    )
+
+    assert (
+        sell_service._monitor_reference_price(
+            daily_frame=frame,
+            row=row,
+            current_price=90.0,
+            reference_mode="previous_close",
+            lookback_days=420,
+        )
+        == 101.5
+    )
 
 
 def _price_bars(*, start: float, step: float, periods: int = 280):

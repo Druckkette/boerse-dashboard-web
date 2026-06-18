@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, DatabaseZap, Minus, Play, Plus, RefreshCw, ServerCog, SlidersHorizontal } from "lucide-react";
+import { BellRing, DatabaseZap, Play, RefreshCw, ServerCog, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -22,9 +22,9 @@ const fallbackSettings: AppSettings = {
   position_monitor_enabled: false,
   position_monitor_interval_minutes: 5,
   position_monitor_threshold_atr: 1.5,
-  position_monitor_atr_period: 21,
-  position_monitor_lookback_days: 120,
-  position_monitor_cooldown_hours: 12,
+  position_monitor_atr_period: 14,
+  position_monitor_lookback_days: 420,
+  position_monitor_cooldown_hours: 18,
   position_monitor_reference: "high_since_buy",
   pushover_enabled: false,
   pushover_configured: false,
@@ -118,20 +118,6 @@ export function SettingsPanel() {
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">
           <SettingCard
-            description="Schneller UI-Regler für ATR-/Stop-Schwellen ohne globalen Reload."
-            title="ATR-Schwellenwert"
-            value={settings.atr_threshold.toFixed(1)}
-          >
-            <Stepper
-              max={5}
-              min={0.5}
-              step={0.1}
-              value={settings.atr_threshold}
-              onChange={(value) => updateNumber("atr_threshold", value, 0.5, 5)}
-            />
-          </SettingCard>
-
-          <SettingCard
             description="Default-Werte für Positionsgrößen, Risiko-Ranking und den Stückzahl-Rechner."
             title="Depot-Annahmen"
             value={`${settings.risk_per_position_pct.toFixed(1)}% / ${settings.target_risk_contribution.toFixed(2)}`}
@@ -173,7 +159,7 @@ export function SettingsPanel() {
           </SettingCard>
 
           <SettingCard
-            description="Positionsmonitor läuft im Worker/Scheduler und nutzt gespeicherte Parameter."
+            description="Positionsmonitor läuft im Worker/Scheduler. Kleine Änderungen speichern debounced und blockieren die UI nicht."
             title="Positionsmonitor"
             value={settings.position_monitor_enabled ? "aktiv" : "aus"}
           >
@@ -201,8 +187,14 @@ export function SettingsPanel() {
                   <option value="high_since_buy">High seit Kauf</option>
                   <option value="close_since_buy">Close seit Kauf</option>
                   <option value="entry_price">Einstand</option>
+                  <option value="previous_close">Vortagesschluss</option>
                 </select>
               </Field>
+              <p className="rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-xs leading-5 text-[#a0a7b4] md:col-span-2">
+                Bei Vortagesschluss wird nur der ATR-Verlust unter dem vorherigen Handelstagesschluss
+                bewertet. Der Cooldown wird an einem neuen Handelstag ab 07:30 Uhr deutscher Zeit
+                zurückgesetzt; am selben Tag eskaliert der Monitor erneut bei 2x ATR-Schwelle.
+              </p>
               <NumberField
                 label="Intervall Minuten"
                 max={240}
@@ -357,54 +349,6 @@ function SettingCard({
         <StatusChip tone="neutral">{value}</StatusChip>
       </div>
       {children}
-    </div>
-  );
-}
-
-function Stepper({
-  value,
-  min,
-  max,
-  step,
-  onChange
-}: {
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        aria-label="Wert senken"
-        className="flex size-10 items-center justify-center rounded border border-[#2d333d] bg-[#111419] transition hover:border-emerald-300/60"
-        type="button"
-        onClick={() => onChange(value - step)}
-      >
-        <Minus size={17} />
-      </button>
-      <input
-        className="w-full accent-emerald-300"
-        max={max}
-        min={min}
-        step={step}
-        type="range"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        onInput={(event) => onChange(Number(event.currentTarget.value))}
-      />
-      <div className="w-16 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-right tabular-nums">
-        {value.toFixed(1)}
-      </div>
-      <button
-        aria-label="Wert erhöhen"
-        className="flex size-10 items-center justify-center rounded border border-[#2d333d] bg-[#111419] transition hover:border-emerald-300/60"
-        type="button"
-        onClick={() => onChange(value + step)}
-      >
-        <Plus size={17} />
-      </button>
     </div>
   );
 }

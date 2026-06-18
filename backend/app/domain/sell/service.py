@@ -47,6 +47,13 @@ from app.services.fx import eur_to_usd, get_eur_usd_rate
 
 _SYNTHETIC_END_DATE = date(2026, 6, 5)
 _SYNTHETIC_PERIODS = 280
+_POSITION_MONITOR_REFERENCES = {"high_since_buy", "close_since_buy", "entry_price", "previous_close"}
+_POSITION_MONITOR_REFERENCE_LABELS = {
+    "high_since_buy": "Vom Hoch seit Kauf",
+    "close_since_buy": "Vom Schlusskurs-Hoch seit Kauf",
+    "entry_price": "Vom Einstand",
+    "previous_close": "Vom Vortagesschluss",
+}
 
 _POSITION_CATALOG: dict[str, dict[str, Any]] = {
     "NVDA": {
@@ -419,9 +426,9 @@ def _monitor_state_from_metrics(
 ) -> dict[str, Any]:
     atr_period = int(_finite_float(settings.get("position_monitor_atr_period"), 14) or 14)
     threshold_atr = float(_finite_float(settings.get("position_monitor_threshold_atr"), 1.5) or 1.5)
-    lookback_days = int(_finite_float(settings.get("position_monitor_lookback_days"), 120) or 120)
+    lookback_days = int(_finite_float(settings.get("position_monitor_lookback_days"), 420) or 420)
     reference_mode = str(settings.get("position_monitor_reference") or "high_since_buy")
-    if reference_mode not in {"high_since_buy", "close_since_buy", "entry_price"}:
+    if reference_mode not in _POSITION_MONITOR_REFERENCES:
         reference_mode = "high_since_buy"
 
     daily_frame = metrics.raw_payload.ohlc_frames.get("daily_since_buy")
@@ -443,6 +450,7 @@ def _monitor_state_from_metrics(
     return {
         "enabled": bool(settings.get("position_monitor_enabled", True)),
         "reference": reference_mode,
+        "reference_label": _POSITION_MONITOR_REFERENCE_LABELS.get(reference_mode, reference_mode),
         "reference_price": _round_metric(reference_price),
         "current_price": _round_metric(current_price),
         "atr_period": atr_period,
@@ -450,7 +458,7 @@ def _monitor_state_from_metrics(
         "threshold_atr": threshold_atr,
         "distance_atr": _round_metric(distance_atr),
         "threshold_crossed": threshold_crossed,
-        "cooldown_hours": int(_finite_float(settings.get("position_monitor_cooldown_hours"), 12) or 12),
+        "cooldown_hours": int(_finite_float(settings.get("position_monitor_cooldown_hours"), 18) or 18),
     }
 
 
@@ -1047,6 +1055,14 @@ def _monitor_reference_price(
     frame = _tail_ohlc_frame(daily_frame, lookback_days)
     if frame.empty:
         return _finite_float(current_price, row.entry_price)
+
+    if reference_mode == "previous_close":
+        if "close" not in frame:
+            return _finite_float(current_price, row.entry_price)
+        closes = pd.to_numeric(frame["close"], errors="coerce").dropna()
+        if len(closes) >= 2:
+            return _finite_float(closes.iloc[-2], current_price)
+        return _finite_float(row.entry_price, current_price)
 
     column = "close" if reference_mode == "close_since_buy" else "high"
     if column not in frame:

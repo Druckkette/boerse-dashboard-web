@@ -8,6 +8,7 @@ from app.db.session import SessionLocal
 
 SETTINGS_KEY = "runtime"
 RUNTIME_CONFIG_KEY = "runtime_config"
+POSITION_MONITOR_STATE_KEY = "position_monitor_state"
 
 
 class SettingsRepositoryUnavailable(RuntimeError):
@@ -51,6 +52,18 @@ def write_runtime_config(values: dict) -> dict:
         RUNTIME_CONFIG_KEY,
         values,
         description="Runtime API keys and integration config edited through the setup UI.",
+    )
+
+
+def read_position_monitor_state() -> dict:
+    return _read_json_setting(POSITION_MONITOR_STATE_KEY)
+
+
+def write_position_monitor_state(values: dict) -> dict:
+    return _write_json_setting(
+        POSITION_MONITOR_STATE_KEY,
+        values,
+        description="ATR position monitor cooldown and alert state.",
     )
 
 
