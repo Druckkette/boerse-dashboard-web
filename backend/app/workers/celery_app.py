@@ -15,7 +15,7 @@ visibility_timeout = max(task_time_limit + 60 * 60, int(settings.celery_visibili
 
 celery_app = Celery("boerse_dashboard_web", broker=broker_url, backend=result_backend)
 celery_app.conf.update(
-    timezone="UTC",
+    timezone="Europe/Berlin",
     enable_utc=True,
     task_track_started=True,
     task_acks_late=True,

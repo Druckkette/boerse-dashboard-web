@@ -123,7 +123,7 @@ No files have to be placed manually on the NAS; portfolio data is imported throu
 
 For operational refreshes open `/jobs` and use the primary assistant actions:
 
-1. **Prüfen & fehlendes aktualisieren** checks system freshness first and runs only the missing
+1. **Alles smart aktualisieren** checks system freshness first and runs only the missing
    or stale parts: missing/stale position prices, global market prices, breadth, RS ratings and
    the position monitor where needed.
 2. **Alles initialisieren** loads the US common-stock universe, price cache, market breadth,
@@ -135,8 +135,9 @@ The older individual jobs remain available under the expert tools section for di
 The setup and jobs pages store only UI preferences in the browser. The market data itself is stored
 in the Postgres Docker volume. You only need to repeat the full bootstrap when the database volume
 is empty, after a deliberate reset, or when you want to load a different universe or longer history.
-Normal updates should be handled by scheduler/worker jobs. The scheduler uses the smart refresh
-path so it avoids unnecessary heavy recalculations when data is already current.
+Normal updates should be handled by scheduler/worker jobs. The scheduler runs the smart refresh
+path at 07:45 and 22:30 Europe/Berlin time, so it avoids unnecessary heavy recalculations when data
+is already current.
 
 Long-running bootstrap jobs are configured for NAS runtimes: Celery has a 48 hour hard task limit
 and a 72 hour Redis visibility timeout by default. The bootstrap stores checkpoints in the job

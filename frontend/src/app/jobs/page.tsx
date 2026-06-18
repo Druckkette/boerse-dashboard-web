@@ -18,7 +18,7 @@ import type {
 } from "@/lib/types/api";
 
 const jobTypes: { type: JobType; label: string; description: string }[] = [
-  { type: "smart_refresh_market_data", label: "Smart Update", description: "Prüfen und nur fehlende/veraltete Daten aktualisieren" },
+  { type: "smart_refresh_market_data", label: "Alles smart aktualisieren", description: "Prüfen und nur fehlende/veraltete Daten aktualisieren" },
   { type: "bootstrap_market_data", label: "Alles", description: "Universe, Kurse, Breadth, RS und Monitor" },
   { type: "refresh_prices", label: "Market Prices", description: "OHLC-Kurse in den Cache laden" },
   { type: "refresh_breadth", label: "Market Breadth", description: "Marktbreite und Snapshot berechnen" },
@@ -970,7 +970,8 @@ function MarketDataAssistantPanel({
           </div>
           <p className="text-sm leading-6 text-[#a0a7b4]">
             Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
-            Smart Update prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile.
+            Alles smart aktualisieren prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile.
+            Derselbe Smart-Refresh läuft automatisch um 07:45 und 22:30 Uhr deutscher Zeit.
           </p>
           <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-4">
             <span>Universe: US Common Stocks</span>
@@ -987,7 +988,7 @@ function MarketDataAssistantPanel({
             onClick={() => onStart("smart_refresh_market_data", smartPayload)}
           >
             <SearchCheck size={16} />
-            {startingType === "smart_refresh_market_data" ? "Prüft" : "Prüfen & fehlendes aktualisieren"}
+            {startingType === "smart_refresh_market_data" ? "Prüft" : "Alles smart aktualisieren"}
           </button>
           <button
             className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/50 bg-emerald-300/15 px-4 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
