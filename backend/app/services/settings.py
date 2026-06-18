@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core_config import get_settings
+from app.data_sources.fmp_client import FMP_PROFILE_URL, compact_fmp_response_body, is_non_empty_fmp_payload
 from app.db.models import Instrument, IsinMapping, Position, PriceBar
 from app.db.session import SessionLocal
 from app.repositories import settings as settings_repository
@@ -492,25 +493,29 @@ def _test_fmp_api_key(*, key: str, value: str, checked_at: datetime) -> RuntimeC
         )
     try:
         response = requests.get(
-            "https://financialmodelingprep.com/api/v3/profile/AAPL",
-            params={"apikey": value},
+            FMP_PROFILE_URL,
+            params={"symbol": "AAPL", "apikey": value},
             timeout=12,
         )
         if response.status_code != 200:
+            body = compact_fmp_response_body(response)
+            detail = f"FMP antwortet mit HTTP {response.status_code}."
+            if body:
+                detail = f"{detail} Antwort: {body}"
             return RuntimeConfigTestResponse(
                 key=key,
                 ok=False,
                 status="failed",
-                detail=f"FMP antwortet mit HTTP {response.status_code}.",
+                detail=detail,
                 checked_at=checked_at,
             )
         payload = response.json()
-        ok = isinstance(payload, list) and bool(payload) and "symbol" in payload[0]
+        ok = is_non_empty_fmp_payload(payload)
         return RuntimeConfigTestResponse(
             key=key,
             ok=ok,
             status="ok" if ok else "invalid",
-            detail="FMP API Key funktioniert." if ok else "FMP-Antwort hatte nicht das erwartete Profilformat.",
+            detail="FMP API Key funktioniert." if ok else "FMP-Antwort war leer oder enthielt eine Fehlermeldung.",
             checked_at=checked_at,
         )
     except Exception as exc:

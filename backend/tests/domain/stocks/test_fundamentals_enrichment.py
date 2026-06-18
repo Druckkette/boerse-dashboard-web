@@ -7,7 +7,9 @@ import pandas as pd
 from app.data_sources.fundamentals_client import (
     FundamentalEnrichment,
     compute_fundamental_enrichment,
+    fetch_quarterly_fmp,
 )
+from app.data_sources.fmp_client import FMP_INCOME_STATEMENT_URL, FMP_RATIOS_TTM_URL
 from app.data_sources.yfinance_client import FetchedFundamentals
 from app.repositories.fundamentals import FundamentalSnapshotRow
 from app.services import fundamentals as fundamentals_service
@@ -60,6 +62,65 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
     assert enrichment.profit_margin_pct == 19.3
     assert enrichment.roe_pct == 53.1
     assert enrichment.metadata["series_lengths"]["DilutedEPS"] == 7
+
+
+def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.status_code = 200
+            self._payload = payload
+            self.text = "[]"
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, *, params, timeout):
+        calls.append({"url": url, "params": params, "timeout": timeout})
+        if url == FMP_INCOME_STATEMENT_URL:
+            return FakeResponse(
+                [
+                    {
+                        "date": "2026-03-31",
+                        "epsDiluted": 2.4,
+                        "revenue": 240.0,
+                        "netIncome": 48.0,
+                    }
+                ]
+            )
+        return FakeResponse([{"returnOnEquityTTM": 0.34, "netProfitMarginTTM": 0.18}])
+
+    import app.data_sources.fundamentals_client as fundamentals_client
+
+    monkeypatch.setattr(fundamentals_client.requests, "get", fake_get)
+
+    raw, note = fetch_quarterly_fmp("aapl", "test-key")
+
+    assert raw is not None
+    assert note == "FMP stable"
+    assert [call["url"] for call in calls] == [FMP_INCOME_STATEMENT_URL, FMP_RATIOS_TTM_URL]
+    assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 12, "apikey": "test-key"}
+    assert calls[1]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
+
+
+def test_fetch_quarterly_fmp_returns_response_body_on_403(monkeypatch) -> None:
+    class FakeResponse:
+        status_code = 403
+        text = "Legacy Endpoint"
+
+        def json(self):
+            return {"error": "Legacy Endpoint"}
+
+    import app.data_sources.fundamentals_client as fundamentals_client
+
+    monkeypatch.setattr(fundamentals_client.requests, "get", lambda *args, **kwargs: FakeResponse())
+
+    raw, note = fetch_quarterly_fmp("aapl", "test-key")
+
+    assert raw is None
+    assert "Zugriff verweigert" in note
+    assert "Legacy Endpoint" in note
 
 
 def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> None:

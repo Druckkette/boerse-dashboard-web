@@ -700,6 +700,65 @@ def test_runtime_config_test_endpoint_validates_app_auth_password() -> None:
     assert payload["restart_required"] is True
 
 
+def test_runtime_config_test_endpoint_uses_fmp_stable_profile(monkeypatch) -> None:
+    from app.services import settings as settings_service
+
+    calls: list[dict] = []
+
+    class FakeResponse:
+        status_code = 200
+        text = '[{"symbol":"AAPL","companyName":"Apple Inc.","currency":"USD"}]'
+
+        def json(self):
+            return [{"symbol": "AAPL", "companyName": "Apple Inc.", "currency": "USD"}]
+
+    def fake_get(url, *, params, timeout):
+        calls.append({"url": url, "params": params, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(settings_service.requests, "get", fake_get)
+
+    response = client.post(
+        "/api/v1/settings/runtime-config/test",
+        json={"key": "FMP_API_KEY", "value": "test-fmp-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert calls == [
+        {
+            "url": "https://financialmodelingprep.com/stable/profile",
+            "params": {"symbol": "AAPL", "apikey": "test-fmp-key"},
+            "timeout": 12,
+        }
+    ]
+
+
+def test_runtime_config_test_endpoint_returns_fmp_response_body_on_403(monkeypatch) -> None:
+    from app.services import settings as settings_service
+
+    class FakeResponse:
+        status_code = 403
+        text = "Legacy Endpoint"
+
+        def json(self):
+            return {"error": "Legacy Endpoint"}
+
+    monkeypatch.setattr(settings_service.requests, "get", lambda *args, **kwargs: FakeResponse())
+
+    response = client.post(
+        "/api/v1/settings/runtime-config/test",
+        json={"key": "FMP_API_KEY", "value": "test-fmp-key"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["status"] == "failed"
+    assert "HTTP 403" in payload["detail"]
+    assert "Legacy Endpoint" in payload["detail"]
+
+
 def test_runtime_config_patch_masks_secret() -> None:
     response = client.patch(
         "/api/v1/settings/runtime-config",

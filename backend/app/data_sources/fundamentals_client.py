@@ -7,6 +7,12 @@ from typing import Any
 import pandas as pd
 import requests
 
+from app.data_sources.fmp_client import (
+    FMP_INCOME_STATEMENT_URL,
+    FMP_RATIOS_TTM_URL,
+    compact_fmp_response_body,
+)
+
 
 QuarterlyRaw = dict[str, pd.Series | float]
 
@@ -76,14 +82,9 @@ def fetch_quarterly_fmp(
     attempts = [
         (
             "FMP stable",
-            "https://financialmodelingprep.com/stable/income-statement",
+            FMP_INCOME_STATEMENT_URL,
             {"symbol": ticker.upper(), "period": "quarter", "limit": 12, "apikey": api_key},
-        ),
-        (
-            "FMP legacy",
-            f"https://financialmodelingprep.com/api/v3/income-statement/{ticker.upper()}",
-            {"period": "quarter", "limit": 12, "apikey": api_key},
-        ),
+        )
     ]
     errors: list[str] = []
     for label, url, params in attempts:
@@ -97,13 +98,16 @@ def fetch_quarterly_fmp(
             continue
 
         if response.status_code == 429:
-            errors.append(f"{label}: Rate Limited")
+            body = compact_fmp_response_body(response)
+            errors.append(f"{label}: Rate Limited" + (f" ({body})" if body else ""))
             continue
         if response.status_code in {401, 403}:
-            errors.append(f"{label}: Zugriff verweigert")
+            body = compact_fmp_response_body(response)
+            errors.append(f"{label}: Zugriff verweigert" + (f" ({body})" if body else ""))
             continue
         if response.status_code != 200:
-            errors.append(f"{label}: HTTP {response.status_code}")
+            body = compact_fmp_response_body(response)
+            errors.append(f"{label}: HTTP {response.status_code}" + (f" ({body})" if body else ""))
             continue
 
         try:
@@ -364,8 +368,7 @@ def _raw_from_fmp_income_statement(rows: list[dict[str, Any]]) -> QuarterlyRaw:
 
 def _merge_fmp_ttm_ratios(raw: QuarterlyRaw, ticker: str, api_key: str, *, timeout: int) -> None:
     attempts = [
-        ("https://financialmodelingprep.com/stable/ratios-ttm", {"symbol": ticker.upper(), "apikey": api_key}),
-        (f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker.upper()}", {"apikey": api_key}),
+        (FMP_RATIOS_TTM_URL, {"symbol": ticker.upper(), "apikey": api_key}),
     ]
     for url, params in attempts:
         try:
