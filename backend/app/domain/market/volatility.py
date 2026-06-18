@@ -21,6 +21,8 @@ class VolatilityDashboardPoint:
     vix_close: float | None
     vix_ret_5d: float | None
     vix_pct_rank_252: float | None
+    vix_pct_above_sma10: float | None
+    vix_panic_overextension: bool
     vix_regime: str
     vixy_close: float | None
     vixy_ret_5d: float | None
@@ -69,7 +71,13 @@ def summarize_volatility_points(points: list[VolatilityDashboardPoint]) -> dict[
             "VIX Regime",
             latest.vix_regime,
             _vix_detail(latest),
-            "bad" if latest.vix_regime == "Stress" else "good" if latest.vix_regime == "Ruhig" else "warning",
+            _tone_for_vix_regime(latest.vix_regime),
+        ),
+        _status_card(
+            "VIX Überdehnung",
+            "Überdehnt" if latest.vix_panic_overextension else "Normal",
+            _vix_overextension_detail(latest),
+            "warning" if latest.vix_panic_overextension else "good",
         ),
         _status_card(
             "VIXY Bestätigung",
@@ -107,6 +115,7 @@ def analyze_vix(frame: pd.DataFrame) -> pd.DataFrame:
     dv["Z63"] = _rolling_zscore(dv["Close"], 63)
     dv["PctRank252"] = _rolling_percentile(dv["Close"], 252)
     dv["Pct_Above_SMA10"] = (dv["Close"] - dv["SMA10"]) / dv["SMA10"] * 100
+    dv["Panic_Overextension"] = (dv["Pct_Above_SMA10"] > 20).fillna(False)
 
     panic_rule = (dv["PctRank252"] >= 0.85) & (dv["Z63"] >= 1.5)
     fallback_panic = (dv["Close"] > 20) & (dv["Close"] > dv["EMA10"])
@@ -159,6 +168,8 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vixy_df:
         out["VIX_Close"] = vix["Close"]
         out["VIX_Ret_5d"] = vix.get("Ret_5d")
         out["VIX_PctRank252"] = vix.get("PctRank252")
+        out["VIX_Pct_Above_SMA10"] = vix.get("Pct_Above_SMA10")
+        out["VIX_Panic_Overextension"] = vix.get("Panic_Overextension", False).fillna(False)
         out["VIX_Is_Panic"] = vix.get("Is_Panic", False).fillna(False)
         out["VIX_Is_Calm"] = vix.get("Is_Calm", False).fillna(False)
         out["VIX_Regime"] = vix.get("VIX_Regime", "Neutral")
@@ -166,6 +177,8 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vixy_df:
         out["VIX_Close"] = np.nan
         out["VIX_Ret_5d"] = np.nan
         out["VIX_PctRank252"] = np.nan
+        out["VIX_Pct_Above_SMA10"] = np.nan
+        out["VIX_Panic_Overextension"] = False
         out["VIX_Is_Panic"] = False
         out["VIX_Is_Calm"] = False
         out["VIX_Regime"] = "n/a"
@@ -217,6 +230,8 @@ def _dashboard_point(index: Any, row: pd.Series) -> VolatilityDashboardPoint:
         vix_close=_safe_float(row.get("VIX_Close")),
         vix_ret_5d=_safe_float(row.get("VIX_Ret_5d")),
         vix_pct_rank_252=_safe_float(row.get("VIX_PctRank252")),
+        vix_pct_above_sma10=_safe_float(row.get("VIX_Pct_Above_SMA10")),
+        vix_panic_overextension=bool(row.get("VIX_Panic_Overextension", False)),
         vix_regime=str(row.get("VIX_Regime") or "n/a"),
         vixy_close=_safe_float(row.get("VIXY_Close")),
         vixy_ret_5d=_safe_float(row.get("VIXY_Ret_5d")),
@@ -288,6 +303,25 @@ def _vix_detail(latest: VolatilityDashboardPoint) -> str:
     if latest.vix_regime == "Ruhig":
         return f"VIX {latest.vix_close:.1f} · wenig Angst im Optionsmarkt"
     return f"VIX {latest.vix_close:.1f} · keine Extremzone"
+
+
+def _vix_overextension_detail(latest: VolatilityDashboardPoint) -> str:
+    if latest.vix_close is None or latest.vix_pct_above_sma10 is None:
+        return "Keine ausreichenden VIX-Daten für den Abstand zur 10-Tage-Linie"
+    detail = f"VIX {latest.vix_close:.1f} liegt {latest.vix_pct_above_sma10:+.1f}% zur 10-Tage-Linie"
+    if latest.vix_panic_overextension:
+        return f"{detail} · >20% spricht oft für Panik-Übertreibung und mögliche Gegenbewegung"
+    return f"{detail} · keine Panik-Überdehnung"
+
+
+def _tone_for_vix_regime(regime: str) -> str:
+    if regime == "Stress":
+        return "bad"
+    if regime == "Ruhig":
+        return "good"
+    if regime == "Neutral":
+        return "neutral"
+    return "neutral"
 
 
 def _vixy_detail(latest: VolatilityDashboardPoint) -> str:

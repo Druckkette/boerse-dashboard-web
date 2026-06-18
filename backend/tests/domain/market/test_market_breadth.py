@@ -146,6 +146,46 @@ def test_volatility_dashboard_detects_confirmed_risk_off() -> None:
     assert summary["regime"] == "Risk Off bestätigt"
 
 
+def test_volatility_dashboard_keeps_neutral_vix_neutral() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(280)]),
+        "^VIX": _series("^VIX", start, [17] * 280),
+        "VIXY": _series("VIXY", start, [10] * 280),
+    }
+
+    points = compute_volatility_dashboard(series, limit=60)
+    summary = summarize_volatility_points(points)
+    vix_card = next(card for card in summary["status_cards"] if card["title"] == "VIX Regime")
+
+    assert points[-1].vix_regime == "Neutral"
+    assert points[-1].vix_panic_overextension is False
+    assert vix_card["status"] == "Neutral"
+    assert vix_card["tone"] == "neutral"
+
+
+def test_volatility_dashboard_reports_vix_panic_overextension_above_10sma() -> None:
+    start = date(2025, 1, 2)
+    vix_values = [18] * 260 + [13.5] * 9 + [17]
+    series = {
+        "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(270)]),
+        "^VIX": _series("^VIX", start, vix_values),
+        "VIXY": _series("VIXY", start, [10] * 270),
+    }
+
+    points = compute_volatility_dashboard(series, limit=60)
+    summary = summarize_volatility_points(points)
+    overextension_card = next(card for card in summary["status_cards"] if card["title"] == "VIX Überdehnung")
+
+    assert points[-1].vix_regime == "Neutral"
+    assert points[-1].vix_pct_above_sma10 is not None
+    assert points[-1].vix_pct_above_sma10 > 20
+    assert points[-1].vix_panic_overextension is True
+    assert overextension_card["status"] == "Überdehnt"
+    assert overextension_card["tone"] == "warning"
+    assert "Gegenbewegung" in overextension_card["detail"]
+
+
 def test_market_snapshot_includes_volatility_warning() -> None:
     start = date(2025, 1, 2)
     series = {

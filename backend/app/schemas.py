@@ -318,6 +318,8 @@ class VolatilityPoint(BaseModel):
     vix_close: float | None = None
     vix_ret_5d: float | None = None
     vix_pct_rank_252: float | None = None
+    vix_pct_above_sma10: float | None = None
+    vix_panic_overextension: bool = False
     vix_regime: str
     vixy_close: float | None = None
     vixy_ret_5d: float | None = None

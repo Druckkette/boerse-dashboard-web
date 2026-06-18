@@ -2201,6 +2201,8 @@ def _tone_for_vix_regime(regime: str) -> str:
         return "bad"
     if regime == "Ruhig":
         return "good"
+    if regime == "Neutral":
+        return "neutral"
     return "warning"
 
 

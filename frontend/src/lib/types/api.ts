@@ -281,6 +281,8 @@ export type VolatilityPoint = {
   vix_close?: number | null;
   vix_ret_5d?: number | null;
   vix_pct_rank_252?: number | null;
+  vix_pct_above_sma10?: number | null;
+  vix_panic_overextension: boolean;
   vix_regime: string;
   vixy_close?: number | null;
   vixy_ret_5d?: number | null;
