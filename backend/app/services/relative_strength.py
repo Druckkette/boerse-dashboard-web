@@ -11,7 +11,7 @@ from app.repositories.relative_strength import (
     RsRatingRow,
     RsRatingWrite,
 )
-from app.schemas import RsRatingDetailResponse, RsRatingItem, RsRatingRankingResponse
+from app.schemas import RsLinePoint, RsRatingDetailResponse, RsRatingItem, RsRatingRankingResponse
 
 
 DEFAULT_RS_BENCHMARK_TICKER = "SPY"
@@ -88,7 +88,7 @@ def get_relative_strength_ranking(*, limit: int = 100) -> RsRatingRankingRespons
     return RsRatingRankingResponse(
         as_of=rows[0].date.isoformat(),
         source="database",
-        rows=[_row_to_schema(row) for row in rows],
+        rows=[_row_to_schema(row, include_history=False) for row in rows],
     )
 
 
@@ -100,10 +100,10 @@ def get_relative_strength_for_ticker(ticker: str) -> RsRatingDetailResponse:
 
     if row is None:
         return RsRatingDetailResponse(found=False, source="missing", item=None)
-    return RsRatingDetailResponse(found=True, source="database", item=_row_to_schema(row))
+    return RsRatingDetailResponse(found=True, source="database", item=_row_to_schema(row, include_history=True))
 
 
-def _row_to_schema(row: RsRatingRow) -> RsRatingItem:
+def _row_to_schema(row: RsRatingRow, *, include_history: bool = False) -> RsRatingItem:
     metadata = row.metadata_json or {}
     return RsRatingItem(
         ticker=row.ticker,
@@ -124,6 +124,9 @@ def _row_to_schema(row: RsRatingRow) -> RsRatingItem:
         excess_return_12m=_float_or_none(metadata.get("excess_return_12m_pct")),
         near_high_52w=_bool_or_none(metadata.get("near_high_52w")),
         new_high_52w=_bool_or_none(metadata.get("new_high_52w")),
+        rs_ema21=_float_or_none(metadata.get("rs_ema21_last")),
+        rs_ema50=_float_or_none(metadata.get("rs_ema50_last")),
+        rs_history=_rs_history_from_metadata(metadata) if include_history else [],
     )
 
 
@@ -148,3 +151,26 @@ def _bool_or_none(value: object) -> bool | None:
     if isinstance(value, bool):
         return value
     return None
+
+
+def _rs_history_from_metadata(metadata: dict) -> list[RsLinePoint]:
+    raw_history = metadata.get("rs_history")
+    if not isinstance(raw_history, list):
+        return []
+    points: list[RsLinePoint] = []
+    for item in raw_history:
+        if not isinstance(item, dict):
+            continue
+        rs = _float_or_none(item.get("rs"))
+        date_value = str(item.get("date") or "").strip()
+        if not date_value or rs is None:
+            continue
+        points.append(
+            RsLinePoint(
+                date=date_value,
+                rs=rs,
+                rs_ema21=_float_or_none(item.get("rs_ema21")),
+                rs_ema50=_float_or_none(item.get("rs_ema50")),
+            )
+        )
+    return points

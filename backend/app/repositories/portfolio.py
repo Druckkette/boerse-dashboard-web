@@ -27,6 +27,7 @@ class PortfolioPositionRow:
     broker: str = ""
     account: str = ""
     note: str = ""
+    current_price_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -235,6 +236,7 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                         .order_by(PriceBar.date.desc())
                         .limit(1)
                     ).first()
+                current_price_source = "price_cache" if latest_price is not None else "position_entry"
 
                 rows.append(
                     PortfolioPositionRow(
@@ -251,6 +253,7 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                         broker=position.broker or "",
                         account=position.account or "",
                         note=position.note or "",
+                        current_price_source=current_price_source,
                     )
                 )
             return rows
@@ -804,6 +807,7 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
             .order_by(PriceBar.date.desc())
             .limit(1)
         ).first()
+    current_price_source = "price_cache" if latest_price is not None else "position_entry"
     return PortfolioPositionRow(
         ticker=position.ticker,
         name=(instrument.name if instrument and instrument.name else position.ticker),
@@ -818,6 +822,7 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
         broker=position.broker or "",
         account=position.account or "",
         note=position.note or "",
+        current_price_source=current_price_source,
     )
 
 

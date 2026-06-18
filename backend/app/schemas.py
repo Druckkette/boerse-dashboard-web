@@ -438,6 +438,13 @@ class PriceHistoryResponse(BaseModel):
     points: list[PriceBarPoint]
 
 
+class RsLinePoint(BaseModel):
+    date: str
+    rs: float
+    rs_ema21: float | None = None
+    rs_ema50: float | None = None
+
+
 class RsRatingItem(BaseModel):
     ticker: str
     name: str = ""
@@ -457,6 +464,9 @@ class RsRatingItem(BaseModel):
     excess_return_12m: float | None = None
     near_high_52w: bool | None = None
     new_high_52w: bool | None = None
+    rs_ema21: float | None = None
+    rs_ema50: float | None = None
+    rs_history: list[RsLinePoint] = Field(default_factory=list)
 
 
 class RsRatingRankingResponse(BaseModel):

@@ -9,11 +9,21 @@ from app.repositories.portfolio import PortfolioImportResult, TradeRepublicImpor
 from app.repositories.portfolio import PortfolioPositionRow
 from app.schemas import PortfolioImportRequest, TradeRepublicTransactionImportRequest
 from app.services import portfolio as portfolio_service
+from app.services.fx import FxRate
 from app.services.portfolio import parse_positions_csv
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "portfolio"
 REFERENCE_TR_EXPORT = Path(__file__).resolve().parents[5] / "boerse-dashboard-github" / "TR" / "Transaktionsexport.csv"
+
+
+@pytest.fixture(autouse=True)
+def fixed_fx_rate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_eur_usd_rate",
+        lambda: FxRate(pair="EUR/USD", rate=1.0, as_of=date(2026, 1, 1), source="test"),
+    )
 
 
 def test_parse_positions_csv_supports_semicolon_and_decimal_comma() -> None:
@@ -189,6 +199,34 @@ def test_trade_republic_import_save_calls_repository_with_transactions(monkeypat
     assert captured["replace_open_positions"] is True
     assert {position.ticker for position in captured["positions"]} == {"APP", "VRT", "ARKK.L"}
     assert captured["mappings"]["US03831W1080"] == "APP"
+
+
+def test_trade_republic_import_converts_eur_prices_to_usd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_eur_usd_rate",
+        lambda: FxRate(pair="EUR/USD", rate=1.1, as_of=date(2026, 1, 1), source="test"),
+    )
+    content = (
+        "date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax\n"
+        "2025-01-02,2025-01-02T10:00:00Z,BUY,STOCK,NVIDIA,US67066G1040,10,100,EUR,-1000,0,0\n"
+    )
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name="tr-eur.csv",
+            content=content,
+            dry_run=True,
+            replace_open_positions=False,
+        )
+    )
+
+    assert result.ok is True
+    assert result.positions[0].ticker == "NVDA"
+    assert result.positions[0].entry_price == pytest.approx(110.0)
+    assert result.positions[0].currency == "USD"
+    assert any("EUR/USD 1.1000" in warning for warning in result.warnings)
 
 
 @pytest.mark.skipif(not REFERENCE_TR_EXPORT.exists(), reason="Reference Streamlit TR export is not checked out locally.")

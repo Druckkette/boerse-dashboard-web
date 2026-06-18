@@ -685,6 +685,14 @@ export type RsRatingItem = {
   excess_return_12m?: number | null;
   near_high_52w?: boolean | null;
   new_high_52w?: boolean | null;
+  rs_ema21?: number | null;
+  rs_ema50?: number | null;
+  rs_history: Array<{
+    date: string;
+    rs: number;
+    rs_ema21?: number | null;
+    rs_ema50?: number | null;
+  }>;
 };
 
 export type RsRatingRanking = {

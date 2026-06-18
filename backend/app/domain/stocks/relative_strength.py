@@ -193,16 +193,19 @@ def _build_metadata(stock_close: pd.Series, raw_rs: pd.Series, plot_rs: pd.Serie
     if plot_rs is None or plot_rs.empty:
         return metadata
 
-    ema21 = plot_rs.ewm(span=21).mean()
-    sma50 = plot_rs.rolling(50).mean()
+    ema21 = plot_rs.ewm(span=21, adjust=False).mean()
+    ema50 = plot_rs.ewm(span=50, adjust=False).mean()
     sma200 = plot_rs.rolling(200).mean()
     last = float(plot_rs.iloc[-1])
     metadata.update(
         {
             "rs_line_last": last,
             "above_21": _last_bool(plot_rs, ema21),
-            "above_50": _last_bool(plot_rs, sma50),
+            "above_50": _last_bool(plot_rs, ema50),
             "above_200": _last_bool(plot_rs, sma200),
+            "rs_ema21_last": _last_float(ema21),
+            "rs_ema50_last": _last_float(ema50),
+            "rs_history": _rs_history(plot_rs, ema21=ema21, ema50=ema50),
             "trend_5w": _trend_bool(plot_rs, 25),
             "trend_13w": _trend_bool(plot_rs, 65),
         }
@@ -233,6 +236,37 @@ def _last_bool(series: pd.Series, average: pd.Series) -> bool | None:
     if series.empty or average.empty or pd.isna(average.iloc[-1]):
         return None
     return bool(float(series.iloc[-1]) > float(average.iloc[-1]))
+
+
+def _last_float(series: pd.Series) -> float | None:
+    clean = pd.to_numeric(series, errors="coerce").dropna()
+    if clean.empty:
+        return None
+    return float(clean.iloc[-1])
+
+
+def _rs_history(plot_rs: pd.Series, *, ema21: pd.Series, ema50: pd.Series, limit: int = 370) -> list[dict[str, Any]]:
+    frame = pd.DataFrame({"rs": plot_rs, "rs_ema21": ema21, "rs_ema50": ema50}).dropna(subset=["rs"]).tail(limit)
+    history: list[dict[str, Any]] = []
+    for timestamp, row in frame.iterrows():
+        history.append(
+            {
+                "date": pd.Timestamp(timestamp).date().isoformat(),
+                "rs": _rounded_or_none(row.get("rs")),
+                "rs_ema21": _rounded_or_none(row.get("rs_ema21")),
+                "rs_ema50": _rounded_or_none(row.get("rs_ema50")),
+            }
+        )
+    return history
+
+
+def _rounded_or_none(value: object) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return round(float(value), 4)
+    except (TypeError, ValueError):
+        return None
 
 
 def _trend_bool(series: pd.Series, lookback: int) -> bool | None:

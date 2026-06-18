@@ -10,6 +10,7 @@ import pandas as pd
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.domain.portfolio.trade_republic import (
+    TradeRepublicPosition as DomainTradeRepublicPosition,
     NON_SHARE_TYPES,
     POSITION_ASSET_CLASSES,
     SHARE_DECREASE_TYPES,
@@ -22,6 +23,7 @@ from app.domain.portfolio.trade_republic import (
 )
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
+from app.services.fx import FxRate, eur_to_usd, get_eur_usd_rate
 from app.schemas import (
     IsinMappingListResponse,
     IsinMappingPatchRequest,
@@ -88,6 +90,7 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
     if not rows:
         return []
 
+    rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
     invested = sum(row.current_price * row.shares for row in rows)
     positions: list[PortfolioPosition] = []
     for row in rows:
@@ -136,6 +139,10 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         cash = portfolio_repository.get_cash_balance()
     except PortfolioRepositoryUnavailable:
         cash = 0.0
+    display_currency = _portfolio_display_currency(positions)
+    if display_currency == "USD":
+        fx_rate = get_eur_usd_rate()
+        cash = round(float(eur_to_usd(cash, rate=fx_rate) or 0.0), 2)
     total = invested + cash
     portfolio_atr_pct = sum(position.weight_pct * position.atr_pct for position in positions) / 100 if positions else 0
     total_pnl_abs = sum(position.pnl_abs for position in positions)
@@ -151,15 +158,15 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         beta_balancer=1,
         max_depot_loss_pct=sum(position.weight_pct * 0.08 for position in positions) / 100,
         kpis=[
-            KpiCard(label="Depotwert", value=f"{total:,.0f} EUR", detail="aus Import", tone="neutral"),
+            KpiCard(label="Depotwert", value=f"{total:,.0f} {display_currency}", detail="aus Import", tone="neutral"),
             KpiCard(label="Positionen", value=str(len(positions)), detail="offen", tone="good"),
             KpiCard(
                 label="Unrealisiert",
-                value=f"{total_pnl_abs:+,.0f} EUR",
+                value=f"{total_pnl_abs:+,.0f} {display_currency}",
                 detail=f"{total_pnl_pct:+.1f}% ggü. Einstand",
                 tone="good" if total_pnl_abs >= 0 else "bad",
             ),
-            KpiCard(label="Cashquote", value=f"{cash / total * 100:.1f}%" if total else "0.0%", detail=f"{cash:,.0f} EUR", tone="neutral"),
+            KpiCard(label="Cashquote", value=f"{cash / total * 100:.1f}%" if total else "0.0%", detail=f"{cash:,.0f} {display_currency}", tone="neutral"),
             KpiCard(
                 label="Portfolio ATR",
                 value=f"{portfolio_atr_pct:.2f}%",
@@ -306,6 +313,7 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         return None
     if not transactions:
         return None
+    fx_rate = get_eur_usd_rate()
 
     start_date = min(row.date for row in transactions)
     end_date = date.today()
@@ -338,7 +346,7 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
 
         cached_prices = _cached_price_series(ticker, start_date) if ticker else pd.Series(dtype=float)
         if cached_prices.empty:
-            cached_prices = _trade_price_fallback_series(instrument_transactions, calendar)
+            cached_prices = _trade_price_fallback_series(instrument_transactions, calendar, fx_rate=fx_rate)
             if cached_prices.empty:
                 missing_price_instruments.append(label)
                 continue
@@ -355,9 +363,9 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
             if next_days.empty:
                 continue
             day = next_days[0]
-        cash_daily.loc[day] += row.net_amount
+        cash_daily.loc[day] += _money_to_usd(row.net_amount, row.currency, fx_rate)
         if normalize_transaction_type(row.transaction_type) in TR_EXTERNAL_FLOW_TYPES:
-            external_daily.loc[day] += row.net_amount
+            external_daily.loc[day] += _money_to_usd(row.net_amount, row.currency, fx_rate)
 
     curve = pd.DataFrame(
         {
@@ -417,7 +425,7 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         details.append("Trade-Price-Fallback: " + ", ".join(trade_price_fallbacks))
     if missing_price_instruments:
         details.append("Kursdaten fehlen: " + ", ".join(missing_price_instruments))
-    message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport."
+    message = f"Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, TR-EUR-Werte mit EUR/USD {fx_rate.rate:.4f} in USD umgerechnet."
     if details:
         message += " " + " · ".join(details)
 
@@ -466,9 +474,15 @@ def _rounded_series_value(series: pd.Series, timestamp: pd.Timestamp) -> float |
     return round(float(value), 2) if pd.notna(value) else None
 
 
-def _trade_price_fallback_series(transactions: list[portfolio_repository.TradeRepublicStoredTransactionRow], calendar: pd.DatetimeIndex) -> pd.Series:
+def _trade_price_fallback_series(
+    transactions: list[portfolio_repository.TradeRepublicStoredTransactionRow],
+    calendar: pd.DatetimeIndex,
+    *,
+    fx_rate: FxRate | None = None,
+) -> pd.Series:
+    rate = fx_rate or get_eur_usd_rate()
     values = [
-        (pd.Timestamp(row.date), float(row.price))
+        (pd.Timestamp(row.date), _money_to_usd(float(row.price), row.currency, rate))
         for row in transactions
         if row.price is not None
         and row.price > 0
@@ -748,6 +762,9 @@ def import_trade_republic_transaction_export(
         if str(item.get("ticker") or "").strip()
     }
     reconstructed, skipped = reconstruct_open_positions(rows, ticker_by_isin)
+    fx_rate = get_eur_usd_rate()
+    normalized_reconstructed = _trade_republic_positions_to_usd(reconstructed, fx_rate)
+    converted_isins = {item.isin for item in reconstructed if str(item.currency or "").upper() == "EUR"}
     open_mapping_isins = {item.isin for item in reconstructed}
     open_mapping_isins.update(item.isin for item in skipped if item.asset_class in POSITION_ASSET_CLASSES)
     response_diagnostics = [
@@ -766,10 +783,10 @@ def import_trade_republic_transaction_export(
             buy_date=item.first_buy_date,
             broker="Trade Republic",
             account="Trade Republic",
-            note=f"TR-Transaktionsimport / ISIN {item.isin}",
+            note=_trade_republic_import_note(item.isin, fx_rate=fx_rate, converted=item.isin in converted_isins),
             warnings=[],
         )
-        for item in reconstructed
+        for item in normalized_reconstructed
     ]
     mappings = [
         TradeRepublicIsinMappingItem(
@@ -797,6 +814,10 @@ def import_trade_republic_transaction_export(
         warnings.append("Für diese ISINs fehlt ein Yahoo-Ticker: " + ", ".join(missing_mappings))
     if skipped_positions:
         warnings.append(f"{len(skipped_positions)} offene Position(en) werden nicht automatisch importiert.")
+    if converted_isins:
+        warnings.append(
+            f"TR-EUR-Preise wurden automatisch mit EUR/USD {fx_rate.rate:.4f} ({fx_rate.source}, {fx_rate.as_of.isoformat()}) in USD umgerechnet."
+        )
 
     if payload.dry_run:
         return TradeRepublicTransactionImportResponse(
@@ -814,7 +835,7 @@ def import_trade_republic_transaction_export(
 
     result = portfolio_repository.import_trade_republic_transactions(
         transactions=rows,
-        positions=reconstructed,
+        positions=normalized_reconstructed,
         mappings=ticker_by_isin,
         file_name=payload.file_name,
         replace_open_positions=payload.replace_open_positions,
@@ -875,6 +896,7 @@ def update_isin_mappings(payload: IsinMappingPatchRequest) -> IsinMappingListRes
 
 
 def _position_from_row(row: portfolio_repository.PortfolioPositionRow, *, invested: float) -> PortfolioPosition:
+    row = _normalize_trade_republic_row_to_usd(row)
     market_value = row.current_price * row.shares
     pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
     pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
@@ -901,6 +923,80 @@ def _position_from_row(row: portfolio_repository.PortfolioPositionRow, *, invest
         account=row.account,
         note=row.note,
     )
+
+
+def _trade_republic_positions_to_usd(
+    positions: list[DomainTradeRepublicPosition],
+    fx_rate: FxRate,
+) -> list[DomainTradeRepublicPosition]:
+    normalized: list[DomainTradeRepublicPosition] = []
+    for item in positions:
+        if str(item.currency or "").upper() != "EUR":
+            normalized.append(item)
+            continue
+        normalized.append(
+            DomainTradeRepublicPosition(
+                isin=item.isin,
+                ticker=item.ticker,
+                name=item.name,
+                shares=item.shares,
+                avg_buy_price=round(float(eur_to_usd(item.avg_buy_price, rate=fx_rate) or 0.0), 6),
+                first_buy_date=item.first_buy_date,
+                currency="USD",
+                asset_class=item.asset_class,
+            )
+        )
+    return normalized
+
+
+def _trade_republic_import_note(isin: str, *, fx_rate: FxRate, converted: bool) -> str:
+    note = f"TR-Transaktionsimport / ISIN {isin}"
+    if converted:
+        note += f" / EUR-Preise mit EUR/USD {fx_rate.rate:.4f} nach USD umgerechnet"
+    return note
+
+
+def _normalize_trade_republic_row_to_usd(
+    row: portfolio_repository.PortfolioPositionRow,
+    *,
+    fx_rate: FxRate | None = None,
+) -> portfolio_repository.PortfolioPositionRow:
+    if "trade republic" not in str(row.broker or "").lower() or str(row.currency or "").upper() != "EUR":
+        return row
+    rate = fx_rate or get_eur_usd_rate()
+    entry_price = float(eur_to_usd(row.entry_price, rate=rate) or row.entry_price)
+    current_price = row.current_price
+    if row.current_price_source != "price_cache":
+        current_price = float(eur_to_usd(row.current_price, rate=rate) or row.current_price)
+    stop_price = float(eur_to_usd(row.stop_price, rate=rate)) if row.stop_price is not None else None
+    return portfolio_repository.PortfolioPositionRow(
+        ticker=row.ticker,
+        name=row.name,
+        shares=row.shares,
+        entry_price=round(entry_price, 6),
+        current_price=round(float(current_price), 6),
+        currency="USD",
+        buy_date=row.buy_date,
+        pivot_tag=row.pivot_tag,
+        stop_pct=row.stop_pct,
+        stop_price=round(stop_price, 6) if stop_price is not None else None,
+        broker=row.broker,
+        account=row.account,
+        note=row.note,
+        current_price_source=row.current_price_source,
+    )
+
+
+def _money_to_usd(value: float, currency: str, fx_rate: FxRate) -> float:
+    if str(currency or "").upper() == "EUR":
+        return float(eur_to_usd(value, rate=fx_rate) or 0.0)
+    return float(value or 0.0)
+
+
+def _portfolio_display_currency(positions: list[PortfolioPosition]) -> str:
+    if positions and all(position.currency == "USD" for position in positions):
+        return "USD"
+    return "EUR"
 
 
 def _transaction_schema(row: portfolio_repository.PortfolioTransactionRow) -> PortfolioTransaction:

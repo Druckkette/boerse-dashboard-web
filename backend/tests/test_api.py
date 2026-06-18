@@ -507,7 +507,17 @@ def test_portfolio_import_dry_run_contract() -> None:
     assert payload["positions"][0]["ticker"] == "NVDA"
 
 
-def test_trade_republic_transaction_import_preview_contract() -> None:
+def test_trade_republic_transaction_import_preview_contract(monkeypatch) -> None:
+    from datetime import date
+
+    from app.services import portfolio as portfolio_service
+    from app.services.fx import FxRate
+
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_eur_usd_rate",
+        lambda: FxRate(pair="EUR/USD", rate=1.0, as_of=date(2026, 1, 1), source="test"),
+    )
     csv_content = (
         "date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax\n"
         "2025-01-02,2025-01-02T10:00:00Z,BUY,STOCK,NVIDIA,US67066G1040,10,100,USD,-1000,-1,0\n"

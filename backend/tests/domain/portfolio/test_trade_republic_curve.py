@@ -7,12 +7,22 @@ import pytest
 
 from app.repositories import portfolio as portfolio_repository
 from app.services import portfolio as portfolio_service
+from app.services.fx import FxRate
 
 
 @dataclass(frozen=True)
 class PriceRow:
     date: date
     close: float
+
+
+@pytest.fixture(autouse=True)
+def fixed_fx_rate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_eur_usd_rate",
+        lambda: FxRate(pair="EUR/USD", rate=1.0, as_of=date(2026, 1, 1), source="test"),
+    )
 
 
 def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:

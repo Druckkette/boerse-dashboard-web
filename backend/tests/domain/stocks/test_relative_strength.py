@@ -21,6 +21,10 @@ def test_relative_strength_ranks_leaders_above_laggards() -> None:
     assert by_ticker["LAG"].rating < by_ticker["MATCH"].rating < by_ticker["LEAD"].rating
     assert by_ticker["LEAD"].metadata["excess_return_6m_pct"] > 0
     assert by_ticker["LAG"].metadata["excess_return_6m_pct"] < 0
+    assert by_ticker["LEAD"].metadata["rs_ema21_last"] is not None
+    assert by_ticker["LEAD"].metadata["rs_ema50_last"] is not None
+    assert by_ticker["LEAD"].metadata["rs_history"]
+    assert {"date", "rs", "rs_ema21", "rs_ema50"}.issubset(by_ticker["LEAD"].metadata["rs_history"][-1])
 
 
 def test_relative_strength_returns_empty_without_benchmark() -> None:

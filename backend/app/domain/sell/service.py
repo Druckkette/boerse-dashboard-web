@@ -42,6 +42,7 @@ from app.repositories import prices as prices_repository
 from app.repositories import sell_state as sell_state_repository
 from app.repositories.portfolio import PortfolioPositionRow, PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
+from app.services.fx import eur_to_usd, get_eur_usd_rate
 
 
 _SYNTHETIC_END_DATE = date(2026, 6, 5)
@@ -665,23 +666,24 @@ def _portfolio_position_context(ticker: str) -> PortfolioPositionRow | None:
 def _metrics_request_from_portfolio_row(row: PortfolioPositionRow) -> SellMetricsRequest:
     dates = _price_dates()
     buy_date = row.buy_date or dates[-170].date()
-    current_price = _finite_float(row.current_price, row.entry_price)
+    buy_price, current_price, currency = _portfolio_row_prices_for_sell(row)
     return SellMetricsRequest(
         ticker=row.ticker,
         buy_date=buy_date,
-        buy_price=row.entry_price,
+        buy_price=buy_price,
         shares=row.shares,
         current_price=current_price,
         benchmark_ticker="SPY",
-        currency=row.currency or "USD",
+        currency=currency,
         pivot_date=buy_date,
         scenario=_scenario_for_portfolio_row(row),
     )
 
 
 def _scenario_for_portfolio_row(row: PortfolioPositionRow) -> str:
-    current_price = _finite_float(row.current_price, row.entry_price) or row.entry_price
-    pnl_pct = (current_price / row.entry_price - 1) * 100 if row.entry_price else 0
+    entry_price, current_price, _currency = _portfolio_row_prices_for_sell(row)
+    current = _finite_float(current_price, entry_price) or entry_price
+    pnl_pct = (current / entry_price - 1) * 100 if entry_price else 0
     if pnl_pct <= -8:
         return "losing"
     if pnl_pct <= -3:
@@ -689,6 +691,19 @@ def _scenario_for_portfolio_row(row: PortfolioPositionRow) -> str:
     if pnl_pct >= 70:
         return "climax"
     return "profit"
+
+
+def _portfolio_row_prices_for_sell(row: PortfolioPositionRow) -> tuple[float, float | None, str]:
+    entry_price = _finite_float(row.entry_price) or row.entry_price
+    current_price = _finite_float(row.current_price, entry_price)
+    currency = row.currency or "USD"
+    if "trade republic" in str(row.broker or "").lower() and str(row.currency or "").upper() == "EUR":
+        fx_rate = get_eur_usd_rate()
+        entry_price = float(eur_to_usd(entry_price, rate=fx_rate) or entry_price)
+        if row.current_price_source != "price_cache":
+            current_price = float(eur_to_usd(current_price, rate=fx_rate) or current_price)
+        currency = "USD"
+    return entry_price, current_price, currency
 
 
 def _position_context(ticker: str) -> dict[str, Any]:
