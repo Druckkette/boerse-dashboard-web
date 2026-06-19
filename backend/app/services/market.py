@@ -1657,7 +1657,7 @@ def _ampel_phase_info(
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="AUFWÄRTSTREND",
-            reason="MA-Ordnung bestätigt: Kurs über 21-EMA und 200-SMA, 21-EMA > 50-SMA > 200-SMA. Ampel-Zyklus abgeschlossen.",
+            reason="Rückenwind aktiv: 21-EMA > 50-SMA > 200-SMA. Fällt 21-EMA unter 50-SMA, geht die Ampel auf Grün zurück.",
             action="Offensiv handeln. Viele kleine Positionen und beste Läufer aufstocken.",
             tone="good",
         )
@@ -1673,10 +1673,10 @@ def _ampel_phase_info(
 def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
     active_key = phase
     rules = {
-        "rot": "ROT wird aktiv bei Drawdown von mehr als 10% vom jüngsten Hoch oder Schlusskurs unter der 50-SMA bei mindestens 4 Distribution Days im 25-Tage-Fenster.",
+        "rot": "ROT wird aktiv bei Drawdown von mehr als 10% vom jüngsten Hoch, Schlusskurs unter der 200-SMA oder Schlusskurs unter der 50-SMA bei mindestens 4 Distribution Days im 25-Tage-Fenster.",
         "gelb": "GELB wird aktiv, wenn nach einem Ankertag frühestens ab Tag 5 ein Startschuss auftritt: mindestens +1,0%, Volumen über Vortag und kein Unterschreiten der Bodenmarke intraday.",
         "gruen": f"GRÜN wird aktiv, wenn der Startschuss hält und nach GELB mehr als {GREEN_CONFIRMATION_DAYS} weitere Handelstage vergehen, ohne dass das Startschuss-Tief per Schlusskurs gebrochen wird.",
-        "aufwaertstrend": f"AUFWÄRTSTREND wird aktiv, wenn die grüne Phase mindestens {UPTREND_CONFIRMATION_DAYS} Tage Bestand hatte, der Index über 21-EMA und 200-SMA liegt und 21-EMA > 50-SMA > 200-SMA gilt.",
+        "aufwaertstrend": f"AUFWÄRTSTREND/RÜCKENWIND wird aktiv, wenn die grüne Phase mindestens {UPTREND_CONFIRMATION_DAYS} Tage Bestand hatte und 21-EMA > 50-SMA > 200-SMA gilt. Schluss unter 200-SMA schaltet Rot.",
     }
     lights = [
         MarketAmpelLight(key="rot", label="ROT", active=active_key == "rot", rule=rules["rot"], tone="bad"),

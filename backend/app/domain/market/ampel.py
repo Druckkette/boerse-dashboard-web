@@ -204,20 +204,16 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
         )
         return drawdown_pct < -10 or below_sma50_with_distribution
 
-    def uptrend_confirmed(index: int) -> bool:
-        ma_order = (
+    def moving_averages_in_correct_order(index: int) -> bool:
+        return bool(
             _is_finite(ema21[index])
             and _is_finite(sma50[index])
             and _is_finite(sma200[index])
             and ema21[index] > sma50[index] > sma200[index]
         )
-        price_above_key_mas = (
-            _is_finite(sma200[index])
-            and _is_finite(ema21[index])
-            and close[index] > sma200[index]
-            and close[index] > ema21[index]
-        )
-        return bool(ma_order and price_above_key_mas)
+
+    def sma200_broken(index: int) -> bool:
+        return _is_finite(sma200[index]) and close[index] < sma200[index]
 
     def startschuss_low_broken(index: int) -> bool:
         return startschuss_low is not None and close[index] < startschuss_low
@@ -230,6 +226,9 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             if phase == "aufwaertstrend" and startschuss_low_broken(index):
                 phase = "rot"
                 clear_state()
+            elif sma200_broken(index):
+                phase = "rot"
+                clear_state()
             elif correction_detected(index):
                 phase = "rot"
                 clear_state()
@@ -237,8 +236,7 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 phase == "aufwaertstrend"
                 and _is_finite(ema21[index])
                 and _is_finite(sma50[index])
-                and _is_finite(sma200[index])
-                and not uptrend_confirmed(index)
+                and ema21[index] < sma50[index]
             ):
                 phase = "gruen" if startschuss_low is not None and close[index] >= startschuss_low else "rot"
                 if phase == "rot":
@@ -264,24 +262,25 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 and daily_pct >= 1.0
                 and volume[index] > volume[index - 1]
                 and low[index] >= floor_mark
+                and not sma200_broken(index)
             ):
                 phase = "gelb"
                 startschuss_idx = index
                 startschuss_low = float(low[index])
                 startschuss_bonus = _is_finite(ema21[index]) and close[index] > ema21[index]
         elif phase == "gelb":
-            if startschuss_low_broken(index):
+            if startschuss_low_broken(index) or sma200_broken(index):
                 phase = "rot"
                 clear_state()
             elif startschuss_idx is not None and index > startschuss_idx + GREEN_CONFIRMATION_DAYS:
                 phase = "gruen"
                 gruen_since = index
         elif phase == "gruen":
-            if startschuss_low_broken(index):
+            if startschuss_low_broken(index) or sma200_broken(index):
                 phase = "rot"
                 clear_state()
             elif (
-                uptrend_confirmed(index)
+                moving_averages_in_correct_order(index)
                 and gruen_since is not None
                 and index - gruen_since >= UPTREND_CONFIRMATION_DAYS
             ):

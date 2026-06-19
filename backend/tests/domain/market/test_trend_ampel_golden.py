@@ -83,6 +83,37 @@ def test_uptrend_resets_to_red_when_close_breaks_startschuss_low() -> None:
     assert latest.startschuss_low is None
 
 
+def test_uptrend_falls_back_to_green_when_ema21_loses_sma50() -> None:
+    points = compute_trend_ampel(_uptrend_loses_ema21_sma50_order_bars())
+    latest = points[-1]
+
+    assert "aufwaertstrend" in [point.phase for point in points]
+    assert latest.phase == "gruen"
+    assert latest.startschuss_low is not None
+    assert latest.close is not None
+    assert latest.sma200 is not None
+    assert latest.ema21 is not None
+    assert latest.sma50 is not None
+    assert latest.close > latest.startschuss_low
+    assert latest.close > latest.sma200
+    assert latest.ema21 < latest.sma50
+
+
+def test_ampel_turns_red_when_close_breaks_sma200() -> None:
+    points = compute_trend_ampel(_green_breaks_sma200_without_breaking_startschuss_low_bars())
+    previous = points[-2]
+    latest = points[-1]
+
+    assert previous.phase in {"gruen", "aufwaertstrend"}
+    assert previous.startschuss_low is not None
+    assert previous.sma200 is not None
+    assert latest.close is not None
+    assert latest.close > previous.startschuss_low
+    assert latest.close < previous.sma200
+    assert latest.phase == "rot"
+    assert latest.startschuss_low is None
+
+
 def test_green_waits_for_full_ma_order_before_uptrend() -> None:
     points = compute_trend_ampel(_green_without_full_ma_order_bars())
     latest = points[-1]
@@ -168,6 +199,54 @@ def _green_to_uptrend_bars() -> list[TrendAmpelBar]:
             )
         )
         previous_close = float(close)
+    return bars
+
+
+def _uptrend_loses_ema21_sma50_order_bars() -> list[TrendAmpelBar]:
+    bars = _green_to_uptrend_bars()
+    previous_close = bars[-1].close
+    for offset in range(240, 279):
+        close = previous_close + (162.0 - previous_close) * 0.35
+        bars.append(
+            _bar(
+                offset,
+                open_price=previous_close,
+                close=float(close),
+                high=max(previous_close, float(close)) + 0.8,
+                low=min(previous_close, float(close)) - 0.8,
+                volume=1_050_000,
+            )
+        )
+        previous_close = float(close)
+    return bars
+
+
+def _green_breaks_sma200_without_breaking_startschuss_low_bars() -> list[TrendAmpelBar]:
+    bars = _green_to_uptrend_bars()
+    previous_close = bars[-1].close
+    for offset in range(240, 360):
+        bars.append(
+            _bar(
+                offset,
+                open_price=previous_close,
+                close=175.0,
+                high=max(previous_close, 175.0) + 1.0,
+                low=min(previous_close, 175.0) - 1.0,
+                volume=1_100_000,
+            )
+        )
+        previous_close = 175.0
+
+    bars.append(
+        _bar(
+            360,
+            open_price=previous_close,
+            close=160.0,
+            high=previous_close + 1.0,
+            low=159.0,
+            volume=1_200_000,
+        )
+    )
     return bars
 
 
