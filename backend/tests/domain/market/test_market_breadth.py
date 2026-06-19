@@ -112,6 +112,21 @@ def test_breadth_uses_streamlit_rana_and_intraday_new_high_low_rules() -> None:
     assert latest.new_lows == 1
 
 
+def test_breadth_tracks_up_down_volume_ratio() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "AAA": _ohlcv_series("AAA", start, [100, 101, 102], volume=2_000_000),
+        "BBB": _ohlcv_series("BBB", start, [100, 99, 98], volume=1_000_000),
+        "CCC": _ohlcv_series("CCC", start, [100, 100, 100], volume=3_000_000),
+    }
+
+    latest = compute_breadth_series(series, universe="test_universe", universe_size=3)[-1]
+
+    assert latest.up_volume == pytest.approx(2_000_000)
+    assert latest.down_volume == pytest.approx(1_000_000)
+    assert latest.up_down_volume_ratio == pytest.approx(2.0)
+
+
 def test_market_snapshot_classifies_constructive_breadth() -> None:
     start = date(2025, 1, 2)
     series = {
@@ -499,7 +514,13 @@ def _series(ticker: str, start: date, closes: list[float]) -> list[MarketPricePo
     ]
 
 
-def _ohlcv_series(ticker: str, start: date, closes: list[float]) -> list[MarketOhlcvPoint]:
+def _ohlcv_series(
+    ticker: str,
+    start: date,
+    closes: list[float],
+    *,
+    volume: float = 1_000_000,
+) -> list[MarketOhlcvPoint]:
     return [
         MarketOhlcvPoint(
             ticker=ticker,
@@ -508,7 +529,7 @@ def _ohlcv_series(ticker: str, start: date, closes: list[float]) -> list[MarketO
             high=close + 0.5,
             low=close - 0.5,
             close=close,
-            volume=1_000_000,
+            volume=volume,
         )
         for index, close in enumerate(closes)
     ]

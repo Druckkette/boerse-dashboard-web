@@ -263,6 +263,48 @@ class BreadthResponse(BaseModel):
     points: list[BreadthPoint]
 
 
+class MarketBreadthOverviewPoint(BaseModel):
+    date: str
+    advancers: int
+    decliners: int
+    advance_decline_ratio: float | None = None
+    ad_line: float | None = None
+    mcclellan: float | None = None
+    new_highs: int = 0
+    new_lows: int = 0
+    nh_nl_ratio: float | None = None
+    pct_above_20sma: float | None = None
+    pct_above_50sma: float | None = None
+    pct_above_200sma: float | None = None
+    up_volume: float | None = None
+    down_volume: float | None = None
+    up_down_volume_ratio: float | None = None
+    deemer_ratio: float | None = None
+
+
+class MarketBreadthSignal(BaseModel):
+    key: str
+    title: str
+    value: str
+    detail: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+    comment: str = ""
+    metrics: dict = Field(default_factory=dict)
+
+
+class MarketBreadthOverviewResponse(BaseModel):
+    as_of: str
+    universe: str
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "stale", "missing"]
+    message: str = ""
+    coverage_ratio: float
+    loaded_universe: int = 0
+    requested_universe: int | None = None
+    signals: list[MarketBreadthSignal]
+    points: list[MarketBreadthOverviewPoint]
+
+
 class UniverseStatusResponse(BaseModel):
     key: str
     name: str

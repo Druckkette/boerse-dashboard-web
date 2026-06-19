@@ -1,6 +1,5 @@
-import { BreadthChartPanel } from "@/features/market/breadth-chart-panel";
-import { DeepAnalysisPanel } from "@/features/market/deep-analysis-panel";
 import { MarketAmpelPanel } from "@/features/market/market-ampel-panel";
+import { MarketBreadthOverviewPanel } from "@/features/market/market-breadth-overview-panel";
 import { MarketDiagnosticsPanel } from "@/features/market/market-diagnostics-panel";
 import { MarketOverviewPanel } from "@/features/market/market-overview-panel";
 import { VolatilityPanel } from "@/features/market/volatility-panel";
@@ -18,19 +17,16 @@ export default function MarketPage() {
         <MarketDiagnosticsPanel />
       </MarketArea>
       <MarketArea
-        title="Marktbreite und Volatilität"
-        description="Equal-Weight-Breadth, Breadth-Snapshot und VIX/VXX-Regime aus dem vorberechneten Cache."
+        title="Marktbreite"
+        description="Russell-vs-S&P, Equal-Weight-ETFs, A/D, Volumen, McClellan, NH/NL, MA-Teilnahme und Deemer Ratio."
       >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <BreadthChartPanel />
-          <VolatilityPanel />
-        </div>
+        <MarketBreadthOverviewPanel />
       </MarketArea>
       <MarketArea
-        title="Tiefenanalyse"
-        description="McClellan, NH/NL, Deemer Ratio und Divergenzprüfungen aus dem gespeicherten Aktienuniversum."
+        title="Volatilität"
+        description="VIX/VXX-Regime aus dem vorberechneten Price Cache."
       >
-        <DeepAnalysisPanel />
+        <VolatilityPanel />
       </MarketArea>
     </div>
   );

@@ -4,6 +4,7 @@ from app.repositories.universes import UniverseRepositoryUnavailable
 from app.schemas import (
     BreadthResponse,
     MarketAmpelResponse,
+    MarketBreadthOverviewResponse,
     MarketDeepAnalysisResponse,
     MarketDiagnosticsResponse,
     MarketOverviewResponse,
@@ -15,6 +16,7 @@ from app.schemas import (
 )
 from app.services.market import (
     get_breadth,
+    get_market_breadth_overview,
     get_market_ampel,
     get_market_deep_analysis,
     get_market_diagnostics,
@@ -48,6 +50,13 @@ def market_ampel(
 @router.get("/breadth", response_model=BreadthResponse)
 def market_breadth() -> BreadthResponse:
     return get_breadth()
+
+
+@router.get("/breadth-overview", response_model=MarketBreadthOverviewResponse)
+def market_breadth_overview(
+    limit: int = Query(default=260, ge=60, le=500),
+) -> MarketBreadthOverviewResponse:
+    return get_market_breadth_overview(limit=limit)
 
 
 @router.get("/deep-analysis", response_model=MarketDeepAnalysisResponse)

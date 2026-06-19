@@ -18,6 +18,8 @@ export function MarketOverviewPanel() {
   if (isLoading) return <div className="rounded border border-[#2d333d] p-4">Market lädt...</div>;
   if (error || !data) return <div className="rounded border border-rose-400/40 p-4">Market API nicht erreichbar.</div>;
 
+  const overviewKpis = data.kpis.filter((item) => !isBreadthKpi(item.label));
+
   return (
     <section className="space-y-4">
       <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -30,9 +32,6 @@ export function MarketOverviewPanel() {
                   {data.trend_ampel.ticker} {data.trend_ampel.phase_label}
                 </StatusChip>
               )}
-              <StatusChip tone={toneForBreadthMode(data.breadth_mode)}>
-                EW-Breite: {breadthLabel(data.breadth_mode)}
-              </StatusChip>
               <StatusChip tone="neutral">{data.volatility_regime}</StatusChip>
               <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
@@ -81,11 +80,13 @@ export function MarketOverviewPanel() {
           </div>
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {data.kpis.map((item) => (
-          <KpiCard key={item.label} item={item} />
-        ))}
-      </div>
+      {overviewKpis.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {overviewKpis.map((item) => (
+            <KpiCard key={item.label} item={item} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -96,16 +97,16 @@ function toneForPhase(phase: string) {
   return "bad";
 }
 
-function toneForBreadthMode(mode: string) {
-  if (mode === "rueckenwind") return "good";
-  if (mode === "wachsam") return "warning";
-  return "bad";
-}
-
-function breadthLabel(mode: string) {
-  if (mode === "rueckenwind") return "Rückenwind";
-  if (mode === "wachsam") return "Wachsam";
-  return "Schutz";
+function isBreadthKpi(label: string) {
+  return [
+    "Aktien > 50-SMA",
+    "Aktien > 200-SMA",
+    "Breadth",
+    "McClellan",
+    "Coverage",
+    "New Highs/Lows",
+    "Marktbreite EW-Indizes"
+  ].includes(label);
 }
 
 function formatNumber(value?: number | null) {

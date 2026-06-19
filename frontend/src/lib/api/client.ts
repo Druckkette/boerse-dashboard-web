@@ -8,6 +8,7 @@ import type {
   Job,
   JobType,
   MarketAmpel,
+  MarketBreadthOverview,
   MarketDeepAnalysis,
   MarketDiagnostics,
   MarketOverview,
@@ -144,6 +145,7 @@ export const api = {
   marketAmpel: (ticker = "SPY", days = 90) =>
     getJson<MarketAmpel>(`/market/ampel?ticker=${encodeURIComponent(ticker)}&days=${days}`),
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
+  marketBreadthOverview: (limit = 260) => getJson<MarketBreadthOverview>(`/market/breadth-overview?limit=${limit}`),
   marketDeepAnalysis: (limit = 260) => getJson<MarketDeepAnalysis>(`/market/deep-analysis?limit=${limit}`),
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
   marketDiagnostics: () => getJson<MarketDiagnostics>("/market/diagnostics"),

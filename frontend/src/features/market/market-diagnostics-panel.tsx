@@ -38,6 +38,9 @@ export function MarketDiagnosticsPanel() {
     );
   }
 
+  const checklist = data.checklist.filter((check) => check.category !== "breadth");
+  const intermarketItems = data.intermarket.filter((item) => item.ticker !== "^RUT");
+
   return (
     <section className="space-y-4">
       <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -69,10 +72,10 @@ export function MarketDiagnosticsPanel() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-        <Checklist checks={data.checklist} />
+        <Checklist checks={checklist} />
         <SectorRotation groups={data.sector_rotation} spread={data.defensive_spread_pct} />
       </div>
-      <IntermarketTable items={data.intermarket} />
+      <IntermarketTable items={intermarketItems} />
     </section>
   );
 }
@@ -165,7 +168,7 @@ function IntermarketTable({ items }: { items: MarketIntermarketItem[] }) {
       </div>
       {items.length === 0 ? (
         <div className="rounded border border-[#242a33] bg-[#111419] p-3 text-sm text-[#a0a7b4]">
-          Keine Indexdaten für SPY, QQQ oder IWM im Cache.
+          Keine Indexdaten für S&P 500 oder Nasdaq im Cache.
         </div>
       ) : (
         <div className="overflow-x-auto">

@@ -43,6 +43,8 @@ export function MarketAmpelPanel() {
   }
 
   const data = query.data;
+  const heroReasons = data.hero.reasons.filter((reason) => !reason.includes("Marktbreite Gleichgewichtete Indizes"));
+  const changeCards = data.change_cards.filter((card) => card.title !== "EW-Breite");
   const chartPoints = data.chart_points.map((point) => ({
     date: point.date,
     open: point.open,
@@ -66,16 +68,13 @@ export function MarketAmpelPanel() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <StatusChip tone={data.hero.tone}>{data.hero.mode}</StatusChip>
               <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
-              <StatusChip tone={toneForBreadth(data.breadth_mode)}>
-                EW-Breite: {breadthLabel(data.breadth_mode)}
-              </StatusChip>
               <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
             <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">Marktampel</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#d8dde6]">{data.hero.action}</p>
             <div className="mt-4 grid gap-2 md:grid-cols-2">
-              {data.hero.reasons.map((reason) => (
+              {heroReasons.map((reason) => (
                 <div key={reason} className="rounded border border-white/10 bg-black/15 px-3 py-2 text-sm text-[#c9d0da]">
                   {reason}
                 </div>
@@ -132,7 +131,7 @@ export function MarketAmpelPanel() {
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <TrafficLightPanel data={data} />
         <div className="grid gap-3 sm:grid-cols-2">
-          {data.change_cards.map((card) => (
+          {changeCards.map((card) => (
             <ChangeCard key={card.title} card={card} />
           ))}
         </div>
@@ -188,7 +187,7 @@ export function MarketAmpelPanel() {
 
       <StreamlitSection
         title="Tägliche Checkliste"
-        description="Operative Kurzprüfung aus Ampelphase, Marktbreite, Volatilität und Warnzeichen."
+        description="Operative Kurzprüfung aus Ampelphase, Volatilität und Warnzeichen."
       >
         <DailyChecklist data={data} />
       </StreamlitSection>
@@ -470,11 +469,6 @@ function DailyChecklist({ data }: { data: MarketAmpel }) {
       detail: `Phase: ${data.phase_info.label}`
     },
     {
-      label: "Marktbreite Gleichgewichtete Indizes?",
-      passed: data.breadth_mode !== "schutz",
-      detail: `RSP/QQEW 3-Tage-Modus: ${breadthLabel(data.breadth_mode)}`
-    },
-    {
       label: "VIX Regime nicht Stress?",
       passed: data.vix_regime !== "Stress",
       detail: `Regime: ${data.vix_regime || "n/a"}`
@@ -600,18 +594,6 @@ function toneText(tone: Tone) {
   if (tone === "bad") return "text-rose-200";
   if (tone === "warning") return "text-amber-100";
   return "text-[#c9d0da]";
-}
-
-function toneForBreadth(mode: MarketAmpel["breadth_mode"]): Tone {
-  if (mode === "rueckenwind") return "good";
-  if (mode === "wachsam") return "warning";
-  return "bad";
-}
-
-function breadthLabel(mode: MarketAmpel["breadth_mode"]) {
-  if (mode === "rueckenwind") return "Rückenwind";
-  if (mode === "wachsam") return "Wachsam";
-  return "Schutz";
 }
 
 function warningTone(count: number): Tone {

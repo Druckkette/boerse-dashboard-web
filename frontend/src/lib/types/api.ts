@@ -182,6 +182,48 @@ export type Breadth = {
   points: BreadthPoint[];
 };
 
+export type MarketBreadthOverviewPoint = {
+  date: string;
+  advancers: number;
+  decliners: number;
+  advance_decline_ratio?: number | null;
+  ad_line?: number | null;
+  mcclellan?: number | null;
+  new_highs: number;
+  new_lows: number;
+  nh_nl_ratio?: number | null;
+  pct_above_20sma?: number | null;
+  pct_above_50sma?: number | null;
+  pct_above_200sma?: number | null;
+  up_volume?: number | null;
+  down_volume?: number | null;
+  up_down_volume_ratio?: number | null;
+  deemer_ratio?: number | null;
+};
+
+export type MarketBreadthSignal = {
+  key: string;
+  title: string;
+  value: string;
+  detail: string;
+  tone: Tone;
+  comment: string;
+  metrics: Record<string, unknown>;
+};
+
+export type MarketBreadthOverview = {
+  as_of: string;
+  universe: string;
+  source: "database" | "missing";
+  data_status: "fresh" | "stale" | "missing";
+  message: string;
+  coverage_ratio: number;
+  loaded_universe: number;
+  requested_universe?: number | null;
+  signals: MarketBreadthSignal[];
+  points: MarketBreadthOverviewPoint[];
+};
+
 export type MarketDeepAnalysisMetric = {
   label: string;
   value: string;

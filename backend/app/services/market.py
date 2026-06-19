@@ -54,6 +54,9 @@ from app.schemas import (
     MarketAmpelPhaseInfo,
     MarketAmpelResponse,
     MarketAmpelWarningCheck,
+    MarketBreadthOverviewPoint,
+    MarketBreadthOverviewResponse,
+    MarketBreadthSignal,
     MarketDeepAnalysisCheck,
     MarketDeepAnalysisMetric,
     MarketDeepAnalysisPoint,
@@ -108,6 +111,9 @@ class BreadthComputationPoint:
     covered_count: int
     valid_for_50sma: int
     valid_for_200sma: int
+    up_volume: float | None = None
+    down_volume: float | None = None
+    up_down_volume_ratio: float | None = None
 
 
 def get_market_overview() -> MarketOverviewResponse:
@@ -301,6 +307,60 @@ def get_breadth(universe: str = DEFAULT_MARKET_UNIVERSE_KEY, *, limit: int = 160
         valid_for_200sma=_metadata_int(latest_meta, "valid_for_200sma"),
         nhnl_uses_intraday=bool(latest_meta.get("nhnl_uses_intraday")),
         points=points,
+    )
+
+
+def get_market_breadth_overview(
+    universe: str = DEFAULT_MARKET_UNIVERSE_KEY,
+    *,
+    limit: int = 260,
+) -> MarketBreadthOverviewResponse:
+    clean_limit = max(60, min(500, int(limit)))
+    try:
+        rows = market_repository.list_breadth_daily(universe=universe, limit=clean_limit)
+    except MarketRepositoryUnavailable:
+        rows = []
+
+    if not rows:
+        return _missing_market_breadth_overview(universe)
+
+    points = _market_breadth_overview_points(rows)
+    if not points:
+        return _missing_market_breadth_overview(universe)
+
+    latest = points[-1]
+    latest_row = rows[-1]
+    latest_meta = _breadth_metadata_with_legacy_fallback(rows)
+    requested_universe = _metadata_int(latest_meta, "universe_size", "requested_universe") or None
+    loaded_universe = _metadata_int(latest_meta, "loaded_universe", "covered_count")
+    coverage_ratio = float(latest_meta.get("coverage_ratio") or 0)
+    spx_at_high, ad_at_high, ad_divergence_detail = _index_ad_confirmation(points)
+    signals = [
+        _russell_breadth_signal(),
+        _equal_weight_breadth_signal(),
+        _advance_decline_line_signal(latest, spx_at_high=spx_at_high, ad_at_high=ad_at_high, detail=ad_divergence_detail),
+        _advance_decline_ratio_signal(latest),
+        _up_down_volume_signal(latest),
+        _mcclellan_signal(latest),
+        _new_high_low_signal(latest),
+        _moving_average_participation_signal(latest, latest_meta),
+        _deemer_signal(latest),
+    ]
+    message = (
+        "Marktbreite bündelt Russell-vs-S&P, Equal-Weight-ETFs, A/D, Volumen, McClellan, "
+        "NH/NL, gleitende Durchschnitte und Deemer Ratio. Alle Werte stammen aus dem vorberechneten Cache."
+    )
+    return MarketBreadthOverviewResponse(
+        as_of=latest.date,
+        universe=universe,
+        source="database",
+        data_status=_data_status_for_date(latest_row.date),
+        message=message,
+        coverage_ratio=coverage_ratio,
+        loaded_universe=loaded_universe,
+        requested_universe=requested_universe,
+        signals=signals,
+        points=points[-clean_limit:],
     )
 
 
@@ -505,6 +565,278 @@ def _missing_breadth(universe: str) -> BreadthResponse:
     )
 
 
+def _missing_market_breadth_overview(universe: str) -> MarketBreadthOverviewResponse:
+    return MarketBreadthOverviewResponse(
+        as_of=date.today().isoformat(),
+        universe=universe,
+        source="missing",
+        data_status="missing",
+        message="Keine Marktbreite-Daten im Cache. Starte Smart-Aktualisieren oder refresh_breadth.",
+        coverage_ratio=0.0,
+        loaded_universe=0,
+        requested_universe=None,
+        signals=[],
+        points=[],
+    )
+
+
+def _market_breadth_overview_points(rows: Sequence) -> list[MarketBreadthOverviewPoint]:
+    points: list[MarketBreadthOverviewPoint] = []
+    advancer_window: list[int] = []
+    decliner_window: list[int] = []
+    for row in rows:
+        metadata = row.metadata_json or {}
+        advancers = int(row.advancers or 0)
+        decliners = int(row.decliners or 0)
+        advancer_window.append(advancers)
+        decliner_window.append(decliners)
+        if len(advancer_window) > 10:
+            advancer_window.pop(0)
+            decliner_window.pop(0)
+        deemer_ratio = None
+        if len(advancer_window) >= 10 and sum(decliner_window) > 0:
+            deemer_ratio = sum(advancer_window) / sum(decliner_window)
+        new_highs = int(row.new_highs or 0)
+        new_lows = int(row.new_lows or 0)
+        points.append(
+            MarketBreadthOverviewPoint(
+                date=row.date.isoformat(),
+                advancers=advancers,
+                decliners=decliners,
+                advance_decline_ratio=_safe_ratio(advancers, decliners),
+                ad_line=float(row.ad_line) if row.ad_line is not None else None,
+                mcclellan=float(row.mcclellan) if row.mcclellan is not None else None,
+                new_highs=new_highs,
+                new_lows=new_lows,
+                nh_nl_ratio=_safe_ratio(new_highs, new_lows),
+                pct_above_20sma=float(row.pct_above_20sma) if row.pct_above_20sma is not None else None,
+                pct_above_50sma=float(row.pct_above_50sma) if row.pct_above_50sma is not None else None,
+                pct_above_200sma=float(row.pct_above_200sma) if row.pct_above_200sma is not None else None,
+                up_volume=_metadata_float(metadata, "up_volume"),
+                down_volume=_metadata_float(metadata, "down_volume"),
+                up_down_volume_ratio=_metadata_float(metadata, "up_down_volume_ratio"),
+                deemer_ratio=deemer_ratio,
+            )
+        )
+    return points
+
+
+def _russell_breadth_signal() -> MarketBreadthSignal:
+    start_date = date.today() - timedelta(days=140)
+    rut_rows, rut_used = _load_cached_index_ohlcv("^RUT", start_date=start_date)
+    spx_rows, spx_used = _load_cached_index_ohlcv("^GSPC", start_date=start_date)
+    rut_return = _period_return_pct(rut_rows, days=20)
+    spx_return = _period_return_pct(spx_rows, days=20)
+    relative = rut_return - spx_return if rut_return is not None and spx_return is not None else None
+    if relative is None:
+        value = "n/a"
+        tone = "neutral"
+        status = "Indexdaten fehlen"
+        comment = "Russell-vs-S&P kann erst bewertet werden, wenn ^RUT/IWM und ^GSPC/SPY im Price Cache liegen."
+    elif relative > 1.0:
+        value = "Besser"
+        tone = "good"
+        status = f"Russell läuft {relative:+.1f} Prozentpunkte stärker als der S&P 500."
+        comment = "Ein starker Russell 2000 wird als positives Marktbreite-Signal gewertet, weil Small Caps breite Teilnahme bestätigen."
+    elif relative < -1.0:
+        value = "Schlechter"
+        tone = "bad"
+        status = f"Russell läuft {relative:+.1f} Prozentpunkte schwächer als der S&P 500."
+        comment = "Ein schwacher Russell 2000 spricht gegen breite Marktteilnahme und ist ein Warnsignal für enge Führerschaft."
+    else:
+        value = "Gleich"
+        tone = "neutral"
+        status = f"Russell und S&P 500 laufen ähnlich ({relative:+.1f} Prozentpunkte Differenz)."
+        comment = "Neutrales Marktbreite-Signal: Small Caps bestätigen den Markt nicht klar, widersprechen ihm aber auch nicht deutlich."
+    return MarketBreadthSignal(
+        key="russell_vs_sp500",
+        title="Russell 2000 vs. S&P 500",
+        value=value,
+        detail=status,
+        tone=tone,
+        comment=comment,
+        metrics={
+            "russell_ticker": rut_used,
+            "sp500_ticker": spx_used,
+            "russell_return_20d_pct": _round_optional(rut_return),
+            "sp500_return_20d_pct": _round_optional(spx_return),
+            "relative_return_20d_pct": _round_optional(relative),
+        },
+    )
+
+
+def _equal_weight_breadth_signal() -> MarketBreadthSignal:
+    start_date = date.today() - timedelta(days=620)
+    series = market_repository.load_cached_ohlcv_for_tickers(EQUAL_WEIGHT_MARKET_TICKERS, start_date=start_date)
+    status = compute_equal_weight_breadth_status(series, tickers=EQUAL_WEIGHT_MARKET_TICKERS)
+    ticker_metrics = {}
+    details: list[str] = []
+    for ticker in EQUAL_WEIGHT_MARKET_TICKERS:
+        rows = series.get(ticker, [])
+        day_pct = _period_return_pct(rows, days=1)
+        return_20d = _period_return_pct(rows, days=20)
+        ticker_status = next((item for item in status.ticker_status if item.ticker == ticker), None)
+        ticker_metrics[ticker] = {
+            "day_pct": _round_optional(day_pct),
+            "return_20d_pct": _round_optional(return_20d),
+            "distance_from_high_pct": ticker_status.distance_from_high_pct if ticker_status else None,
+            "drawdown_from_high_pct": ticker_status.drawdown_from_high_pct if ticker_status else None,
+        }
+        details.append(f"{ticker} Tag {_format_optional_pct(day_pct)}")
+    return MarketBreadthSignal(
+        key="equal_weight_etfs",
+        title="Gleichgewichtete ETFs",
+        value=_breadth_mode_label(status.mode),
+        detail=" · ".join(details) if details else status.message,
+        tone=_tone_for_breadth_mode(status.mode),
+        comment=status.message,
+        metrics={
+            "mode": status.mode,
+            "candidate_mode": status.candidate_mode,
+            "rule": status.rule,
+            "worst_drawdown_pct": status.worst_drawdown_pct,
+            "confirmation_days": status.confirmation_days,
+            "candidate_streak": status.candidate_streak,
+            "tickers": ticker_metrics,
+        },
+    )
+
+
+def _advance_decline_line_signal(
+    latest: MarketBreadthOverviewPoint,
+    *,
+    spx_at_high: bool,
+    ad_at_high: bool,
+    detail: str,
+) -> MarketBreadthSignal:
+    divergence = bool(spx_at_high and not ad_at_high)
+    return MarketBreadthSignal(
+        key="advance_decline_line",
+        title="Advance/Decline Linie",
+        value=_format_number(latest.ad_line, digits=0),
+        detail=detail,
+        tone="warning" if divergence else "good",
+        comment="Divergenz liegt vor, wenn der S&P 500 nahe am 20T-Hoch steht, die A/D-Linie dieses Hoch aber nicht bestätigt.",
+        metrics={
+            "ad_line": latest.ad_line,
+            "sp500_at_20d_high": spx_at_high,
+            "ad_line_at_20d_high": ad_at_high,
+            "divergence": divergence,
+        },
+    )
+
+
+def _advance_decline_ratio_signal(latest: MarketBreadthOverviewPoint) -> MarketBreadthSignal:
+    ratio = latest.advance_decline_ratio
+    if ratio is None:
+        tone = "neutral"
+        comment = "Keine Advancer/Decliner-Basis verfügbar."
+    elif ratio > 1:
+        tone = "good"
+        comment = "Mehr steigende als fallende Aktien: positive Tagesbreite."
+    elif ratio < 1:
+        tone = "bad"
+        comment = "Mehr fallende als steigende Aktien: negative Tagesbreite."
+    else:
+        tone = "neutral"
+        comment = "Advancer und Decliner sind ausgeglichen."
+    return MarketBreadthSignal(
+        key="advance_decline_ratio",
+        title="Advance/Decline Ratio",
+        value=_format_number(ratio, digits=2),
+        detail=f"{latest.advancers} Advancer / {latest.decliners} Decliner",
+        tone=tone,
+        comment=comment,
+        metrics={"advancers": latest.advancers, "decliners": latest.decliners, "ratio": ratio},
+    )
+
+
+def _up_down_volume_signal(latest: MarketBreadthOverviewPoint) -> MarketBreadthSignal:
+    ratio = latest.up_down_volume_ratio
+    if ratio is None:
+        tone = "neutral"
+        comment = "Up/Down-Volume ist nach dem nächsten Breadth-Refresh verfügbar."
+    elif ratio > 1:
+        tone = "good"
+        comment = "Mehr Volumen in steigenden als in fallenden Aktien: konstruktive Volumenbreite."
+    elif ratio < 1:
+        tone = "bad"
+        comment = "Mehr Volumen in fallenden als in steigenden Aktien: negative Volumenbreite."
+    else:
+        tone = "neutral"
+        comment = "Up- und Down-Volume sind ausgeglichen."
+    return MarketBreadthSignal(
+        key="up_down_volume",
+        title="Up/Down Volume",
+        value=_format_number(ratio, digits=2),
+        detail=f"Up {_format_compact_number(latest.up_volume)} / Down {_format_compact_number(latest.down_volume)}",
+        tone=tone,
+        comment=comment,
+        metrics={"up_volume": latest.up_volume, "down_volume": latest.down_volume, "ratio": ratio},
+    )
+
+
+def _mcclellan_signal(latest: MarketBreadthOverviewPoint) -> MarketBreadthSignal:
+    return MarketBreadthSignal(
+        key="mcclellan",
+        title="McClellan Oscillator",
+        value=_format_number(latest.mcclellan, digits=1),
+        detail=_mcclellan_label(latest.mcclellan),
+        tone=_tone_for_mcclellan(latest.mcclellan),
+        comment="A/D-Momentum aus ratio-adjusted net advances; über 0 ist konstruktiv.",
+        metrics={"mcclellan": latest.mcclellan},
+    )
+
+
+def _new_high_low_signal(latest: MarketBreadthOverviewPoint) -> MarketBreadthSignal:
+    label, tone = _nh_nl_ratio_label_and_tone(latest.nh_nl_ratio)
+    return MarketBreadthSignal(
+        key="new_highs_new_lows",
+        title="Neue Hochs / Neue Tiefs",
+        value=_format_number(latest.nh_nl_ratio, digits=2),
+        detail=f"{latest.new_highs} neue Hochs / {latest.new_lows} neue Tiefs · {label}",
+        tone=tone,
+        comment="NH/NL Ratio = neue Hochs geteilt durch neue Tiefs.",
+        metrics={"new_highs": latest.new_highs, "new_lows": latest.new_lows, "ratio": latest.nh_nl_ratio},
+    )
+
+
+def _moving_average_participation_signal(latest: MarketBreadthOverviewPoint, metadata: Mapping) -> MarketBreadthSignal:
+    pct_50 = latest.pct_above_50sma
+    pct_200 = latest.pct_above_200sma
+    tone = _tone_for_deep_pct(pct_50, good=70, warning=30)
+    return MarketBreadthSignal(
+        key="moving_average_participation",
+        title="Aktien über gleitenden Durchschnitten",
+        value=f"50-SMA {_format_optional_pct(pct_50)}",
+        detail=(
+            f"20-SMA {_format_optional_pct(latest.pct_above_20sma)} · "
+            f"50-SMA {_format_optional_pct(pct_50)} · 200-SMA {_format_optional_pct(pct_200)}"
+        ),
+        tone=tone,
+        comment="Misst, wie breit der Markt über kurz-, mittel- und langfristigen Durchschnitten getragen wird.",
+        metrics={
+            "pct_above_20sma": latest.pct_above_20sma,
+            "pct_above_50sma": pct_50,
+            "pct_above_200sma": pct_200,
+            "valid_for_50sma": _metadata_int(metadata, "valid_for_50sma"),
+            "valid_for_200sma": _metadata_int(metadata, "valid_for_200sma"),
+        },
+    )
+
+
+def _deemer_signal(latest: MarketBreadthOverviewPoint) -> MarketBreadthSignal:
+    return MarketBreadthSignal(
+        key="deemer_ratio",
+        title="Deemer Ratio",
+        value=_format_number(latest.deemer_ratio, digits=2),
+        detail=_deemer_label(latest.deemer_ratio),
+        tone=_tone_for_deemer(latest.deemer_ratio),
+        comment="10-Tage-Summe Advancer geteilt durch 10-Tage-Summe Decliner; 1,97 markiert Breakaway-Momentum.",
+        metrics={"deemer_ratio": latest.deemer_ratio},
+    )
+
+
 def _missing_market_deep_analysis(
     universe: str,
     *,
@@ -672,6 +1004,9 @@ def refresh_market_breadth(
                 "valid_for_50sma": point.valid_for_50sma,
                 "valid_for_200sma": point.valid_for_200sma,
                 "nhnl_uses_intraday": True,
+                "up_volume": point.up_volume,
+                "down_volume": point.down_volume,
+                "up_down_volume_ratio": point.up_down_volume_ratio,
             },
         )
         for point in computed
@@ -751,15 +1086,20 @@ def compute_breadth_series(
         eligible_200 = 0
         new_highs = 0
         new_lows = 0
+        up_volume = 0.0
+        down_volume = 0.0
 
         for ticker, point in todays_points.items():
             history = histories[ticker]
             if history:
                 previous_close = history[-1].close
+                point_volume = _point_volume(point)
                 if point.close > previous_close:
                     advancers += 1
+                    up_volume += point_volume
                 elif point.close < previous_close:
                     decliners += 1
+                    down_volume += point_volume
 
             closes_with_current = [item.close for item in history] + [point.close]
             if len(closes_with_current) >= 20:
@@ -789,6 +1129,7 @@ def compute_breadth_series(
             ema_39 = _ema(rana, previous=ema_39, period=39)
         mcclellan = (ema_19 - ema_39) if ema_19 is not None and ema_39 is not None else 0.0
         covered_count = len(todays_points)
+        up_down_volume_ratio = up_volume / down_volume if down_volume > 0 else (up_volume if up_volume > 0 else None)
 
         computed.append(
             BreadthComputationPoint(
@@ -809,6 +1150,9 @@ def compute_breadth_series(
                 covered_count=covered_count,
                 valid_for_50sma=eligible_50,
                 valid_for_200sma=eligible_200,
+                up_volume=up_volume if up_volume > 0 else None,
+                down_volume=down_volume if down_volume > 0 else None,
+                up_down_volume_ratio=up_down_volume_ratio,
             )
         )
 
@@ -2495,6 +2839,55 @@ def _metadata_int(metadata: Mapping[str, object], *keys: str) -> int:
     return 0
 
 
+def _metadata_float(metadata: Mapping[str, object], *keys: str) -> float | None:
+    for key in keys:
+        value = metadata.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _period_return_pct(rows: Sequence[MarketOhlcvPoint], *, days: int) -> float | None:
+    if len(rows) <= days:
+        return None
+    latest = rows[-1].close
+    previous = rows[-days - 1].close
+    return _safe_pct_change(latest, previous)
+
+
+def _format_compact_number(value: float | None) -> str:
+    if value is None:
+        return "-"
+    abs_value = abs(value)
+    if abs_value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f} Mrd."
+    if abs_value >= 1_000_000:
+        return f"{value / 1_000_000:.1f} Mio."
+    if abs_value >= 1_000:
+        return f"{value / 1_000:.1f} Tsd."
+    return f"{value:.0f}"
+
+
+def _nh_nl_ratio_label_and_tone(value: float | None) -> tuple[str, str]:
+    if value is None:
+        return "nicht verfügbar", "neutral"
+    if value > 3:
+        return "sehr breit getragene Rallye", "good"
+    if value >= 1.5:
+        return "solider Aufwärtstrend", "good"
+    if value >= 0.9:
+        return "unentschiedener Markt oder Konsolidierung", "neutral"
+    if value >= 0.5:
+        return "bärischer Unterton", "warning"
+    if value >= 0.2:
+        return "breiter Abverkauf", "bad"
+    return "Kapitulationszone", "bad"
+
+
 def _breadth_message(breadth_date: date, metadata: dict) -> str:
     status = _data_status_for_date(breadth_date)
     loaded = int(metadata.get("loaded_universe") or metadata.get("covered_count") or 0)
@@ -2525,6 +2918,14 @@ def _point_high(point: MarketPricePoint | MarketOhlcvPoint) -> float:
 
 def _point_low(point: MarketPricePoint | MarketOhlcvPoint) -> float:
     return float(getattr(point, "low", point.close) or point.close)
+
+
+def _point_volume(point: MarketPricePoint | MarketOhlcvPoint) -> float:
+    volume = getattr(point, "volume", 0.0)
+    try:
+        return max(0.0, float(volume or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _mean(values: list[float]) -> float:

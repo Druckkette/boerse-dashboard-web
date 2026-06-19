@@ -199,6 +199,35 @@ def test_market_breadth_contract() -> None:
         assert {"date", "advancers", "decliners", "pct_above_50sma", "new_highs", "new_lows"}.issubset(payload["points"][0])
 
 
+def test_market_breadth_overview_contract() -> None:
+    response = client.get("/api/v1/market/breadth-overview")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] in {"database", "missing"}
+    assert payload["data_status"] in {"fresh", "stale", "missing"}
+    assert isinstance(payload["coverage_ratio"], int | float)
+    assert isinstance(payload["loaded_universe"], int)
+    assert isinstance(payload["signals"], list)
+    assert isinstance(payload["points"], list)
+    if payload["signals"]:
+        assert {"key", "title", "value", "detail", "tone", "comment", "metrics"}.issubset(payload["signals"][0])
+    if payload["points"]:
+        assert {
+            "date",
+            "advancers",
+            "decliners",
+            "advance_decline_ratio",
+            "ad_line",
+            "mcclellan",
+            "new_highs",
+            "new_lows",
+            "nh_nl_ratio",
+            "pct_above_50sma",
+            "up_down_volume_ratio",
+            "deemer_ratio",
+        }.issubset(payload["points"][0])
+
+
 def test_market_deep_analysis_contract() -> None:
     response = client.get("/api/v1/market/deep-analysis")
     assert response.status_code == 200
