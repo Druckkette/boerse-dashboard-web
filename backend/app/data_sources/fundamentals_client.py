@@ -33,6 +33,7 @@ class FundamentalEnrichment:
     quarterly_eps_growth_pct: float | None = None
     annual_eps_growth_pct: float | None = None
     quarterly_revenue_growth_pct: float | None = None
+    annual_revenue_growth_pct: float | None = None
     quarterly_eps_accelerating: bool | None = None
     quarterly_revenue_accelerating: bool | None = None
     trailing_eps: float | None = None
@@ -41,6 +42,7 @@ class FundamentalEnrichment:
     eps_quarter_history: list[dict[str, Any]] = field(default_factory=list)
     annual_eps_history: list[dict[str, Any]] = field(default_factory=list)
     revenue_quarter_history: list[dict[str, Any]] = field(default_factory=list)
+    annual_revenue_history: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -278,6 +280,7 @@ def compute_fundamental_enrichment(
     eps_growth = quarterly_yoy_growth(raw, "eps")
     annual_eps_growth = annual_yoy_growth(raw, "eps")
     revenue_growth = quarterly_yoy_growth(raw, "revenue")
+    annual_revenue_growth = annual_yoy_growth(raw, "revenue")
     fiscal_period = _latest_period_label(raw)
     source_parts = []
     if any("FMP" in note for note in notes):
@@ -291,6 +294,7 @@ def compute_fundamental_enrichment(
         quarterly_eps_growth_pct=_latest_numeric_growth(eps_growth),
         annual_eps_growth_pct=_latest_numeric_growth(annual_eps_growth),
         quarterly_revenue_growth_pct=_latest_numeric_growth(revenue_growth),
+        annual_revenue_growth_pct=_latest_numeric_growth(annual_revenue_growth),
         quarterly_eps_accelerating=_is_accelerating(eps_growth),
         quarterly_revenue_accelerating=_is_accelerating(revenue_growth),
         trailing_eps=_trailing_sum(raw.get("DilutedEPS"), periods=4),
@@ -299,19 +303,28 @@ def compute_fundamental_enrichment(
         eps_quarter_history=[_growth_point_payload(point, prefix="eps") for point in eps_growth[:3]],
         annual_eps_history=[_annual_growth_point_payload(point, prefix="eps") for point in annual_eps_growth[:3]],
         revenue_quarter_history=[_growth_point_payload(point, prefix="revenue") for point in revenue_growth[:3]],
+        annual_revenue_history=[
+            _annual_growth_point_payload(point, prefix="revenue") for point in annual_revenue_growth[:3]
+        ],
         metadata={
             "ticker": ticker.upper(),
             "notes": notes,
             # Stable schema for persisted snapshots:
             # eps_quarter_history/revenue_quarter_history are ordered latest-first and each item contains
             # fiscal_period, current quarter value, same-quarter-prior-year value and computed YoY growth.
-            # annual_eps_history is ordered latest full fiscal year first and contains annual EPS sums.
+            # annual_*_history is ordered latest full fiscal year first and contains annual sums.
             "eps_quarter_history": [_growth_point_payload(point, prefix="eps") for point in eps_growth[:3]],
             "annual_eps_history": [_annual_growth_point_payload(point, prefix="eps") for point in annual_eps_growth[:3]],
             "revenue_quarter_history": [_growth_point_payload(point, prefix="revenue") for point in revenue_growth[:3]],
+            "annual_revenue_history": [
+                _annual_growth_point_payload(point, prefix="revenue") for point in annual_revenue_growth[:3]
+            ],
             "eps_growth": [_growth_point_payload(point, prefix="eps") for point in eps_growth],
             "annual_eps_growth": [_annual_growth_point_payload(point, prefix="eps") for point in annual_eps_growth],
             "revenue_growth": [_growth_point_payload(point, prefix="revenue") for point in revenue_growth],
+            "annual_revenue_growth": [
+                _annual_growth_point_payload(point, prefix="revenue") for point in annual_revenue_growth
+            ],
             "series_lengths": {
                 key: int(len(value)) for key, value in raw.items() if isinstance(value, pd.Series)
             },

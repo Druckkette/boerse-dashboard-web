@@ -583,6 +583,22 @@ class StockFundamentalsAnnualEps(BaseModel):
     flag: str | None = None
 
 
+class StockFundamentalsRevenueQuarter(BaseModel):
+    fiscal_period: str = ""
+    revenue_current_quarter: float | None = None
+    revenue_same_quarter_last_year: float | None = None
+    revenue_growth_yoy_pct: float | None = None
+    flag: str | None = None
+
+
+class StockFundamentalsAnnualRevenue(BaseModel):
+    fiscal_year: str = ""
+    revenue_current_year: float | None = None
+    revenue_previous_year: float | None = None
+    revenue_growth_yoy_pct: float | None = None
+    flag: str | None = None
+
+
 class StockFundamentalsItem(BaseModel):
     ticker: str
     as_of: str
@@ -603,6 +619,8 @@ class StockFundamentalsItem(BaseModel):
     beta: float | None = None
     eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
     annual_eps_history: list[StockFundamentalsAnnualEps] = Field(default_factory=list)
+    revenue_quarter_history: list[StockFundamentalsRevenueQuarter] = Field(default_factory=list)
+    annual_revenue_history: list[StockFundamentalsAnnualRevenue] = Field(default_factory=list)
 
 
 class StockFundamentalsResponse(BaseModel):
@@ -630,6 +648,8 @@ class StockFundamentalsUpdateRequest(BaseModel):
     beta: float | None = None
     eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
     annual_eps_history: list[StockFundamentalsAnnualEps] = Field(default_factory=list)
+    revenue_quarter_history: list[StockFundamentalsRevenueQuarter] = Field(default_factory=list)
+    annual_revenue_history: list[StockFundamentalsAnnualRevenue] = Field(default_factory=list)
 
 
 class StockEarningsWarning(BaseModel):

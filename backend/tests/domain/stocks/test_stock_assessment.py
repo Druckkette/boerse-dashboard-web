@@ -81,7 +81,9 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
             "annual_eps_growth_pct": 48.0,
             "annual_eps_history": _annual_eps_history([48.0, 32.0, 26.0]),
             "quarterly_revenue_growth_pct": 36.0,
+            "revenue_quarter_history": _revenue_history([36.0, 29.0, 24.0]),
             "annual_revenue_growth_pct": 31.0,
+            "annual_revenue_history": _annual_revenue_history([31.0, 28.0, 25.0]),
             "roe_pct": 28.0,
             "profit_margin_pct": 18.0,
             "trailing_eps": 3.42,
@@ -226,6 +228,132 @@ def test_eps_acceleration_bonus_uses_last_three_quarter_growth_rates() -> None:
     assert "Bonus erfüllt" in accel_check.detail
 
 
+def test_revenue_three_quarter_rule_passes_only_when_all_three_quarters_clear_threshold() -> None:
+    checks, score, available = evaluate_fundamentals_context(
+        {"revenue_quarter_history": _revenue_history([32.4, 27.1, 45.8])}
+    )
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert available is True
+    assert revenue_check.passed is True
+    assert "Q1 +32.4%" in revenue_check.detail
+    assert "Q2 +27.1%" in revenue_check.detail
+    assert "Q3 +45.8%" in revenue_check.detail
+    assert "alle >=20%" in revenue_check.detail
+    assert score > 0
+
+
+def test_revenue_three_quarter_rule_fails_when_one_quarter_is_below_threshold() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {"revenue_quarter_history": _revenue_history([32.4, 12.1, 45.8])}
+    )
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert revenue_check.passed is False
+    assert "Q2 unter 20%" in revenue_check.detail
+
+
+def test_revenue_three_quarter_rule_fails_when_less_than_three_quarters_are_available() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"revenue_quarter_history": _revenue_history([32.4, 27.1])})
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert revenue_check.passed is False
+    assert "nur 2/3 Quartale verfügbar" in revenue_check.detail
+
+
+def test_revenue_three_quarter_rule_handles_invalid_prior_year_revenue_without_division_error() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {
+            "revenue_quarter_history": [
+                {"fiscal_period": "Q1", "revenue_current_quarter": 132.0, "revenue_same_quarter_last_year": 100.0},
+                {"fiscal_period": "Q2", "revenue_current_quarter": 125.0, "revenue_same_quarter_last_year": 0.0},
+                {"fiscal_period": "Q3", "revenue_current_quarter": 140.0, "revenue_same_quarter_last_year": -25.0},
+            ]
+        }
+    )
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert revenue_check.passed is False
+    assert "Q2, Q3 nicht auswertbar" in revenue_check.detail
+
+
+def test_revenue_three_quarter_rule_does_not_pass_with_only_legacy_single_quarter_growth() -> None:
+    checks, _, available = evaluate_fundamentals_context({"quarterly_revenue_growth_pct": 80.0})
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert available is True
+    assert revenue_check.passed is False
+    assert "keine Umsatz-Quartalshistorie" in revenue_check.detail
+
+
+def test_annual_revenue_three_year_rule_passes_only_when_all_three_years_clear_threshold() -> None:
+    checks, score, available = evaluate_fundamentals_context(
+        {"annual_revenue_history": _annual_revenue_history([32.4, 27.1, 45.8])}
+    )
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert available is True
+    assert revenue_check.passed is True
+    assert "2025 +32.4%" in revenue_check.detail
+    assert "2024 +27.1%" in revenue_check.detail
+    assert "2023 +45.8%" in revenue_check.detail
+    assert "alle >=20%" in revenue_check.detail
+    assert score > 0
+
+
+def test_annual_revenue_three_year_rule_fails_when_one_year_is_below_threshold() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {"annual_revenue_history": _annual_revenue_history([32.4, 12.1, 45.8])}
+    )
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert revenue_check.passed is False
+    assert "2024 unter 20%" in revenue_check.detail
+
+
+def test_annual_revenue_three_year_rule_fails_when_less_than_three_years_are_available() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"annual_revenue_history": _annual_revenue_history([32.4, 27.1])})
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert revenue_check.passed is False
+    assert "nur 2/3 Jahre verfügbar" in revenue_check.detail
+
+
+def test_annual_revenue_three_year_rule_handles_invalid_prior_year_revenue_without_division_error() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {
+            "annual_revenue_history": [
+                {"fiscal_year": "2025", "revenue_current_year": 720.0, "revenue_previous_year": 520.0},
+                {"fiscal_year": "2024", "revenue_current_year": 520.0, "revenue_previous_year": 0.0},
+                {"fiscal_year": "2023", "revenue_current_year": 340.0, "revenue_previous_year": -1.0},
+            ]
+        }
+    )
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert revenue_check.passed is False
+    assert "2024, 2023 nicht auswertbar" in revenue_check.detail
+
+
+def test_annual_revenue_three_year_rule_does_not_pass_with_only_legacy_single_year_growth() -> None:
+    checks, _, available = evaluate_fundamentals_context({"annual_revenue_growth_pct": 80.0})
+
+    revenue_check = _check(checks, "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert available is True
+    assert revenue_check.passed is False
+    assert "keine jährliche Umsatz-Historie" in revenue_check.detail
+
+
+def test_revenue_acceleration_bonus_uses_last_three_quarter_growth_rates() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {"revenue_quarter_history": _revenue_history([40.0, 25.0, 20.0])}
+    )
+
+    accel_check = _check(checks, "Bonus: Umsatz-Beschleunigung letzte 3 Quartale")
+    assert accel_check.passed is True
+    assert "Bonus erfüllt" in accel_check.detail
+
+
 def test_stock_assessment_flags_near_earnings() -> None:
     near_earnings = date.today() + timedelta(days=3)
     bars = _synthetic_bars(start_price=45, drift=0.003, volume=2_500_000)
@@ -292,6 +420,28 @@ def _annual_eps_history(values: list[float]) -> list[dict]:
             "fiscal_year": str(2026 - index),
             "eps_current_year": round(10.0 * (1.0 + growth / 100.0), 4),
             "eps_previous_year": 10.0,
+        }
+        for index, growth in enumerate(values, start=1)
+    ]
+
+
+def _revenue_history(values: list[float]) -> list[dict]:
+    return [
+        {
+            "fiscal_period": f"Q{index}",
+            "revenue_current_quarter": round(100.0 * (1.0 + growth / 100.0), 4),
+            "revenue_same_quarter_last_year": 100.0,
+        }
+        for index, growth in enumerate(values, start=1)
+    ]
+
+
+def _annual_revenue_history(values: list[float]) -> list[dict]:
+    return [
+        {
+            "fiscal_year": str(2026 - index),
+            "revenue_current_year": round(1000.0 * (1.0 + growth / 100.0), 4),
+            "revenue_previous_year": 1000.0,
         }
         for index, growth in enumerate(values, start=1)
     ]

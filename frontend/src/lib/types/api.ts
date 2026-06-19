@@ -809,6 +809,22 @@ export type StockFundamentalsAnnualEps = {
   flag?: string | null;
 };
 
+export type StockFundamentalsRevenueQuarter = {
+  fiscal_period: string;
+  revenue_current_quarter?: number | null;
+  revenue_same_quarter_last_year?: number | null;
+  revenue_growth_yoy_pct?: number | null;
+  flag?: string | null;
+};
+
+export type StockFundamentalsAnnualRevenue = {
+  fiscal_year: string;
+  revenue_current_year?: number | null;
+  revenue_previous_year?: number | null;
+  revenue_growth_yoy_pct?: number | null;
+  flag?: string | null;
+};
+
 export type StockFundamentalsItem = {
   ticker: string;
   as_of: string;
@@ -829,6 +845,8 @@ export type StockFundamentalsItem = {
   beta?: number | null;
   eps_quarter_history: StockFundamentalsEpsQuarter[];
   annual_eps_history: StockFundamentalsAnnualEps[];
+  revenue_quarter_history: StockFundamentalsRevenueQuarter[];
+  annual_revenue_history: StockFundamentalsAnnualRevenue[];
 };
 
 export type StockFundamentals = {
@@ -856,6 +874,8 @@ export type StockFundamentalsUpdate = {
   beta?: number | null;
   eps_quarter_history?: StockFundamentalsEpsQuarter[];
   annual_eps_history?: StockFundamentalsAnnualEps[];
+  revenue_quarter_history?: StockFundamentalsRevenueQuarter[];
+  annual_revenue_history?: StockFundamentalsAnnualRevenue[];
 };
 
 export type StockEarningsWarning = {

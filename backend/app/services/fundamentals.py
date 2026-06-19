@@ -65,6 +65,8 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
             "enrichment": enrichment.metadata,
             "eps_quarter_history": result_fields["eps_quarter_history"],
             "annual_eps_history": result_fields["annual_eps_history"],
+            "revenue_quarter_history": result_fields["revenue_quarter_history"],
+            "annual_revenue_history": result_fields["annual_revenue_history"],
         },
     )
 
@@ -81,7 +83,9 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "quarterly_revenue_growth_pct": enrichment.quarterly_revenue_growth_pct
         if enrichment.quarterly_revenue_growth_pct is not None
         else fetched.quarterly_revenue_growth_pct,
-        "annual_revenue_growth_pct": fetched.annual_revenue_growth_pct,
+        "annual_revenue_growth_pct": enrichment.annual_revenue_growth_pct
+        if enrichment.annual_revenue_growth_pct is not None
+        else fetched.annual_revenue_growth_pct,
         "roe_pct": enrichment.roe_pct if enrichment.roe_pct is not None else fetched.roe_pct,
         "profit_margin_pct": enrichment.profit_margin_pct
         if enrichment.profit_margin_pct is not None
@@ -91,6 +95,8 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "eps_quarter_history": enrichment.eps_quarter_history,
         "annual_eps_history": enrichment.annual_eps_history,
         "quarterly_revenue_accelerating": enrichment.quarterly_revenue_accelerating,
+        "revenue_quarter_history": enrichment.revenue_quarter_history,
+        "annual_revenue_history": enrichment.annual_revenue_history,
         "institutional_holders": fetched.institutional_holders,
         "institutional_ownership_pct": fetched.institutional_ownership_pct,
         "next_earnings_date": fetched.next_earnings_date.isoformat() if fetched.next_earnings_date else None,

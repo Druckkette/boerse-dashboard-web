@@ -50,3 +50,37 @@ The annual EPS criterion is passed only if the last three complete fiscal years 
 The separate `trailing_eps` field is the sum of the latest four quarterly EPS values. It must be greater than zero.
 The EPS acceleration bonus uses the last three quarterly YoY growth rates and is passed when the rates accelerate
 from older to newer quarters.
+
+Revenue uses the same multi-period structure and thresholds, but without a trailing revenue sum criterion.
+
+Quarterly revenue history is stored in `fundamental_snapshots.metadata_json.revenue_quarter_history`:
+
+```json
+[
+  {
+    "fiscal_period": "2026 Q1",
+    "revenue_current_quarter": 142.0,
+    "revenue_same_quarter_last_year": 100.0,
+    "revenue_growth_yoy_pct": 42.0,
+    "flag": null
+  }
+]
+```
+
+Annual revenue history is stored in `fundamental_snapshots.metadata_json.annual_revenue_history`:
+
+```json
+[
+  {
+    "fiscal_year": "2025",
+    "revenue_current_year": 1350.0,
+    "revenue_previous_year": 1000.0,
+    "revenue_growth_yoy_pct": 35.0,
+    "flag": null
+  }
+]
+```
+
+The quarterly revenue criterion is passed only if the latest three same-quarter YoY comparisons are all at least
++20%. The annual revenue criterion is passed only if the latest three full-year comparisons are all at least +20%.
+The revenue acceleration bonus uses the latest three quarterly revenue growth rates.

@@ -399,35 +399,23 @@ def evaluate_fundamentals_context(
         )
     )
 
-    q_revenue = _safe_float(fundamentals.get("quarterly_revenue_growth_pct"))
-    checks.append(
-        _growth_check(
-            "Umsatz >=20% YoY",
-            q_revenue,
-            minimum=20.0,
-            detail_suffix="letztes Quartal",
-        )
-    )
+    revenue_quarter_history = _normalize_revenue_quarter_history(fundamentals.get("revenue_quarter_history"))
+    checks.append(_revenue_three_quarter_growth_check(revenue_quarter_history))
 
-    revenue_accel = _optional_bool(fundamentals.get("quarterly_revenue_accelerating"))
+    revenue_accel = _revenue_growth_accelerating(revenue_quarter_history)
+    if revenue_accel is None:
+        revenue_accel = _optional_bool(fundamentals.get("quarterly_revenue_accelerating"))
     checks.append(
         AssessmentCheck(
             category="fundamental",
-            label="Umsatz-Beschleunigung",
+            label="Bonus: Umsatz-Beschleunigung letzte 3 Quartale",
             passed=bool(revenue_accel),
-            detail=_bool_detail(revenue_accel),
+            detail=_revenue_acceleration_detail(revenue_accel, revenue_quarter_history),
         )
     )
 
-    annual_revenue = _safe_float(fundamentals.get("annual_revenue_growth_pct"))
-    checks.append(
-        _growth_check(
-            "Jährl. Umsatzwachstum >=20%",
-            annual_revenue,
-            minimum=20.0,
-            detail_suffix="jährlich",
-        )
-    )
+    annual_revenue_history = _normalize_annual_revenue_history(fundamentals.get("annual_revenue_history"))
+    checks.append(_revenue_three_year_growth_check(annual_revenue_history))
 
     roe = _safe_float(fundamentals.get("roe_pct"))
     checks.append(
@@ -775,9 +763,9 @@ def _fundamental_checklist_score_100(
     score += unit if check_map.get("Bonus: EPS-Beschleunigung letzte 3 Quartale", False) else 0.0
     score += _eps_three_year_score(fundamentals_context, unit=unit)
     score += unit if check_map.get("Summe EPS letzte 4 Quartale > 0", False) else 0.0
-    score += tiered_pct("quarterly_revenue_growth_pct", minimum=20.0, stretch=60.0)
-    score += unit if check_map.get("Umsatz-Beschleunigung", False) else 0.0
-    score += tiered_pct("annual_revenue_growth_pct", minimum=20.0, stretch=50.0)
+    score += _revenue_three_quarter_score(fundamentals_context, unit=unit)
+    score += unit if check_map.get("Bonus: Umsatz-Beschleunigung letzte 3 Quartale", False) else 0.0
+    score += _revenue_three_year_score(fundamentals_context, unit=unit)
     score += tiered_pct("roe_pct", minimum=17.0, stretch=35.0)
 
     margin = _safe_float(fundamentals_context.get("profit_margin_pct"))
@@ -827,8 +815,8 @@ def _build_drivers_and_warnings(
         "EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY",
         "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY",
         "Summe EPS letzte 4 Quartale > 0",
-        "Umsatz >=20% YoY",
-        "Jährl. Umsatzwachstum >=20%",
+        "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY",
+        "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY",
         "ROE >=17%",
         "Gewinnmarge positiv",
         "Institutionelle Unterstützung",
@@ -940,6 +928,82 @@ def _eps_three_year_score(fundamentals_context: Mapping[str, Any], *, unit: floa
     return unit * (passed_count / 3.0)
 
 
+def _revenue_three_quarter_growth_check(history: list[dict[str, Any]]) -> AssessmentCheck:
+    latest_three = history[:3]
+    values = [_safe_float(item.get("revenue_growth_yoy_pct")) for item in latest_three]
+    valid_values = [value for value in values if value is not None]
+    below = [
+        _revenue_period_label(item, index)
+        for index, (item, value) in enumerate(zip(latest_three, values, strict=False), start=1)
+        if value is not None and value < 20.0
+    ]
+    invalid = [
+        _revenue_period_label(item, index)
+        for index, (item, value) in enumerate(zip(latest_three, values, strict=False), start=1)
+        if value is None
+    ]
+    passed = len(latest_three) >= 3 and len(valid_values) >= 3 and not below
+    detail = _revenue_history_detail(latest_three, values, below=below, invalid=invalid)
+    severity: Literal["info", "warning", "critical"] = "warning" if below or (latest_three and invalid) else "info"
+    return AssessmentCheck(
+        category="fundamental",
+        label="Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY",
+        passed=passed,
+        detail=detail,
+        severity=severity,
+    )
+
+
+def _revenue_three_quarter_score(fundamentals_context: Mapping[str, Any], *, unit: float) -> float:
+    history = _normalize_revenue_quarter_history(fundamentals_context.get("revenue_quarter_history"))
+    latest_three = history[:3]
+    if len(latest_three) < 3:
+        return 0.0
+    values = [_safe_float(item.get("revenue_growth_yoy_pct")) for item in latest_three]
+    if any(value is None for value in values):
+        return 0.0
+    passed_count = sum(1 for value in values if value is not None and value >= 20.0)
+    return unit * (passed_count / 3.0)
+
+
+def _revenue_three_year_growth_check(history: list[dict[str, Any]]) -> AssessmentCheck:
+    latest_three = history[:3]
+    values = [_safe_float(item.get("revenue_growth_yoy_pct")) for item in latest_three]
+    valid_values = [value for value in values if value is not None]
+    below = [
+        _revenue_year_label(item, index)
+        for index, (item, value) in enumerate(zip(latest_three, values, strict=False), start=1)
+        if value is not None and value < 20.0
+    ]
+    invalid = [
+        _revenue_year_label(item, index)
+        for index, (item, value) in enumerate(zip(latest_three, values, strict=False), start=1)
+        if value is None
+    ]
+    passed = len(latest_three) >= 3 and len(valid_values) >= 3 and not below
+    detail = _revenue_annual_history_detail(latest_three, values, below=below, invalid=invalid)
+    severity: Literal["info", "warning", "critical"] = "warning" if below or (latest_three and invalid) else "info"
+    return AssessmentCheck(
+        category="fundamental",
+        label="Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY",
+        passed=passed,
+        detail=detail,
+        severity=severity,
+    )
+
+
+def _revenue_three_year_score(fundamentals_context: Mapping[str, Any], *, unit: float) -> float:
+    history = _normalize_annual_revenue_history(fundamentals_context.get("annual_revenue_history"))
+    latest_three = history[:3]
+    if len(latest_three) < 3:
+        return 0.0
+    values = [_safe_float(item.get("revenue_growth_yoy_pct")) for item in latest_three]
+    if any(value is None for value in values):
+        return 0.0
+    passed_count = sum(1 for value in values if value is not None and value >= 20.0)
+    return unit * (passed_count / 3.0)
+
+
 def _normalize_eps_quarter_history(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -959,6 +1023,31 @@ def _normalize_eps_quarter_history(value: Any) -> list[dict[str, Any]]:
                 "eps_current_quarter": current,
                 "eps_same_quarter_last_year": previous,
                 "eps_growth_yoy_pct": growth,
+                "flag": item.get("flag"),
+            }
+        )
+    return history[:3]
+
+
+def _normalize_revenue_quarter_history(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    history: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        fiscal_period = str(item.get("fiscal_period") or item.get("label") or item.get("period") or "").strip()
+        current = _safe_float(item.get("revenue_current_quarter", item.get("current")))
+        previous = _safe_float(item.get("revenue_same_quarter_last_year", item.get("previous")))
+        growth = _computed_eps_growth_pct(current, previous)
+        if growth is None and current is None and previous is None:
+            growth = _safe_float(item.get("revenue_growth_yoy_pct", item.get("growth_pct")))
+        history.append(
+            {
+                "fiscal_period": fiscal_period,
+                "revenue_current_quarter": current,
+                "revenue_same_quarter_last_year": previous,
+                "revenue_growth_yoy_pct": growth,
                 "flag": item.get("flag"),
             }
         )
@@ -990,6 +1079,31 @@ def _normalize_annual_eps_history(value: Any) -> list[dict[str, Any]]:
     return history[:3]
 
 
+def _normalize_annual_revenue_history(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    history: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        fiscal_year = str(item.get("fiscal_year") or item.get("label") or item.get("year") or "").strip()
+        current = _safe_float(item.get("revenue_current_year", item.get("current")))
+        previous = _safe_float(item.get("revenue_previous_year", item.get("previous")))
+        growth = _computed_eps_growth_pct(current, previous)
+        if growth is None and current is None and previous is None:
+            growth = _safe_float(item.get("revenue_growth_yoy_pct", item.get("growth_pct")))
+        history.append(
+            {
+                "fiscal_year": fiscal_year,
+                "revenue_current_year": current,
+                "revenue_previous_year": previous,
+                "revenue_growth_yoy_pct": growth,
+                "flag": item.get("flag"),
+            }
+        )
+    return history[:3]
+
+
 def _computed_eps_growth_pct(current: float | None, previous: float | None) -> float | None:
     if current is None or previous is None or previous <= 0:
         return None
@@ -1008,6 +1122,25 @@ def _eps_acceleration_detail(value: bool | None, history: list[dict[str, Any]]) 
     if history:
         values = [
             f"{_eps_period_label(item, index)} {_format_signed_pct(_safe_float(item.get('eps_growth_yoy_pct')))}"
+            for index, item in enumerate(history[:3], start=1)
+        ]
+        suffix = "Bonus erfüllt: beschleunigt" if value else "Bonus nicht erfüllt" if value is False else "nicht auswertbar"
+        return f"{', '.join(values)} · {suffix}"
+    return _bool_detail(value)
+
+
+def _revenue_growth_accelerating(history: list[dict[str, Any]]) -> bool | None:
+    values = [_safe_float(item.get("revenue_growth_yoy_pct")) for item in history[:3]]
+    numeric = [value for value in values if value is not None]
+    if len(numeric) < 2:
+        return None
+    return all(numeric[index] > numeric[index + 1] for index in range(len(numeric) - 1))
+
+
+def _revenue_acceleration_detail(value: bool | None, history: list[dict[str, Any]]) -> str:
+    if history:
+        values = [
+            f"{_revenue_period_label(item, index)} {_format_signed_pct(_safe_float(item.get('revenue_growth_yoy_pct')))}"
             for index, item in enumerate(history[:3], start=1)
         ]
         suffix = "Bonus erfüllt: beschleunigt" if value else "Bonus nicht erfüllt" if value is False else "nicht auswertbar"
@@ -1035,6 +1168,26 @@ def _eps_history_detail(
     return f"{prefix} · alle >=20%"
 
 
+def _revenue_history_detail(
+    latest_three: list[dict[str, Any]],
+    values: list[float | None],
+    *,
+    below: list[str],
+    invalid: list[str],
+) -> str:
+    if len(latest_three) < 3:
+        prefix = _format_revenue_history_values(latest_three, values)
+        if prefix:
+            return f"{prefix} · nur {len(latest_three)}/3 Quartale verfügbar"
+        return "Nicht verfügbar: keine Umsatz-Quartalshistorie gespeichert"
+    prefix = _format_revenue_history_values(latest_three, values)
+    if invalid:
+        return f"{prefix} · {', '.join(invalid)} nicht auswertbar"
+    if below:
+        return f"{prefix} · {', '.join(below)} unter 20%"
+    return f"{prefix} · alle >=20%"
+
+
 def _eps_annual_history_detail(
     latest_three: list[dict[str, Any]],
     values: list[float | None],
@@ -1055,9 +1208,36 @@ def _eps_annual_history_detail(
     return f"{prefix} · alle >=20%"
 
 
+def _revenue_annual_history_detail(
+    latest_three: list[dict[str, Any]],
+    values: list[float | None],
+    *,
+    below: list[str],
+    invalid: list[str],
+) -> str:
+    if len(latest_three) < 3:
+        prefix = _format_annual_revenue_history_values(latest_three, values)
+        if prefix:
+            return f"{prefix} · nur {len(latest_three)}/3 Jahre verfügbar"
+        return "Nicht verfügbar: keine jährliche Umsatz-Historie gespeichert"
+    prefix = _format_annual_revenue_history_values(latest_three, values)
+    if invalid:
+        return f"{prefix} · {', '.join(invalid)} nicht auswertbar"
+    if below:
+        return f"{prefix} · {', '.join(below)} unter 20%"
+    return f"{prefix} · alle >=20%"
+
+
 def _format_eps_history_values(items: list[dict[str, Any]], values: list[float | None]) -> str:
     return ", ".join(
         f"{_eps_period_label(item, index)} {_format_signed_pct(value)}"
+        for index, (item, value) in enumerate(zip(items, values, strict=False), start=1)
+    )
+
+
+def _format_revenue_history_values(items: list[dict[str, Any]], values: list[float | None]) -> str:
+    return ", ".join(
+        f"{_revenue_period_label(item, index)} {_format_signed_pct(value)}"
         for index, (item, value) in enumerate(zip(items, values, strict=False), start=1)
     )
 
@@ -1069,11 +1249,26 @@ def _format_annual_eps_history_values(items: list[dict[str, Any]], values: list[
     )
 
 
+def _format_annual_revenue_history_values(items: list[dict[str, Any]], values: list[float | None]) -> str:
+    return ", ".join(
+        f"{_revenue_year_label(item, index)} {_format_signed_pct(value)}"
+        for index, (item, value) in enumerate(zip(items, values, strict=False), start=1)
+    )
+
+
 def _eps_period_label(item: Mapping[str, Any], index: int) -> str:
     return str(item.get("fiscal_period") or f"Q{index}").strip()
 
 
+def _revenue_period_label(item: Mapping[str, Any], index: int) -> str:
+    return str(item.get("fiscal_period") or f"Q{index}").strip()
+
+
 def _eps_year_label(item: Mapping[str, Any], index: int) -> str:
+    return str(item.get("fiscal_year") or f"Jahr {index}").strip()
+
+
+def _revenue_year_label(item: Mapping[str, Any], index: int) -> str:
     return str(item.get("fiscal_year") or f"Jahr {index}").strip()
 
 
@@ -1211,6 +1406,8 @@ def _has_fundamental_data(fundamentals_context: Mapping[str, Any]) -> bool:
         "annual_eps_history",
         "annual_eps_growth_pct",
         "quarterly_revenue_growth_pct",
+        "revenue_quarter_history",
+        "annual_revenue_history",
         "annual_revenue_growth_pct",
         "roe_pct",
         "profit_margin_pct",
