@@ -32,7 +32,6 @@ export function MarketOverviewPanel() {
                   {data.trend_ampel.ticker} {data.trend_ampel.phase_label}
                 </StatusChip>
               )}
-              <StatusChip tone="neutral">{data.volatility_regime}</StatusChip>
               <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
@@ -41,9 +40,9 @@ export function MarketOverviewPanel() {
             {data.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[#77808f]">{data.message}</p>}
           </div>
           <div className="rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-left md:text-right">
-            <div className="text-xs uppercase text-[#a0a7b4]">Warnzeichen</div>
-            <div className="mt-1 text-3xl font-semibold">{data.warning_count}</div>
-            <div className="mt-1 text-xs text-[#77808f]">Stand {data.as_of}</div>
+            <div className="text-xs uppercase text-[#a0a7b4]">Datenstand</div>
+            <div className="mt-1 text-2xl font-semibold tracking-normal">{data.as_of}</div>
+            <div className="mt-1 text-xs text-[#77808f]">{labelForStatus(data.data_status)}</div>
           </div>
         </div>
       </div>
@@ -62,7 +61,7 @@ export function MarketOverviewPanel() {
             <div className="mt-3 text-2xl font-semibold tracking-normal">
               {formatNumber(data.trend_ampel.close)}
             </div>
-            <div className="mt-2 text-sm text-[#a0a7b4]">Distribution {data.trend_ampel.dist_count_25}</div>
+            <div className="mt-2 text-sm text-[#a0a7b4]">Stand {data.trend_ampel.as_of}</div>
           </div>
           <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
             <div className="text-sm text-[#a0a7b4]">Anchor</div>
@@ -105,7 +104,8 @@ function isBreadthKpi(label: string) {
     "McClellan",
     "Coverage",
     "New Highs/Lows",
-    "Marktbreite EW-Indizes"
+    "Marktbreite EW-Indizes",
+    "Margin Debt"
   ].includes(label);
 }
 

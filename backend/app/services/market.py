@@ -86,6 +86,7 @@ MARKET_AMPEL_INDEXES = {
 INTERMARKET_INDEXES = {
     "^GSPC": "S&P 500",
     "^IXIC": "Nasdaq Composite",
+    "^DJI": "Dow Jones",
     "^RUT": "Russell 2000",
 }
 DEFENSIVE_SECTOR_TICKERS = ("XLU", "XLP")

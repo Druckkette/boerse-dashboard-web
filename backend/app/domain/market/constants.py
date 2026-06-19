@@ -29,11 +29,12 @@ DEFAULT_MARKET_UNIVERSE_TICKERS = [
     "WMT",
 ]
 
-MARKET_INDEX_TICKERS = ["^GSPC", "^IXIC", "^RUT"]
+MARKET_INDEX_TICKERS = ["^GSPC", "^IXIC", "^DJI", "^RUT"]
 
 MARKET_INDEX_FALLBACK_TICKERS = {
     "^GSPC": ["SPY"],
     "^IXIC": ["QQQ"],
+    "^DJI": ["DIA"],
     "^RUT": ["IWM"],
 }
 

@@ -478,7 +478,7 @@ def test_distribution_days_are_removed_after_six_percent_recovery() -> None:
 
 
 def test_market_core_price_tickers_include_streamlit_indexes() -> None:
-    assert {"^GSPC", "^IXIC", "^RUT", "RSP", "QQEW"}.issubset(MARKET_CORE_PRICE_TICKERS)
+    assert {"^GSPC", "^IXIC", "^DJI", "^RUT", "RSP", "QQEW"}.issubset(MARKET_CORE_PRICE_TICKERS)
 
 
 def test_volatility_dashboard_returns_empty_without_benchmark() -> None:

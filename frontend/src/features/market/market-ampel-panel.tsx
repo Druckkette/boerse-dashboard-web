@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, CircleDot, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleDot, RotateCw } from "lucide-react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -43,8 +43,10 @@ export function MarketAmpelPanel() {
   }
 
   const data = query.data;
-  const heroReasons = data.hero.reasons.filter((reason) => !reason.includes("Marktbreite Gleichgewichtete Indizes"));
-  const changeCards = data.change_cards.filter((card) => card.title !== "EW-Breite");
+  const heroReasons = data.hero.reasons.filter((reason) => reason.startsWith("Trendwende-Ampel"));
+  const changeCards = data.change_cards.filter(
+    (card) => !["Distribution", "EW-Breite", "Volatilität"].includes(card.title)
+  );
   const chartPoints = data.chart_points.map((point) => ({
     date: point.date,
     open: point.open,
@@ -137,17 +139,6 @@ export function MarketAmpelPanel() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        {data.distance_tiles.map((tile) => (
-          <div key={tile.label} className={clsx("rounded border bg-[#171a20] p-4", tileBorder(tile.tone))}>
-            <div className="text-xs uppercase text-[#77808f]">{tile.label}</div>
-            <div className="mt-3 text-2xl font-semibold tracking-normal">{tile.value}</div>
-            <div className={clsx("mt-2 text-sm font-medium", toneText(tile.tone))}>{tile.indicator}</div>
-            <div className="mt-1 text-xs leading-5 text-[#77808f]">{tile.detail}</div>
-          </div>
-        ))}
-      </div>
-
       <LineChartCard
         title={`${data.name} Trendwende-Ampel`}
         caption={`${data.phase_info.reason} Stand ${data.as_of}. ${data.message}`}
@@ -166,31 +157,9 @@ export function MarketAmpelPanel() {
           { key: "sma50", label: "50-SMA", color: "#fb923c" },
           { key: "sma200", label: "200-SMA", color: "#a78bfa" }
         ]}
-        statusLabel={`${data.warning_count} Warnzeichen`}
-        statusTone={warningTone(data.warning_count)}
+        statusLabel={data.phase_info.label}
+        statusTone={data.phase_info.tone}
       />
-
-      <StreamlitSection
-        defaultOpen
-        title="Frühwarnzeichen und Warnzeichen"
-        description="Gleiche Warnlogik wie in der Streamlit-Marktampel, mit expliziter Anzeige jeder aktiven Regel."
-      >
-        <WarningGrid checks={data.warning_checks} />
-      </StreamlitSection>
-
-      <StreamlitSection
-        title="Trendprüfung und Ordnung"
-        description="Schlusskurs, Tagestief und gleitende Durchschnitte wie im Streamlit-Bereich Trendcheck."
-      >
-        <TrendOrderGrid data={data} />
-      </StreamlitSection>
-
-      <StreamlitSection
-        title="Tägliche Checkliste"
-        description="Operative Kurzprüfung aus Ampelphase, Volatilität und Warnzeichen."
-      >
-        <DailyChecklist data={data} />
-      </StreamlitSection>
     </section>
   );
 }
@@ -223,7 +192,7 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
                 {data.phase_info.label}
               </div>
             </div>
-            <StatusChip tone={warningTone(data.warning_count)}>{data.warning_count} Warnzeichen aktiv</StatusChip>
+            <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
           </div>
 
           <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -287,7 +256,12 @@ function Light({ light }: { light: MarketAmpelLight }) {
       >
         <CircleDot size={22} />
       </span>
-      <span className={clsx("min-w-0 text-sm font-semibold leading-5", light.active ? toneText(light.tone) : "text-[#77808f]")}>
+      <span
+        className={clsx(
+          "min-w-0 break-words text-xs font-semibold leading-5 [overflow-wrap:anywhere] sm:text-sm",
+          light.active ? toneText(light.tone) : "text-[#77808f]"
+        )}
+      >
         {light.key === "aufwaertstrend" ? (
           "AUFWÄRTSTREND"
         ) : (
@@ -347,204 +321,6 @@ function ChangeCard({ card }: { card: MarketAmpelChangeCard }) {
   );
 }
 
-function WarningGrid({ checks }: { checks: MarketAmpel["warning_checks"] }) {
-  if (!checks.length) return null;
-  return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Warnlage</h2>
-          <p className="text-sm text-[#a0a7b4]">Frühwarnzeichen aus der Streamlit-Marktampel.</p>
-        </div>
-        <StatusChip tone={warningTone(checks.filter((check) => check.active_warning).length)}>
-          {checks.filter((check) => check.active_warning).length} aktiv
-        </StatusChip>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {checks.map((check) => (
-          <div key={check.label} className="rounded border border-[#242a33] bg-[#111419] p-3">
-            <div className="flex items-start gap-3">
-              {check.passed ? (
-                <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={18} />
-              ) : (
-                <CircleAlert className={clsx("mt-0.5 shrink-0", check.tone === "bad" ? "text-rose-300" : "text-amber-300")} size={18} />
-              )}
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-[#d8dde6]">{check.label}</div>
-                <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function StreamlitSection({
-  children,
-  defaultOpen = false,
-  description,
-  title
-}: {
-  children: ReactNode;
-  defaultOpen?: boolean;
-  description: string;
-  title: string;
-}) {
-  return (
-    <details className="group rounded border border-[#2d333d] bg-[#171a20]" open={defaultOpen}>
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4">
-        <span>
-          <span className="block text-base font-semibold">{title}</span>
-          <span className="mt-1 block text-sm leading-6 text-[#a0a7b4]">{description}</span>
-        </span>
-        <span className="mt-1 shrink-0 rounded border border-[#2d333d] bg-[#111419] px-2 py-1 text-xs text-[#a0a7b4] group-open:text-emerald-200">
-          öffnen
-        </span>
-      </summary>
-      <div className="border-t border-[#2d333d] p-5">{children}</div>
-    </details>
-  );
-}
-
-function TrendOrderGrid({ data }: { data: MarketAmpel }) {
-  const latest = data.chart_points[data.chart_points.length - 1];
-  if (!latest) {
-    return <div className="rounded border border-[#2d333d] bg-[#111419] p-4 text-sm text-[#a0a7b4]">Keine Trenddaten im Cache.</div>;
-  }
-  const close = latest.close;
-  const low = latest.low;
-  const trendChecks = [
-    maCheck("Schluss über 21-EMA", close, latest.ema21),
-    maCheck("Tief über 21-EMA", low, latest.ema21),
-    booleanCheck("21-EMA gehalten", latest.ema21_held, latest.ema21 ? "Schlusskurs darüber" : "n/a", "Darunter"),
-    heldCheck("3T Tief > 21-EMA", latest.consec_low_above_21),
-    maCheck("Schluss über 50-SMA", close, latest.sma50),
-    maCheck("Tief über 50-SMA", low, latest.sma50),
-    booleanCheck("50-SMA gehalten", latest.sma50_held, latest.sma50 ? "Schlusskurs darüber" : "n/a", "Darunter"),
-    heldCheck("3T Tief > 50-SMA", latest.consec_low_above_50),
-    maCheck("Schluss über 200-SMA", close, latest.sma200),
-    maCheck("Tief über 200-SMA", low, latest.sma200),
-    booleanCheck("200-SMA gehalten", latest.sma200_held, latest.sma200 ? "Schlusskurs darüber" : "n/a", "Darunter"),
-    heldCheck("3T Tief > 200-SMA", latest.consec_low_above_200)
-  ];
-  const orderChecks = [
-    orderCheck("21-EMA > 50-SMA", latest.ema21, latest.sma50),
-    orderCheck("21-EMA > 200-SMA", latest.ema21, latest.sma200),
-    orderCheck("50-SMA > 200-SMA", latest.sma50, latest.sma200)
-  ];
-
-  return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
-      <CheckPanel title="Trendprüfung" checks={trendChecks} />
-      <CheckPanel title="Ordnung" checks={orderChecks} />
-    </div>
-  );
-}
-
-function DailyChecklist({ data }: { data: MarketAmpel }) {
-  const phase = data.phase_info.phase;
-  const latest = data.chart_points[data.chart_points.length - 1];
-  const drawdownPct = latest?.dist_52w_pct;
-  const checks = [
-    {
-      label: "Kein substanzieller Drawdown (> -8%)",
-      passed: drawdownPct === null || drawdownPct === undefined || drawdownPct > -8,
-      detail:
-        drawdownPct === null || drawdownPct === undefined
-          ? "Drawdown: n/a"
-          : `Drawdown: ${drawdownPct.toFixed(1)}%${
-              drawdownPct <= -8 ? " - Korrektur läuft, Ampel aktiv" : " - Markt im Normalbereich"
-            }`
-    },
-    {
-      label: "Stabilisierung?",
-      passed: phase !== "rot" || Boolean(data.cycle.anchor_date),
-      detail: data.cycle.anchor_date ? `Ankertag: ${data.cycle.anchor_date}` : `Phase: ${data.phase_info.label}`
-    },
-    {
-      label: "Startschuss (>= Gelb)?",
-      passed: phase === "gelb" || phase === "gruen" || phase === "aufwaertstrend",
-      detail: `Phase: ${data.phase_info.label}`
-    },
-    {
-      label: "VIX Regime nicht Stress?",
-      passed: data.vix_regime !== "Stress",
-      detail: `Regime: ${data.vix_regime || "n/a"}`
-    },
-    {
-      label: "Warnzeichen <=2?",
-      passed: data.warning_count <= 2,
-      detail: `${data.warning_count} aktiv`
-    }
-  ];
-  return <CheckPanel title="Tägliche Checkliste" checks={checks} />;
-}
-
-function CheckPanel({
-  checks,
-  title
-}: {
-  checks: { label: string; passed: boolean; detail: string }[];
-  title: string;
-}) {
-  return (
-    <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
-      <h3 className="mb-3 text-sm font-semibold text-[#d8dde6]">{title}</h3>
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
-        {checks.map((check) => (
-          <div key={check.label} className="flex items-start gap-3 rounded border border-[#242a33] bg-[#171a20] p-3">
-            {check.passed ? (
-              <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={18} />
-            ) : (
-              <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={18} />
-            )}
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-[#d8dde6]">{check.label}</div>
-              <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function maCheck(label: string, value?: number | null, average?: number | null) {
-  const hasData = value !== null && value !== undefined && average !== null && average !== undefined;
-  return {
-    label,
-    passed: Boolean(hasData && value > average),
-    detail: hasData ? `${formatNumber(value)} vs ${formatNumber(average)}` : "n/a"
-  };
-}
-
-function orderCheck(label: string, fast?: number | null, slow?: number | null) {
-  const hasData = fast !== null && fast !== undefined && slow !== null && slow !== undefined;
-  return {
-    label,
-    passed: Boolean(hasData && fast > slow),
-    detail: hasData ? `${formatNumber(fast)} vs ${formatNumber(slow)}` : "n/a"
-  };
-}
-
-function booleanCheck(label: string, passed: boolean, okDetail: string, failDetail: string) {
-  return {
-    label,
-    passed,
-    detail: passed ? okDetail : failDetail
-  };
-}
-
-function heldCheck(label: string, count: number) {
-  return {
-    label,
-    passed: count >= 3,
-    detail: `${count} Tage`
-  };
-}
-
 function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {
   return (
     <div className="min-h-[104px] rounded border border-[#2d333d] bg-[#111419] p-4">
@@ -596,12 +372,6 @@ function toneText(tone: Tone) {
   return "text-[#c9d0da]";
 }
 
-function warningTone(count: number): Tone {
-  if (count <= 0) return "good";
-  if (count <= 2) return "warning";
-  return "bad";
-}
-
 function distanceTone(value?: number | null): Tone {
   if (value === null || value === undefined) return "neutral";
   return value >= 0 ? "good" : "bad";
@@ -612,9 +382,4 @@ function formatValueWithDistance(value?: number | null, pct?: number | null) {
   const formattedValue = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
   if (pct === null || pct === undefined) return formattedValue;
   return `${formattedValue} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)`;
-}
-
-function formatNumber(value?: number | null) {
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
 }

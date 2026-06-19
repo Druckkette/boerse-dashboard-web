@@ -1,8 +1,10 @@
 import { MarketAmpelPanel } from "@/features/market/market-ampel-panel";
 import { MarketBreadthOverviewPanel } from "@/features/market/market-breadth-overview-panel";
-import { MarketDiagnosticsPanel } from "@/features/market/market-diagnostics-panel";
 import { MarketOverviewPanel } from "@/features/market/market-overview-panel";
-import { VolatilityPanel } from "@/features/market/volatility-panel";
+import {
+  MarketRiskSectionsPanel,
+  MarketSentimentPositioningPanel
+} from "@/features/market/market-risk-sections-panel";
 import type { ReactNode } from "react";
 
 export default function MarketPage() {
@@ -10,12 +12,7 @@ export default function MarketPage() {
     <div className="space-y-5">
       <MarketAmpelPanel />
       <MarketOverviewPanel />
-      <MarketArea
-        title="Trendcheck, Ordnung und Sektorrotation"
-        description="Entspricht dem Streamlit-Bereich mit Trendprüfung, MA-Ordnung, Sektorrotation und Intermarket-Bild."
-      >
-        <MarketDiagnosticsPanel />
-      </MarketArea>
+      <MarketRiskSectionsPanel />
       <MarketArea
         title="Marktbreite"
         description="Russell-vs-S&P, Equal-Weight-ETFs, A/D, Volumen, McClellan, NH/NL, MA-Teilnahme und Deemer Ratio."
@@ -23,10 +20,10 @@ export default function MarketPage() {
         <MarketBreadthOverviewPanel />
       </MarketArea>
       <MarketArea
-        title="Volatilität"
-        description="VIX/VXX-Regime aus dem vorberechneten Price Cache."
+        title="Stimmungs- und Positionierungsindikatoren"
+        description="VIX, VXX und Margin Debt als separate Sentiment- und Positionierungsprüfung."
       >
-        <VolatilityPanel />
+        <MarketSentimentPositioningPanel />
       </MarketArea>
     </div>
   );
