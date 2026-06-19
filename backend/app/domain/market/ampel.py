@@ -226,7 +226,7 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             if phase == "aufwaertstrend" and startschuss_low_broken(index):
                 phase = "rot"
                 clear_state()
-            elif sma200_broken(index):
+            elif phase == "aufwaertstrend" and sma200_broken(index):
                 phase = "rot"
                 clear_state()
             elif correction_detected(index):
@@ -262,14 +262,13 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 and daily_pct >= 1.0
                 and volume[index] > volume[index - 1]
                 and low[index] >= floor_mark
-                and not sma200_broken(index)
             ):
                 phase = "gelb"
                 startschuss_idx = index
                 startschuss_low = float(low[index])
                 startschuss_bonus = _is_finite(ema21[index]) and close[index] > ema21[index]
         elif phase == "gelb":
-            if startschuss_low_broken(index) or sma200_broken(index):
+            if startschuss_low_broken(index):
                 phase = "rot"
                 clear_state()
             elif startschuss_idx is not None and index > startschuss_idx + GREEN_CONFIRMATION_DAYS:

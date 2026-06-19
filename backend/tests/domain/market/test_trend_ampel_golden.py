@@ -114,6 +114,19 @@ def test_ampel_turns_red_when_close_breaks_sma200() -> None:
     assert latest.startschuss_low is None
 
 
+def test_startschuss_can_turn_yellow_below_sma200() -> None:
+    points = compute_trend_ampel(_green_without_full_ma_order_bars())
+    first_yellow_index = next(index for index, point in enumerate(points) if point.phase == "gelb")
+    first_yellow = points[first_yellow_index]
+    next_yellow = points[first_yellow_index + 1]
+
+    assert first_yellow.close is not None
+    assert first_yellow.sma200 is not None
+    assert first_yellow.close < first_yellow.sma200
+    assert first_yellow.phase == "gelb"
+    assert next_yellow.phase == "gelb"
+
+
 def test_green_waits_for_full_ma_order_before_uptrend() -> None:
     points = compute_trend_ampel(_green_without_full_ma_order_bars())
     latest = points[-1]
