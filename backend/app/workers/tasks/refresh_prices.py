@@ -43,11 +43,13 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         symbols = _merge_market_helper_symbols(symbols)
     tickers = [symbol.source_ticker for symbol in symbols]
     range_key = _normalize_range(payload.get("range") or "1y")
+    incremental = _normalize_bool(payload.get("incremental"), default=False)
     fail_fast = bool(payload.get("fail_fast") or False)
     result: dict = {
         "ok": False,
         "job_type": "refresh_prices",
         "range": range_key,
+        "incremental": incremental,
         "preset": preset,
         "tickers": tickers,
         "ticker_count": len(tickers),
@@ -87,6 +89,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
                     ticker,
                     range_key=range_key,
                     yahoo_symbol=symbol.yahoo_symbol,
+                    incremental=incremental,
                 )
             except Exception as exc:
                 item = {
@@ -165,6 +168,14 @@ def _normalize_limit(value: object) -> int:
         return max(1, min(5_000, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _normalize_bool(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _should_include_market_helpers(payload: dict, *, preset: PriceRefreshPreset, explicit_tickers: object) -> bool:

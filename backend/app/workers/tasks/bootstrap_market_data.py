@@ -40,6 +40,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
     universe_key = str(payload.get("universe") or DEFAULT_MARKET_UNIVERSE_KEY).strip() or DEFAULT_MARKET_UNIVERSE_KEY
     limit_universe = _normalize_limit(payload.get("limit_universe") or 5000)
     range_key = _normalize_range(payload.get("range") or ("2y" if is_initial else "6m"))
+    incremental_prices = _normalize_bool(payload.get("incremental_prices"), default=not is_initial)
     breadth_lookback_days = _normalize_days(payload.get("breadth_lookback_days") or payload.get("lookback_days") or 550)
     rs_lookback_days = _normalize_days(payload.get("rs_lookback_days") or 430)
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
@@ -51,6 +52,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
         "universe": universe_key,
         "limit_universe": limit_universe,
         "range": range_key,
+        "incremental_prices": incremental_prices,
         "breadth_lookback_days": breadth_lookback_days,
         "rs_lookback_days": rs_lookback_days,
         "benchmark_ticker": benchmark_ticker,
@@ -113,6 +115,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
                 job_id=job.job_id,
                 symbols=price_symbols,
                 range_key=range_key,
+                incremental=incremental_prices,
                 result=result,
                 existing_result=result.get("prices") if isinstance(result.get("prices"), dict) else None,
             )
@@ -213,6 +216,7 @@ def _refresh_prices_for_symbols(
     job_id: str,
     symbols: list[dict[str, str]],
     range_key: PriceRange,
+    incremental: bool,
     result: dict[str, Any],
     existing_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -225,6 +229,7 @@ def _refresh_prices_for_symbols(
         "completed_tickers": list(completed_tickers),
         "records_seen": int((existing_result or {}).get("records_seen") or 0),
         "records_written": int((existing_result or {}).get("records_written") or 0),
+        "incremental": incremental,
         "resumed": bool(completed_tickers),
     }
     completed_set = set(completed_tickers)
@@ -245,7 +250,12 @@ def _refresh_prices_for_symbols(
                 result={**result, "prices": price_result},
             )
         try:
-            item = refresh_price_cache_for_ticker(ticker, range_key=range_key, yahoo_symbol=yahoo_symbol)
+            item = refresh_price_cache_for_ticker(
+                ticker,
+                range_key=range_key,
+                yahoo_symbol=yahoo_symbol,
+                incremental=incremental,
+            )
         except Exception as exc:
             price_result["failure_count"] += 1
             if len(price_result["failed_tickers"]) < 80:
@@ -278,6 +288,7 @@ def _resume_result(existing: dict[str, Any] | None, fresh: dict[str, Any]) -> di
     resumed["universe"] = fresh["universe"]
     resumed["limit_universe"] = fresh["limit_universe"]
     resumed["range"] = fresh["range"]
+    resumed["incremental_prices"] = fresh["incremental_prices"]
     resumed["breadth_lookback_days"] = fresh["breadth_lookback_days"]
     resumed["rs_lookback_days"] = fresh["rs_lookback_days"]
     resumed["benchmark_ticker"] = fresh["benchmark_ticker"]
@@ -339,6 +350,14 @@ def _normalize_limit(value: object) -> int:
         return max(350, min(5000, int(value)))
     except (TypeError, ValueError):
         return 5000
+
+
+def _normalize_bool(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _normalize_days(value: object) -> int:

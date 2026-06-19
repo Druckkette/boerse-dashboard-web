@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import FundamentalSnapshot, Instrument
@@ -72,6 +72,27 @@ def get_latest_fundamentals(ticker: str) -> FundamentalSnapshotRow | None:
                 .limit(1)
             ).first()
             return _to_row(row) if row else None
+    except SQLAlchemyError as exc:
+        raise FundamentalsRepositoryUnavailable(str(exc)) from exc
+
+
+def latest_fundamental_dates(tickers: list[str]) -> dict[str, date]:
+    clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
+    if not clean_tickers:
+        return {}
+
+    try:
+        with SessionLocal() as db:
+            rows = db.execute(
+                select(FundamentalSnapshot.ticker, func.max(FundamentalSnapshot.as_of))
+                .where(FundamentalSnapshot.ticker.in_(clean_tickers))
+                .group_by(FundamentalSnapshot.ticker)
+            ).all()
+            return {
+                str(ticker).upper(): value
+                for ticker, value in rows
+                if ticker and value is not None
+            }
     except SQLAlchemyError as exc:
         raise FundamentalsRepositoryUnavailable(str(exc)) from exc
 

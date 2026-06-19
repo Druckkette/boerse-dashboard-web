@@ -1,3 +1,5 @@
+"use client";
+
 import { MarketAmpelPanel } from "@/features/market/market-ampel-panel";
 import { MarketBreadthOverviewPanel } from "@/features/market/market-breadth-overview-panel";
 import { MarketOverviewPanel } from "@/features/market/market-overview-panel";
@@ -5,25 +7,35 @@ import {
   MarketRiskSectionsPanel,
   MarketSentimentPositioningPanel
 } from "@/features/market/market-risk-sections-panel";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+
+const indexes = [
+  { ticker: "^GSPC", label: "S&P 500" },
+  { ticker: "^IXIC", label: "Nasdaq" },
+  { ticker: "^RUT", label: "Russell 2000" }
+] as const;
+
+export type MarketIndexTicker = (typeof indexes)[number]["ticker"];
 
 export default function MarketPage() {
+  const [ticker, setTicker] = useState<MarketIndexTicker>("^GSPC");
+
   return (
     <div className="space-y-5">
-      <MarketAmpelPanel />
-      <MarketOverviewPanel />
-      <MarketRiskSectionsPanel />
+      <MarketAmpelPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
+      <MarketOverviewPanel ticker={ticker} />
+      <MarketRiskSectionsPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
       <MarketArea
         title="Marktbreite"
         description="Russell-vs-S&P, Equal-Weight-ETFs, A/D, Volumen, McClellan, NH/NL, MA-Teilnahme und Deemer Ratio."
       >
-        <MarketBreadthOverviewPanel />
+        <MarketBreadthOverviewPanel ticker={ticker} />
       </MarketArea>
       <MarketArea
         title="Stimmungs- und Positionierungsindikatoren"
         description="VIX, VXX und Margin Debt als separate Sentiment- und Positionierungsprüfung."
       >
-        <MarketSentimentPositioningPanel />
+        <MarketSentimentPositioningPanel ticker={ticker} />
       </MarketArea>
     </div>
   );

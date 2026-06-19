@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import jobs as job_repository
 from app.services.fundamentals import refresh_fundamentals_for_ticker
@@ -23,6 +26,8 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
 
     tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
+    incremental = _normalize_bool(payload.get("incremental"), default=False)
+    latest_dates = _latest_fundamental_dates(tickers) if incremental else {}
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
         "ok": False,
@@ -30,7 +35,9 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         "tickers": tickers,
         "ticker_count": len(tickers),
         "include_holders": include_holders,
+        "incremental": incremental,
         "success_count": 0,
+        "skipped_count": 0,
         "failure_count": 0,
         "failed_tickers": [],
         "records_seen": 0,
@@ -43,6 +50,21 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         total = max(1, len(tickers))
         for index, ticker in enumerate(tickers, start=1):
             raise_if_cancelled(job.job_id)
+            latest_date = latest_dates.get(ticker)
+            if incremental and latest_date is not None and latest_date >= date.today():
+                result["skipped_count"] += 1
+                result["items"].append(
+                    {
+                        "ticker": ticker,
+                        "ok": True,
+                        "skipped": True,
+                        "reason": "Fundamental-Snapshot ist heute bereits aktuell.",
+                        "as_of": latest_date.isoformat(),
+                        "records_seen": 0,
+                        "records_written": 0,
+                    }
+                )
+                continue
             job_repository.update_progress(
                 job.job_id,
                 progress=min(90, 10 + int(index / total * 80)),
@@ -73,7 +95,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
             result["records_seen"] += int(item.get("records_seen") or 0)
             result["records_written"] += int(item.get("records_written") or 0)
 
-        result["ok"] = result["failure_count"] == 0 and result["success_count"] > 0
+        result["ok"] = result["failure_count"] == 0 and (result["success_count"] > 0 or result["skipped_count"] > 0)
         result["partial"] = result["success_count"] > 0 and result["failure_count"] > 0
         if result["success_count"] == 0:
             job_repository.mark_failed(
@@ -111,7 +133,7 @@ def resolve_fundamental_tickers(payload: dict | None = None) -> list[str]:
 
     universe_key = str(payload.get("fundamental_universe") or payload.get("universe") or "").strip().lower()
     mode = str(payload.get("mode") or "").strip().lower()
-    if universe_key in {"tracked", "workspace", "open_positions", "recent"} or mode in {"tracked", "scheduled"}:
+    if universe_key in {"tracked", "workspace", "open_positions", "recent"} or (mode == "tracked" and not universe_key):
         tracked = _tracked_fundamental_tickers(limit=limit)
         if tracked:
             return tracked
@@ -148,6 +170,21 @@ def _dedupe_tickers(values: list[str]) -> list[str]:
 
 def _normalize_limit(value: object) -> int:
     try:
-        return max(1, min(500, int(value)))
+        return max(1, min(5000, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _latest_fundamental_dates(tickers: list[str]) -> dict[str, date]:
+    try:
+        return fundamentals_repository.latest_fundamental_dates(tickers)
+    except fundamentals_repository.FundamentalsRepositoryUnavailable:
+        return {}
+
+
+def _normalize_bool(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}

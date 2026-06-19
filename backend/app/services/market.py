@@ -117,7 +117,8 @@ class BreadthComputationPoint:
     up_down_volume_ratio: float | None = None
 
 
-def get_market_overview() -> MarketOverviewResponse:
+def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOverviewResponse:
+    clean_ticker = _normalize_ampel_ticker(ticker)
     try:
         snapshot = market_repository.get_latest_market_snapshot()
     except MarketRepositoryUnavailable:
@@ -127,15 +128,18 @@ def get_market_overview() -> MarketOverviewResponse:
         return _missing_market_overview()
 
     metrics = snapshot.metrics_json or {}
-    trend_ampel = _trend_ampel_from_metrics(metrics)
+    trend_ampel = _market_trend_ampel_for_ticker(clean_ticker, lookback_days=550)
+    if trend_ampel is None and clean_ticker == MARKET_TREND_BENCHMARK:
+        trend_ampel = _trend_ampel_from_metrics(metrics)
+    phase = trend_ampel.phase if trend_ampel else _normalize_phase(snapshot.ampel_phase)
     return MarketOverviewResponse(
-        as_of=snapshot.date.isoformat(),
+        as_of=trend_ampel.as_of if trend_ampel else snapshot.date.isoformat(),
         source="database",
-        data_status=_data_status_for_date(snapshot.date),
-        message=_market_snapshot_message(snapshot.date, metrics),
-        phase=_normalize_phase(snapshot.ampel_phase),
-        phase_label=_phase_label(snapshot.ampel_phase),
-        action=str(metrics.get("action") or _action_for_phase(snapshot.ampel_phase)),
+        data_status=_data_status_for_date(date.fromisoformat(trend_ampel.as_of) if trend_ampel else snapshot.date),
+        message=_market_snapshot_message(snapshot.date, metrics, index_ticker=clean_ticker),
+        phase=phase,
+        phase_label=_phase_label(phase),
+        action=_overview_action(phase=phase, snapshot=snapshot, metrics=metrics),
         warning_count=snapshot.warning_count,
         breadth_mode=_normalize_breadth_mode(snapshot.breadth_mode),
         volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
@@ -315,7 +319,9 @@ def get_market_breadth_overview(
     universe: str = DEFAULT_MARKET_UNIVERSE_KEY,
     *,
     limit: int = 260,
+    index_ticker: str = MARKET_TREND_BENCHMARK,
 ) -> MarketBreadthOverviewResponse:
+    clean_index_ticker = _normalize_ampel_ticker(index_ticker)
     clean_limit = max(60, min(500, int(limit)))
     try:
         rows = market_repository.list_breadth_daily(universe=universe, limit=clean_limit)
@@ -335,11 +341,17 @@ def get_market_breadth_overview(
     requested_universe = _metadata_int(latest_meta, "universe_size", "requested_universe") or None
     loaded_universe = _metadata_int(latest_meta, "loaded_universe", "covered_count")
     coverage_ratio = float(latest_meta.get("coverage_ratio") or 0)
-    spx_at_high, ad_at_high, ad_divergence_detail = _index_ad_confirmation(points)
+    index_at_high, ad_at_high, ad_divergence_detail = _index_ad_confirmation(points, index_ticker=clean_index_ticker)
     signals = [
         _russell_breadth_signal(),
         _equal_weight_breadth_signal(),
-        _advance_decline_line_signal(latest, spx_at_high=spx_at_high, ad_at_high=ad_at_high, detail=ad_divergence_detail),
+        _advance_decline_line_signal(
+            latest,
+            index_ticker=clean_index_ticker,
+            index_at_high=index_at_high,
+            ad_at_high=ad_at_high,
+            detail=ad_divergence_detail,
+        ),
         _advance_decline_ratio_signal(latest),
         _up_down_volume_signal(latest),
         _mcclellan_signal(latest),
@@ -369,7 +381,9 @@ def get_market_deep_analysis(
     universe: str = DEFAULT_MARKET_UNIVERSE_KEY,
     *,
     limit: int = 260,
+    index_ticker: str = MARKET_TREND_BENCHMARK,
 ) -> MarketDeepAnalysisResponse:
+    clean_index_ticker = _normalize_ampel_ticker(index_ticker)
     clean_limit = max(60, min(500, int(limit)))
     try:
         rows = market_repository.list_breadth_daily(universe=universe, limit=clean_limit)
@@ -412,8 +426,8 @@ def get_market_deep_analysis(
             valid_for_200sma=valid_for_200sma,
             nhnl_uses_intraday=nhnl_uses_intraday,
         )
-    spx_at_high, ad_at_high, index_ad_detail = _index_ad_confirmation(points)
-    p50_divergence = bool(spx_at_high and latest.pct_above_50sma is not None and latest.pct_above_50sma < 70)
+    index_at_high, ad_at_high, index_ad_detail = _index_ad_confirmation(points, index_ticker=clean_index_ticker)
+    p50_divergence = bool(index_at_high and latest.pct_above_50sma is not None and latest.pct_above_50sma < 70)
     recent_thrust = any((point.deemer_ratio or 0) > 1.97 for point in valid_points[-20:])
 
     metrics = [
@@ -451,9 +465,9 @@ def get_market_deep_analysis(
     checks = [
         MarketDeepAnalysisCheck(
             label="Keine Divergenz Index vs. A/D-Linie",
-            passed=not (spx_at_high and not ad_at_high),
+            passed=not (index_at_high and not ad_at_high),
             detail=index_ad_detail,
-            tone="good" if not (spx_at_high and not ad_at_high) else "warning",
+            tone="good" if not (index_at_high and not ad_at_high) else "warning",
         ),
         MarketDeepAnalysisCheck(
             label="Keine % > 50-SMA Divergenz",
@@ -706,21 +720,27 @@ def _equal_weight_breadth_signal() -> MarketBreadthSignal:
 def _advance_decline_line_signal(
     latest: MarketBreadthOverviewPoint,
     *,
-    spx_at_high: bool,
+    index_ticker: str,
+    index_at_high: bool,
     ad_at_high: bool,
     detail: str,
 ) -> MarketBreadthSignal:
-    divergence = bool(spx_at_high and not ad_at_high)
+    index_name = MARKET_AMPEL_INDEXES.get(_normalize_ampel_ticker(index_ticker), index_ticker)
+    divergence = bool(index_at_high and not ad_at_high)
     return MarketBreadthSignal(
         key="advance_decline_line",
-        title="Advance/Decline Linie",
+        title=f"Advance/Decline Linie vs. {index_name}",
         value=_format_number(latest.ad_line, digits=0),
         detail=detail,
         tone="warning" if divergence else "good",
-        comment="Divergenz liegt vor, wenn der S&P 500 nahe am 20T-Hoch steht, die A/D-Linie dieses Hoch aber nicht bestätigt.",
+        comment=(
+            f"Divergenz liegt vor, wenn {index_name} nahe am 20T-Hoch steht, "
+            "die A/D-Linie dieses Hoch aber nicht bestätigt."
+        ),
         metrics={
             "ad_line": latest.ad_line,
-            "sp500_at_20d_high": spx_at_high,
+            "index_ticker": _normalize_ampel_ticker(index_ticker),
+            "index_at_20d_high": index_at_high,
             "ad_line_at_20d_high": ad_at_high,
             "divergence": divergence,
         },
@@ -927,13 +947,14 @@ def get_sector_ranking(*, mode: str = "daily", periods: int = 15) -> SectorRanki
     )
 
 
-def get_market_diagnostics() -> MarketDiagnosticsResponse:
-    overview = get_market_overview()
+def get_market_diagnostics(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketDiagnosticsResponse:
+    clean_ticker = _normalize_ampel_ticker(ticker)
+    overview = get_market_overview(ticker=clean_ticker)
     breadth = get_breadth()
     volatility = get_volatility()
     intermarket = _cached_intermarket_divergence()
     rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
-    benchmark_drawdown_pct = _cached_benchmark_drawdown_pct()
+    benchmark_drawdown_pct = _cached_benchmark_drawdown_pct(clean_ticker)
 
     checklist = _build_market_diagnostic_checks(
         overview=overview,
@@ -1377,6 +1398,15 @@ def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> Tren
     return points[-1] if points else None
 
 
+def _market_trend_ampel_for_ticker(ticker: str, *, lookback_days: int) -> MarketTrendAmpel | None:
+    clean_ticker = _normalize_ampel_ticker(ticker)
+    point = _latest_cached_trend_ampel_point(clean_ticker, lookback_days=lookback_days)
+    raw = _trend_ampel_metrics(point, ticker=clean_ticker)
+    if raw.get("source") == "missing":
+        return None
+    return MarketTrendAmpel.model_validate(raw)
+
+
 def _cached_volatility_points(*, limit: int = 180):
     start_date = date.today() - timedelta(days=900)
     series = market_repository.load_cached_prices(VOLATILITY_TICKERS, start_date=start_date)
@@ -1463,9 +1493,9 @@ def _cached_sector_rotation() -> tuple[list[MarketSectorRotationGroup], bool | N
     return groups, defensive_lead, defensive_spread
 
 
-def _cached_benchmark_drawdown_pct() -> float | None:
+def _cached_benchmark_drawdown_pct(ticker: str = MARKET_TREND_BENCHMARK) -> float | None:
     bars, _used_ticker = _load_cached_index_ohlcv(
-        MARKET_TREND_BENCHMARK,
+        _normalize_ampel_ticker(ticker),
         start_date=date.today() - timedelta(days=420),
     )
     if not bars:
@@ -1511,13 +1541,19 @@ def _deep_analysis_points(rows: Sequence) -> list[MarketDeepAnalysisPoint]:
     return points
 
 
-def _index_ad_confirmation(points: Sequence[MarketDeepAnalysisPoint]) -> tuple[bool, bool, str]:
+def _index_ad_confirmation(
+    points: Sequence[MarketDeepAnalysisPoint],
+    *,
+    index_ticker: str = MARKET_TREND_BENCHMARK,
+) -> tuple[bool, bool, str]:
+    clean_ticker = _normalize_ampel_ticker(index_ticker)
+    index_name = MARKET_AMPEL_INDEXES.get(clean_ticker, clean_ticker)
     bars, _used_ticker = _load_cached_index_ohlcv(
-        MARKET_TREND_BENCHMARK,
+        clean_ticker,
         start_date=date.today() - timedelta(days=120),
     )
     if len(bars) < 21 or len(points) < 21:
-        return False, False, "S&P- oder A/D-Historie im Cache zu kurz."
+        return False, False, f"{index_name}- oder A/D-Historie im Cache zu kurz."
 
     latest_close = bars[-1].close
     previous_highs = [point.high for point in bars[:-1]][-20:]
@@ -1531,11 +1567,11 @@ def _index_ad_confirmation(points: Sequence[MarketDeepAnalysisPoint]) -> tuple[b
     spx_at_high = latest_close >= reference_high * 0.998
     ad_at_high = latest_ad >= reference_ad_high * 0.998
     if spx_at_high and ad_at_high:
-        detail = "S&P 500 und A/D-Linie bestätigen sich."
+        detail = f"{index_name} und A/D-Linie bestätigen sich."
     elif spx_at_high:
-        detail = "S&P 500 nahe 20T-Hoch, A/D-Linie bestätigt nicht."
+        detail = f"{index_name} nahe 20T-Hoch, A/D-Linie bestätigt nicht."
     else:
-        detail = "S&P 500 nicht nahe 20T-Hoch; keine aktive Divergenz."
+        detail = f"{index_name} nicht nahe 20T-Hoch; keine aktive Divergenz."
     return spx_at_high, ad_at_high, detail
 
 
@@ -2797,12 +2833,29 @@ def _data_status_for_date(value: date) -> str:
     return "stale"
 
 
-def _market_snapshot_message(snapshot_date: date, metrics: dict) -> str:
+def _overview_action(*, phase: str, snapshot, metrics: dict) -> str:
+    if phase != _normalize_phase(snapshot.ampel_phase):
+        return _combined_market_action(
+            trend_phase=phase,
+            breadth_action=str(metrics.get("breadth_action") or _action_for_phase(snapshot.ampel_phase)),
+            breadth_mode=_normalize_breadth_mode(snapshot.breadth_mode),
+            volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
+        )
+    return str(metrics.get("action") or _action_for_phase(snapshot.ampel_phase))
+
+
+def _market_snapshot_message(
+    snapshot_date: date,
+    metrics: dict,
+    *,
+    index_ticker: str = MARKET_TREND_BENCHMARK,
+) -> str:
     status = _data_status_for_date(snapshot_date)
     coverage = float(metrics.get("coverage_ratio") or 0)
-    prefix = "MarketSnapshot aus Postgres"
+    index_name = MARKET_AMPEL_INDEXES.get(_normalize_ampel_ticker(index_ticker), index_ticker)
+    prefix = f"MarketSnapshot aus Postgres; Index-Kontext {index_name}"
     if status == "stale":
-        prefix = "MarketSnapshot ist älter"
+        prefix = f"MarketSnapshot ist älter; Index-Kontext {index_name}"
     return f"{prefix}; Coverage {_format_pct(coverage * 100)}. Bei Bedarf refresh_prices und refresh_breadth starten."
 
 

@@ -117,6 +117,7 @@ def test_smart_plan_refreshes_stale_tracked_fundamentals() -> None:
 
     assert [action.key for action in plan] == ["refresh_fundamentals"]
     assert plan[0].payload["fundamental_universe"] == "tracked"
+    assert plan[0].payload["incremental"] is True
 
 
 def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> None:
@@ -138,6 +139,9 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
         "refresh_relative_strength",
         "refresh_fundamentals",
     ]
+    assert plan[0].payload["incremental"] is True
+    assert plan[-1].payload["fundamental_universe"] == "all"
+    assert plan[-1].payload["fundamental_limit"] == 5000
     assert "Geplanter Smart-Refresh" in plan[0].reason
 
 
@@ -178,7 +182,7 @@ def test_smart_refresh_task_runs_only_planned_actions(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         smart_module,
         "refresh_price_cache_for_ticker",
-        lambda ticker, *, range_key, yahoo_symbol=None: calls.append(f"price:{ticker}:{range_key}") or {
+        lambda ticker, *, range_key, yahoo_symbol=None, incremental=False: calls.append(f"price:{ticker}:{range_key}:{incremental}") or {
             "ticker": ticker,
             "records_seen": 10,
             "records_written": 10,
@@ -205,7 +209,7 @@ def test_smart_refresh_task_runs_only_planned_actions(monkeypatch: pytest.Monkey
     updated = job_repository.get_job(job.job_id)
 
     assert result["ok"] is True
-    assert calls == ["price:NVDA:1y", "monitor"]
+    assert calls == ["price:NVDA:1y:True", "monitor"]
     assert updated is not None
     assert updated.status == "done"
 
@@ -229,7 +233,7 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
     monkeypatch.setattr(
         smart_module,
         "refresh_price_cache_for_ticker",
-        lambda ticker, *, range_key, yahoo_symbol=None: calls.append(f"price:{ticker}:{range_key}") or {
+        lambda ticker, *, range_key, yahoo_symbol=None, incremental=False: calls.append(f"price:{ticker}:{range_key}:{incremental}") or {
             "ticker": ticker,
             "records_seen": 10,
             "records_written": 10,
@@ -265,8 +269,8 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
     updated = job_repository.get_job(job.job_id)
 
     assert result["ok"] is True
-    assert "price:SPY:6m" in calls
-    assert "price:^GSPC:6m" in calls
+    assert "price:SPY:6m:True" in calls
+    assert "price:^GSPC:6m:True" in calls
     assert calls[-3:] == ["breadth", "rs", "fundamentals:NVDA"]
     assert result["results"]["refresh_breadth"]["snapshot_date"] == "2026-06-19"
     assert updated is not None

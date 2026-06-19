@@ -141,14 +141,18 @@ async function errorMessage(response: Response) {
 }
 
 export const api = {
-  marketOverview: () => getJson<MarketOverview>("/market/overview"),
+  marketOverview: (ticker = "^GSPC") =>
+    getJson<MarketOverview>(`/market/overview?ticker=${encodeURIComponent(ticker)}`),
   marketAmpel: (ticker = "SPY", days = 90) =>
     getJson<MarketAmpel>(`/market/ampel?ticker=${encodeURIComponent(ticker)}&days=${days}`),
   marketBreadth: () => getJson<Breadth>("/market/breadth"),
-  marketBreadthOverview: (limit = 260) => getJson<MarketBreadthOverview>(`/market/breadth-overview?limit=${limit}`),
-  marketDeepAnalysis: (limit = 260) => getJson<MarketDeepAnalysis>(`/market/deep-analysis?limit=${limit}`),
+  marketBreadthOverview: (limit = 260, ticker = "^GSPC") =>
+    getJson<MarketBreadthOverview>(`/market/breadth-overview?limit=${limit}&ticker=${encodeURIComponent(ticker)}`),
+  marketDeepAnalysis: (limit = 260, ticker = "^GSPC") =>
+    getJson<MarketDeepAnalysis>(`/market/deep-analysis?limit=${limit}&ticker=${encodeURIComponent(ticker)}`),
   marketVolatility: () => getJson<Volatility>("/market/volatility"),
-  marketDiagnostics: () => getJson<MarketDiagnostics>("/market/diagnostics"),
+  marketDiagnostics: (ticker = "^GSPC") =>
+    getJson<MarketDiagnostics>(`/market/diagnostics?ticker=${encodeURIComponent(ticker)}`),
   marketUniverse: () => getJson<UniverseStatus>("/market/universe"),
   marketUniverseMappings: (limit = 500) =>
     getJson<UniverseSymbolMappingReview>(`/market/universe/mappings?limit=${limit}`),

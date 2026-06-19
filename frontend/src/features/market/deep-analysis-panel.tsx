@@ -9,10 +9,10 @@ import type { MarketDeepAnalysis, MarketDeepAnalysisCheck, MarketDeepAnalysisMet
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
-export function DeepAnalysisPanel() {
+export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
   const query = useQuery({
-    queryKey: ["market-deep-analysis"],
-    queryFn: () => api.marketDeepAnalysis(260),
+    queryKey: ["market-deep-analysis", ticker],
+    queryFn: () => api.marketDeepAnalysis(260, ticker),
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });

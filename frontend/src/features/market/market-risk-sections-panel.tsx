@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { CircleAlert, CircleCheck, RotateCw } from "lucide-react";
@@ -19,14 +19,23 @@ import type {
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
-const indexes = [
+const defaultIndexes = [
   { ticker: "^GSPC", label: "S&P 500" },
   { ticker: "^IXIC", label: "Nasdaq" },
   { ticker: "^RUT", label: "Russell 2000" }
 ] as const;
+type MarketIndexOption = (typeof defaultIndexes)[number];
+type MarketIndexTicker = MarketIndexOption["ticker"];
 
-export function MarketRiskSectionsPanel() {
-  const [ticker, setTicker] = useState<(typeof indexes)[number]["ticker"]>("^GSPC");
+export function MarketRiskSectionsPanel({
+  indexes = defaultIndexes,
+  onTickerChange,
+  ticker = "^GSPC"
+}: {
+  indexes?: readonly MarketIndexOption[];
+  onTickerChange?: (ticker: MarketIndexTicker) => void;
+  ticker?: MarketIndexTicker;
+}) {
   const ampelQuery = useQuery({
     queryKey: ["market-risk-sections-ampel", ticker],
     queryFn: () => api.marketAmpel(ticker, 90),
@@ -35,8 +44,8 @@ export function MarketRiskSectionsPanel() {
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
   const diagnosticsQuery = useQuery({
-    queryKey: ["market-risk-sections-diagnostics"],
-    queryFn: api.marketDiagnostics,
+    queryKey: ["market-risk-sections-diagnostics", ticker],
+    queryFn: () => api.marketDiagnostics(ticker),
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
@@ -68,7 +77,7 @@ export function MarketRiskSectionsPanel() {
                 : "border-[#2d333d] bg-[#111419] text-[#a0a7b4] hover:border-[#586071] hover:text-[#d8dde6]"
             )}
             type="button"
-            onClick={() => setTicker(item.ticker)}
+            onClick={() => onTickerChange?.(item.ticker)}
           >
             {item.label}
           </button>
@@ -111,7 +120,7 @@ export function MarketRiskSectionsPanel() {
   );
 }
 
-export function MarketSentimentPositioningPanel() {
+export function MarketSentimentPositioningPanel({ ticker = "^GSPC" }: { ticker?: string }) {
   const volatilityQuery = useQuery({
     queryKey: ["market-sentiment-volatility"],
     queryFn: api.marketVolatility,
@@ -119,8 +128,8 @@ export function MarketSentimentPositioningPanel() {
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
   const overviewQuery = useQuery({
-    queryKey: ["market-sentiment-overview"],
-    queryFn: api.marketOverview,
+    queryKey: ["market-sentiment-overview", ticker],
+    queryFn: () => api.marketOverview(ticker),
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });

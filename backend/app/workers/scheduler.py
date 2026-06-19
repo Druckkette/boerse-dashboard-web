@@ -8,6 +8,7 @@ SMART_REFRESH_PAYLOAD = {
     "source": "scheduler",
     "range": "6m",
     "initial_range": "2y",
+    "incremental_prices": True,
     "universe": "us_common_stocks",
     "limit_universe": 5000,
     "breadth_lookback_days": 550,
@@ -15,8 +16,9 @@ SMART_REFRESH_PAYLOAD = {
     "benchmark_ticker": "SPY",
     "include_position_monitor": True,
     "include_fundamentals": True,
-    "fundamental_universe": "tracked",
-    "fundamental_limit": 100,
+    "fundamental_universe": "all",
+    "fundamental_limit": 5000,
+    "incremental_fundamentals": True,
 }
 
 

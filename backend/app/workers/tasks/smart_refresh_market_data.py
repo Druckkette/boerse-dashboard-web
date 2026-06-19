@@ -12,6 +12,7 @@ from app.domain.market.constants import (
 )
 from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.domain.sell.service import monitor_open_positions
+from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import jobs as job_repository
 from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFreshness, UniverseStatusResponse
 from app.services.freshness import get_freshness
@@ -154,8 +155,14 @@ def build_smart_refresh_plan(
     initial_price_range = _normalize_range(payload.get("initial_range") or payload.get("price_range") or "2y")
     include_position_monitor = bool(payload.get("include_position_monitor", True))
     include_fundamentals = bool(payload.get("include_fundamentals", True))
-    fundamental_limit = _normalize_fundamental_limit(payload.get("fundamental_limit") or 80)
     force_market_refresh = _scheduled_or_forced(payload)
+    incremental_prices = _normalize_bool(payload.get("incremental_prices"), default=True)
+    incremental_fundamentals = _normalize_bool(payload.get("incremental_fundamentals"), default=True)
+    fundamental_universe = str(
+        payload.get("fundamental_universe") or ("all" if force_market_refresh else "tracked")
+    ).strip().lower()
+    fundamental_limit_default = limit_universe if fundamental_universe in {"all", "universe", universe_key} else 80
+    fundamental_limit = _normalize_fundamental_limit(payload.get("fundamental_limit") or fundamental_limit_default)
 
     freshness_by_name = {item.name: item for item in freshness.services}
     price_freshness = freshness_by_name.get("prices")
@@ -209,6 +216,7 @@ def build_smart_refresh_plan(
                     "limit_universe": limit_universe,
                     "benchmark_ticker": benchmark_ticker,
                     "include_market_helpers": True,
+                    "incremental": incremental_prices,
                 },
             )
         )
@@ -293,9 +301,11 @@ def build_smart_refresh_plan(
                 payload={
                     "mode": "tracked",
                     "source": "smart_refresh",
-                    "fundamental_universe": "tracked",
+                    "fundamental_universe": fundamental_universe,
+                    "universe": universe_key if fundamental_universe in {"all", "universe"} else None,
                     "fundamental_limit": fundamental_limit,
                     "include_holders": True,
+                    "incremental": incremental_fundamentals,
                 },
             )
         )
@@ -406,7 +416,12 @@ def _refresh_prices(
                 result={**result, "current_price_refresh": price_result},
             )
         try:
-            item = refresh_price_cache_for_ticker(ticker, range_key=range_key, yahoo_symbol=yahoo_symbol)
+            item = refresh_price_cache_for_ticker(
+                ticker,
+                range_key=range_key,
+                yahoo_symbol=yahoo_symbol,
+                incremental=_normalize_bool(payload.get("incremental"), default=True),
+            )
         except Exception as exc:
             price_result["failure_count"] += 1
             if len(price_result["failed_tickers"]) < 80:
@@ -448,13 +463,17 @@ def _refresh_fundamentals(
 ) -> dict[str, Any]:
     tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
+    incremental = _normalize_bool(payload.get("incremental"), default=True)
+    latest_dates = _latest_fundamental_dates(tickers) if incremental else {}
     fundamental_result: dict[str, Any] = {
         "ok": False,
         "job_type": "refresh_fundamentals",
         "tickers": tickers,
         "ticker_count": len(tickers),
         "include_holders": include_holders,
+        "incremental": incremental,
         "success_count": 0,
+        "skipped_count": 0,
         "failure_count": 0,
         "failed_tickers": [],
         "records_seen": 0,
@@ -465,6 +484,10 @@ def _refresh_fundamentals(
     next_progress = 8 + int(action_index / max(1, total_actions) * 82)
     for index, ticker in enumerate(tickers, start=1):
         raise_if_cancelled(job_id)
+        latest_date = latest_dates.get(ticker)
+        if incremental and latest_date is not None and latest_date >= datetime.now(UTC).date():
+            fundamental_result["skipped_count"] += 1
+            continue
         progress = min(92, base_progress + int(index / total_tickers * max(1, next_progress - base_progress)))
         job_repository.update_progress(
             job_id,
@@ -486,7 +509,10 @@ def _refresh_fundamentals(
         fundamental_result["records_seen"] += int(item.get("records_seen") or 0)
         fundamental_result["records_written"] += int(item.get("records_written") or 0)
 
-    fundamental_result["ok"] = fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] == 0
+    fundamental_result["ok"] = (
+        (fundamental_result["success_count"] > 0 or fundamental_result["skipped_count"] > 0)
+        and fundamental_result["failure_count"] == 0
+    )
     fundamental_result["partial"] = fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] > 0
     if tickers and fundamental_result["success_count"] == 0:
         raise RuntimeError("Smart Refresh konnte keine Fundamentals aktualisieren.")
@@ -495,6 +521,13 @@ def _refresh_fundamentals(
         fundamental_result["skipped"] = True
         fundamental_result["reason"] = "Keine getrackten Ticker für Fundamental-Refresh."
     return fundamental_result
+
+
+def _latest_fundamental_dates(tickers: list[str]) -> dict[str, Any]:
+    try:
+        return fundamentals_repository.latest_fundamental_dates(tickers)
+    except fundamentals_repository.FundamentalsRepositoryUnavailable:
+        return {}
 
 
 @dataclass(frozen=True)
@@ -549,9 +582,17 @@ def _normalize_limit(value: object) -> int:
 
 def _normalize_fundamental_limit(value: object) -> int:
     try:
-        return max(1, min(500, int(value)))
+        return max(1, min(5000, int(value)))
     except (TypeError, ValueError):
         return 80
+
+
+def _normalize_bool(value: object, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _normalize_days(value: object) -> int:

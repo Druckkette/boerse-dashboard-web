@@ -8,10 +8,10 @@ import type { MarketBreadthSignal, Tone } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
-export function MarketBreadthOverviewPanel() {
+export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
   const query = useQuery({
-    queryKey: ["market-breadth-overview"],
-    queryFn: () => api.marketBreadthOverview(260),
+    queryKey: ["market-breadth-overview", ticker],
+    queryFn: () => api.marketBreadthOverview(260, ticker),
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });

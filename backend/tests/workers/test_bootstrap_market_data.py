@@ -110,7 +110,7 @@ def test_bootstrap_redelivery_of_completed_job_is_noop(monkeypatch: pytest.Monke
 def test_price_refresh_checkpoint_skips_completed_tickers(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
 
-    def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str) -> dict:
+    def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str, incremental: bool) -> dict:
         seen.append(ticker)
         return {
             "ticker": ticker,
@@ -129,6 +129,7 @@ def test_price_refresh_checkpoint_skips_completed_tickers(monkeypatch: pytest.Mo
             {"source_ticker": "CCC", "yahoo_symbol": "CCC"},
         ],
         range_key="1y",
+        incremental=True,
         result={},
         existing_result={
             "completed_tickers": ["AAA"],
@@ -139,6 +140,7 @@ def test_price_refresh_checkpoint_skips_completed_tickers(monkeypatch: pytest.Mo
     )
 
     assert seen == ["BBB", "CCC"]
+    assert result["incremental"] is True
     assert result["success_count"] == 3
     assert result["failure_count"] == 0
     assert result["records_written"] == 15

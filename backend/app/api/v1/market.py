@@ -35,8 +35,10 @@ router = APIRouter()
 
 
 @router.get("/overview", response_model=MarketOverviewResponse)
-def market_overview() -> MarketOverviewResponse:
-    return get_market_overview()
+def market_overview(
+    ticker: str = Query(default="^GSPC", max_length=24),
+) -> MarketOverviewResponse:
+    return get_market_overview(ticker=ticker)
 
 
 @router.get("/ampel", response_model=MarketAmpelResponse)
@@ -55,15 +57,17 @@ def market_breadth() -> BreadthResponse:
 @router.get("/breadth-overview", response_model=MarketBreadthOverviewResponse)
 def market_breadth_overview(
     limit: int = Query(default=260, ge=60, le=500),
+    ticker: str = Query(default="^GSPC", max_length=24),
 ) -> MarketBreadthOverviewResponse:
-    return get_market_breadth_overview(limit=limit)
+    return get_market_breadth_overview(limit=limit, index_ticker=ticker)
 
 
 @router.get("/deep-analysis", response_model=MarketDeepAnalysisResponse)
 def market_deep_analysis(
     limit: int = Query(default=260, ge=60, le=500),
+    ticker: str = Query(default="^GSPC", max_length=24),
 ) -> MarketDeepAnalysisResponse:
-    return get_market_deep_analysis(limit=limit)
+    return get_market_deep_analysis(limit=limit, index_ticker=ticker)
 
 
 @router.get("/universe", response_model=UniverseStatusResponse)
@@ -96,8 +100,10 @@ def market_volatility() -> VolatilityResponse:
 
 
 @router.get("/diagnostics", response_model=MarketDiagnosticsResponse)
-def market_diagnostics() -> MarketDiagnosticsResponse:
-    return get_market_diagnostics()
+def market_diagnostics(
+    ticker: str = Query(default="^GSPC", max_length=24),
+) -> MarketDiagnosticsResponse:
+    return get_market_diagnostics(ticker=ticker)
 
 
 @router.get("/sectors", response_model=SectorRankingResponse)

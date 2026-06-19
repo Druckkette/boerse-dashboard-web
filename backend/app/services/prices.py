@@ -9,6 +9,7 @@ from app.data_sources.yfinance_client import fetch_daily_price_bars
 from app.repositories.prices import (
     PriceBarWrite,
     PriceRepositoryUnavailable,
+    get_latest_price_bar_date,
     list_price_bars,
     upsert_price_bars,
 )
@@ -75,11 +76,14 @@ def refresh_price_cache_for_ticker(
     *,
     range_key: PriceRange = "1y",
     yahoo_symbol: str | None = None,
+    incremental: bool = False,
 ) -> dict:
     clean = _normalize_ticker(ticker)
     fetch_symbol = (yahoo_symbol or clean).strip().upper()
     period = YFINANCE_PERIOD_BY_RANGE[range_key]
-    fetched = fetch_daily_price_bars(fetch_symbol, period=period)
+    latest_cached_date = _latest_cached_date(clean) if incremental else None
+    start_date = _incremental_start_date(latest_cached_date) if latest_cached_date else None
+    fetched = fetch_daily_price_bars(fetch_symbol, period=period, start=start_date)
     writes = [
         PriceBarWrite(
             date=bar.date,
@@ -100,8 +104,25 @@ def refresh_price_cache_for_ticker(
         "records_written": written,
         "first_date": fetched[0].date.isoformat() if fetched else None,
         "last_date": fetched[-1].date.isoformat() if fetched else None,
+        "fetch_mode": "incremental" if start_date else "range",
+        "incremental_start_date": start_date.isoformat() if start_date else None,
+        "latest_cached_date": latest_cached_date.isoformat() if latest_cached_date else None,
         "source": "yfinance",
     }
+
+
+def _latest_cached_date(ticker: str) -> date | None:
+    try:
+        return get_latest_price_bar_date(ticker)
+    except PriceRepositoryUnavailable:
+        return None
+
+
+def _incremental_start_date(latest_cached_date: date | None) -> date | None:
+    if latest_cached_date is None:
+        return None
+    # A small overlap keeps the most recent adjusted prices and late provider updates consistent.
+    return max(date(2000, 1, 1), latest_cached_date - timedelta(days=7))
 
 
 def _build_response(

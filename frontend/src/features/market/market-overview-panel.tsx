@@ -7,10 +7,10 @@ import { api } from "@/lib/api/client";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
-export function MarketOverviewPanel() {
+export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["market-overview"],
-    queryFn: api.marketOverview,
+    queryKey: ["market-overview", ticker],
+    queryFn: () => api.marketOverview(ticker),
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });

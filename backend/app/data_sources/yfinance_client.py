@@ -38,7 +38,12 @@ class FetchedFundamentals:
     beta: float | None
 
 
-def fetch_daily_price_bars(symbol: str, *, period: str = "1y") -> list[FetchedPriceBar]:
+def fetch_daily_price_bars(
+    symbol: str,
+    *,
+    period: str = "1y",
+    start: date | None = None,
+) -> list[FetchedPriceBar]:
     """Fetch daily OHLC bars from yfinance for worker-side cache refreshes."""
     import yfinance as yf
 
@@ -46,14 +51,18 @@ def fetch_daily_price_bars(symbol: str, *, period: str = "1y") -> list[FetchedPr
     if not clean_symbol:
         return []
 
-    frame = yf.download(
-        clean_symbol,
-        period=period,
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
-        threads=False,
-    )
+    download_kwargs = {
+        "interval": "1d",
+        "auto_adjust": False,
+        "progress": False,
+        "threads": False,
+    }
+    if start is not None:
+        download_kwargs["start"] = start.isoformat()
+    else:
+        download_kwargs["period"] = period
+
+    frame = yf.download(clean_symbol, **download_kwargs)
     if frame.empty:
         return []
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -75,6 +76,58 @@ def test_refresh_fundamentals_tracked_universe_uses_positions_and_workspace(monk
     assert result["ok"] is True
     assert result["tickers"] == ["NVDA", "MSFT", "AAPL"]
     assert seen == ["NVDA", "MSFT", "AAPL"]
+
+
+def test_refresh_fundamentals_all_universe_uses_resolved_universe(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "resolve_universe_tickers",
+        lambda **kwargs: ["AAA", "BBB", "CCC"][: int(kwargs.get("limit") or 3)],
+    )
+
+    def fake_refresh(ticker: str, *, include_holders: bool) -> dict:
+        seen.append(ticker)
+        return {"ticker": ticker, "ok": True, "records_seen": 1, "records_written": 1, "source": "yfinance"}
+
+    monkeypatch.setattr(refresh_fundamentals_module, "refresh_fundamentals_for_ticker", fake_refresh)
+    payload = {"mode": "scheduled", "fundamental_universe": "all", "fundamental_limit": 2}
+    job = job_repository.create_job("refresh_fundamentals", payload)
+
+    result = refresh_fundamentals_module.refresh_fundamentals.run(job.job_id, payload)
+
+    assert result["ok"] is True
+    assert result["tickers"] == ["AAA", "BBB"]
+    assert seen == ["AAA", "BBB"]
+
+
+def test_refresh_fundamentals_incremental_skips_current_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "resolve_universe_tickers",
+        lambda **kwargs: ["AAA", "BBB"],
+    )
+    monkeypatch.setattr(
+        refresh_fundamentals_module.fundamentals_repository,
+        "latest_fundamental_dates",
+        lambda tickers: {"AAA": date.today()},
+    )
+
+    def fake_refresh(ticker: str, *, include_holders: bool) -> dict:
+        seen.append(ticker)
+        return {"ticker": ticker, "ok": True, "records_seen": 1, "records_written": 1, "source": "yfinance"}
+
+    monkeypatch.setattr(refresh_fundamentals_module, "refresh_fundamentals_for_ticker", fake_refresh)
+    payload = {"fundamental_universe": "all", "incremental": True}
+    job = job_repository.create_job("refresh_fundamentals", payload)
+
+    result = refresh_fundamentals_module.refresh_fundamentals.run(job.job_id, payload)
+
+    assert result["ok"] is True
+    assert result["skipped_count"] == 1
+    assert result["success_count"] == 1
+    assert seen == ["BBB"]
 
 
 def test_refresh_fundamentals_continues_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -11,16 +11,25 @@ import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelLight, Tone } from 
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
-const indexes = [
+const defaultIndexes = [
   { ticker: "^GSPC", label: "S&P 500" },
   { ticker: "^IXIC", label: "Nasdaq" },
   { ticker: "^RUT", label: "Russell 2000" }
 ] as const;
+type MarketIndexOption = (typeof defaultIndexes)[number];
+type MarketIndexTicker = MarketIndexOption["ticker"];
 
 const dayOptions = [60, 90, 130, 200] as const;
 
-export function MarketAmpelPanel() {
-  const [ticker, setTicker] = useState<(typeof indexes)[number]["ticker"]>("^GSPC");
+export function MarketAmpelPanel({
+  indexes = defaultIndexes,
+  onTickerChange,
+  ticker = "^GSPC"
+}: {
+  indexes?: readonly MarketIndexOption[];
+  onTickerChange?: (ticker: MarketIndexTicker) => void;
+  ticker?: MarketIndexTicker;
+}) {
   const [days, setDays] = useState<(typeof dayOptions)[number]>(90);
   const query = useQuery({
     queryKey: ["market-ampel", ticker, days],
@@ -95,7 +104,7 @@ export function MarketAmpelPanel() {
                       : "border-[#2d333d] bg-[#111419] text-[#a0a7b4] hover:border-[#586071] hover:text-[#d8dde6]"
                   )}
                   type="button"
-                  onClick={() => setTicker(item.ticker)}
+                  onClick={() => onTickerChange?.(item.ticker)}
                 >
                   {item.label}
                 </button>

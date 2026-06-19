@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import Instrument, PriceBar
@@ -39,6 +39,21 @@ def list_price_bars(ticker: str, *, start_date: date | None = None) -> list[Pric
                 query = query.where(PriceBar.date >= start_date)
             rows = db.scalars(query.order_by(PriceBar.date.asc())).all()
             return list(rows)
+    except SQLAlchemyError as exc:
+        raise PriceRepositoryUnavailable(str(exc)) from exc
+
+
+def get_latest_price_bar_date(ticker: str) -> date | None:
+    clean = ticker.strip().upper()
+    if not clean:
+        return None
+    try:
+        with SessionLocal() as db:
+            return db.scalar(
+                select(func.max(PriceBar.date))
+                .join(Instrument, PriceBar.instrument_id == Instrument.id)
+                .where(Instrument.ticker == clean, PriceBar.close.is_not(None))
+            )
     except SQLAlchemyError as exc:
         raise PriceRepositoryUnavailable(str(exc)) from exc
 
