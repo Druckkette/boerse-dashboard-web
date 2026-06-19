@@ -184,7 +184,7 @@ def test_green_waits_for_full_ma_order_before_uptrend() -> None:
     assert latest.ma_order is False
 
 
-def test_green_waits_for_close_above_ema21_before_uptrend() -> None:
+def test_green_can_upgrade_to_uptrend_with_close_below_ema21() -> None:
     bars = _green_to_uptrend_bars()[:-1]
     bars.append(
         _bar(
@@ -199,7 +199,7 @@ def test_green_waits_for_close_above_ema21_before_uptrend() -> None:
 
     latest = compute_trend_ampel(bars)[-1]
 
-    assert latest.phase == "gruen"
+    assert latest.phase == "aufwaertstrend"
     assert latest.close is not None
     assert latest.ema21 is not None
     assert latest.sma200 is not None

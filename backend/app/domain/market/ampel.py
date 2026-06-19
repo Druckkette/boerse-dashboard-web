@@ -219,16 +219,6 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             and ema21[index] > sma50[index] > sma200[index]
         )
 
-    def uptrend_confirmed(index: int) -> bool:
-        return bool(
-            _is_finite(close[index])
-            and _is_finite(ema21[index])
-            and _is_finite(sma200[index])
-            and close[index] > ema21[index]
-            and close[index] > sma200[index]
-            and moving_averages_in_correct_order(index)
-        )
-
     def sma200_broken(index: int) -> bool:
         return _is_finite(sma200[index]) and close[index] < sma200[index]
 
@@ -296,7 +286,7 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 phase = "rot"
                 clear_state()
             elif (
-                uptrend_confirmed(index)
+                moving_averages_in_correct_order(index)
                 and gruen_since is not None
                 and index - gruen_since >= UPTREND_CONFIRMATION_DAYS
             ):
