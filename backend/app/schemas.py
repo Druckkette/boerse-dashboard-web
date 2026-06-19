@@ -321,11 +321,11 @@ class VolatilityPoint(BaseModel):
     vix_pct_above_sma10: float | None = None
     vix_panic_overextension: bool = False
     vix_regime: str
-    vixy_close: float | None = None
-    vixy_ret_5d: float | None = None
-    vixy_state: str
-    vixy_stress_confirmation: bool
-    vixy_carry_decay: bool
+    vxx_close: float | None = None
+    vxx_ret_5d: float | None = None
+    vxx_state: str
+    vxx_stress_confirmation: bool
+    vxx_carry_decay: bool
     vol_regime: str
     fragile_rally: bool
 

@@ -146,7 +146,7 @@ Universe, Price Cache and Breadth are skipped instead of starting again at `Pric
 
 `refresh_prices` loads the starter universe plus the Streamlit-compatible market indexes `^GSPC`,
 `^IXIC`, `^RUT`, the equal-weight ETFs `RSP`/`QQEW`, and the volatility tickers `SPY`, `^VIX` and
-`VIXY`. It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also
+`VXX`. It also loads the SPDR sector ETFs used by `/sectors`. With a custom universe, the UI also
 includes the RS benchmark and volatility tickers in the price refresh so market overview and RS
 calculations have the required support data.
 

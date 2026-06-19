@@ -27,6 +27,7 @@ class MarketRegimeInput:
     covered_count: int
     volatility_regime: str = "Nicht berechnet"
     volatility_summary: dict | None = None
+    margin_debt_summary: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -78,10 +79,20 @@ def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResul
         _kpi_dict(
             "Vol Regime",
             volatility_regime,
-            "VIX/VIXY",
+            "VIX/VXX",
             _tone_for_volatility_regime(volatility_regime),
         ),
     ]
+    margin_debt = regime_input.margin_debt_summary or {}
+    if margin_debt:
+        kpis.append(
+            _kpi_dict(
+                "Margin Debt",
+                _format_pct(margin_debt.get("margin_debt_ratio_pct")),
+                str(margin_debt.get("status") or "FINRA"),
+                "warning" if bool(margin_debt.get("warning_active")) else "neutral",
+            )
+        )
     metrics = {
         "action": action,
         "coverage_ratio": regime_input.coverage_ratio,
@@ -96,6 +107,7 @@ def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResul
         "pct_above_50sma": regime_input.pct_above_50sma,
         "pct_above_200sma": regime_input.pct_above_200sma,
         "volatility": regime_input.volatility_summary or {},
+        "margin_debt": margin_debt,
         "kpis": kpis,
     }
     return MarketRegimeResult(
@@ -117,6 +129,7 @@ def _count_warnings(regime_input: MarketRegimeInput, *, volatility_regime: str) 
     warning_count += int(regime_input.new_lows > regime_input.new_highs)
     warning_count += int(regime_input.coverage_ratio < 0.65)
     warning_count += int(volatility_regime in STRESS_VOLATILITY_REGIMES)
+    warning_count += int(bool((regime_input.margin_debt_summary or {}).get("warning_active")))
     return warning_count
 
 

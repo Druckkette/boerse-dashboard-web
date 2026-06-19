@@ -9,8 +9,8 @@ import pandas as pd
 
 BENCHMARK_TICKER = "SPY"
 VIX_TICKER = "^VIX"
-VIXY_TICKER = "VIXY"
-VOLATILITY_TICKERS = [BENCHMARK_TICKER, VIX_TICKER, VIXY_TICKER]
+VXX_TICKER = "VXX"
+VOLATILITY_TICKERS = [BENCHMARK_TICKER, VIX_TICKER, VXX_TICKER]
 
 
 @dataclass(frozen=True)
@@ -24,11 +24,11 @@ class VolatilityDashboardPoint:
     vix_pct_above_sma10: float | None
     vix_panic_overextension: bool
     vix_regime: str
-    vixy_close: float | None
-    vixy_ret_5d: float | None
-    vixy_state: str
-    vixy_stress_confirmation: bool
-    vixy_carry_decay: bool
+    vxx_close: float | None
+    vxx_ret_5d: float | None
+    vxx_state: str
+    vxx_stress_confirmation: bool
+    vxx_carry_decay: bool
     vol_regime: str
     fragile_rally: bool
 
@@ -38,7 +38,7 @@ def compute_volatility_dashboard(
     *,
     benchmark_ticker: str = BENCHMARK_TICKER,
     vix_ticker: str = VIX_TICKER,
-    vixy_ticker: str = VIXY_TICKER,
+    vxx_ticker: str = VXX_TICKER,
     limit: int = 180,
 ) -> list[VolatilityDashboardPoint]:
     spx = _frame_from_points(series.get(benchmark_ticker) or [])
@@ -46,8 +46,8 @@ def compute_volatility_dashboard(
         return []
 
     vix = analyze_vix(_frame_from_points(series.get(vix_ticker) or []))
-    vixy = analyze_vixy(_frame_from_points(series.get(vixy_ticker) or []))
-    dashboard = _build_dashboard(spx, vix if not vix.empty else None, vixy if not vixy.empty else None)
+    vxx = analyze_vxx(_frame_from_points(series.get(vxx_ticker) or []))
+    dashboard = _build_dashboard(spx, vix if not vix.empty else None, vxx if not vxx.empty else None)
     return [_dashboard_point(index, row) for index, row in dashboard.tail(max(1, min(500, limit))).iterrows()]
 
 
@@ -59,7 +59,7 @@ def summarize_volatility_points(points: list[VolatilityDashboardPoint]) -> dict[
                 {
                     "title": "Vol Regime",
                     "status": "Keine Daten",
-                    "detail": "SPY, ^VIX und VIXY zuerst per Price-Refresh laden.",
+                    "detail": "SPY, ^VIX und VXX zuerst per Price-Refresh laden.",
                     "tone": "neutral",
                 }
             ],
@@ -80,10 +80,10 @@ def summarize_volatility_points(points: list[VolatilityDashboardPoint]) -> dict[
             "warning" if latest.vix_panic_overextension else "good",
         ),
         _status_card(
-            "VIXY Bestätigung",
-            "Bestätigt" if latest.vixy_stress_confirmation else "Kein Stress" if latest.vixy_carry_decay else latest.vixy_state,
-            _vixy_detail(latest),
-            "bad" if latest.vixy_stress_confirmation else "good" if latest.vixy_carry_decay else "warning",
+            "VXX Trend",
+            "Stress" if latest.vxx_stress_confirmation else "Entspannt" if latest.vxx_carry_decay else latest.vxx_state,
+            _vxx_detail(latest),
+            "bad" if latest.vxx_stress_confirmation else "good" if latest.vxx_carry_decay else "warning",
         ),
         _status_card(
             "Vol Regime",
@@ -94,7 +94,7 @@ def summarize_volatility_points(points: list[VolatilityDashboardPoint]) -> dict[
         _status_card(
             "Fragile Rally",
             "Warnung" if latest.fragile_rally else "Keine",
-            "S&P 500 steigt, aber VIX oder VIXY bleiben zu stark"
+            "S&P 500 steigt, aber VIX oder VXX bleiben zu stark"
             if latest.fragile_rally
             else "Keine belastbare Divergenz zwischen Rally und Volatilität",
             "warning" if latest.fragile_rally else "good",
@@ -132,7 +132,7 @@ def analyze_vix(frame: pd.DataFrame) -> pd.DataFrame:
     return dv
 
 
-def analyze_vixy(frame: pd.DataFrame) -> pd.DataFrame:
+def analyze_vxx(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return frame
     dx = frame.copy()
@@ -144,21 +144,19 @@ def analyze_vixy(frame: pd.DataFrame) -> pd.DataFrame:
     dx["Z63"] = _rolling_zscore(dx["Close"], 63)
     dx["PctRank252"] = _rolling_percentile(dx["Close"], 252)
 
-    trend_up = (dx["Close"] > dx["EMA21"]) & (dx["EMA21"] > dx["EMA21"].shift(5))
-    dx["Stress_Confirmation"] = (
-        ((dx["Ret_5d"] > 0.08) & (dx["PctRank252"] > 0.70) & trend_up)
-        | ((dx["Ret_5d"] > 0.05) & trend_up)
-    ).fillna(False)
-    dx["Carry_Decay"] = ((dx["Close"] < dx["EMA21"]) & (dx["Ret_20d"] < 0)).fillna(False)
-    dx["VIXY_State"] = np.select(
+    ema21_rising = dx["EMA21"] > dx["EMA21"].shift(5)
+    ema21_falling = dx["EMA21"] < dx["EMA21"].shift(5)
+    dx["Stress_Confirmation"] = ((dx["Close"] > dx["EMA21"]) & ema21_rising).fillna(False)
+    dx["Carry_Decay"] = ((dx["Close"] < dx["EMA21"]) & ema21_falling).fillna(False)
+    dx["VXX_State"] = np.select(
         [dx["Stress_Confirmation"], dx["Carry_Decay"]],
-        ["Bestätigt", "Abbau"],
+        ["Steigend", "Entspannt"],
         default="Gemischt",
     )
     return dx
 
 
-def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vixy_df: pd.DataFrame | None) -> pd.DataFrame:
+def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: pd.DataFrame | None) -> pd.DataFrame:
     out = pd.DataFrame(index=spx_df.index.copy())
     out["SPX_Close"] = spx_df["Close"]
     out["SPX_Ret_5d"] = spx_df["Close"].pct_change(5)
@@ -183,34 +181,34 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vixy_df:
         out["VIX_Is_Calm"] = False
         out["VIX_Regime"] = "n/a"
 
-    if vixy_df is not None and not vixy_df.empty:
-        vixy = vixy_df.reindex(out.index).ffill()
-        out["VIXY_Close"] = vixy["Close"]
-        out["VIXY_Ret_5d"] = vixy.get("Ret_5d")
-        out["VIXY_Stress_Confirmation"] = vixy.get("Stress_Confirmation", False).fillna(False)
-        out["VIXY_Carry_Decay"] = vixy.get("Carry_Decay", False).fillna(False)
-        out["VIXY_State"] = vixy.get("VIXY_State", "Gemischt")
+    if vxx_df is not None and not vxx_df.empty:
+        vxx = vxx_df.reindex(out.index).ffill()
+        out["VXX_Close"] = vxx["Close"]
+        out["VXX_Ret_5d"] = vxx.get("Ret_5d")
+        out["VXX_Stress_Confirmation"] = vxx.get("Stress_Confirmation", False).fillna(False)
+        out["VXX_Carry_Decay"] = vxx.get("Carry_Decay", False).fillna(False)
+        out["VXX_State"] = vxx.get("VXX_State", "Gemischt")
     else:
-        out["VIXY_Close"] = np.nan
-        out["VIXY_Ret_5d"] = np.nan
-        out["VIXY_Stress_Confirmation"] = False
-        out["VIXY_Carry_Decay"] = False
-        out["VIXY_State"] = "n/a"
+        out["VXX_Close"] = np.nan
+        out["VXX_Ret_5d"] = np.nan
+        out["VXX_Stress_Confirmation"] = False
+        out["VXX_Carry_Decay"] = False
+        out["VXX_State"] = "n/a"
 
     out["Fragile_Rally"] = (
         (out["SPX_Ret_5d"] > 0)
         & (
-            out["VIXY_Stress_Confirmation"]
+            out["VXX_Stress_Confirmation"]
             | (out["VIX_Ret_5d"] > 0)
-            | ((out["VIXY_Ret_5d"] > 0.03) & (out["VIX_PctRank252"] > 0.55))
+            | ((out["VXX_Ret_5d"] > 0.03) & (out["VIX_PctRank252"] > 0.55))
         )
     ).fillna(False)
 
     conditions = [
-        out["VIX_Is_Panic"] & out["VIXY_Stress_Confirmation"],
-        out["VIX_Is_Panic"] & ~out["VIXY_Stress_Confirmation"],
+        out["VIX_Is_Panic"] & out["VXX_Stress_Confirmation"],
+        out["VIX_Is_Panic"] & ~out["VXX_Stress_Confirmation"],
         out["Fragile_Rally"],
-        out["VIX_Is_Calm"] & out["VIXY_Carry_Decay"] & (out["SPX_Ret_5d"] > 0),
+        out["VIX_Is_Calm"] & out["VXX_Carry_Decay"] & (out["SPX_Ret_5d"] > 0),
     ]
     labels = [
         "Risk Off bestätigt",
@@ -233,11 +231,11 @@ def _dashboard_point(index: Any, row: pd.Series) -> VolatilityDashboardPoint:
         vix_pct_above_sma10=_safe_float(row.get("VIX_Pct_Above_SMA10")),
         vix_panic_overextension=bool(row.get("VIX_Panic_Overextension", False)),
         vix_regime=str(row.get("VIX_Regime") or "n/a"),
-        vixy_close=_safe_float(row.get("VIXY_Close")),
-        vixy_ret_5d=_safe_float(row.get("VIXY_Ret_5d")),
-        vixy_state=str(row.get("VIXY_State") or "n/a"),
-        vixy_stress_confirmation=bool(row.get("VIXY_Stress_Confirmation", False)),
-        vixy_carry_decay=bool(row.get("VIXY_Carry_Decay", False)),
+        vxx_close=_safe_float(row.get("VXX_Close")),
+        vxx_ret_5d=_safe_float(row.get("VXX_Ret_5d")),
+        vxx_state=str(row.get("VXX_State") or "n/a"),
+        vxx_stress_confirmation=bool(row.get("VXX_Stress_Confirmation", False)),
+        vxx_carry_decay=bool(row.get("VXX_Carry_Decay", False)),
         vol_regime=str(row.get("Vol_Regime") or "Neutral"),
         fragile_rally=bool(row.get("Fragile_Rally", False)),
     )
@@ -324,22 +322,22 @@ def _tone_for_vix_regime(regime: str) -> str:
     return "neutral"
 
 
-def _vixy_detail(latest: VolatilityDashboardPoint) -> str:
-    if latest.vixy_close is None:
-        return "Keine VIXY-Daten verfügbar"
-    if latest.vixy_stress_confirmation:
-        return f"VIXY {latest.vixy_close:.1f} · Futures-Stress wird getragen"
-    if latest.vixy_carry_decay:
-        return f"VIXY {latest.vixy_close:.1f} · eher normales Carry-Umfeld"
-    return f"VIXY {latest.vixy_close:.1f} · keine klare Bestätigung"
+def _vxx_detail(latest: VolatilityDashboardPoint) -> str:
+    if latest.vxx_close is None:
+        return "Keine VXX-Daten verfügbar"
+    if latest.vxx_stress_confirmation:
+        return f"VXX {latest.vxx_close:.1f} liegt über einer steigenden 21-Tage-Linie · Risiko drosseln"
+    if latest.vxx_carry_decay:
+        return f"VXX {latest.vxx_close:.1f} liegt unter einer fallenden 21-Tage-Linie · Volatilität entspannt"
+    return f"VXX {latest.vxx_close:.1f} · keine klare 21-Tage-Bestätigung"
 
 
 def _volatility_detail(regime: str) -> str:
     return {
-        "Risk Off bestätigt": "VIX und VIXY ziehen gleichzeitig an",
+        "Risk Off bestätigt": "VIX und VXX ziehen gleichzeitig an",
         "Kurzer Volatilitätsschock": "VIX springt an, Futures bestätigen aber nicht voll",
         "Fragile Rally": "Aktienmarkt steigt, Volatilität bleibt aber zu fest",
-        "Risk On / ruhig": "Ruhiges Umfeld mit abbauendem VIXY",
+        "Risk On / ruhig": "Ruhiges Umfeld mit entspannendem VXX",
     }.get(regime, "Keine klare Volatilitätslage")
 
 

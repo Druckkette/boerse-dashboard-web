@@ -19,7 +19,7 @@ export default function MarketPage() {
       </MarketArea>
       <MarketArea
         title="Marktbreite und Volatilität"
-        description="Equal-Weight-Breadth, Breadth-Snapshot und VIX/VIXY-Regime aus dem vorberechneten Cache."
+        description="Equal-Weight-Breadth, Breadth-Snapshot und VIX/VXX-Regime aus dem vorberechneten Cache."
       >
         <div className="grid gap-4 xl:grid-cols-2">
           <BreadthChartPanel />

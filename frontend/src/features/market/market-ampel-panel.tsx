@@ -364,7 +364,7 @@ function WarningGrid({ checks }: { checks: MarketAmpel["warning_checks"] }) {
               {check.passed ? (
                 <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={18} />
               ) : (
-                <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={18} />
+                <CircleAlert className={clsx("mt-0.5 shrink-0", check.tone === "bad" ? "text-rose-300" : "text-amber-300")} size={18} />
               )}
               <div className="min-w-0">
                 <div className="text-sm font-medium text-[#d8dde6]">{check.label}</div>

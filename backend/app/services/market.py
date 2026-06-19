@@ -5,6 +5,7 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
     GREEN_CONFIRMATION_DAYS,
     UPTREND_CONFIRMATION_DAYS,
@@ -672,10 +673,12 @@ def refresh_market_breadth(
     rows_written = market_repository.upsert_breadth_daily(writes)
     volatility_points = _cached_volatility_points(limit=180)
     volatility_summary = summarize_volatility_points(volatility_points)
+    margin_debt_summary = _latest_margin_debt_summary()
     trend_point = _latest_cached_trend_ampel_point(MARKET_TREND_BENCHMARK, lookback_days=lookback_days)
     snapshot = build_market_snapshot(
         computed[-1],
         volatility_summary=volatility_summary,
+        margin_debt_summary=margin_debt_summary,
         trend_point=trend_point,
         trend_ticker=MARKET_TREND_BENCHMARK,
     )
@@ -694,6 +697,7 @@ def refresh_market_breadth(
         "phase": snapshot.ampel_phase,
         "trend_phase": trend_point.phase if trend_point else None,
         "volatility_regime": snapshot.volatility_regime,
+        "margin_debt": margin_debt_summary,
     }
 
 
@@ -954,6 +958,7 @@ def build_market_snapshot(
     point: BreadthComputationPoint,
     volatility_summary: dict | None = None,
     *,
+    margin_debt_summary: dict | None = None,
     trend_point: TrendAmpelPoint | None = None,
     trend_ticker: str = MARKET_TREND_BENCHMARK,
 ) -> MarketSnapshotWrite:
@@ -973,6 +978,7 @@ def build_market_snapshot(
             covered_count=point.loaded_universe,
             volatility_regime=volatility_regime,
             volatility_summary=volatility_summary or {},
+            margin_debt_summary=margin_debt_summary or {},
         )
     )
     trend_ampel = _trend_ampel_metrics(trend_point, ticker=trend_ticker)
@@ -1015,6 +1021,13 @@ def _cached_volatility_points(*, limit: int = 180):
     start_date = date.today() - timedelta(days=900)
     series = market_repository.load_cached_prices(VOLATILITY_TICKERS, start_date=start_date)
     return compute_volatility_dashboard(series, limit=limit)
+
+
+def _latest_margin_debt_summary() -> dict:
+    try:
+        return asdict(fetch_latest_margin_debt_snapshot())
+    except FinraMarginDebtUnavailable:
+        return {}
 
 
 def _cached_intermarket_divergence() -> list[MarketIntermarketItem]:
@@ -1967,6 +1980,18 @@ def _build_ampel_warning_checks(
             dist_count >= 4,
         )
     )
+    loss_gain_ratio = latest.loss_gain_ratio_10d or 0.0
+    loss_day_warning = loss_gain_ratio >= 3.0
+    loss_day_critical = loss_gain_ratio >= 4.0
+    checks.append(
+        _ampel_warning_check(
+            "Verlusttage/Gewinntage (10T)",
+            not loss_day_warning,
+            f"{latest.loss_days_10d} Verlusttage / {latest.gain_days_10d} Gewinntage · Verhältnis {loss_gain_ratio:.1f}:1",
+            loss_day_warning,
+            tone="bad" if loss_day_critical else "warning",
+        )
+    )
     d50_threshold = 7.0 if "Nasdaq" in index_name else 5.0
     if latest.dist_50sma_pct is not None:
         d50_warning = latest.dist_50sma_pct > d50_threshold or latest.dist_50sma_pct < 0
@@ -2048,13 +2073,15 @@ def _ampel_warning_check(
     passed: bool,
     detail: str,
     active_warning: bool,
+    *,
+    tone: str | None = None,
 ) -> MarketAmpelWarningCheck:
     return MarketAmpelWarningCheck(
         label=label,
         passed=passed,
         detail=detail,
         active_warning=active_warning,
-        tone="good" if passed else "warning",
+        tone="good" if passed else tone or "warning",
     )
 
 

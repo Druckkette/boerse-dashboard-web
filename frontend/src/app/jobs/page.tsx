@@ -32,10 +32,10 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
 ];
 
 const pricePresetHelp: Record<PricePreset, string> = {
-  all: "Empfohlen für den Start: Marktindizes, Equal-Weight-ETFs, Starter-Aktien, VIX/VIXY und Sektor-ETFs.",
+  all: "Empfohlen für den Start: Marktindizes, Equal-Weight-ETFs, Starter-Aktien, VIX/VXX und Sektor-ETFs.",
   market_core: "Kleiner Streamlit-Kern: S&P 500, Nasdaq, Russell 2000, RSP, QQEW und Starter-Aktien.",
   stored_universe: "Das vorher geladene US-Aktienuniversum. Gut für breite Analysen, auf der NAS aber deutlich schwerer.",
-  volatility: "Nur SPY, VIX und VIXY. Reicht für Volatilitätskarten, aber nicht für Marktbreite/RS.",
+  volatility: "Nur SPY, VIX und VXX. Reicht für Volatilitätskarten, aber nicht für Marktbreite/RS.",
   sector: "Nur SPDR-Sektor-ETFs. Reicht für Sektorrotation, aber nicht für Aktien-Rankings.",
   custom: "Nur die manuell eingetragenen Ticker plus Benchmark/Volatility-Hilfsticker."
 };
@@ -1076,7 +1076,7 @@ function RefreshSequence({
             <option value="all">Starter + Volatility</option>
             <option value="stored_universe">Gespeichertes US-Universe</option>
             <option value="market_core">Starter-Universum</option>
-            <option value="volatility">Nur SPY, VIX, VIXY</option>
+            <option value="volatility">Nur SPY, VIX, VXX</option>
             <option value="sector">Nur Sektor-ETFs</option>
             <option value="custom">Eigene Tickerliste</option>
           </select>
@@ -1417,7 +1417,7 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
       ? {
           mode: "manual",
           range: config.priceRange,
-          tickers: uniqueTickers([...customTickers, rsBenchmarkTicker, "SPY", "^VIX", "VIXY"])
+          tickers: uniqueTickers([...customTickers, rsBenchmarkTicker, "SPY", "^VIX", "VXX"])
         }
       : config.pricePreset === "stored_universe"
         ? {

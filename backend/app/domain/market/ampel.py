@@ -72,6 +72,9 @@ class TrendAmpelPoint:
     up_vol_declining: bool | None = None
     is_distribution: bool | None = None
     is_stall: bool | None = None
+    loss_days_10d: int = 0
+    gain_days_10d: int = 0
+    loss_gain_ratio_10d: float | None = None
 
 
 def compute_trend_ampel(bars: Sequence[TrendAmpelBar | Mapping[str, Any]]) -> list[TrendAmpelPoint]:
@@ -134,6 +137,11 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     df["Up_Vol_Declining"] = (df["Close"] > df["Close"].shift(5)) & (
         df["Volume"].diff().rolling(5, min_periods=5).mean() < 0
     )
+    gain_day = df["Close"] > previous_close
+    loss_day = df["Close"] < previous_close
+    df["Gain_Days_10d"] = gain_day.rolling(10, min_periods=1).sum().fillna(0).astype(int)
+    df["Loss_Days_10d"] = loss_day.rolling(10, min_periods=1).sum().fillna(0).astype(int)
+    df["Loss_Gain_Ratio_10d"] = df["Loss_Days_10d"] / df["Gain_Days_10d"].clip(lower=1)
     return df
 
 
@@ -385,6 +393,9 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         up_vol_declining=_safe_bool(row.get("Up_Vol_Declining")),
         is_distribution=_safe_bool(row.get("Is_Distribution")),
         is_stall=_safe_bool(row.get("Is_Stall")),
+        loss_days_10d=_safe_int(row.get("Loss_Days_10d")),
+        gain_days_10d=_safe_int(row.get("Gain_Days_10d")),
+        loss_gain_ratio_10d=_safe_float(row.get("Loss_Gain_Ratio_10d")),
     )
 
 

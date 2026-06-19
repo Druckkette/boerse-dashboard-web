@@ -3,8 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.data_sources.finra_margin import latest_margin_debt_from_frame
 from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
 from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS
+from app.domain.market.margin_debt import evaluate_margin_debt
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
 from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking, get_breadth
@@ -133,7 +135,7 @@ def test_volatility_dashboard_detects_confirmed_risk_off() -> None:
     series = {
         "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(280)]),
         "^VIX": _series("^VIX", start, [14] * 250 + [14 + index * 0.8 for index in range(30)]),
-        "VIXY": _series("VIXY", start, [10] * 250 + [10 + index * 0.45 for index in range(30)]),
+        "VXX": _series("VXX", start, [10] * 250 + [10 + index * 0.45 for index in range(30)]),
     }
 
     points = compute_volatility_dashboard(series, limit=60)
@@ -141,9 +143,27 @@ def test_volatility_dashboard_detects_confirmed_risk_off() -> None:
 
     assert points
     assert points[-1].vix_regime == "Stress"
-    assert points[-1].vixy_stress_confirmation is True
+    assert points[-1].vxx_stress_confirmation is True
     assert points[-1].vol_regime == "Risk Off bestätigt"
     assert summary["regime"] == "Risk Off bestätigt"
+
+
+def test_volatility_dashboard_detects_vxx_relaxation_below_falling_ema21() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(280)]),
+        "^VIX": _series("^VIX", start, [14] * 280),
+        "VXX": _series("VXX", start, [30] * 230 + [30 - index * 0.12 for index in range(50)]),
+    }
+
+    points = compute_volatility_dashboard(series, limit=60)
+    summary = summarize_volatility_points(points)
+    vxx_card = next(card for card in summary["status_cards"] if card["title"] == "VXX Trend")
+
+    assert points[-1].vxx_carry_decay is True
+    assert points[-1].vxx_state == "Entspannt"
+    assert vxx_card["status"] == "Entspannt"
+    assert vxx_card["tone"] == "good"
 
 
 def test_volatility_dashboard_keeps_neutral_vix_neutral() -> None:
@@ -151,7 +171,7 @@ def test_volatility_dashboard_keeps_neutral_vix_neutral() -> None:
     series = {
         "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(280)]),
         "^VIX": _series("^VIX", start, [17] * 280),
-        "VIXY": _series("VIXY", start, [10] * 280),
+        "VXX": _series("VXX", start, [10] * 280),
     }
 
     points = compute_volatility_dashboard(series, limit=60)
@@ -170,7 +190,7 @@ def test_volatility_dashboard_reports_vix_panic_overextension_above_10sma() -> N
     series = {
         "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(270)]),
         "^VIX": _series("^VIX", start, vix_values),
-        "VIXY": _series("VIXY", start, [10] * 270),
+        "VXX": _series("VXX", start, [10] * 270),
     }
 
     points = compute_volatility_dashboard(series, limit=60)
@@ -186,6 +206,45 @@ def test_volatility_dashboard_reports_vix_panic_overextension_above_10sma() -> N
     assert "Gegenbewegung" in overextension_card["detail"]
 
 
+def test_margin_debt_ratio_warns_above_55_percent() -> None:
+    snapshot = evaluate_margin_debt(
+        as_of="2026-04",
+        debit_balance=1_300,
+        free_credit_cash=600,
+        free_credit_margin=400,
+    )
+
+    assert snapshot.margin_debt_ratio_pct == pytest.approx(56.52)
+    assert snapshot.warning_active is True
+    assert snapshot.status == "Warnsignal"
+
+
+def test_finra_margin_parser_uses_latest_month_even_when_sheet_is_descending() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        [
+            {
+                "Year-Month": "2026-05",
+                "Debit Balances in Customers' Securities Margin Accounts": 1_400,
+                "Free Credit Balances in Customers' Cash Accounts": 200,
+                "Free Credit Balances in Customers' Securities Margin Accounts": 300,
+            },
+            {
+                "Year-Month": "1997-01",
+                "Debit Balances in Customers' Securities Margin Accounts": 100,
+                "Free Credit Balances in Customers' Cash Accounts": 100,
+                "Free Credit Balances in Customers' Securities Margin Accounts": 0,
+            },
+        ]
+    )
+
+    snapshot = latest_margin_debt_from_frame(frame)
+
+    assert snapshot.as_of == "2026-05"
+    assert snapshot.margin_debt_ratio_pct == pytest.approx(73.68)
+
+
 def test_market_snapshot_includes_volatility_warning() -> None:
     start = date(2025, 1, 2)
     series = {
@@ -196,7 +255,7 @@ def test_market_snapshot_includes_volatility_warning() -> None:
     volatility_summary = {
         "regime": "Risk Off bestätigt",
         "status_cards": [
-            {"title": "Vol Regime", "status": "Risk Off bestätigt", "detail": "VIX und VIXY ziehen an", "tone": "bad"}
+            {"title": "Vol Regime", "status": "Risk Off bestätigt", "detail": "VIX und VXX ziehen an", "tone": "bad"}
         ],
     }
 
@@ -206,7 +265,7 @@ def test_market_snapshot_includes_volatility_warning() -> None:
     assert snapshot.warning_count == 1
     assert snapshot.volatility_regime == "Risk Off bestätigt"
     assert snapshot.metrics_json["volatility"]["regime"] == "Risk Off bestätigt"
-    assert snapshot.metrics_json["kpis"][-1]["label"] == "Vol Regime"
+    assert any(item["label"] == "Vol Regime" for item in snapshot.metrics_json["kpis"])
 
 
 def test_market_snapshot_uses_trend_ampel_when_available() -> None:

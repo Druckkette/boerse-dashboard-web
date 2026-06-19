@@ -34,8 +34,8 @@ def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert result["ok"] is True
     assert result["preset"] == "volatility"
-    assert result["tickers"] == ["SPY", "^VIX", "VIXY"]
-    assert seen == ["SPY", "^VIX", "VIXY"]
+    assert result["tickers"] == ["SPY", "^VIX", "VXX"]
+    assert seen == ["SPY", "^VIX", "VXX"]
     assert result["success_count"] == 3
     assert result["failure_count"] == 0
     assert updated is not None

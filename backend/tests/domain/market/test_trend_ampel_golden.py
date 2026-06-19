@@ -127,6 +127,27 @@ def test_startschuss_can_turn_yellow_below_sma200() -> None:
     assert next_yellow.phase == "gelb"
 
 
+def test_loss_gain_ratio_uses_last_ten_sessions() -> None:
+    closes = [100, 99, 98, 99, 98, 97, 96, 97, 96, 95, 94]
+    bars = [
+        _bar(
+            index,
+            open_price=closes[index - 1] if index else closes[index],
+            close=float(close),
+            high=float(close) + 1.0,
+            low=float(close) - 1.0,
+            volume=1_000_000,
+        )
+        for index, close in enumerate(closes)
+    ]
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.loss_days_10d == 8
+    assert latest.gain_days_10d == 2
+    assert latest.loss_gain_ratio_10d == pytest.approx(4.0)
+
+
 def test_green_waits_for_full_ma_order_before_uptrend() -> None:
     points = compute_trend_ampel(_green_without_full_ma_order_bars())
     latest = points[-1]

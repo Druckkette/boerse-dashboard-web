@@ -18,7 +18,7 @@ export function VolatilityPanel() {
     volatility?.points.map((point) => ({
       date: point.date,
       vix_close: point.vix_close,
-      vixy_close: point.vixy_close
+      vxx_close: point.vxx_close
     })) ?? [];
 
   return (
@@ -27,7 +27,7 @@ export function VolatilityPanel() {
         caption={
           volatility
             ? `${volatility.regime}, Stand ${volatility.as_of}`
-            : "VIX/VIXY-Regime aus gecachten Price-Bars"
+            : "VIX/VXX-Regime aus gecachten Price-Bars"
         }
         error={query.error}
         isLoading={query.isLoading}
@@ -40,8 +40,8 @@ export function VolatilityPanel() {
             formatter: (value) => value.toFixed(1)
           },
           {
-            key: "vixy_close",
-            label: "VIXY",
+            key: "vxx_close",
+            label: "VXX",
             color: "#fbbf24",
             formatter: (value) => value.toFixed(1)
           }

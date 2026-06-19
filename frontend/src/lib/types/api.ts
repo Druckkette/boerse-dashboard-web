@@ -284,11 +284,11 @@ export type VolatilityPoint = {
   vix_pct_above_sma10?: number | null;
   vix_panic_overextension: boolean;
   vix_regime: string;
-  vixy_close?: number | null;
-  vixy_ret_5d?: number | null;
-  vixy_state: string;
-  vixy_stress_confirmation: boolean;
-  vixy_carry_decay: boolean;
+  vxx_close?: number | null;
+  vxx_ret_5d?: number | null;
+  vxx_state: string;
+  vxx_stress_confirmation: boolean;
+  vxx_carry_decay: boolean;
   vol_regime: string;
   fragile_rally: boolean;
 };
