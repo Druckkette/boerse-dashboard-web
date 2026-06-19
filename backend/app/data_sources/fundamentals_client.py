@@ -22,8 +22,8 @@ class GrowthPoint:
     label: str
     growth_pct: float | None
     flag: str | None
-    current: float
-    previous: float
+    current: float | None
+    previous: float | None
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,8 @@ class FundamentalEnrichment:
     trailing_eps: float | None = None
     roe_pct: float | None = None
     profit_margin_pct: float | None = None
+    eps_quarter_history: list[dict[str, Any]] = field(default_factory=list)
+    revenue_quarter_history: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -290,11 +292,18 @@ def compute_fundamental_enrichment(
         trailing_eps=_trailing_sum(raw.get("DilutedEPS"), periods=4),
         roe_pct=_roe_pct(raw),
         profit_margin_pct=_profit_margin_pct(raw),
+        eps_quarter_history=[_growth_point_payload(point, prefix="eps") for point in eps_growth[:3]],
+        revenue_quarter_history=[_growth_point_payload(point, prefix="revenue") for point in revenue_growth[:3]],
         metadata={
             "ticker": ticker.upper(),
             "notes": notes,
-            "eps_growth": [point.__dict__ for point in eps_growth],
-            "revenue_growth": [point.__dict__ for point in revenue_growth],
+            # Stable schema for persisted snapshots:
+            # eps_quarter_history/revenue_quarter_history are ordered latest-first and each item contains
+            # fiscal_period, current quarter value, same-quarter-prior-year value and computed YoY growth.
+            "eps_quarter_history": [_growth_point_payload(point, prefix="eps") for point in eps_growth[:3]],
+            "revenue_quarter_history": [_growth_point_payload(point, prefix="revenue") for point in revenue_growth[:3]],
+            "eps_growth": [_growth_point_payload(point, prefix="eps") for point in eps_growth],
+            "revenue_growth": [_growth_point_payload(point, prefix="revenue") for point in revenue_growth],
             "series_lengths": {
                 key: int(len(value)) for key, value in raw.items() if isinstance(value, pd.Series)
             },
@@ -321,21 +330,12 @@ def quarterly_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
     if not buckets:
         return []
 
-    anchor_quarter = max(buckets.keys())[1]
-    same_quarter = sorted(
-        [(year, value) for (year, quarter), value in buckets.items() if quarter == anchor_quarter],
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    if len(same_quarter) < 2:
-        return []
-
     points: list[GrowthPoint] = []
-    for index in range(min(3, len(same_quarter) - 1)):
-        current_year, current = same_quarter[index]
-        previous_year, previous = same_quarter[index + 1]
-        label = f"{current_year} Q{anchor_quarter}"
-        points.append(_growth_point(label, current, previous_year, previous))
+    for year, quarter in sorted(buckets.keys(), reverse=True)[:3]:
+        current = buckets[(year, quarter)]
+        previous = buckets.get((year - 1, quarter))
+        label = f"{year} Q{quarter}"
+        points.append(_growth_point(label, current, previous))
     return points
 
 
@@ -462,8 +462,9 @@ def _series_from_by_end(values: dict[pd.Timestamp, tuple[pd.Timestamp, float]]) 
     return pd.Series({end: value for end, (_, value) in values.items()}).sort_index(ascending=False)
 
 
-def _growth_point(label: str, current: float, previous_year: int, previous: float) -> GrowthPoint:
-    del previous_year
+def _growth_point(label: str, current: float, previous: float | None) -> GrowthPoint:
+    if previous is None:
+        return GrowthPoint(label, None, "missing_prior", current, None)
     if previous < 0 < current:
         return GrowthPoint(label, None, "turnaround", current, previous)
     if previous < 0 and current <= 0:
@@ -473,6 +474,17 @@ def _growth_point(label: str, current: float, previous_year: int, previous: floa
     if previous == 0:
         return GrowthPoint(label, None, "prev_zero", current, previous)
     return GrowthPoint(label, round((current / previous - 1) * 100, 1), None, current, previous)
+
+
+def _growth_point_payload(point: GrowthPoint, *, prefix: str) -> dict[str, Any]:
+    return {
+        "fiscal_period": point.label,
+        f"{prefix}_current_quarter": point.current,
+        f"{prefix}_same_quarter_last_year": point.previous,
+        f"{prefix}_growth_yoy_pct": point.growth_pct,
+        "growth_pct": point.growth_pct,
+        "flag": point.flag,
+    }
 
 
 def _latest_numeric_growth(points: list[GrowthPoint]) -> float | None:

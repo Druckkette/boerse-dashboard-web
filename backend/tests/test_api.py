@@ -415,6 +415,7 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
                 institutional_ownership_pct=None,
                 next_earnings_date=None,
                 beta=None,
+                eps_quarter_history=request.eps_quarter_history,
             ),
         )
 
@@ -426,6 +427,26 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
             "source": "manual",
             "fiscal_period": "Q1 2026",
             "quarterly_eps_growth_pct": 42.0,
+            "eps_quarter_history": [
+                {
+                    "fiscal_period": "2026 Q1",
+                    "eps_current_quarter": 2.4,
+                    "eps_same_quarter_last_year": 1.5,
+                    "eps_growth_yoy_pct": 60.0,
+                },
+                {
+                    "fiscal_period": "2025 Q4",
+                    "eps_current_quarter": 2.1,
+                    "eps_same_quarter_last_year": 1.4,
+                    "eps_growth_yoy_pct": 50.0,
+                },
+                {
+                    "fiscal_period": "2025 Q3",
+                    "eps_current_quarter": 1.9,
+                    "eps_same_quarter_last_year": 1.45,
+                    "eps_growth_yoy_pct": 31.0,
+                },
+            ],
             "roe_pct": 21.0,
         },
     )
@@ -434,6 +455,7 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
     payload = response.json()
     assert payload["source"] == "database"
     assert payload["item"]["quarterly_eps_growth_pct"] == 42.0
+    assert payload["item"]["eps_quarter_history"][0]["eps_growth_yoy_pct"] == 60.0
 
 
 def test_stock_assessment_ranking_contract() -> None:

@@ -24,6 +24,9 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
                 pd.Timestamp("2025-09-30"): 1.90,
                 pd.Timestamp("2025-06-30"): 1.70,
                 pd.Timestamp("2025-03-31"): 1.50,
+                pd.Timestamp("2024-12-31"): 1.40,
+                pd.Timestamp("2024-09-30"): 1.45,
+                pd.Timestamp("2024-06-30"): 1.35,
                 pd.Timestamp("2024-03-31"): 1.00,
                 pd.Timestamp("2023-03-31"): 0.80,
             }
@@ -35,6 +38,9 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
                 pd.Timestamp("2025-09-30"): 210.0,
                 pd.Timestamp("2025-06-30"): 205.0,
                 pd.Timestamp("2025-03-31"): 200.0,
+                pd.Timestamp("2024-12-31"): 190.0,
+                pd.Timestamp("2024-09-30"): 185.0,
+                pd.Timestamp("2024-06-30"): 180.0,
                 pd.Timestamp("2024-03-31"): 190.0,
                 pd.Timestamp("2023-03-31"): 185.0,
             }
@@ -56,12 +62,14 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
     assert enrichment.fiscal_period == "2026 Q1"
     assert enrichment.quarterly_eps_growth_pct == 60.0
     assert enrichment.quarterly_eps_accelerating is True
+    assert [item["fiscal_period"] for item in enrichment.eps_quarter_history] == ["2026 Q1", "2025 Q4", "2025 Q3"]
+    assert [item["eps_growth_yoy_pct"] for item in enrichment.eps_quarter_history] == [60.0, 50.0, 31.0]
     assert enrichment.quarterly_revenue_growth_pct == 20.0
     assert enrichment.quarterly_revenue_accelerating is True
     assert enrichment.trailing_eps == 8.1
     assert enrichment.profit_margin_pct == 19.3
     assert enrichment.roe_pct == 53.1
-    assert enrichment.metadata["series_lengths"]["DilutedEPS"] == 7
+    assert enrichment.metadata["series_lengths"]["DilutedEPS"] == 10
 
 
 def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
@@ -151,6 +159,14 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         trailing_eps=8.1,
         roe_pct=53.1,
         profit_margin_pct=18.2,
+        eps_quarter_history=[
+            {
+                "fiscal_period": "2026 Q1",
+                "eps_current_quarter": 2.4,
+                "eps_same_quarter_last_year": 1.5,
+                "eps_growth_yoy_pct": 60.0,
+            }
+        ],
         metadata={"notes": ["FMP stable"]},
     )
 
@@ -171,6 +187,7 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         assert payload.trailing_eps == 8.1
         assert payload.roe_pct == 53.1
         assert payload.profit_margin_pct == 18.2
+        assert payload.metadata_json["eps_quarter_history"][0]["eps_growth_yoy_pct"] == 60.0
         return FundamentalSnapshotRow(
             ticker="NVDA",
             as_of=payload.as_of,

@@ -567,6 +567,14 @@ class StockAssessmentMetrics(BaseModel):
     next_earnings_trading_days: int | None = None
 
 
+class StockFundamentalsEpsQuarter(BaseModel):
+    fiscal_period: str = ""
+    eps_current_quarter: float | None = None
+    eps_same_quarter_last_year: float | None = None
+    eps_growth_yoy_pct: float | None = None
+    flag: str | None = None
+
+
 class StockFundamentalsItem(BaseModel):
     ticker: str
     as_of: str
@@ -585,6 +593,7 @@ class StockFundamentalsItem(BaseModel):
     institutional_ownership_pct: float | None = None
     next_earnings_date: str | None = None
     beta: float | None = None
+    eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
 
 
 class StockFundamentalsResponse(BaseModel):
@@ -610,6 +619,7 @@ class StockFundamentalsUpdateRequest(BaseModel):
     institutional_ownership_pct: float | None = Field(default=None, ge=0, le=100)
     next_earnings_date: str | None = None
     beta: float | None = None
+    eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
 
 
 class StockEarningsWarning(BaseModel):

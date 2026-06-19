@@ -793,6 +793,14 @@ export type StockAssessmentMetrics = {
   next_earnings_trading_days?: number | null;
 };
 
+export type StockFundamentalsEpsQuarter = {
+  fiscal_period: string;
+  eps_current_quarter?: number | null;
+  eps_same_quarter_last_year?: number | null;
+  eps_growth_yoy_pct?: number | null;
+  flag?: string | null;
+};
+
 export type StockFundamentalsItem = {
   ticker: string;
   as_of: string;
@@ -811,6 +819,7 @@ export type StockFundamentalsItem = {
   institutional_ownership_pct?: number | null;
   next_earnings_date?: string | null;
   beta?: number | null;
+  eps_quarter_history: StockFundamentalsEpsQuarter[];
 };
 
 export type StockFundamentals = {
@@ -836,6 +845,7 @@ export type StockFundamentalsUpdate = {
   institutional_ownership_pct?: number | null;
   next_earnings_date?: string | null;
   beta?: number | null;
+  eps_quarter_history?: StockFundamentalsEpsQuarter[];
 };
 
 export type StockEarningsWarning = {

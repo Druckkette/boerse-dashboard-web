@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.domain.stocks.assessment import StockAssessmentBar, compute_stock_assessment
+from app.domain.stocks.assessment import StockAssessmentBar, compute_stock_assessment, evaluate_fundamentals_context
 
 
 def test_stock_assessment_scores_constructive_leader() -> None:
@@ -77,6 +77,7 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
             "source": "manual",
             "fiscal_period": "Q1 2026",
             "quarterly_eps_growth_pct": 65.0,
+            "eps_quarter_history": _eps_history([65.0, 42.0, 31.0]),
             "annual_eps_growth_pct": 48.0,
             "quarterly_revenue_growth_pct": 36.0,
             "annual_revenue_growth_pct": 31.0,
@@ -96,6 +97,60 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
     assert result.metrics.beta == 1.25
     assert any(check.label == "ROE >=17%" and check.passed for check in result.checks)
     assert any("ROE" in driver or "EPS" in driver for driver in result.drivers)
+
+
+def test_eps_three_quarter_rule_passes_only_when_all_three_quarters_clear_threshold() -> None:
+    checks, score, available = evaluate_fundamentals_context({"eps_quarter_history": _eps_history([32.4, 27.1, 45.8])})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert available is True
+    assert eps_check.passed is True
+    assert "Q1 +32.4%" in eps_check.detail
+    assert "Q2 +27.1%" in eps_check.detail
+    assert "Q3 +45.8%" in eps_check.detail
+    assert "alle >=20%" in eps_check.detail
+    assert score > 0
+
+
+def test_eps_three_quarter_rule_fails_when_one_quarter_is_below_threshold() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"eps_quarter_history": _eps_history([32.4, 12.1, 45.8])})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert eps_check.passed is False
+    assert "Q2 unter 20%" in eps_check.detail
+
+
+def test_eps_three_quarter_rule_fails_when_less_than_three_quarters_are_available() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"eps_quarter_history": _eps_history([32.4, 27.1])})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert eps_check.passed is False
+    assert "nur 2/3 Quartale verfügbar" in eps_check.detail
+
+
+def test_eps_three_quarter_rule_handles_invalid_prior_year_eps_without_division_error() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {
+            "eps_quarter_history": [
+                {"fiscal_period": "Q1", "eps_current_quarter": 1.32, "eps_same_quarter_last_year": 1.00},
+                {"fiscal_period": "Q2", "eps_current_quarter": 1.25, "eps_same_quarter_last_year": 0.0},
+                {"fiscal_period": "Q3", "eps_current_quarter": 1.40, "eps_same_quarter_last_year": -0.25},
+            ]
+        }
+    )
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert eps_check.passed is False
+    assert "Q2, Q3 nicht auswertbar" in eps_check.detail
+
+
+def test_eps_three_quarter_rule_does_not_pass_with_only_legacy_single_quarter_growth() -> None:
+    checks, _, available = evaluate_fundamentals_context({"quarterly_eps_growth_pct": 80.0})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY")
+    assert available is True
+    assert eps_check.passed is False
+    assert "keine EPS-Quartalshistorie" in eps_check.detail
 
 
 def test_stock_assessment_flags_near_earnings() -> None:
@@ -145,3 +200,18 @@ def _synthetic_bars(*, start_price: float, drift: float, volume: float) -> list[
         current_date += timedelta(days=1)
         index += 1
     return bars
+
+
+def _eps_history(values: list[float]) -> list[dict]:
+    return [
+        {
+            "fiscal_period": f"Q{index}",
+            "eps_current_quarter": round(1.0 + growth / 100.0, 4),
+            "eps_same_quarter_last_year": 1.0,
+        }
+        for index, growth in enumerate(values, start=1)
+    ]
+
+
+def _check(checks, label: str):
+    return next(check for check in checks if check.label == label)

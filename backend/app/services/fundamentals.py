@@ -23,7 +23,7 @@ def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True
     available_fields = [
         key
         for key, value in _result_fields(fetched, enrichment).items()
-        if value is not None and value != ""
+        if value is not None and value != "" and value != []
     ]
     return {
         "ticker": row.ticker,
@@ -63,6 +63,7 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
             "provider": "yfinance",
             "refresh_mode": "worker",
             "enrichment": enrichment.metadata,
+            "eps_quarter_history": result_fields["eps_quarter_history"],
         },
     )
 
@@ -84,6 +85,7 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         else fetched.profit_margin_pct,
         "trailing_eps": enrichment.trailing_eps if enrichment.trailing_eps is not None else fetched.trailing_eps,
         "quarterly_eps_accelerating": enrichment.quarterly_eps_accelerating,
+        "eps_quarter_history": enrichment.eps_quarter_history,
         "quarterly_revenue_accelerating": enrichment.quarterly_revenue_accelerating,
         "institutional_holders": fetched.institutional_holders,
         "institutional_ownership_pct": fetched.institutional_ownership_pct,
