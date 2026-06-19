@@ -138,7 +138,9 @@ def update_stock_fundamentals(
     as_of = _parse_iso_date(request.as_of) or date.today()
     next_earnings = _parse_iso_date(request.next_earnings_date)
     eps_quarter_history = _coerce_eps_quarter_history(request.eps_quarter_history)
+    annual_eps_history = _coerce_annual_eps_history(request.annual_eps_history)
     latest_eps_growth = _latest_eps_growth(eps_quarter_history)
+    latest_annual_eps_growth = _latest_annual_eps_growth(annual_eps_history)
     row = fundamentals_repository.upsert_fundamentals(
         FundamentalSnapshotWrite(
             ticker=clean,
@@ -150,7 +152,11 @@ def update_stock_fundamentals(
                 if latest_eps_growth is not None
                 else request.quarterly_eps_growth_pct
             ),
-            annual_eps_growth_pct=request.annual_eps_growth_pct,
+            annual_eps_growth_pct=(
+                latest_annual_eps_growth
+                if latest_annual_eps_growth is not None
+                else request.annual_eps_growth_pct
+            ),
             quarterly_revenue_growth_pct=request.quarterly_revenue_growth_pct,
             annual_revenue_growth_pct=request.annual_revenue_growth_pct,
             roe_pct=request.roe_pct,
@@ -162,7 +168,11 @@ def update_stock_fundamentals(
             institutional_ownership_pct=request.institutional_ownership_pct,
             next_earnings_date=next_earnings,
             beta=request.beta,
-            metadata_json={"entered_via": "web", "eps_quarter_history": eps_quarter_history},
+            metadata_json={
+                "entered_via": "web",
+                "eps_quarter_history": eps_quarter_history,
+                "annual_eps_history": annual_eps_history,
+            },
         )
     )
     return StockFundamentalsResponse(ticker=clean, source="database", item=_fundamental_item(row))
@@ -240,6 +250,7 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
     if row is None:
         return {}
     eps_quarter_history = _eps_history_from_metadata(row.metadata_json)
+    annual_eps_history = _annual_eps_history_from_metadata(row.metadata_json)
     return {
         "ticker": row.ticker,
         "as_of": row.as_of.isoformat(),
@@ -259,6 +270,7 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
         "next_earnings_date": row.next_earnings_date.isoformat() if row.next_earnings_date else None,
         "beta": row.beta,
         "eps_quarter_history": eps_quarter_history,
+        "annual_eps_history": annual_eps_history,
     }
 
 
@@ -279,6 +291,7 @@ def _institutional_context(row: Institutional13FTrendRow | None) -> dict:
 
 def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
     eps_quarter_history = _eps_history_from_metadata(row.metadata_json)
+    annual_eps_history = _annual_eps_history_from_metadata(row.metadata_json)
     return StockFundamentalsItem(
         ticker=row.ticker,
         as_of=row.as_of.isoformat(),
@@ -298,6 +311,7 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
         next_earnings_date=row.next_earnings_date.isoformat() if row.next_earnings_date else None,
         beta=row.beta,
         eps_quarter_history=eps_quarter_history,
+        annual_eps_history=annual_eps_history,
     )
 
 
@@ -311,6 +325,21 @@ def _eps_history_from_metadata(metadata: dict | None) -> list[dict[str, Any]]:
     ]
     for candidate in candidates:
         history = _coerce_eps_quarter_history(candidate)
+        if history:
+            return history
+    return []
+
+
+def _annual_eps_history_from_metadata(metadata: dict | None) -> list[dict[str, Any]]:
+    raw = dict(metadata or {})
+    candidates = [
+        raw.get("annual_eps_history"),
+        (raw.get("enrichment") or {}).get("annual_eps_history") if isinstance(raw.get("enrichment"), dict) else None,
+        (raw.get("enrichment") or {}).get("annual_eps_growth") if isinstance(raw.get("enrichment"), dict) else None,
+        raw.get("annual_eps_growth"),
+    ]
+    for candidate in candidates:
+        history = _coerce_annual_eps_history(candidate)
         if history:
             return history
     return []
@@ -348,7 +377,44 @@ def _coerce_eps_quarter_history(value: Any) -> list[dict[str, Any]]:
     return out[:3]
 
 
+def _coerce_annual_eps_history(value: Any) -> list[dict[str, Any]]:
+    if value is None or not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in value:
+        if hasattr(item, "model_dump"):
+            raw = item.model_dump()
+        elif isinstance(item, dict):
+            raw = item
+        else:
+            continue
+        fiscal_year = str(raw.get("fiscal_year") or raw.get("label") or raw.get("year") or "").strip()
+        current = _float_or_none(raw.get("eps_current_year", raw.get("current")))
+        previous = _float_or_none(raw.get("eps_previous_year", raw.get("previous")))
+        growth = _computed_eps_growth(current, previous)
+        if growth is None and current is None and previous is None:
+            growth = _float_or_none(raw.get("eps_growth_yoy_pct", raw.get("growth_pct")))
+        out.append(
+            {
+                "fiscal_year": fiscal_year,
+                "eps_current_year": current,
+                "eps_previous_year": previous,
+                "eps_growth_yoy_pct": growth,
+                "flag": raw.get("flag"),
+            }
+        )
+    return out[:3]
+
+
 def _latest_eps_growth(history: list[dict[str, Any]]) -> float | None:
+    for item in history:
+        value = _float_or_none(item.get("eps_growth_yoy_pct"))
+        if value is not None:
+            return value
+    return None
+
+
+def _latest_annual_eps_growth(history: list[dict[str, Any]]) -> float | None:
     for item in history:
         value = _float_or_none(item.get("eps_growth_yoy_pct"))
         if value is not None:
@@ -432,6 +498,7 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
                 next_earnings_date=fundamentals.get("next_earnings_date"),
                 beta=fundamentals.get("beta"),
                 eps_quarter_history=fundamentals.get("eps_quarter_history") or [],
+                annual_eps_history=fundamentals.get("annual_eps_history") or [],
             )
             if fundamentals
             else None

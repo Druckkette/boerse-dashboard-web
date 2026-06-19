@@ -5,7 +5,13 @@ import { CalendarClock, Database, Save } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { StockFundamentalsEpsQuarter, StockFundamentalsItem, StockFundamentalsUpdate, Tone } from "@/lib/types/api";
+import type {
+  StockFundamentalsAnnualEps,
+  StockFundamentalsEpsQuarter,
+  StockFundamentalsItem,
+  StockFundamentalsUpdate,
+  Tone
+} from "@/lib/types/api";
 
 type FundamentalsForm = Required<Omit<StockFundamentalsUpdate, "source">> & {
   source: string;
@@ -28,7 +34,8 @@ const emptyForm: FundamentalsForm = {
   institutional_ownership_pct: null,
   next_earnings_date: null,
   beta: null,
-  eps_quarter_history: []
+  eps_quarter_history: [],
+  annual_eps_history: []
 };
 
 export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
@@ -73,6 +80,19 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
         itemIndex === index ? { ...item, [key]: value } : item
       );
       return { ...base, eps_quarter_history: nextHistory };
+    });
+  };
+  const setAnnualEpsHistoryField = <K extends keyof StockFundamentalsAnnualEps>(
+    index: number,
+    key: K,
+    value: StockFundamentalsAnnualEps[K]
+  ) => {
+    setDraft((current) => {
+      const base = current ?? serverForm;
+      const nextHistory = padAnnualEpsHistory(base.annual_eps_history).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item
+      );
+      return { ...base, annual_eps_history: nextHistory };
     });
   };
 
@@ -125,9 +145,48 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
 
       <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <NumberField label="EPS YoY Q Kurzfeld" suffix="%" value={form.quarterly_eps_growth_pct} onChange={(value) => setField("quarterly_eps_growth_pct", value)} />
-        <NumberField label="EPS YoY Jahr" suffix="%" value={form.annual_eps_growth_pct} onChange={(value) => setField("annual_eps_growth_pct", value)} />
-        <BooleanField label="EPS beschleunigt" value={form.quarterly_eps_accelerating} onChange={(value) => setField("quarterly_eps_accelerating", value)} />
-        <NumberField label="Trailing EPS" prefix="$" value={form.trailing_eps} onChange={(value) => setField("trailing_eps", value)} />
+        <NumberField label="EPS YoY Jahr Kurzfeld" suffix="%" value={form.annual_eps_growth_pct} onChange={(value) => setField("annual_eps_growth_pct", value)} />
+        <BooleanField label="EPS beschleunigt Bonus" value={form.quarterly_eps_accelerating} onChange={(value) => setField("quarterly_eps_accelerating", value)} />
+        <NumberField label="Summe EPS 4Q" prefix="$" value={form.trailing_eps} onChange={(value) => setField("trailing_eps", value)} />
+      </div>
+
+      <div className="mt-3 rounded border border-[#242a33] bg-[#111419] p-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">EPS-Historie letzte 3 Jahre</h3>
+            <p className="mt-1 text-xs leading-5 text-[#7f8794]">
+              Das jährliche EPS-Kriterium besteht nur, wenn jedes der drei Jahre mindestens +20% YoY liefert.
+            </p>
+          </div>
+          <StatusChip tone={annualEpsHistoryTone(form.annual_eps_history)}>{annualEpsHistorySummary(form.annual_eps_history)}</StatusChip>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {padAnnualEpsHistory(form.annual_eps_history).map((item, index) => (
+            <div key={index} className="rounded border border-[#2d333d] bg-[#171a20] p-3">
+              <TextField
+                label={`Jahr ${index + 1}`}
+                value={item.fiscal_year}
+                onChange={(value) => setAnnualEpsHistoryField(index, "fiscal_year", value)}
+                placeholder={`${new Date().getFullYear() - index - 1}`}
+              />
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
+                <NumberField
+                  label="EPS Jahr"
+                  value={item.eps_current_year}
+                  onChange={(value) => setAnnualEpsHistoryField(index, "eps_current_year", value)}
+                />
+                <NumberField
+                  label="EPS Vorjahr"
+                  value={item.eps_previous_year}
+                  onChange={(value) => setAnnualEpsHistoryField(index, "eps_previous_year", value)}
+                />
+              </div>
+              <div className="mt-3 text-xs text-[#a0a7b4]">
+                YoY: <span className={epsGrowthClass(computeAnnualEpsGrowth(item))}>{formatSignedPct(computeAnnualEpsGrowth(item))}</span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mt-3 rounded border border-[#242a33] bg-[#111419] p-4">
@@ -316,7 +375,8 @@ function fromItem(item: StockFundamentalsItem | null | undefined, ticker: string
     source: item.source || "manual",
     fiscal_period: item.fiscal_period || `${ticker} fundamentals`,
     next_earnings_date: item.next_earnings_date ?? null,
-    eps_quarter_history: item.eps_quarter_history ?? []
+    eps_quarter_history: item.eps_quarter_history ?? [],
+    annual_eps_history: item.annual_eps_history ?? []
   };
 }
 
@@ -332,14 +392,22 @@ function toPayload(form: FundamentalsForm): StockFundamentalsUpdate {
         item.eps_current_quarter !== null ||
         item.eps_same_quarter_last_year !== null
     );
+  const annualEpsHistory = form.annual_eps_history
+    .map((item) => ({
+      ...item,
+      eps_growth_yoy_pct: computeAnnualEpsGrowth(item)
+    }))
+    .filter((item) => item.fiscal_year.trim() || item.eps_current_year !== null || item.eps_previous_year !== null);
   return {
     ...form,
     quarterly_eps_growth_pct: epsQuarterHistory[0]?.eps_growth_yoy_pct ?? form.quarterly_eps_growth_pct,
+    annual_eps_growth_pct: annualEpsHistory[0]?.eps_growth_yoy_pct ?? form.annual_eps_growth_pct,
     source: form.source.trim() || "manual",
     fiscal_period: form.fiscal_period.trim(),
     as_of: form.as_of || null,
     next_earnings_date: form.next_earnings_date || null,
-    eps_quarter_history: epsQuarterHistory
+    eps_quarter_history: epsQuarterHistory,
+    annual_eps_history: annualEpsHistory
   };
 }
 
@@ -354,7 +422,7 @@ function previewFundamentalScore(form: FundamentalsForm) {
   const checks = [
     epsHistoryScore(form.eps_quarter_history),
     form.quarterly_eps_accelerating === true ? 1 : 0,
-    (form.annual_eps_growth_pct ?? -Infinity) >= 20 ? 1 : 0,
+    annualEpsHistoryScore(form.annual_eps_history),
     (form.trailing_eps ?? -Infinity) > 0 ? 1 : 0,
     (form.quarterly_revenue_growth_pct ?? -Infinity) >= 20 ? 1 : 0,
     form.quarterly_revenue_accelerating === true ? 1 : 0,
@@ -406,9 +474,59 @@ function epsHistorySummary(history: StockFundamentalsEpsQuarter[]) {
   return `${passed}/3 >=20%`;
 }
 
+function padAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
+  const rows = history.slice(0, 3).map((item) => ({
+    fiscal_year: item.fiscal_year ?? "",
+    eps_current_year: item.eps_current_year ?? null,
+    eps_previous_year: item.eps_previous_year ?? null,
+    eps_growth_yoy_pct: item.eps_growth_yoy_pct ?? null,
+    flag: item.flag ?? null
+  }));
+  while (rows.length < 3) {
+    rows.push({
+      fiscal_year: "",
+      eps_current_year: null,
+      eps_previous_year: null,
+      eps_growth_yoy_pct: null,
+      flag: null
+    });
+  }
+  return rows;
+}
+
+function annualEpsHistoryScore(history: StockFundamentalsAnnualEps[]) {
+  const values = padAnnualEpsHistory(history).map(computeAnnualEpsGrowth);
+  if (values.some((value) => value === null)) return 0;
+  return values.filter((value) => value !== null && value >= 20).length / 3;
+}
+
+function annualEpsHistoryTone(history: StockFundamentalsAnnualEps[]): Tone {
+  const values = padAnnualEpsHistory(history).map(computeAnnualEpsGrowth);
+  if (values.every((value) => value !== null && value >= 20)) return "good";
+  if (values.some((value) => value !== null && value >= 20)) return "warning";
+  return "neutral";
+}
+
+function annualEpsHistorySummary(history: StockFundamentalsAnnualEps[]) {
+  const values = padAnnualEpsHistory(history).map(computeAnnualEpsGrowth);
+  const valid = values.filter((value) => value !== null);
+  const passed = valid.filter((value) => value >= 20).length;
+  if (valid.length < 3) return `${valid.length}/3 verfügbar`;
+  return `${passed}/3 >=20%`;
+}
+
 function computeEpsGrowth(item: StockFundamentalsEpsQuarter) {
   const current = item.eps_current_quarter;
   const previous = item.eps_same_quarter_last_year;
+  if (typeof current !== "number" || typeof previous !== "number" || previous <= 0) {
+    return item.eps_growth_yoy_pct ?? null;
+  }
+  return Math.round((current / previous - 1) * 1000) / 10;
+}
+
+function computeAnnualEpsGrowth(item: StockFundamentalsAnnualEps) {
+  const current = item.eps_current_year;
+  const previous = item.eps_previous_year;
   if (typeof current !== "number" || typeof previous !== "number" || previous <= 0) {
     return item.eps_growth_yoy_pct ?? null;
   }

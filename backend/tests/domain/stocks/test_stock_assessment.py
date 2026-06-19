@@ -79,6 +79,7 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
             "quarterly_eps_growth_pct": 65.0,
             "eps_quarter_history": _eps_history([65.0, 42.0, 31.0]),
             "annual_eps_growth_pct": 48.0,
+            "annual_eps_history": _annual_eps_history([48.0, 32.0, 26.0]),
             "quarterly_revenue_growth_pct": 36.0,
             "annual_revenue_growth_pct": 31.0,
             "roe_pct": 28.0,
@@ -153,6 +154,78 @@ def test_eps_three_quarter_rule_does_not_pass_with_only_legacy_single_quarter_gr
     assert "keine EPS-Quartalshistorie" in eps_check.detail
 
 
+def test_annual_eps_three_year_rule_passes_only_when_all_three_years_clear_threshold() -> None:
+    checks, score, available = evaluate_fundamentals_context({"annual_eps_history": _annual_eps_history([32.4, 27.1, 45.8])})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert available is True
+    assert eps_check.passed is True
+    assert "2025 +32.4%" in eps_check.detail
+    assert "2024 +27.1%" in eps_check.detail
+    assert "2023 +45.8%" in eps_check.detail
+    assert "alle >=20%" in eps_check.detail
+    assert score > 0
+
+
+def test_annual_eps_three_year_rule_fails_when_one_year_is_below_threshold() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"annual_eps_history": _annual_eps_history([32.4, 12.1, 45.8])})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert eps_check.passed is False
+    assert "2024 unter 20%" in eps_check.detail
+
+
+def test_annual_eps_three_year_rule_fails_when_less_than_three_years_are_available() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"annual_eps_history": _annual_eps_history([32.4, 27.1])})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert eps_check.passed is False
+    assert "nur 2/3 Jahre verfügbar" in eps_check.detail
+
+
+def test_annual_eps_three_year_rule_handles_invalid_prior_year_eps_without_division_error() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {
+            "annual_eps_history": [
+                {"fiscal_year": "2025", "eps_current_year": 7.2, "eps_previous_year": 5.2},
+                {"fiscal_year": "2024", "eps_current_year": 5.2, "eps_previous_year": 0.0},
+                {"fiscal_year": "2023", "eps_current_year": 3.4, "eps_previous_year": -1.0},
+            ]
+        }
+    )
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert eps_check.passed is False
+    assert "2024, 2023 nicht auswertbar" in eps_check.detail
+
+
+def test_annual_eps_three_year_rule_does_not_pass_with_only_legacy_single_year_growth() -> None:
+    checks, _, available = evaluate_fundamentals_context({"annual_eps_growth_pct": 80.0})
+
+    eps_check = _check(checks, "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY")
+    assert available is True
+    assert eps_check.passed is False
+    assert "keine jährliche EPS-Historie" in eps_check.detail
+
+
+def test_trailing_eps_sum_last_four_quarters_must_be_positive() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"trailing_eps": 0.25})
+    assert _check(checks, "Summe EPS letzte 4 Quartale > 0").passed is True
+
+    checks, _, _ = evaluate_fundamentals_context({"trailing_eps": -0.01})
+    trailing_check = _check(checks, "Summe EPS letzte 4 Quartale > 0")
+    assert trailing_check.passed is False
+    assert "$-0.01" in trailing_check.detail
+
+
+def test_eps_acceleration_bonus_uses_last_three_quarter_growth_rates() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"eps_quarter_history": _eps_history([40.0, 25.0, 20.0])})
+
+    accel_check = _check(checks, "Bonus: EPS-Beschleunigung letzte 3 Quartale")
+    assert accel_check.passed is True
+    assert "Bonus erfüllt" in accel_check.detail
+
+
 def test_stock_assessment_flags_near_earnings() -> None:
     near_earnings = date.today() + timedelta(days=3)
     bars = _synthetic_bars(start_price=45, drift=0.003, volume=2_500_000)
@@ -208,6 +281,17 @@ def _eps_history(values: list[float]) -> list[dict]:
             "fiscal_period": f"Q{index}",
             "eps_current_quarter": round(1.0 + growth / 100.0, 4),
             "eps_same_quarter_last_year": 1.0,
+        }
+        for index, growth in enumerate(values, start=1)
+    ]
+
+
+def _annual_eps_history(values: list[float]) -> list[dict]:
+    return [
+        {
+            "fiscal_year": str(2026 - index),
+            "eps_current_year": round(10.0 * (1.0 + growth / 100.0), 4),
+            "eps_previous_year": 10.0,
         }
         for index, growth in enumerate(values, start=1)
     ]

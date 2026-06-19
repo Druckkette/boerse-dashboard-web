@@ -575,6 +575,14 @@ class StockFundamentalsEpsQuarter(BaseModel):
     flag: str | None = None
 
 
+class StockFundamentalsAnnualEps(BaseModel):
+    fiscal_year: str = ""
+    eps_current_year: float | None = None
+    eps_previous_year: float | None = None
+    eps_growth_yoy_pct: float | None = None
+    flag: str | None = None
+
+
 class StockFundamentalsItem(BaseModel):
     ticker: str
     as_of: str
@@ -594,6 +602,7 @@ class StockFundamentalsItem(BaseModel):
     next_earnings_date: str | None = None
     beta: float | None = None
     eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
+    annual_eps_history: list[StockFundamentalsAnnualEps] = Field(default_factory=list)
 
 
 class StockFundamentalsResponse(BaseModel):
@@ -620,6 +629,7 @@ class StockFundamentalsUpdateRequest(BaseModel):
     next_earnings_date: str | None = None
     beta: float | None = None
     eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
+    annual_eps_history: list[StockFundamentalsAnnualEps] = Field(default_factory=list)
 
 
 class StockEarningsWarning(BaseModel):

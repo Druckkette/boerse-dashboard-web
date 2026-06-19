@@ -64,6 +64,7 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
             "refresh_mode": "worker",
             "enrichment": enrichment.metadata,
             "eps_quarter_history": result_fields["eps_quarter_history"],
+            "annual_eps_history": result_fields["annual_eps_history"],
         },
     )
 
@@ -74,7 +75,9 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "quarterly_eps_growth_pct": enrichment.quarterly_eps_growth_pct
         if enrichment.quarterly_eps_growth_pct is not None
         else fetched.quarterly_eps_growth_pct,
-        "annual_eps_growth_pct": fetched.annual_eps_growth_pct,
+        "annual_eps_growth_pct": enrichment.annual_eps_growth_pct
+        if enrichment.annual_eps_growth_pct is not None
+        else fetched.annual_eps_growth_pct,
         "quarterly_revenue_growth_pct": enrichment.quarterly_revenue_growth_pct
         if enrichment.quarterly_revenue_growth_pct is not None
         else fetched.quarterly_revenue_growth_pct,
@@ -86,6 +89,7 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "trailing_eps": enrichment.trailing_eps if enrichment.trailing_eps is not None else fetched.trailing_eps,
         "quarterly_eps_accelerating": enrichment.quarterly_eps_accelerating,
         "eps_quarter_history": enrichment.eps_quarter_history,
+        "annual_eps_history": enrichment.annual_eps_history,
         "quarterly_revenue_accelerating": enrichment.quarterly_revenue_accelerating,
         "institutional_holders": fetched.institutional_holders,
         "institutional_ownership_pct": fetched.institutional_ownership_pct,

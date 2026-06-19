@@ -28,7 +28,14 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
                 pd.Timestamp("2024-09-30"): 1.45,
                 pd.Timestamp("2024-06-30"): 1.35,
                 pd.Timestamp("2024-03-31"): 1.00,
+                pd.Timestamp("2023-12-31"): 0.90,
+                pd.Timestamp("2023-09-30"): 0.85,
+                pd.Timestamp("2023-06-30"): 0.82,
                 pd.Timestamp("2023-03-31"): 0.80,
+                pd.Timestamp("2022-12-31"): 0.70,
+                pd.Timestamp("2022-09-30"): 0.65,
+                pd.Timestamp("2022-06-30"): 0.60,
+                pd.Timestamp("2022-03-31"): 0.55,
             }
         ),
         "TotalRevenue": pd.Series(
@@ -64,12 +71,15 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
     assert enrichment.quarterly_eps_accelerating is True
     assert [item["fiscal_period"] for item in enrichment.eps_quarter_history] == ["2026 Q1", "2025 Q4", "2025 Q3"]
     assert [item["eps_growth_yoy_pct"] for item in enrichment.eps_quarter_history] == [60.0, 50.0, 31.0]
+    assert enrichment.annual_eps_growth_pct == 38.5
+    assert [item["fiscal_year"] for item in enrichment.annual_eps_history] == ["2025", "2024", "2023"]
+    assert [item["eps_growth_yoy_pct"] for item in enrichment.annual_eps_history] == [38.5, 54.3, 34.8]
     assert enrichment.quarterly_revenue_growth_pct == 20.0
     assert enrichment.quarterly_revenue_accelerating is True
     assert enrichment.trailing_eps == 8.1
     assert enrichment.profit_margin_pct == 19.3
     assert enrichment.roe_pct == 53.1
-    assert enrichment.metadata["series_lengths"]["DilutedEPS"] == 10
+    assert enrichment.metadata["series_lengths"]["DilutedEPS"] == 17
 
 
 def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
@@ -108,7 +118,7 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
     assert raw is not None
     assert note == "FMP stable"
     assert [call["url"] for call in calls] == [FMP_INCOME_STATEMENT_URL, FMP_RATIOS_TTM_URL]
-    assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 12, "apikey": "test-key"}
+    assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 20, "apikey": "test-key"}
     assert calls[1]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
 
 
@@ -153,6 +163,7 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         source="fmp+sec",
         fiscal_period="2026 Q1",
         quarterly_eps_growth_pct=60.0,
+        annual_eps_growth_pct=44.0,
         quarterly_revenue_growth_pct=42.0,
         quarterly_eps_accelerating=True,
         quarterly_revenue_accelerating=True,
@@ -165,6 +176,14 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
                 "eps_current_quarter": 2.4,
                 "eps_same_quarter_last_year": 1.5,
                 "eps_growth_yoy_pct": 60.0,
+            }
+        ],
+        annual_eps_history=[
+            {
+                "fiscal_year": "2025",
+                "eps_current_year": 7.2,
+                "eps_previous_year": 5.0,
+                "eps_growth_yoy_pct": 44.0,
             }
         ],
         metadata={"notes": ["FMP stable"]},
@@ -181,6 +200,7 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         assert payload.source == "yfinance+fmp+sec"
         assert payload.fiscal_period == "2026 Q1"
         assert payload.quarterly_eps_growth_pct == 60.0
+        assert payload.annual_eps_growth_pct == 44.0
         assert payload.quarterly_revenue_growth_pct == 42.0
         assert payload.quarterly_eps_accelerating is True
         assert payload.quarterly_revenue_accelerating is True
@@ -188,6 +208,7 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         assert payload.roe_pct == 53.1
         assert payload.profit_margin_pct == 18.2
         assert payload.metadata_json["eps_quarter_history"][0]["eps_growth_yoy_pct"] == 60.0
+        assert payload.metadata_json["annual_eps_history"][0]["eps_growth_yoy_pct"] == 44.0
         return FundamentalSnapshotRow(
             ticker="NVDA",
             as_of=payload.as_of,

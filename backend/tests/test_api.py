@@ -416,6 +416,7 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
                 next_earnings_date=None,
                 beta=None,
                 eps_quarter_history=request.eps_quarter_history,
+                annual_eps_history=request.annual_eps_history,
             ),
         )
 
@@ -447,6 +448,14 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
                     "eps_growth_yoy_pct": 31.0,
                 },
             ],
+            "annual_eps_history": [
+                {
+                    "fiscal_year": "2025",
+                    "eps_current_year": 7.2,
+                    "eps_previous_year": 5.2,
+                    "eps_growth_yoy_pct": 38.5,
+                }
+            ],
             "roe_pct": 21.0,
         },
     )
@@ -456,6 +465,7 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
     assert payload["source"] == "database"
     assert payload["item"]["quarterly_eps_growth_pct"] == 42.0
     assert payload["item"]["eps_quarter_history"][0]["eps_growth_yoy_pct"] == 60.0
+    assert payload["item"]["annual_eps_history"][0]["eps_growth_yoy_pct"] == 38.5
 
 
 def test_stock_assessment_ranking_contract() -> None:
