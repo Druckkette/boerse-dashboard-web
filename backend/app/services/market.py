@@ -5,7 +5,13 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
+from app.domain.market.ampel import (
+    GREEN_CONFIRMATION_DAYS,
+    UPTREND_CONFIRMATION_DAYS,
+    TrendAmpelBar,
+    TrendAmpelPoint,
+    compute_trend_ampel,
+)
 from app.domain.market.constants import (
     DEFAULT_MARKET_UNIVERSE_KEY,
     DEFAULT_MARKET_UNIVERSE_TICKERS,
@@ -1651,7 +1657,7 @@ def _ampel_phase_info(
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="AUFWÄRTSTREND",
-            reason="MA-Ordnung bestätigt: 21-EMA > 50-SMA > 200-SMA. Ampel-Zyklus abgeschlossen.",
+            reason="MA-Ordnung bestätigt: Kurs über 21-EMA und 200-SMA, 21-EMA > 50-SMA > 200-SMA. Ampel-Zyklus abgeschlossen.",
             action="Offensiv handeln. Viele kleine Positionen und beste Läufer aufstocken.",
             tone="good",
         )
@@ -1669,8 +1675,8 @@ def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
     rules = {
         "rot": "ROT wird aktiv bei Drawdown von mehr als 10% vom jüngsten Hoch oder Schlusskurs unter der 50-SMA bei mindestens 4 Distribution Days im 25-Tage-Fenster.",
         "gelb": "GELB wird aktiv, wenn nach einem Ankertag frühestens ab Tag 5 ein Startschuss auftritt: mindestens +1,0%, Volumen über Vortag und kein Unterschreiten der Bodenmarke intraday.",
-        "gruen": "GRÜN wird aktiv, wenn der Startschuss hält und nach GELB mehr als 2 weitere Handelstage vergehen, ohne dass das Startschuss-Tief per Schlusskurs gebrochen wird.",
-        "aufwaertstrend": "AUFWÄRTSTREND wird aktiv, wenn die grüne Phase mindestens 10 Tage Bestand hatte, der Index über der 200-SMA liegt und 21-EMA > 50-SMA > 200-SMA gilt.",
+        "gruen": f"GRÜN wird aktiv, wenn der Startschuss hält und nach GELB mehr als {GREEN_CONFIRMATION_DAYS} weitere Handelstage vergehen, ohne dass das Startschuss-Tief per Schlusskurs gebrochen wird.",
+        "aufwaertstrend": f"AUFWÄRTSTREND wird aktiv, wenn die grüne Phase mindestens {UPTREND_CONFIRMATION_DAYS} Tage Bestand hatte, der Index über 21-EMA und 200-SMA liegt und 21-EMA > 50-SMA > 200-SMA gilt.",
     }
     lights = [
         MarketAmpelLight(key="rot", label="ROT", active=active_key == "rot", rule=rules["rot"], tone="bad"),

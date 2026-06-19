@@ -11,6 +11,10 @@ import pandas as pd
 from app.domain.market.regime import MarketPhase
 
 
+GREEN_CONFIRMATION_DAYS = 2
+UPTREND_CONFIRMATION_DAYS = 10
+
+
 @dataclass(frozen=True)
 class TrendAmpelBar:
     date: date | str
@@ -200,22 +204,45 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
         )
         return drawdown_pct < -10 or below_sma50_with_distribution
 
+    def uptrend_confirmed(index: int) -> bool:
+        ma_order = (
+            _is_finite(ema21[index])
+            and _is_finite(sma50[index])
+            and _is_finite(sma200[index])
+            and ema21[index] > sma50[index] > sma200[index]
+        )
+        price_above_key_mas = (
+            _is_finite(sma200[index])
+            and _is_finite(ema21[index])
+            and close[index] > sma200[index]
+            and close[index] > ema21[index]
+        )
+        return bool(ma_order and price_above_key_mas)
+
+    def startschuss_low_broken(index: int) -> bool:
+        return startschuss_low is not None and close[index] < startschuss_low
+
     for index in range(1, row_count):
         daily_pct = pct_change[index] if _is_finite(pct_change[index]) else 0.0
         range_position = closing_range[index] if _is_finite(closing_range[index]) else 0.5
 
         if phase in {"neutral", "aufwaertstrend"}:
-            if correction_detected(index):
+            if phase == "aufwaertstrend" and startschuss_low_broken(index):
+                phase = "rot"
+                clear_state()
+            elif correction_detected(index):
                 phase = "rot"
                 clear_state()
             elif (
                 phase == "aufwaertstrend"
                 and _is_finite(ema21[index])
                 and _is_finite(sma50[index])
-                and ema21[index] < sma50[index]
+                and _is_finite(sma200[index])
+                and not uptrend_confirmed(index)
             ):
-                phase = "rot"
-                clear_state()
+                phase = "gruen" if startschuss_low is not None and close[index] >= startschuss_low else "rot"
+                if phase == "rot":
+                    clear_state()
         elif phase == "rot":
             if (
                 anchor_idx is not None
@@ -243,24 +270,20 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 startschuss_low = float(low[index])
                 startschuss_bonus = _is_finite(ema21[index]) and close[index] > ema21[index]
         elif phase == "gelb":
-            if startschuss_low is not None and close[index] < startschuss_low:
+            if startschuss_low_broken(index):
                 phase = "rot"
                 clear_state()
-            elif startschuss_idx is not None and index > startschuss_idx + 2:
+            elif startschuss_idx is not None and index > startschuss_idx + GREEN_CONFIRMATION_DAYS:
                 phase = "gruen"
                 gruen_since = index
         elif phase == "gruen":
-            if startschuss_low is not None and close[index] < startschuss_low:
+            if startschuss_low_broken(index):
                 phase = "rot"
                 clear_state()
             elif (
-                _is_finite(sma200[index])
-                and close[index] > sma200[index]
-                and _is_finite(ema21[index])
-                and _is_finite(sma50[index])
-                and ema21[index] > sma50[index]
+                uptrend_confirmed(index)
                 and gruen_since is not None
-                and index - gruen_since >= 10
+                and index - gruen_since >= UPTREND_CONFIRMATION_DAYS
             ):
                 phase = "aufwaertstrend"
 

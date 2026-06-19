@@ -33,6 +33,72 @@ def test_trend_ampel_survives_empty_input() -> None:
     assert compute_trend_ampel([]) == []
 
 
+def test_green_resets_to_red_when_close_breaks_startschuss_low() -> None:
+    bars = _startschuss_to_green_bars()
+    points = compute_trend_ampel(bars)
+    startschuss_low = points[-1].startschuss_low
+
+    assert points[-1].phase == "gruen"
+    assert startschuss_low is not None
+
+    bars.append(
+        _bar(
+            71,
+            open_price=startschuss_low + 1.0,
+            close=startschuss_low - 0.5,
+            high=startschuss_low + 1.4,
+            low=startschuss_low - 1.0,
+            volume=1_300_000,
+        )
+    )
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.phase == "rot"
+    assert latest.startschuss_low is None
+
+
+def test_uptrend_resets_to_red_when_close_breaks_startschuss_low() -> None:
+    bars = _green_to_uptrend_bars()
+    points = compute_trend_ampel(bars)
+    startschuss_low = points[-1].startschuss_low
+
+    assert points[-1].phase == "aufwaertstrend"
+    assert startschuss_low is not None
+
+    bars.append(
+        _bar(
+            240,
+            open_price=startschuss_low + 1.0,
+            close=startschuss_low - 0.5,
+            high=startschuss_low + 1.4,
+            low=startschuss_low - 1.0,
+            volume=1_500_000,
+        )
+    )
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.phase == "rot"
+    assert latest.startschuss_low is None
+
+
+def test_green_waits_for_full_ma_order_before_uptrend() -> None:
+    points = compute_trend_ampel(_green_without_full_ma_order_bars())
+    latest = points[-1]
+
+    assert latest.phase == "gruen"
+    assert latest.close is not None
+    assert latest.ema21 is not None
+    assert latest.sma50 is not None
+    assert latest.sma200 is not None
+    assert latest.close > latest.ema21
+    assert latest.close > latest.sma200
+    assert latest.ema21 > latest.sma50
+    assert latest.sma50 < latest.sma200
+    assert latest.ma_order is False
+
+
 def _bars_for_scenario(scenario: str) -> list[TrendAmpelBar]:
     if scenario == "correction_to_red":
         return _correction_to_red_bars()
@@ -102,6 +168,42 @@ def _green_to_uptrend_bars() -> list[TrendAmpelBar]:
             )
         )
         previous_close = float(close)
+    return bars
+
+
+def _green_without_full_ma_order_bars() -> list[TrendAmpelBar]:
+    bars: list[TrendAmpelBar] = []
+    previous_close = 180.0
+    for index in range(220):
+        close = 180.0 - index * 0.2
+        bars.append(
+            _bar(
+                index,
+                open_price=previous_close,
+                close=close,
+                high=close + 1.0,
+                low=close - 1.0,
+                volume=1_000_000 + index * 500,
+            )
+        )
+        previous_close = close
+
+    for offset, close in enumerate(
+        [136, 138, 139, 140, 141, 142, 145, 147, 149, 151, 153, 155, 157, 159, 161, 163, 165, 167, 169, 171],
+        220,
+    ):
+        bars.append(
+            _bar(
+                offset,
+                open_price=previous_close,
+                close=float(close),
+                high=max(previous_close, float(close)) + 1.0,
+                low=min(previous_close, float(close)) - 1.0,
+                volume=1_200_000 + offset * 1_000,
+            )
+        )
+        previous_close = float(close)
+
     return bars
 
 
