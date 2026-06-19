@@ -62,7 +62,9 @@ freshness first and runs only the missing or stale parts: position prices, marke
 RS ratings and the ATR position monitor path where needed. You do not have to copy CSV files into a
 container or run `curl` commands manually.
 
-The scheduler runs the same smart refresh automatically at 07:45 and 22:30 Europe/Berlin time.
+The scheduler runs the same smart refresh automatically at 16:00 and 22:30 Europe/Berlin time.
+Scheduled runs force the market-data path, so price cache, breadth snapshots and RS ratings are
+rebuilt even if the generic freshness window still marks yesterday's data as fresh.
 The market page itself only reads prepared Postgres snapshots and does not start live yfinance or
 breadth recalculations while you open the dashboard.
 

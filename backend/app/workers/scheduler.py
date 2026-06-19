@@ -24,10 +24,10 @@ def get_beat_schedule() -> dict:
     artefacts are large and do not need frequent refreshes.
     """
     return {
-        "smart-market-refresh-morning": {
+        "smart-market-refresh-afternoon": {
             "task": "smart_refresh_market_data",
-            "schedule": crontab(hour=7, minute=45),
-            "args": (None, {**SMART_REFRESH_PAYLOAD, "scheduled_window": "morning"}),
+            "schedule": crontab(hour=16, minute=0),
+            "args": (None, {**SMART_REFRESH_PAYLOAD, "scheduled_window": "afternoon"}),
         },
         "smart-market-refresh-evening": {
             "task": "smart_refresh_market_data",

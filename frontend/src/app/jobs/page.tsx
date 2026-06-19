@@ -971,7 +971,7 @@ function MarketDataAssistantPanel({
           <p className="text-sm leading-6 text-[#a0a7b4]">
             Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
             Alles smart aktualisieren prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile.
-            Derselbe Smart-Refresh läuft automatisch um 07:45 und 22:30 Uhr deutscher Zeit.
+            Geplante Smart-Refreshes laufen automatisch um 16:00 und 22:30 Uhr deutscher Zeit und erzwingen den Market-Refresh-Pfad.
           </p>
           <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-4">
             <span>Universe: US Common Stocks</span>

@@ -5,11 +5,14 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 export function MarketOverviewPanel() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["market-overview"],
-    queryFn: api.marketOverview
+    queryFn: api.marketOverview,
+    staleTime: 60_000,
+    refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
 
   if (isLoading) return <div className="rounded border border-[#2d333d] p-4">Market lädt...</div>;

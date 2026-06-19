@@ -8,18 +8,18 @@ def test_celery_beat_uses_german_market_update_timezone() -> None:
     assert celery_app.conf.timezone == "Europe/Berlin"
 
 
-def test_smart_market_refresh_runs_morning_and_evening() -> None:
+def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     schedule = get_beat_schedule()
 
-    morning = schedule["smart-market-refresh-morning"]
+    afternoon = schedule["smart-market-refresh-afternoon"]
     evening = schedule["smart-market-refresh-evening"]
 
-    assert morning["task"] == "smart_refresh_market_data"
-    assert morning["schedule"]._orig_hour == 7
-    assert morning["schedule"]._orig_minute == 45
-    assert morning["args"][1]["scheduled_window"] == "morning"
-    assert morning["args"][1]["mode"] == "scheduled"
-    assert morning["args"][1]["source"] == "scheduler"
+    assert afternoon["task"] == "smart_refresh_market_data"
+    assert afternoon["schedule"]._orig_hour == 16
+    assert afternoon["schedule"]._orig_minute == 0
+    assert afternoon["args"][1]["scheduled_window"] == "afternoon"
+    assert afternoon["args"][1]["mode"] == "scheduled"
+    assert afternoon["args"][1]["source"] == "scheduler"
 
     assert evening["task"] == "smart_refresh_market_data"
     assert evening["schedule"]._orig_hour == 22

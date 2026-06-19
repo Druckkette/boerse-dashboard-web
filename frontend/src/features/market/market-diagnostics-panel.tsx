@@ -11,12 +11,14 @@ import type {
   Tone
 } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 export function MarketDiagnosticsPanel() {
   const query = useQuery({
     queryKey: ["market-diagnostics"],
     queryFn: api.marketDiagnostics,
-    staleTime: 60_000
+    staleTime: 60_000,
+    refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
   const data = query.data;
 

@@ -9,6 +9,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelLight, Tone } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 const indexes = [
   { ticker: "^GSPC", label: "S&P 500" },
@@ -25,7 +26,8 @@ export function MarketAmpelPanel() {
     queryKey: ["market-ampel", ticker, days],
     queryFn: () => api.marketAmpel(ticker, days),
     placeholderData: (previous) => previous,
-    staleTime: 60_000
+    staleTime: 60_000,
+    refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
 
   if (query.isLoading) {

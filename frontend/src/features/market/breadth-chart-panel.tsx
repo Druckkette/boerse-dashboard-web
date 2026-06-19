@@ -6,12 +6,14 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { Breadth, Tone } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForStatus } from "./data-status";
+import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 export function BreadthChartPanel() {
   const query = useQuery({
     queryKey: ["market-breadth"],
     queryFn: api.marketBreadth,
-    staleTime: 60_000
+    staleTime: 60_000,
+    refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
   const breadth = query.data;
 

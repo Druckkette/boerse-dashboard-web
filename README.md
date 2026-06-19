@@ -136,8 +136,9 @@ The setup and jobs pages store only UI preferences in the browser. The market da
 in the Postgres Docker volume. You only need to repeat the full bootstrap when the database volume
 is empty, after a deliberate reset, or when you want to load a different universe or longer history.
 Normal updates should be handled by scheduler/worker jobs. The scheduler runs the smart refresh
-path at 07:45 and 22:30 Europe/Berlin time, so it avoids unnecessary heavy recalculations when data
-is already current.
+path at 16:00 and 22:30 Europe/Berlin time. Scheduled runs force the market-data path so price
+cache, breadth snapshots and RS ratings are rebuilt instead of being skipped by the normal
+freshness window.
 
 Long-running bootstrap jobs are configured for NAS runtimes: Celery has a 48 hour hard task limit
 and a 72 hour Redis visibility timeout by default. The bootstrap stores checkpoints in the job

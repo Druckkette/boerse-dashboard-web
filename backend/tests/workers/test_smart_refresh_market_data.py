@@ -78,6 +78,27 @@ def test_smart_plan_refreshes_market_dependencies_after_stale_prices() -> None:
     ]
 
 
+def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+        ),
+        universe_status=_universe(),
+        payload={"mode": "scheduled", "universe": "us_common_stocks"},
+    )
+
+    assert [action.key for action in plan] == [
+        "refresh_market_prices",
+        "refresh_breadth",
+        "refresh_relative_strength",
+    ]
+    assert "Geplanter Smart-Refresh" in plan[0].reason
+
+
 def test_smart_refresh_task_marks_done_without_unnecessary_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics())
     monkeypatch.setattr(
@@ -143,6 +164,58 @@ def test_smart_refresh_task_runs_only_planned_actions(monkeypatch: pytest.Monkey
 
     assert result["ok"] is True
     assert calls == ["price:NVDA:1y", "monitor"]
+    assert updated is not None
+    assert updated.status == "done"
+
+
+def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics())
+    monkeypatch.setattr(
+        smart_module,
+        "get_freshness",
+        lambda: _freshness(prices="fresh", breadth="fresh", rs="fresh", sell_ranking="fresh"),
+    )
+    monkeypatch.setattr(smart_module, "get_universe_status", lambda key: _universe(key=key))
+    monkeypatch.setattr(
+        smart_module,
+        "resolve_universe_price_symbols",
+        lambda **kwargs: [smart_module._SimplePriceSymbol(source_ticker="SPY", yahoo_symbol="SPY")],
+    )
+    monkeypatch.setattr(smart_module, "resolve_universe_tickers", lambda **kwargs: ["SPY"])
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_price_cache_for_ticker",
+        lambda ticker, *, range_key, yahoo_symbol=None: calls.append(f"price:{ticker}:{range_key}") or {
+            "ticker": ticker,
+            "records_seen": 10,
+            "records_written": 10,
+        },
+    )
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_market_breadth",
+        lambda *args, **kwargs: calls.append("breadth") or {"ok": True, "snapshot_date": "2026-06-19"},
+    )
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_relative_strength_ratings",
+        lambda *args, **kwargs: calls.append("rs") or {"ok": True, "rows_written": 1},
+    )
+
+    job = job_repository.create_job(
+        "smart_refresh_market_data",
+        {"mode": "scheduled", "source": "scheduler", "scheduled_window": "afternoon"},
+    )
+    result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
+    updated = job_repository.get_job(job.job_id)
+
+    assert result["ok"] is True
+    assert "price:SPY:6m" in calls
+    assert "price:^GSPC:6m" in calls
+    assert calls[-2:] == ["breadth", "rs"]
+    assert result["results"]["refresh_breadth"]["snapshot_date"] == "2026-06-19"
     assert updated is not None
     assert updated.status == "done"
 

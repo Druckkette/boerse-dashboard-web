@@ -151,6 +151,7 @@ def build_smart_refresh_plan(
     price_range = _normalize_range(payload.get("range") or "6m")
     initial_price_range = _normalize_range(payload.get("initial_range") or payload.get("price_range") or "2y")
     include_position_monitor = bool(payload.get("include_position_monitor", True))
+    force_market_refresh = _scheduled_or_forced(payload)
 
     freshness_by_name = {item.name: item for item in freshness.services}
     price_freshness = freshness_by_name.get("prices")
@@ -161,7 +162,9 @@ def build_smart_refresh_plan(
 
     actions: list[SmartRefreshAction] = []
     universe_needs_refresh = _universe_needs_refresh(universe_status)
-    market_prices_need_refresh = _is_missing(price_freshness) or _is_stale(price_freshness) or universe_needs_refresh
+    market_prices_need_refresh = (
+        force_market_refresh or _is_missing(price_freshness) or _is_stale(price_freshness) or universe_needs_refresh
+    )
     market_prices_were_missing = _is_missing(price_freshness) or universe_needs_refresh
 
     if universe_needs_refresh:
@@ -176,12 +179,17 @@ def build_smart_refresh_plan(
         )
 
     if market_prices_need_refresh:
+        reason = (
+            "Geplanter Smart-Refresh: Kursdaten, Marktbreite und RS werden unabhängig vom Freshness-Fenster aktualisiert."
+            if force_market_refresh
+            else "Globale Kursdaten fehlen oder sind veraltet; Marktbreite und RS brauchen aktuelle Kursdaten."
+        )
         actions.append(
             SmartRefreshAction(
                 key="refresh_market_prices",
                 job_type="refresh_prices",
                 label="Market-Price-Cache aktualisieren",
-                reason="Globale Kursdaten fehlen oder sind veraltet; Marktbreite und RS brauchen aktuelle Kursdaten.",
+                reason=reason,
                 payload={
                     "mode": "smart",
                     "source": "smart_refresh",
@@ -422,6 +430,16 @@ def _universe_needs_refresh(status: UniverseStatusResponse) -> bool:
     if status.updated_at is None:
         return True
     return status.updated_at.astimezone(UTC) < datetime.now(UTC) - timedelta(days=7)
+
+
+def _scheduled_or_forced(payload: dict) -> bool:
+    mode = str(payload.get("mode") or "").strip().lower()
+    if mode == "scheduled":
+        return True
+    value = payload.get("force_market_refresh")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _normalize_range(value: object) -> PriceRange:
