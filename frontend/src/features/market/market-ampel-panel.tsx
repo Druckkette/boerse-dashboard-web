@@ -66,7 +66,9 @@ export function MarketAmpelPanel() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <StatusChip tone={data.hero.tone}>{data.hero.mode}</StatusChip>
               <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
-              <StatusChip tone={toneForBreadth(data.breadth_mode)}>{breadthLabel(data.breadth_mode)}</StatusChip>
+              <StatusChip tone={toneForBreadth(data.breadth_mode)}>
+                EW-Breite: {breadthLabel(data.breadth_mode)}
+              </StatusChip>
               <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
@@ -468,9 +470,9 @@ function DailyChecklist({ data }: { data: MarketAmpel }) {
       detail: `Phase: ${data.phase_info.label}`
     },
     {
-      label: "Marktbreite?",
+      label: "Marktbreite Gleichgewichtete Indizes?",
       passed: data.breadth_mode !== "schutz",
-      detail: `Modus: ${breadthLabel(data.breadth_mode)}`
+      detail: `RSP/QQEW 3-Tage-Modus: ${breadthLabel(data.breadth_mode)}`
     },
     {
       label: "VIX Regime nicht Stress?",

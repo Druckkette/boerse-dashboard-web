@@ -16,9 +16,15 @@ from app.domain.market.ampel import (
 from app.domain.market.constants import (
     DEFAULT_MARKET_UNIVERSE_KEY,
     DEFAULT_MARKET_UNIVERSE_TICKERS,
+    EQUAL_WEIGHT_MARKET_TICKERS,
     MARKET_INDEX_FALLBACK_TICKERS,
     SECTOR_ETFS,
     SECTOR_ETF_TICKERS,
+)
+from app.domain.market.equal_weight_breadth import (
+    EqualWeightBreadthStatus,
+    compute_equal_weight_breadth_status,
+    missing_equal_weight_breadth_status,
 )
 from app.domain.market.regime import STRESS_VOLATILITY_REGIMES, MarketRegimeInput, classify_market_regime
 from app.domain.market.volatility import (
@@ -673,11 +679,13 @@ def refresh_market_breadth(
     rows_written = market_repository.upsert_breadth_daily(writes)
     volatility_points = _cached_volatility_points(limit=180)
     volatility_summary = summarize_volatility_points(volatility_points)
+    equal_weight_breadth = _cached_equal_weight_breadth_status(lookback_days=lookback_days)
     margin_debt_summary = _latest_margin_debt_summary()
     trend_point = _latest_cached_trend_ampel_point(MARKET_TREND_BENCHMARK, lookback_days=lookback_days)
     snapshot = build_market_snapshot(
         computed[-1],
         volatility_summary=volatility_summary,
+        equal_weight_breadth_summary=equal_weight_breadth.to_dict(),
         margin_debt_summary=margin_debt_summary,
         trend_point=trend_point,
         trend_ticker=MARKET_TREND_BENCHMARK,
@@ -696,6 +704,7 @@ def refresh_market_breadth(
         "coverage_ratio": computed[-1].coverage_ratio,
         "phase": snapshot.ampel_phase,
         "trend_phase": trend_point.phase if trend_point else None,
+        "equal_weight_breadth": equal_weight_breadth.to_dict(),
         "volatility_regime": snapshot.volatility_regime,
         "margin_debt": margin_debt_summary,
     }
@@ -958,6 +967,7 @@ def build_market_snapshot(
     point: BreadthComputationPoint,
     volatility_summary: dict | None = None,
     *,
+    equal_weight_breadth_summary: dict | None = None,
     margin_debt_summary: dict | None = None,
     trend_point: TrendAmpelPoint | None = None,
     trend_ticker: str = MARKET_TREND_BENCHMARK,
@@ -982,9 +992,14 @@ def build_market_snapshot(
         )
     )
     trend_ampel = _trend_ampel_metrics(trend_point, ticker=trend_ticker)
+    equal_weight_breadth = _normalize_equal_weight_breadth_summary(equal_weight_breadth_summary)
+    equal_weight_mode = _normalize_breadth_mode(str(equal_weight_breadth.get("mode") or "wachsam"))
+    kpis = [*regime.kpis, _equal_weight_breadth_kpi(equal_weight_breadth)]
     metrics = {
         **regime.metrics,
+        "kpis": kpis,
         "breadth_phase": regime.phase,
+        "equal_weight_breadth": equal_weight_breadth,
         "trend_ampel": trend_ampel,
         "daily_covered_count": point.covered_count,
         "valid_for_50sma": point.valid_for_50sma,
@@ -994,7 +1009,7 @@ def build_market_snapshot(
         metrics["action"] = _combined_market_action(
             trend_phase=trend_point.phase,
             breadth_action=regime.action,
-            breadth_mode=regime.breadth_mode,
+            breadth_mode=equal_weight_mode,
             volatility_regime=volatility_regime,
         )
 
@@ -1002,7 +1017,7 @@ def build_market_snapshot(
         date=point.date,
         ampel_phase=trend_point.phase if trend_point is not None else regime.phase,
         warning_count=regime.warning_count,
-        breadth_mode=regime.breadth_mode,
+        breadth_mode=equal_weight_mode,
         volatility_regime=volatility_regime,
         metrics_json=metrics,
     )
@@ -1021,6 +1036,57 @@ def _cached_volatility_points(*, limit: int = 180):
     start_date = date.today() - timedelta(days=900)
     series = market_repository.load_cached_prices(VOLATILITY_TICKERS, start_date=start_date)
     return compute_volatility_dashboard(series, limit=limit)
+
+
+def _cached_equal_weight_breadth_status(*, lookback_days: int = 520) -> EqualWeightBreadthStatus:
+    start_date = date.today() - timedelta(days=max(420, min(1200, lookback_days + 420)))
+    series = market_repository.load_cached_ohlcv_for_tickers(EQUAL_WEIGHT_MARKET_TICKERS, start_date=start_date)
+    return compute_equal_weight_breadth_status(series, tickers=EQUAL_WEIGHT_MARKET_TICKERS)
+
+
+def _normalize_equal_weight_breadth_summary(summary: dict | None) -> dict:
+    if not isinstance(summary, dict) or not summary:
+        return missing_equal_weight_breadth_status(
+            "Equal-Weight-Breite nicht berechnet. RSP/QQEW über Smart Refresh laden.",
+            tickers=EQUAL_WEIGHT_MARKET_TICKERS,
+        ).to_dict()
+    mode = _normalize_breadth_mode(str(summary.get("mode") or "wachsam"))
+    candidate_mode = _normalize_breadth_mode(str(summary.get("candidate_mode") or mode))
+    normalized = dict(summary)
+    normalized["mode"] = mode
+    normalized["candidate_mode"] = candidate_mode
+    normalized.setdefault("tickers", EQUAL_WEIGHT_MARKET_TICKERS)
+    normalized.setdefault("confirmation_days", 3)
+    normalized.setdefault(
+        "rule",
+        "Status nur für Marktbreite Gleichgewichtete Indizes (RSP, QQEW): "
+        "Rückenwind <= 4% unter 52W-Hoch, Wachsam > 4% bis 8%, Schutz > 8%; "
+        "Aktivierung nach 3 bestätigten Handelstagen.",
+    )
+    return normalized
+
+
+def _equal_weight_breadth_kpi(summary: dict) -> dict:
+    mode = _normalize_breadth_mode(str(summary.get("mode") or "wachsam"))
+    worst_drawdown = _coerce_float(summary.get("worst_drawdown_pct"))
+    confirmation_days = int(summary.get("confirmation_days") or 3)
+    streak = int(summary.get("candidate_streak") or 0)
+    source = str(summary.get("source") or "missing")
+    if worst_drawdown is None:
+        detail = "RSP/QQEW 52W-Abstand fehlt; Smart Refresh/Price Cache prüfen"
+    else:
+        detail = (
+            f"RSP/QQEW: schlechtester Abstand {worst_drawdown:.1f}% unter 52W-Hoch; "
+            f"{streak}/{confirmation_days} Handelstage"
+        )
+    if source in {"missing", "insufficient"}:
+        detail = f"{detail} · {source}"
+    return {
+        "label": "Marktbreite EW-Indizes",
+        "value": _breadth_mode_label(mode),
+        "detail": detail,
+        "tone": _tone_for_breadth_mode(mode),
+    }
 
 
 def _latest_margin_debt_summary() -> dict:
@@ -1254,9 +1320,10 @@ def _build_market_diagnostic_checks(
         ),
         _diagnostic_check(
             "breadth",
-            "Marktbreite?",
+            "Marktbreite Gleichgewichtete Indizes?",
             overview.breadth_mode != "schutz",
-            f"Modus: {overview.breadth_mode.capitalize()} · Coverage {(breadth.coverage_ratio * 100):.0f}%",
+            f"RSP/QQEW 3-Tage-Modus: {_breadth_mode_label(overview.breadth_mode)} · "
+            f"Universe-Coverage {(breadth.coverage_ratio * 100):.0f}%",
         ),
         _diagnostic_check(
             "volatility",
@@ -1584,7 +1651,7 @@ def _legacy_market_action_and_tone(
         elif clean_vol == "stress":
             message = "Volatilität im Stress-Regime. Defensive Haltung - kein Neukauf trotz Ampelphase."
         elif clean_breadth == "schutz":
-            message = "Marktbreite im Schutzmodus. Risiko reduzieren - keine aggressiven Neueinstiege."
+            message = "Gleichgewichtete Indizes RSP/QQEW im Schutzmodus. Risiko reduzieren - keine aggressiven Neueinstiege."
         else:
             message = f"{warning_count} Warnzeichen aktiv. Defensive Haltung - Risiko reduzieren trotz laufender Ampelphase."
         return "Defensiv", "bad", message
@@ -1670,7 +1737,7 @@ def _ampel_phase_info(
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="AUFWÄRTSTREND",
-            reason="Rückenwind aktiv: 21-EMA > 50-SMA > 200-SMA. Fällt 21-EMA unter 50-SMA, geht die Ampel auf Grün zurück.",
+            reason="MA-Bestätigung aktiv: 21-EMA > 50-SMA > 200-SMA. Fällt 21-EMA unter 50-SMA, geht die Ampel auf Grün zurück.",
             action="Offensiv handeln. Viele kleine Positionen und beste Läufer aufstocken.",
             tone="good",
         )
@@ -1755,7 +1822,7 @@ def _ampel_reasons(
         _ampel_reason_line(latest, anchor_date=anchor_date, floor_mark=floor_mark, startschuss_low=startschuss_low),
         f"Aktive Warnzeichen: {warning_count}",
         f"Abstand zur 50-SMA: {_format_optional_pct(latest.dist_50sma_pct)}",
-        f"Equal-Weight-Modus: {breadth_mode.capitalize()}",
+        f"Marktbreite Gleichgewichtete Indizes: {_breadth_mode_label(breadth_mode)}",
         f"VIX-Regime: {vix_regime}",
     ][:4]
 
@@ -1856,9 +1923,9 @@ def _ampel_change_cards(
         )
     cards.append(
         MarketAmpelChangeCard(
-            title="Breite",
-            value=breadth_mode.capitalize(),
-            detail="Equal-Weight als Bestätigung des Indextrends",
+            title="EW-Breite",
+            value=_breadth_mode_label(breadth_mode),
+            detail="RSP/QQEW gegen 52W-Hoch, 3 Handelstage bestätigt",
             tone=_tone_for_breadth_mode(breadth_mode),
         )
     )
@@ -2229,6 +2296,14 @@ def _tone_for_breadth_mode(mode: str) -> str:
     return "bad"
 
 
+def _breadth_mode_label(mode: str) -> str:
+    return {
+        "rueckenwind": "Rückenwind",
+        "wachsam": "Wachsam",
+        "schutz": "Schutz",
+    }.get(str(mode or "").lower(), "Wachsam")
+
+
 def _tone_for_vix_regime(regime: str) -> str:
     if regime == "Stress":
         return "bad"
@@ -2243,6 +2318,13 @@ def _format_number(value: float | None, *, digits: int = 2) -> str:
     if value is None:
         return "-"
     return f"{value:,.{digits}f}"
+
+
+def _coerce_float(value: object) -> float | None:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def _format_date_de(value: str) -> str:
@@ -2282,7 +2364,7 @@ def _action_for_phase(phase: str) -> str:
     if phase == "rot":
         return "Defensiv bleiben, neue Käufe stark filtern und Risiko reduzieren."
     if phase == "gelb":
-        return "Wachsam bleiben, Positionsgrößen kontrollieren und Breakouts nur selektiv handeln."
+        return "Selektiv bleiben, Positionsgrößen kontrollieren und Breakouts nur mit klarer Bestätigung handeln."
     if phase == "gruen":
         return "Konstruktiv bleiben, Qualitäts-Setups bevorzugen und Stops diszipliniert nachziehen."
     return "Marktdaten prüfen und keine großen Risikoänderungen ohne frische Breitenwerte vornehmen."
@@ -2349,7 +2431,7 @@ def _combined_market_action(
     if volatility_regime == "Risk Off bestätigt":
         return f"Trend-Ampel {_phase_label(trend_phase)}; Volatilität bestätigt Stress. Risiko nicht erhöhen."
     if breadth_mode == "schutz":
-        return f"Trend-Ampel {_phase_label(trend_phase)}; Marktbreite im Schutzmodus. {breadth_action}"
+        return f"Trend-Ampel {_phase_label(trend_phase)}; Gleichgewichtete Indizes RSP/QQEW im Schutzmodus. {breadth_action}"
     return f"Trend-Ampel {_phase_label(trend_phase)}. {breadth_action}"
 
 

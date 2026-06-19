@@ -6,6 +6,7 @@ import pytest
 from app.data_sources.finra_margin import latest_margin_debt_from_frame
 from app.domain.market.ampel import TrendAmpelBar, TrendAmpelPoint, compute_trend_ampel
 from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS
+from app.domain.market.equal_weight_breadth import compute_equal_weight_breadth_status
 from app.domain.market.margin_debt import evaluate_margin_debt
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
@@ -120,7 +121,13 @@ def test_market_snapshot_classifies_constructive_breadth() -> None:
     }
 
     latest = compute_breadth_series(series, universe="test_universe", universe_size=3)[-1]
-    snapshot = build_market_snapshot(latest)
+    equal_weight_status = compute_equal_weight_breadth_status(
+        {
+            "RSP": _ohlcv_series("RSP", start, [100.0] * 252 + [97.0, 97.0, 97.0]),
+            "QQEW": _ohlcv_series("QQEW", start, [100.0] * 252 + [97.0, 97.0, 97.0]),
+        }
+    )
+    snapshot = build_market_snapshot(latest, equal_weight_breadth_summary=equal_weight_status.to_dict())
 
     assert snapshot.ampel_phase == "gruen"
     assert snapshot.breadth_mode == "rueckenwind"
@@ -128,6 +135,49 @@ def test_market_snapshot_classifies_constructive_breadth() -> None:
     assert snapshot.metrics_json["coverage_ratio"] == pytest.approx(1.0)
     assert snapshot.metrics_json["kpis"][0]["label"] == "Aktien > 50-SMA"
     assert snapshot.metrics_json["kpis"][0]["detail"] == "Anteil Universe, nicht SPY-Abstand"
+    assert snapshot.metrics_json["kpis"][-1]["label"] == "Marktbreite EW-Indizes"
+    assert snapshot.metrics_json["equal_weight_breadth"]["tickers"] == ["RSP", "QQEW"]
+
+
+def test_equal_weight_breadth_requires_three_confirmed_trading_days() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "RSP": _ohlcv_series("RSP", start, [100.0] * 260 + [90.0, 90.0]),
+        "QQEW": _ohlcv_series("QQEW", start, [100.0] * 260 + [90.0, 90.0]),
+    }
+
+    status = compute_equal_weight_breadth_status(series)
+
+    assert status.mode == "rueckenwind"
+    assert status.candidate_mode == "schutz"
+    assert status.candidate_streak == 2
+
+
+def test_equal_weight_breadth_switches_after_three_confirmed_trading_days() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "RSP": _ohlcv_series("RSP", start, [100.0] * 260 + [90.0, 90.0, 90.0]),
+        "QQEW": _ohlcv_series("QQEW", start, [100.0] * 260 + [90.0, 90.0, 90.0]),
+    }
+
+    status = compute_equal_weight_breadth_status(series)
+
+    assert status.mode == "schutz"
+    assert status.candidate_mode == "schutz"
+    assert status.candidate_streak == 3
+
+
+def test_equal_weight_breadth_classifies_watchful_range() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "RSP": _ohlcv_series("RSP", start, [100.0] * 252 + [95.0, 95.0, 95.0]),
+        "QQEW": _ohlcv_series("QQEW", start, [100.0] * 252 + [94.0, 94.0, 94.0]),
+    }
+
+    status = compute_equal_weight_breadth_status(series)
+
+    assert status.mode == "wachsam"
+    assert status.worst_drawdown_pct == pytest.approx(6.47)
 
 
 def test_volatility_dashboard_detects_confirmed_risk_off() -> None:

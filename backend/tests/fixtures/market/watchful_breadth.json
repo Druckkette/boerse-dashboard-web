@@ -25,7 +25,7 @@
     "phase": "gelb",
     "breadth_mode": "wachsam",
     "warning_count": 0,
-    "action_contains": "Wachsam",
+    "action_contains": "Selektiv",
     "kpi_labels": ["Aktien > 50-SMA", "Aktien > 200-SMA", "McClellan", "Coverage", "Vol Regime"]
   }
 }

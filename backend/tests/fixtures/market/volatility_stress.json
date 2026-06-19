@@ -31,7 +31,7 @@
   },
   "expected": {
     "phase": "gruen",
-    "breadth_mode": "rueckenwind",
+    "breadth_mode": "wachsam",
     "warning_count": 1,
     "action_contains": "Volatilität bestätigt Stress",
     "kpi_labels": ["Aktien > 50-SMA", "Aktien > 200-SMA", "McClellan", "Coverage", "Vol Regime"]

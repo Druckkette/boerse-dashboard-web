@@ -45,12 +45,15 @@ def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResul
     pct_200 = regime_input.pct_above_200sma or 0
     volatility_regime = regime_input.volatility_regime or "Nicht berechnet"
     warning_count = _count_warnings(regime_input, volatility_regime=volatility_regime)
-    phase, breadth_mode = _phase_and_breadth_mode(
+    phase = _phase_from_warnings(
         pct_above_50sma=pct_50,
         pct_above_200sma=pct_200,
         warning_count=warning_count,
     )
-    action = _action_for_market_state(phase, breadth_mode, volatility_regime, warning_count)
+    # Kept for the existing API field. The real public breadth_mode is filled
+    # from RSP/QQEW in app.services.market.build_market_snapshot.
+    breadth_mode: BreadthMode = "wachsam"
+    action = _action_for_market_state(phase, volatility_regime, warning_count)
     kpis = [
         _kpi_dict(
             "Aktien > 50-SMA",
@@ -133,22 +136,21 @@ def _count_warnings(regime_input: MarketRegimeInput, *, volatility_regime: str) 
     return warning_count
 
 
-def _phase_and_breadth_mode(
+def _phase_from_warnings(
     *,
     pct_above_50sma: float,
     pct_above_200sma: float,
     warning_count: int,
-) -> tuple[MarketPhase, BreadthMode]:
+) -> MarketPhase:
     if warning_count >= 4 or (pct_above_50sma < 40 and pct_above_200sma < 40):
-        return "rot", "schutz"
+        return "rot"
     if warning_count >= 2 or pct_above_50sma < 50:
-        return "gelb", "wachsam"
-    return "gruen", "rueckenwind"
+        return "gelb"
+    return "gruen"
 
 
 def _action_for_market_state(
     phase: str,
-    breadth_mode: str,
     volatility_regime: str,
     warning_count: int,
 ) -> str:
@@ -156,12 +158,10 @@ def _action_for_market_state(
         return "Defensiv bleiben, neue Käufe stark filtern und bestehende Risiken kritisch prüfen."
     if volatility_regime == "Risk Off bestätigt":
         return "Volatilität bestätigt Stress. Risiko reduzieren und keine aggressiven Neueinstiege."
-    if breadth_mode == "schutz":
-        return "Marktbreite im Schutzmodus. Positionsgrößen klein halten und Cash optional erhöhen."
     if warning_count >= 4:
         return f"{warning_count} Warnzeichen aktiv. Defensive Haltung trotz laufender Ampelphase."
     if phase == "gelb":
-        return "Wachsam bleiben, Positionsgrößen kontrollieren und Breakouts nur selektiv handeln."
+        return "Selektiv bleiben, Positionsgrößen kontrollieren und Breakouts nur mit klarer Bestätigung handeln."
     if phase == "aufwaertstrend":
         return "MA-Ordnung bestätigt. Führende Aktien beobachten und Risiko schrittweise erhöhen."
     if phase == "gruen":

@@ -23,7 +23,7 @@
   },
   "expected": {
     "phase": "gruen",
-    "breadth_mode": "rueckenwind",
+    "breadth_mode": "wachsam",
     "warning_count": 0,
     "action_contains": "Konstruktiv",
     "kpi_labels": ["Aktien > 50-SMA", "Aktien > 200-SMA", "McClellan", "Coverage", "Vol Regime"]

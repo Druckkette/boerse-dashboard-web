@@ -30,7 +30,9 @@ export function MarketOverviewPanel() {
                   {data.trend_ampel.ticker} {data.trend_ampel.phase_label}
                 </StatusChip>
               )}
-              <StatusChip tone={toneForBreadthMode(data.breadth_mode)}>{data.breadth_mode}</StatusChip>
+              <StatusChip tone={toneForBreadthMode(data.breadth_mode)}>
+                EW-Breite: {breadthLabel(data.breadth_mode)}
+              </StatusChip>
               <StatusChip tone="neutral">{data.volatility_regime}</StatusChip>
               <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
@@ -98,6 +100,12 @@ function toneForBreadthMode(mode: string) {
   if (mode === "rueckenwind") return "good";
   if (mode === "wachsam") return "warning";
   return "bad";
+}
+
+function breadthLabel(mode: string) {
+  if (mode === "rueckenwind") return "Rückenwind";
+  if (mode === "wachsam") return "Wachsam";
+  return "Schutz";
 }
 
 function formatNumber(value?: number | null) {

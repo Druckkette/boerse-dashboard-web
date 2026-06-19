@@ -23,7 +23,7 @@
   },
   "expected": {
     "phase": "rot",
-    "breadth_mode": "schutz",
+    "breadth_mode": "wachsam",
     "warning_count": 5,
     "action_contains": "Defensiv",
     "kpi_labels": ["Aktien > 50-SMA", "Aktien > 200-SMA", "McClellan", "Coverage", "Vol Regime"]
