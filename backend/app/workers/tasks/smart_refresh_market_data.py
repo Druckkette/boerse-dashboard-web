@@ -15,6 +15,7 @@ from app.domain.sell.service import monitor_open_positions
 from app.repositories import jobs as job_repository
 from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFreshness, UniverseStatusResponse
 from app.services.freshness import get_freshness
+from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.market import refresh_market_breadth
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
 from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
@@ -27,6 +28,7 @@ from app.services.universes import (
 )
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
+from app.workers.tasks.refresh_fundamentals import resolve_fundamental_tickers
 
 
 @dataclass(frozen=True)
@@ -151,19 +153,28 @@ def build_smart_refresh_plan(
     price_range = _normalize_range(payload.get("range") or "6m")
     initial_price_range = _normalize_range(payload.get("initial_range") or payload.get("price_range") or "2y")
     include_position_monitor = bool(payload.get("include_position_monitor", True))
+    include_fundamentals = bool(payload.get("include_fundamentals", True))
+    fundamental_limit = _normalize_fundamental_limit(payload.get("fundamental_limit") or 80)
     force_market_refresh = _scheduled_or_forced(payload)
 
     freshness_by_name = {item.name: item for item in freshness.services}
     price_freshness = freshness_by_name.get("prices")
+    trend_benchmark_freshness = freshness_by_name.get("trend_benchmark")
     breadth_freshness = freshness_by_name.get("market_breadth")
     rs_freshness = freshness_by_name.get("relative_strength")
     sell_ranking_freshness = freshness_by_name.get("sell_ranking")
+    fundamentals_freshness = freshness_by_name.get("fundamentals_tracked")
     issue_by_key = {issue.key: issue for issue in diagnostics.issues}
 
     actions: list[SmartRefreshAction] = []
     universe_needs_refresh = _universe_needs_refresh(universe_status)
     market_prices_need_refresh = (
-        force_market_refresh or _is_missing(price_freshness) or _is_stale(price_freshness) or universe_needs_refresh
+        force_market_refresh
+        or _is_missing(price_freshness)
+        or _is_stale(price_freshness)
+        or _is_missing(trend_benchmark_freshness)
+        or _is_stale(trend_benchmark_freshness)
+        or universe_needs_refresh
     )
     market_prices_were_missing = _is_missing(price_freshness) or universe_needs_refresh
 
@@ -182,7 +193,7 @@ def build_smart_refresh_plan(
         reason = (
             "Geplanter Smart-Refresh: Kursdaten, Marktbreite und RS werden unabhängig vom Freshness-Fenster aktualisiert."
             if force_market_refresh
-            else "Globale Kursdaten fehlen oder sind veraltet; Marktbreite und RS brauchen aktuelle Kursdaten."
+            else "Globale Kursdaten oder der Trend-Ampel-Benchmark fehlen oder sind veraltet; Marktbreite und RS brauchen aktuelle Kursdaten."
         )
         actions.append(
             SmartRefreshAction(
@@ -270,6 +281,25 @@ def build_smart_refresh_plan(
             )
         )
 
+    if include_fundamentals and (
+        force_market_refresh or _is_missing(fundamentals_freshness) or _is_stale(fundamentals_freshness)
+    ):
+        actions.append(
+            SmartRefreshAction(
+                key="refresh_fundamentals",
+                job_type="refresh_fundamentals",
+                label="Fundamentals aktualisieren",
+                reason="Fundamental-Cache für offene Positionen, Watchlist und zuletzt geöffnete Aktien fehlt oder ist veraltet.",
+                payload={
+                    "mode": "tracked",
+                    "source": "smart_refresh",
+                    "fundamental_universe": "tracked",
+                    "fundamental_limit": fundamental_limit,
+                    "include_holders": True,
+                },
+            )
+        )
+
     prices_refreshed = any(action.job_type == "refresh_prices" for action in actions)
     if include_position_monitor and diagnostics.open_positions_count > 0:
         if prices_refreshed or _is_missing(sell_ranking_freshness) or _is_stale(sell_ranking_freshness):
@@ -325,6 +355,8 @@ def _run_action(
         )
     if action.job_type == "position_atr_monitor":
         return monitor_open_positions(tickers=None)
+    if action.job_type == "refresh_fundamentals":
+        return _refresh_fundamentals(job_id, action.payload, result=result, action_index=action_index, total_actions=total_actions)
     raise ValueError(f"Unsupported smart refresh action: {action.job_type}")
 
 
@@ -406,6 +438,65 @@ def _merge_price_symbols(symbols: list[Any], *, benchmark_ticker: str) -> list[A
     return list(by_ticker.values())
 
 
+def _refresh_fundamentals(
+    job_id: str,
+    payload: dict[str, Any],
+    *,
+    result: dict[str, Any],
+    action_index: int,
+    total_actions: int,
+) -> dict[str, Any]:
+    tickers = resolve_fundamental_tickers(payload)
+    include_holders = bool(payload.get("include_holders", True))
+    fundamental_result: dict[str, Any] = {
+        "ok": False,
+        "job_type": "refresh_fundamentals",
+        "tickers": tickers,
+        "ticker_count": len(tickers),
+        "include_holders": include_holders,
+        "success_count": 0,
+        "failure_count": 0,
+        "failed_tickers": [],
+        "records_seen": 0,
+        "records_written": 0,
+    }
+    total_tickers = max(1, len(tickers))
+    base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
+    next_progress = 8 + int(action_index / max(1, total_actions) * 82)
+    for index, ticker in enumerate(tickers, start=1):
+        raise_if_cancelled(job_id)
+        progress = min(92, base_progress + int(index / total_tickers * max(1, next_progress - base_progress)))
+        job_repository.update_progress(
+            job_id,
+            progress=progress,
+            step=f"Fundamentals {index}/{total_tickers}",
+            message=f"{ticker}: yfinance/FMP/SEC Fundamental-Cache aktualisieren.",
+            result={**result, "current_fundamental_refresh": fundamental_result},
+        )
+        try:
+            item = refresh_fundamentals_for_ticker(ticker, include_holders=include_holders)
+        except Exception as exc:
+            fundamental_result["failure_count"] += 1
+            if len(fundamental_result["failed_tickers"]) < 80:
+                fundamental_result["failed_tickers"].append(
+                    {"ticker": ticker, "error_message": f"{type(exc).__name__}: {exc}"}
+                )
+            continue
+        fundamental_result["success_count"] += 1
+        fundamental_result["records_seen"] += int(item.get("records_seen") or 0)
+        fundamental_result["records_written"] += int(item.get("records_written") or 0)
+
+    fundamental_result["ok"] = fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] == 0
+    fundamental_result["partial"] = fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] > 0
+    if tickers and fundamental_result["success_count"] == 0:
+        raise RuntimeError("Smart Refresh konnte keine Fundamentals aktualisieren.")
+    if not tickers:
+        fundamental_result["ok"] = True
+        fundamental_result["skipped"] = True
+        fundamental_result["reason"] = "Keine getrackten Ticker für Fundamental-Refresh."
+    return fundamental_result
+
+
 @dataclass(frozen=True)
 class _SimplePriceSymbol:
     source_ticker: str
@@ -454,6 +545,13 @@ def _normalize_limit(value: object) -> int:
         return max(350, min(5000, int(value)))
     except (TypeError, ValueError):
         return 5000
+
+
+def _normalize_fundamental_limit(value: object) -> int:
+    try:
+        return max(1, min(500, int(value)))
+    except (TypeError, ValueError):
+        return 80
 
 
 def _normalize_days(value: object) -> int:

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CalendarClock, Database, Save } from "lucide-react";
+import { useMemo } from "react";
+import type { ReactNode } from "react";
+import { BarChart3, CalendarClock, Database, RefreshCw, TrendingUp } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -11,41 +12,12 @@ import type {
   StockFundamentalsEpsQuarter,
   StockFundamentalsItem,
   StockFundamentalsRevenueQuarter,
-  StockFundamentalsUpdate,
   Tone
 } from "@/lib/types/api";
-
-type FundamentalsForm = Required<Omit<StockFundamentalsUpdate, "source">> & {
-  source: string;
-};
-
-const emptyForm: FundamentalsForm = {
-  as_of: "",
-  source: "manual",
-  fiscal_period: "",
-  quarterly_eps_growth_pct: null,
-  annual_eps_growth_pct: null,
-  quarterly_revenue_growth_pct: null,
-  annual_revenue_growth_pct: null,
-  roe_pct: null,
-  profit_margin_pct: null,
-  trailing_eps: null,
-  quarterly_eps_accelerating: null,
-  quarterly_revenue_accelerating: null,
-  institutional_holders: null,
-  institutional_ownership_pct: null,
-  next_earnings_date: null,
-  beta: null,
-  eps_quarter_history: [],
-  annual_eps_history: [],
-  revenue_quarter_history: [],
-  annual_revenue_history: []
-};
 
 export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
   const clean = ticker.toUpperCase();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<FundamentalsForm | null>(null);
 
   const query = useQuery({
     queryKey: ["stock-fundamentals", clean],
@@ -53,78 +25,29 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
     staleTime: 60_000
   });
 
-  const serverForm = useMemo(() => fromItem(query.data?.item, clean), [clean, query.data?.item]);
-  const form = draft ?? serverForm;
-  const dirty = draft !== null;
+  const item = query.data?.item ?? null;
+  const scorePreview = useMemo(() => previewFundamentalScore(item), [item]);
+  const earningsTone = useMemo(() => toneForEarnings(item?.next_earnings_date), [item?.next_earnings_date]);
 
-  const scorePreview = useMemo(() => previewFundamentalScore(form), [form]);
-  const earningsTone = useMemo(() => toneForEarnings(form.next_earnings_date), [form.next_earnings_date]);
-
-  const mutation = useMutation({
-    mutationFn: () => api.updateStockFundamentals(clean, toPayload(form)),
+  const refreshMutation = useMutation({
+    mutationFn: () =>
+      api.startJob({
+        type: "refresh_fundamentals",
+        payload: {
+          tickers: [clean],
+          include_holders: true,
+          source: "stock_detail"
+        }
+      }),
     onSuccess: () => {
-      setDraft(null);
-      void queryClient.invalidateQueries({ queryKey: ["stock-fundamentals", clean] });
-      void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
-      void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ["stock-fundamentals", clean] });
+        void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
+        void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
+      }, 1200);
     }
   });
-
-  const setField = <K extends keyof FundamentalsForm>(key: K, value: FundamentalsForm[K]) => {
-    setDraft((current) => ({ ...(current ?? serverForm), [key]: value }));
-  };
-  const setEpsHistoryField = <K extends keyof StockFundamentalsEpsQuarter>(
-    index: number,
-    key: K,
-    value: StockFundamentalsEpsQuarter[K]
-  ) => {
-    setDraft((current) => {
-      const base = current ?? serverForm;
-      const nextHistory = padEpsHistory(base.eps_quarter_history).map((item, itemIndex) =>
-        itemIndex === index ? { ...item, [key]: value } : item
-      );
-      return { ...base, eps_quarter_history: nextHistory };
-    });
-  };
-  const setAnnualEpsHistoryField = <K extends keyof StockFundamentalsAnnualEps>(
-    index: number,
-    key: K,
-    value: StockFundamentalsAnnualEps[K]
-  ) => {
-    setDraft((current) => {
-      const base = current ?? serverForm;
-      const nextHistory = padAnnualEpsHistory(base.annual_eps_history).map((item, itemIndex) =>
-        itemIndex === index ? { ...item, [key]: value } : item
-      );
-      return { ...base, annual_eps_history: nextHistory };
-    });
-  };
-  const setRevenueHistoryField = <K extends keyof StockFundamentalsRevenueQuarter>(
-    index: number,
-    key: K,
-    value: StockFundamentalsRevenueQuarter[K]
-  ) => {
-    setDraft((current) => {
-      const base = current ?? serverForm;
-      const nextHistory = padRevenueHistory(base.revenue_quarter_history).map((item, itemIndex) =>
-        itemIndex === index ? { ...item, [key]: value } : item
-      );
-      return { ...base, revenue_quarter_history: nextHistory };
-    });
-  };
-  const setAnnualRevenueHistoryField = <K extends keyof StockFundamentalsAnnualRevenue>(
-    index: number,
-    key: K,
-    value: StockFundamentalsAnnualRevenue[K]
-  ) => {
-    setDraft((current) => {
-      const base = current ?? serverForm;
-      const nextHistory = padAnnualRevenueHistory(base.annual_revenue_history).map((item, itemIndex) =>
-        itemIndex === index ? { ...item, [key]: value } : item
-      );
-      return { ...base, annual_revenue_history: nextHistory };
-    });
-  };
 
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -135,17 +58,23 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
             <h2 className="text-lg font-semibold">Fundamental-Cache</h2>
           </div>
           <p className="mt-1 text-sm text-[#a0a7b4]">
-            {query.data?.item
-              ? `Stand ${query.data.item.as_of} · ${query.data.item.source}`
+            {item
+              ? `Stand ${item.as_of || "unbekannt"} · ${item.source || "Quelle unbekannt"}`
               : "Noch kein gespeicherter Fundamentals-Datensatz."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={query.data?.item ? "good" : "warning"}>
-            {query.data?.item ? "gespeichert" : "leer"}
-          </StatusChip>
+          <StatusChip tone={item ? "good" : "warning"}>{item ? "gespeichert" : "leer"}</StatusChip>
           <StatusChip tone={toneForScore(scorePreview)}>{Math.round(scorePreview)}/100</StatusChip>
-          {dirty && <StatusChip tone="warning">ungespeichert</StatusChip>}
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={refreshMutation.isPending}
+            onClick={() => refreshMutation.mutate()}
+            type="button"
+          >
+            <RefreshCw className={`size-4 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+            {refreshMutation.isPending ? "Job startet" : "Fundamentals aktualisieren"}
+          </button>
         </div>
       </div>
 
@@ -154,417 +83,321 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
           Fundamentals konnten nicht geladen werden.
         </div>
       )}
-
-      <div className="grid gap-3 xl:grid-cols-4">
-        <TextField label="Quelle" value={form.source} onChange={(value) => setField("source", value)} />
-        <TextField label="Stichtag" type="date" value={form.as_of ?? ""} onChange={(value) => setField("as_of", value)} />
-        <TextField
-          label="Geschäftsperiode"
-          value={form.fiscal_period ?? ""}
-          onChange={(value) => setField("fiscal_period", value)}
-          placeholder="Q1 2026"
-        />
-        <TextField
-          label="Nächste Earnings"
-          type="date"
-          value={form.next_earnings_date ?? ""}
-          onChange={(value) => setField("next_earnings_date", value || null)}
-          tone={earningsTone}
-        />
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <NumberField label="EPS YoY Q Kurzfeld" suffix="%" value={form.quarterly_eps_growth_pct} onChange={(value) => setField("quarterly_eps_growth_pct", value)} />
-        <NumberField label="EPS YoY Jahr Kurzfeld" suffix="%" value={form.annual_eps_growth_pct} onChange={(value) => setField("annual_eps_growth_pct", value)} />
-        <BooleanField label="EPS beschleunigt Bonus" value={form.quarterly_eps_accelerating} onChange={(value) => setField("quarterly_eps_accelerating", value)} />
-        <NumberField label="Summe EPS 4Q" prefix="$" value={form.trailing_eps} onChange={(value) => setField("trailing_eps", value)} />
-      </div>
-
-      <div className="mt-3 rounded border border-[#242a33] bg-[#111419] p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">EPS-Historie letzte 3 Jahre</h3>
-            <p className="mt-1 text-xs leading-5 text-[#7f8794]">
-              Das jährliche EPS-Kriterium besteht nur, wenn jedes der drei Jahre mindestens +20% YoY liefert.
-            </p>
-          </div>
-          <StatusChip tone={annualEpsHistoryTone(form.annual_eps_history)}>{annualEpsHistorySummary(form.annual_eps_history)}</StatusChip>
-        </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          {padAnnualEpsHistory(form.annual_eps_history).map((item, index) => (
-            <div key={index} className="rounded border border-[#2d333d] bg-[#171a20] p-3">
-              <TextField
-                label={`Jahr ${index + 1}`}
-                value={item.fiscal_year}
-                onChange={(value) => setAnnualEpsHistoryField(index, "fiscal_year", value)}
-                placeholder={`${new Date().getFullYear() - index - 1}`}
-              />
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-                <NumberField
-                  label="EPS Jahr"
-                  value={item.eps_current_year}
-                  onChange={(value) => setAnnualEpsHistoryField(index, "eps_current_year", value)}
-                />
-                <NumberField
-                  label="EPS Vorjahr"
-                  value={item.eps_previous_year}
-                  onChange={(value) => setAnnualEpsHistoryField(index, "eps_previous_year", value)}
-                />
-              </div>
-              <div className="mt-3 text-xs text-[#a0a7b4]">
-                YoY: <span className={epsGrowthClass(computeAnnualEpsGrowth(item))}>{formatSignedPct(computeAnnualEpsGrowth(item))}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-3 rounded border border-[#242a33] bg-[#111419] p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">EPS-Historie letzte 3 Quartale</h3>
-            <p className="mt-1 text-xs leading-5 text-[#7f8794]">
-              Das EPS-Kriterium besteht nur, wenn alle drei Quartale jeweils mindestens +20% YoY liefern.
-            </p>
-          </div>
-          <StatusChip tone={epsHistoryTone(form.eps_quarter_history)}>{epsHistorySummary(form.eps_quarter_history)}</StatusChip>
-        </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          {padEpsHistory(form.eps_quarter_history).map((item, index) => (
-            <div key={index} className="rounded border border-[#2d333d] bg-[#171a20] p-3">
-              <TextField
-                label={`Quartal ${index + 1}`}
-                value={item.fiscal_period}
-                onChange={(value) => setEpsHistoryField(index, "fiscal_period", value)}
-                placeholder={`Q${index + 1} 2026`}
-              />
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-                <NumberField
-                  label="EPS aktuell"
-                  value={item.eps_current_quarter}
-                  onChange={(value) => setEpsHistoryField(index, "eps_current_quarter", value)}
-                />
-                <NumberField
-                  label="EPS Vorjahr"
-                  value={item.eps_same_quarter_last_year}
-                  onChange={(value) => setEpsHistoryField(index, "eps_same_quarter_last_year", value)}
-                />
-              </div>
-              <div className="mt-3 text-xs text-[#a0a7b4]">
-                YoY: <span className={epsGrowthClass(computeEpsGrowth(item))}>{formatSignedPct(computeEpsGrowth(item))}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <NumberField label="Umsatz YoY Q Kurzfeld" suffix="%" value={form.quarterly_revenue_growth_pct} onChange={(value) => setField("quarterly_revenue_growth_pct", value)} />
-        <NumberField label="Umsatz YoY Jahr Kurzfeld" suffix="%" value={form.annual_revenue_growth_pct} onChange={(value) => setField("annual_revenue_growth_pct", value)} />
-        <BooleanField label="Umsatz beschleunigt Bonus" value={form.quarterly_revenue_accelerating} onChange={(value) => setField("quarterly_revenue_accelerating", value)} />
-        <NumberField label="ROE" suffix="%" value={form.roe_pct} onChange={(value) => setField("roe_pct", value)} />
-      </div>
-
-      <div className="mt-3 rounded border border-[#242a33] bg-[#111419] p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Umsatz-Historie letzte 3 Jahre</h3>
-            <p className="mt-1 text-xs leading-5 text-[#7f8794]">
-              Das jährliche Umsatzkriterium besteht nur, wenn jedes der drei Jahre mindestens +20% YoY liefert.
-            </p>
-          </div>
-          <StatusChip tone={annualRevenueHistoryTone(form.annual_revenue_history)}>{annualRevenueHistorySummary(form.annual_revenue_history)}</StatusChip>
-        </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          {padAnnualRevenueHistory(form.annual_revenue_history).map((item, index) => (
-            <div key={index} className="rounded border border-[#2d333d] bg-[#171a20] p-3">
-              <TextField
-                label={`Jahr ${index + 1}`}
-                value={item.fiscal_year}
-                onChange={(value) => setAnnualRevenueHistoryField(index, "fiscal_year", value)}
-                placeholder={`${new Date().getFullYear() - index - 1}`}
-              />
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-                <NumberField
-                  label="Umsatz Jahr"
-                  value={item.revenue_current_year}
-                  onChange={(value) => setAnnualRevenueHistoryField(index, "revenue_current_year", value)}
-                />
-                <NumberField
-                  label="Umsatz Vorjahr"
-                  value={item.revenue_previous_year}
-                  onChange={(value) => setAnnualRevenueHistoryField(index, "revenue_previous_year", value)}
-                />
-              </div>
-              <div className="mt-3 text-xs text-[#a0a7b4]">
-                YoY: <span className={epsGrowthClass(computeAnnualRevenueGrowth(item))}>{formatSignedPct(computeAnnualRevenueGrowth(item))}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-3 rounded border border-[#242a33] bg-[#111419] p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Umsatz-Historie letzte 3 Quartale</h3>
-            <p className="mt-1 text-xs leading-5 text-[#7f8794]">
-              Das Umsatzkriterium besteht nur, wenn alle drei Quartale jeweils mindestens +20% YoY liefern.
-            </p>
-          </div>
-          <StatusChip tone={revenueHistoryTone(form.revenue_quarter_history)}>{revenueHistorySummary(form.revenue_quarter_history)}</StatusChip>
-        </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          {padRevenueHistory(form.revenue_quarter_history).map((item, index) => (
-            <div key={index} className="rounded border border-[#2d333d] bg-[#171a20] p-3">
-              <TextField
-                label={`Quartal ${index + 1}`}
-                value={item.fiscal_period}
-                onChange={(value) => setRevenueHistoryField(index, "fiscal_period", value)}
-                placeholder={`Q${index + 1} 2026`}
-              />
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-                <NumberField
-                  label="Umsatz aktuell"
-                  value={item.revenue_current_quarter}
-                  onChange={(value) => setRevenueHistoryField(index, "revenue_current_quarter", value)}
-                />
-                <NumberField
-                  label="Umsatz Vorjahr"
-                  value={item.revenue_same_quarter_last_year}
-                  onChange={(value) => setRevenueHistoryField(index, "revenue_same_quarter_last_year", value)}
-                />
-              </div>
-              <div className="mt-3 text-xs text-[#a0a7b4]">
-                YoY: <span className={epsGrowthClass(computeRevenueGrowth(item))}>{formatSignedPct(computeRevenueGrowth(item))}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <NumberField label="Gewinnmarge" suffix="%" value={form.profit_margin_pct} onChange={(value) => setField("profit_margin_pct", value)} />
-        <NumberField label="Institutionen" value={form.institutional_holders} onChange={(value) => setField("institutional_holders", value)} integer />
-        <NumberField label="Inst. gehalten" suffix="%" value={form.institutional_ownership_pct} onChange={(value) => setField("institutional_ownership_pct", value)} />
-        <NumberField label="Beta" value={form.beta} onChange={(value) => setField("beta", value)} />
-      </div>
-
-      <div className="mt-5 flex flex-col gap-3 border-t border-[#242a33] pt-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2 text-sm text-[#a0a7b4]">
-          <CalendarClock className="size-4" />
-          <span>{earningsHint(form.next_earnings_date)}</span>
-        </div>
-        <button
-          className="inline-flex h-10 items-center justify-center gap-2 rounded border border-emerald-300/30 bg-emerald-400/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={mutation.isPending}
-          onClick={() => mutation.mutate()}
-          type="button"
-        >
-          <Save className="size-4" />
-          {mutation.isPending ? "Speichert" : "Speichern"}
-        </button>
-      </div>
-
-      {mutation.isError && (
-        <div className="mt-3 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
-          Speichern fehlgeschlagen. Prüfe Backend und Datenbankverbindung.
+      {refreshMutation.isError && (
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+          Fundamental-Refresh konnte nicht gestartet werden. Prüfe Backend, Worker und Job-Seite.
         </div>
       )}
-      {mutation.isSuccess && !dirty && (
-        <div className="mt-3 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100">
-          Fundamentals gespeichert. Assessment und Ranking werden aktualisiert.
+      {refreshMutation.isSuccess && (
+        <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100">
+          Fundamental-Refresh wurde als Worker-Job gestartet. Die Detaildaten aktualisieren sich nach Abschluss.
+        </div>
+      )}
+
+      {!item && !query.isLoading ? (
+        <EmptyFundamentals ticker={clean} />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricTile label="Stichtag" value={item?.as_of || "n/a"} detail={item?.fiscal_period || "Keine Periode"} />
+            <MetricTile label="ROE" value={formatPct(item?.roe_pct)} detail="Zielbereich ab 17%" tone={thresholdTone(item?.roe_pct, 17)} />
+            <MetricTile label="Gewinnmarge" value={formatPct(item?.profit_margin_pct)} detail="Positiv ist Pflicht" tone={thresholdTone(item?.profit_margin_pct, 0, true)} />
+            <MetricTile label="Summe EPS 4Q" value={formatNumber(item?.trailing_eps)} detail="Muss über 0 liegen" tone={(item?.trailing_eps ?? -Infinity) > 0 ? "good" : "warning"} />
+            <MetricTile label="Institutionen" value={formatInteger(item?.institutional_holders)} detail={formatPct(item?.institutional_ownership_pct, "gehalten")} />
+            <MetricTile label="Beta" value={formatNumber(item?.beta)} detail="Risikokontext" />
+            <MetricTile label="Nächste Earnings" value={item?.next_earnings_date || "n/a"} detail={earningsHint(item?.next_earnings_date)} tone={earningsTone} />
+            <MetricTile label="Kurzfelder" value={formatPct(item?.quarterly_eps_growth_pct)} detail={`EPS Q · Umsatz Q ${formatPct(item?.quarterly_revenue_growth_pct)}`} />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <HistoryPanel
+              icon={<TrendingUp className="size-4" />}
+              title="EPS letzte 3 Quartale"
+              description="Das Quartalskriterium besteht nur, wenn jedes der letzten drei Quartale mindestens +20% YoY liefert."
+              chip={epsHistorySummary(item?.eps_quarter_history ?? [])}
+              tone={epsHistoryTone(item?.eps_quarter_history ?? [])}
+            >
+              <EpsQuarterTable history={item?.eps_quarter_history ?? []} />
+            </HistoryPanel>
+
+            <HistoryPanel
+              icon={<TrendingUp className="size-4" />}
+              title="EPS letzte 3 Jahre"
+              description="Das jährliche EPS-Kriterium besteht nur, wenn jedes der letzten drei Jahre mindestens +20% YoY liefert."
+              chip={annualEpsHistorySummary(item?.annual_eps_history ?? [])}
+              tone={annualEpsHistoryTone(item?.annual_eps_history ?? [])}
+            >
+              <AnnualEpsTable history={item?.annual_eps_history ?? []} />
+            </HistoryPanel>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <HistoryPanel
+              icon={<BarChart3 className="size-4" />}
+              title="Umsatz letzte 3 Quartale"
+              description="Das Quartalskriterium folgt der EPS-Regel: alle drei Quartale müssen jeweils mindestens +20% YoY erreichen."
+              chip={revenueHistorySummary(item?.revenue_quarter_history ?? [])}
+              tone={revenueHistoryTone(item?.revenue_quarter_history ?? [])}
+            >
+              <RevenueQuarterTable history={item?.revenue_quarter_history ?? []} />
+            </HistoryPanel>
+
+            <HistoryPanel
+              icon={<BarChart3 className="size-4" />}
+              title="Umsatz letzte 3 Jahre"
+              description="Das Jahreskriterium besteht nur, wenn jedes der letzten drei Jahre mindestens +20% Umsatzwachstum YoY liefert."
+              chip={annualRevenueHistorySummary(item?.annual_revenue_history ?? [])}
+              tone={annualRevenueHistoryTone(item?.annual_revenue_history ?? [])}
+            >
+              <AnnualRevenueTable history={item?.annual_revenue_history ?? []} />
+            </HistoryPanel>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <RuleTile
+              label="EPS-Beschleunigung"
+              tone={accelerationTone(epsAcceleration(item?.eps_quarter_history ?? [], item?.quarterly_eps_accelerating))}
+              value={accelerationLabel(epsAcceleration(item?.eps_quarter_history ?? [], item?.quarterly_eps_accelerating))}
+              detail="Bonus: EPS-Wachstum steigt über die letzten Quartale."
+            />
+            <RuleTile
+              label="Umsatz-Beschleunigung"
+              tone={accelerationTone(revenueAcceleration(item?.revenue_quarter_history ?? [], item?.quarterly_revenue_accelerating))}
+              value={accelerationLabel(revenueAcceleration(item?.revenue_quarter_history ?? [], item?.quarterly_revenue_accelerating))}
+              detail="Bonus: Umsatzwachstum steigt über die letzten Quartale."
+            />
+            <RuleTile
+              label="Earnings-Risiko"
+              tone={earningsTone}
+              value={item?.next_earnings_date || "kein Termin"}
+              detail={earningsHint(item?.next_earnings_date)}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 border-t border-[#242a33] pt-4 text-sm text-[#a0a7b4]">
+            <CalendarClock className="size-4" />
+            <span>Automatische Aktualisierung läuft über Smart-Refresh um 16:00 und 22:30 Uhr sowie über diesen gezielten Worker-Job.</span>
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-function TextField({
+function EmptyFundamentals({ ticker }: { ticker: string }) {
+  return (
+    <div className="rounded border border-dashed border-[#343b47] bg-[#111419] p-5">
+      <h3 className="text-sm font-semibold">{ticker}: keine Fundamentals gespeichert</h3>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#a0a7b4]">
+        Starte den Fundamental-Refresh. Der Worker lädt yfinance/FMP/SEC-Daten und schreibt den Snapshot in den Cache;
+        die Bewertung liest danach nur noch diese vorbereiteten Daten.
+      </p>
+    </div>
+  );
+}
+
+function MetricTile({
   label,
   value,
-  onChange,
-  placeholder,
-  type = "text",
+  detail,
   tone = "neutral"
 }: {
   label: string;
   value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: "text" | "date";
+  detail: string;
   tone?: Tone;
 }) {
   return (
-    <label className="block rounded border border-[#242a33] bg-[#111419] p-3">
-      <span className="mb-2 block text-xs uppercase text-[#a0a7b4]">{label}</span>
-      <input
-        className={`h-9 w-full rounded border bg-[#171a20] px-3 text-sm outline-none transition ${inputTone(tone)}`}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        type={type}
-        value={value}
-      />
-    </label>
+    <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+      <div className="text-xs uppercase text-[#7f8794]">{label}</div>
+      <div className={`mt-2 text-lg font-semibold ${toneText(tone)}`}>{value}</div>
+      <div className="mt-1 min-h-5 text-xs leading-5 text-[#a0a7b4]">{detail}</div>
+    </div>
   );
 }
 
-function NumberField({
+function RuleTile({
   label,
   value,
-  onChange,
-  prefix = "",
-  suffix = "",
-  integer = false
+  detail,
+  tone
 }: {
   label: string;
-  value?: number | null;
-  onChange: (value: number | null) => void;
-  prefix?: string;
-  suffix?: string;
-  integer?: boolean;
+  value: string;
+  detail: string;
+  tone: Tone;
 }) {
   return (
-    <label className="block rounded border border-[#242a33] bg-[#111419] p-3">
-      <span className="mb-2 block text-xs uppercase text-[#a0a7b4]">{label}</span>
-      <div className="flex h-9 items-center rounded border border-[#2d333d] bg-[#171a20] px-3 focus-within:border-sky-300/50">
-        {prefix && <span className="mr-1 text-sm text-[#7f8794]">{prefix}</span>}
-        <input
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-          inputMode="decimal"
-          onChange={(event) => onChange(parseNumber(event.target.value, integer))}
-          type="number"
-          value={value ?? ""}
-        />
-        {suffix && <span className="ml-1 text-sm text-[#7f8794]">{suffix}</span>}
+    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">{label}</h3>
+          <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">{detail}</p>
+        </div>
+        <StatusChip tone={tone}>{value}</StatusChip>
       </div>
-    </label>
+    </div>
   );
 }
 
-function BooleanField({
-  label,
-  value,
-  onChange
+function HistoryPanel({
+  icon,
+  title,
+  description,
+  chip,
+  tone,
+  children
 }: {
-  label: string;
-  value?: boolean | null;
-  onChange: (value: boolean | null) => void;
+  icon: ReactNode;
+  title: string;
+  description: string;
+  chip: string;
+  tone: Tone;
+  children: ReactNode;
 }) {
   return (
-    <label className="block rounded border border-[#242a33] bg-[#111419] p-3">
-      <span className="mb-2 block text-xs uppercase text-[#a0a7b4]">{label}</span>
-      <select
-        className="h-9 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 text-sm outline-none transition focus:border-sky-300/50"
-        onChange={(event) => onChange(event.target.value === "unknown" ? null : event.target.value === "yes")}
-        value={value === null || value === undefined ? "unknown" : value ? "yes" : "no"}
-      >
-        <option value="unknown">unbekannt</option>
-        <option value="yes">ja</option>
-        <option value="no">nein</option>
-      </select>
-    </label>
+    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className="text-[#8ea4c8]">{icon}</span>
+            <h3>{title}</h3>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-[#7f8794]">{description}</p>
+        </div>
+        <StatusChip tone={tone}>{chip}</StatusChip>
+      </div>
+      <div className="mt-4 overflow-x-auto">{children}</div>
+    </div>
   );
 }
 
-function fromItem(item: StockFundamentalsItem | null | undefined, ticker: string): FundamentalsForm {
-  if (!item) {
-    return {
-      ...emptyForm,
-      as_of: new Date().toISOString().slice(0, 10),
-      fiscal_period: "",
-      source: "manual"
-    };
+function EpsQuarterTable({ history }: { history: StockFundamentalsEpsQuarter[] }) {
+  const rows = padEpsHistory(history);
+  return (
+    <HistoryTable
+      columns={["Quartal", "EPS", "Vorjahr", "YoY", "Status"]}
+      rows={rows.map((item, index) => {
+        const growth = computeEpsGrowth(item);
+        return [
+          item.fiscal_period || `Quartal ${index + 1}`,
+          formatNumber(item.eps_current_quarter),
+          formatNumber(item.eps_same_quarter_last_year),
+          formatSignedPct(growth),
+          growthStatus(growth)
+        ];
+      })}
+    />
+  );
+}
+
+function AnnualEpsTable({ history }: { history: StockFundamentalsAnnualEps[] }) {
+  const rows = padAnnualEpsHistory(history);
+  return (
+    <HistoryTable
+      columns={["Jahr", "EPS", "Vorjahr", "YoY", "Status"]}
+      rows={rows.map((item, index) => {
+        const growth = computeAnnualEpsGrowth(item);
+        return [
+          item.fiscal_year || `Jahr ${index + 1}`,
+          formatNumber(item.eps_current_year),
+          formatNumber(item.eps_previous_year),
+          formatSignedPct(growth),
+          growthStatus(growth)
+        ];
+      })}
+    />
+  );
+}
+
+function RevenueQuarterTable({ history }: { history: StockFundamentalsRevenueQuarter[] }) {
+  const rows = padRevenueHistory(history);
+  return (
+    <HistoryTable
+      columns={["Quartal", "Umsatz", "Vorjahr", "YoY", "Status"]}
+      rows={rows.map((item, index) => {
+        const growth = computeRevenueGrowth(item);
+        return [
+          item.fiscal_period || `Quartal ${index + 1}`,
+          formatLargeNumber(item.revenue_current_quarter),
+          formatLargeNumber(item.revenue_same_quarter_last_year),
+          formatSignedPct(growth),
+          growthStatus(growth)
+        ];
+      })}
+    />
+  );
+}
+
+function AnnualRevenueTable({ history }: { history: StockFundamentalsAnnualRevenue[] }) {
+  const rows = padAnnualRevenueHistory(history);
+  return (
+    <HistoryTable
+      columns={["Jahr", "Umsatz", "Vorjahr", "YoY", "Status"]}
+      rows={rows.map((item, index) => {
+        const growth = computeAnnualRevenueGrowth(item);
+        return [
+          item.fiscal_year || `Jahr ${index + 1}`,
+          formatLargeNumber(item.revenue_current_year),
+          formatLargeNumber(item.revenue_previous_year),
+          formatSignedPct(growth),
+          growthStatus(growth)
+        ];
+      })}
+    />
+  );
+}
+
+function HistoryTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
+  return (
+    <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+      <thead>
+        <tr>
+          {columns.map((column) => (
+            <th key={column} className="border-b border-[#2d333d] px-3 py-2 text-xs font-medium uppercase text-[#7f8794]">
+              {column}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, rowIndex) => (
+          <tr key={rowIndex} className="border-b border-[#242a33]">
+            {row.map((cell, cellIndex) => (
+              <td key={`${rowIndex}-${cellIndex}`} className={`px-3 py-3 ${cellClass(cell, cellIndex, row.length)}`}>
+                {cell}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function cellClass(cell: string, index: number, length: number) {
+  if (index === length - 1) {
+    if (cell === "bestanden") return "font-medium text-emerald-200";
+    if (cell === "unter 20%") return "font-medium text-amber-200";
+    return "text-[#7f8794]";
   }
-  return {
-    ...emptyForm,
-    ...item,
-    as_of: item.as_of || new Date().toISOString().slice(0, 10),
-    source: item.source || "manual",
-    fiscal_period: item.fiscal_period || `${ticker} fundamentals`,
-    next_earnings_date: item.next_earnings_date ?? null,
-    eps_quarter_history: item.eps_quarter_history ?? [],
-    annual_eps_history: item.annual_eps_history ?? [],
-    revenue_quarter_history: item.revenue_quarter_history ?? [],
-    annual_revenue_history: item.annual_revenue_history ?? []
-  };
+  if (cell.startsWith("+") && index === length - 2) return "font-medium text-emerald-200";
+  if (cell.startsWith("-") && index === length - 2) return "font-medium text-rose-200";
+  return index === 0 ? "font-medium text-[#e8ecf3]" : "text-[#c3c9d4]";
 }
 
-function toPayload(form: FundamentalsForm): StockFundamentalsUpdate {
-  const epsQuarterHistory = form.eps_quarter_history
-    .map((item) => ({
-      ...item,
-      eps_growth_yoy_pct: computeEpsGrowth(item)
-    }))
-    .filter(
-      (item) =>
-        item.fiscal_period.trim() ||
-        item.eps_current_quarter !== null ||
-        item.eps_same_quarter_last_year !== null
-    );
-  const annualEpsHistory = form.annual_eps_history
-    .map((item) => ({
-      ...item,
-      eps_growth_yoy_pct: computeAnnualEpsGrowth(item)
-    }))
-    .filter((item) => item.fiscal_year.trim() || item.eps_current_year !== null || item.eps_previous_year !== null);
-  const revenueQuarterHistory = form.revenue_quarter_history
-    .map((item) => ({
-      ...item,
-      revenue_growth_yoy_pct: computeRevenueGrowth(item)
-    }))
-    .filter(
-      (item) =>
-        item.fiscal_period.trim() ||
-        item.revenue_current_quarter !== null ||
-        item.revenue_same_quarter_last_year !== null
-    );
-  const annualRevenueHistory = form.annual_revenue_history
-    .map((item) => ({
-      ...item,
-      revenue_growth_yoy_pct: computeAnnualRevenueGrowth(item)
-    }))
-    .filter(
-      (item) =>
-        item.fiscal_year.trim() ||
-        item.revenue_current_year !== null ||
-        item.revenue_previous_year !== null
-    );
-  return {
-    ...form,
-    quarterly_eps_growth_pct: epsQuarterHistory[0]?.eps_growth_yoy_pct ?? form.quarterly_eps_growth_pct,
-    annual_eps_growth_pct: annualEpsHistory[0]?.eps_growth_yoy_pct ?? form.annual_eps_growth_pct,
-    quarterly_revenue_growth_pct: revenueQuarterHistory[0]?.revenue_growth_yoy_pct ?? form.quarterly_revenue_growth_pct,
-    annual_revenue_growth_pct: annualRevenueHistory[0]?.revenue_growth_yoy_pct ?? form.annual_revenue_growth_pct,
-    source: form.source.trim() || "manual",
-    fiscal_period: form.fiscal_period.trim(),
-    as_of: form.as_of || null,
-    next_earnings_date: form.next_earnings_date || null,
-    eps_quarter_history: epsQuarterHistory,
-    annual_eps_history: annualEpsHistory,
-    revenue_quarter_history: revenueQuarterHistory,
-    annual_revenue_history: annualRevenueHistory
-  };
-}
-
-function parseNumber(value: string, integer: boolean) {
-  if (value.trim() === "") return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
-  return integer ? Math.round(parsed) : parsed;
-}
-
-function previewFundamentalScore(form: FundamentalsForm) {
+function previewFundamentalScore(item: StockFundamentalsItem | null) {
+  if (!item) return 0;
   const checks = [
-    epsHistoryScore(form.eps_quarter_history),
-    form.quarterly_eps_accelerating === true ? 1 : 0,
-    annualEpsHistoryScore(form.annual_eps_history),
-    (form.trailing_eps ?? -Infinity) > 0 ? 1 : 0,
-    revenueHistoryScore(form.revenue_quarter_history),
-    form.quarterly_revenue_accelerating === true ? 1 : 0,
-    annualRevenueHistoryScore(form.annual_revenue_history),
-    (form.roe_pct ?? -Infinity) >= 17 ? 1 : 0,
-    (form.profit_margin_pct ?? -Infinity) > 0 ? 1 : 0
+    epsHistoryScore(item.eps_quarter_history),
+    epsAcceleration(item.eps_quarter_history, item.quarterly_eps_accelerating) === true ? 1 : 0,
+    annualEpsHistoryScore(item.annual_eps_history),
+    (item.trailing_eps ?? -Infinity) > 0 ? 1 : 0,
+    revenueHistoryScore(item.revenue_quarter_history),
+    revenueAcceleration(item.revenue_quarter_history, item.quarterly_revenue_accelerating) === true ? 1 : 0,
+    annualRevenueHistoryScore(item.annual_revenue_history),
+    (item.roe_pct ?? -Infinity) >= 17 ? 1 : 0,
+    (item.profit_margin_pct ?? -Infinity) > 0 ? 1 : 0
   ];
   return (checks.reduce((sum, value) => sum + value, 0) / checks.length) * 100;
 }
@@ -769,14 +602,70 @@ function computeAnnualRevenueGrowth(item: StockFundamentalsAnnualRevenue) {
   return Math.round((current / previous - 1) * 1000) / 10;
 }
 
+function epsAcceleration(history: StockFundamentalsEpsQuarter[], fallback?: boolean | null) {
+  const values = padEpsHistory(history).map(computeEpsGrowth);
+  if (values.every((value) => value !== null)) {
+    return Boolean(values[0] !== null && values[1] !== null && values[2] !== null && values[0] > values[1] && values[1] > values[2]);
+  }
+  return fallback ?? null;
+}
+
+function revenueAcceleration(history: StockFundamentalsRevenueQuarter[], fallback?: boolean | null) {
+  const values = padRevenueHistory(history).map(computeRevenueGrowth);
+  if (values.every((value) => value !== null)) {
+    return Boolean(values[0] !== null && values[1] !== null && values[2] !== null && values[0] > values[1] && values[1] > values[2]);
+  }
+  return fallback ?? null;
+}
+
+function accelerationTone(value: boolean | null): Tone {
+  if (value === true) return "good";
+  if (value === false) return "warning";
+  return "neutral";
+}
+
+function accelerationLabel(value: boolean | null) {
+  if (value === true) return "ja";
+  if (value === false) return "nein";
+  return "n/a";
+}
+
+function growthStatus(value: number | null) {
+  if (value === null) return "nicht verfügbar";
+  return value >= 20 ? "bestanden" : "unter 20%";
+}
+
 function formatSignedPct(value: number | null) {
   if (value === null || Number.isNaN(value)) return "n/a";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function epsGrowthClass(value: number | null) {
-  if (value === null) return "text-[#7f8794]";
-  return value >= 20 ? "font-medium text-emerald-200" : "font-medium text-amber-200";
+function formatPct(value?: number | null, suffix = "") {
+  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  return `${value.toFixed(1)}%${suffix ? ` ${suffix}` : ""}`;
+}
+
+function formatNumber(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatInteger(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatLargeNumber(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `${formatNumber(value / 1_000_000_000)} Mrd.`;
+  if (abs >= 1_000_000) return `${formatNumber(value / 1_000_000)} Mio.`;
+  return formatNumber(value);
+}
+
+function thresholdTone(value: number | null | undefined, threshold: number, strict = false): Tone {
+  if (value === null || value === undefined) return "neutral";
+  return strict ? (value > threshold ? "good" : "warning") : value >= threshold ? "good" : "warning";
 }
 
 function toneForScore(value: number): Tone {
@@ -812,9 +701,9 @@ function daysUntil(value: string) {
   return Math.round((target.getTime() - localToday.getTime()) / 86_400_000);
 }
 
-function inputTone(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/30 focus:border-emerald-300/60";
-  if (tone === "warning") return "border-amber-300/30 focus:border-amber-300/60";
-  if (tone === "bad") return "border-rose-300/30 focus:border-rose-300/60";
-  return "border-[#2d333d] focus:border-sky-300/50";
+function toneText(tone: Tone) {
+  if (tone === "good") return "text-emerald-100";
+  if (tone === "warning") return "text-amber-100";
+  if (tone === "bad") return "text-rose-100";
+  return "text-[#f3f6fb]";
 }

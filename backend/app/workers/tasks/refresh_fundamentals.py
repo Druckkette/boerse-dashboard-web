@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
+from app.repositories import portfolio as portfolio_repository
 from app.repositories import jobs as job_repository
 from app.services.fundamentals import refresh_fundamentals_for_ticker
+from app.services.workspace import get_workspace_state
 from app.services.universes import resolve_universe_tickers
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
@@ -19,12 +21,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
             requested_by=str(payload.get("source") or "scheduler"),
         )
 
-    tickers = resolve_universe_tickers(
-        explicit_tickers=payload.get("tickers"),
-        universe_key=payload.get("universe"),
-        fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-        limit=int(payload.get("limit_universe") or 50),
-    )
+    tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
@@ -98,3 +95,59 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         error = f"{type(exc).__name__}: {exc}"
         job_repository.mark_failed(job.job_id, error_message=error, result=result)
         raise
+
+
+def resolve_fundamental_tickers(payload: dict | None = None) -> list[str]:
+    payload = payload or {}
+    limit = _normalize_limit(payload.get("fundamental_limit") or payload.get("limit_universe") or payload.get("limit") or 50)
+    explicit = resolve_universe_tickers(
+        explicit_tickers=payload.get("tickers"),
+        universe_key=None,
+        fallback=[],
+        limit=limit,
+    )
+    if explicit:
+        return explicit
+
+    universe_key = str(payload.get("fundamental_universe") or payload.get("universe") or "").strip().lower()
+    mode = str(payload.get("mode") or "").strip().lower()
+    if universe_key in {"tracked", "workspace", "open_positions", "recent"} or mode in {"tracked", "scheduled"}:
+        tracked = _tracked_fundamental_tickers(limit=limit)
+        if tracked:
+            return tracked
+
+    return resolve_universe_tickers(
+        explicit_tickers=None,
+        universe_key=payload.get("universe"),
+        fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
+        limit=limit,
+    )
+
+
+def _tracked_fundamental_tickers(*, limit: int) -> list[str]:
+    tickers: list[str] = []
+    try:
+        tickers.extend(row.ticker for row in portfolio_repository.list_open_positions())
+    except portfolio_repository.PortfolioRepositoryUnavailable:
+        pass
+
+    workspace = get_workspace_state()
+    tickers.extend(workspace.watchlist)
+    tickers.extend(workspace.recent_tickers)
+    return _dedupe_tickers(tickers)[:limit]
+
+
+def _dedupe_tickers(values: list[str]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        clean = str(value or "").strip().upper()
+        if clean and clean not in out:
+            out.append(clean)
+    return out
+
+
+def _normalize_limit(value: object) -> int:
+    try:
+        return max(1, min(500, int(value)))
+    except (TypeError, ValueError):
+        return 50

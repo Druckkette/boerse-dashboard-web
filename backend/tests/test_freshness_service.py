@@ -36,6 +36,16 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
 
     monkeypatch.setattr(freshness, "SessionLocal", FakeSession)
     monkeypatch.setattr(freshness.job_repository, "list_jobs", lambda limit=80: [])
+    monkeypatch.setattr(
+        freshness,
+        "_tracked_fundamentals_freshness",
+        lambda db, now: freshness.ServiceFreshness(
+            name="fundamentals_tracked",
+            status="fresh",
+            as_of="2026-06-16",
+            lag_minutes=60,
+        ),
+    )
 
     result = freshness.get_freshness()
     services = {service.name: service for service in result.services}
@@ -48,3 +58,4 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
         "^GSPC": "2026-06-12",
         "SPY": "2026-06-16",
     }
+    assert services["fundamentals_tracked"].as_of == "2026-06-16"

@@ -42,6 +42,39 @@ def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> No
     assert updated.status == "done"
 
 
+def test_refresh_prices_all_preset_includes_trend_benchmark_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    monkeypatch.setattr(
+        refresh_prices_module,
+        "resolve_universe_price_symbols",
+        lambda **kwargs: [
+            refresh_prices_module._SimplePriceSymbol(source_ticker="AAA", yahoo_symbol="AAA"),
+        ],
+    )
+
+    def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str | None = None) -> dict:
+        seen.append(ticker)
+        return {
+            "ticker": ticker,
+            "yahoo_symbol": yahoo_symbol or ticker,
+            "records_seen": 1,
+            "records_written": 1,
+            "source": "yfinance",
+        }
+
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    job = job_repository.create_job("refresh_prices", {"preset": "all", "range": "6m"})
+
+    result = refresh_prices_module.refresh_prices.run(job.job_id, job.payload)
+
+    assert result["ok"] is True
+    assert "AAA" in seen
+    assert "^GSPC" in seen
+    assert "SPY" in seen
+    assert "EURUSD=X" in seen
+
+
 def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str | None = None) -> dict:
         if ticker == "BAD":

@@ -78,6 +78,47 @@ def test_smart_plan_refreshes_market_dependencies_after_stale_prices() -> None:
     ]
 
 
+def test_smart_plan_refreshes_market_dependencies_after_stale_trend_benchmark() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(open_positions_count=1),
+        freshness=_freshness(
+            prices="fresh",
+            trend_benchmark="stale",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+        ),
+        universe_status=_universe(),
+        payload={"universe": "us_common_stocks", "range": "6m"},
+    )
+
+    assert [action.key for action in plan] == [
+        "refresh_market_prices",
+        "refresh_breadth",
+        "refresh_relative_strength",
+        "position_monitor",
+    ]
+    assert plan[0].payload["include_market_helpers"] is True
+
+
+def test_smart_plan_refreshes_stale_tracked_fundamentals() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            fundamentals="stale",
+        ),
+        universe_status=_universe(),
+        payload={"universe": "us_common_stocks"},
+    )
+
+    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert plan[0].payload["fundamental_universe"] == "tracked"
+
+
 def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> None:
     plan = smart_module.build_smart_refresh_plan(
         diagnostics=_diagnostics(),
@@ -95,6 +136,7 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
         "refresh_market_prices",
         "refresh_breadth",
         "refresh_relative_strength",
+        "refresh_fundamentals",
     ]
     assert "Geplanter Smart-Refresh" in plan[0].reason
 
@@ -203,6 +245,17 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
         "refresh_relative_strength_ratings",
         lambda *args, **kwargs: calls.append("rs") or {"ok": True, "rows_written": 1},
     )
+    monkeypatch.setattr(smart_module, "resolve_fundamental_tickers", lambda payload=None: ["NVDA"])
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_fundamentals_for_ticker",
+        lambda ticker, *, include_holders=True: calls.append(f"fundamentals:{ticker}") or {
+            "ticker": ticker,
+            "ok": True,
+            "records_seen": 1,
+            "records_written": 1,
+        },
+    )
 
     job = job_repository.create_job(
         "smart_refresh_market_data",
@@ -214,7 +267,7 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
     assert result["ok"] is True
     assert "price:SPY:6m" in calls
     assert "price:^GSPC:6m" in calls
-    assert calls[-2:] == ["breadth", "rs"]
+    assert calls[-3:] == ["breadth", "rs", "fundamentals:NVDA"]
     assert result["results"]["refresh_breadth"]["snapshot_date"] == "2026-06-19"
     assert updated is not None
     assert updated.status == "done"
@@ -282,13 +335,17 @@ def _freshness(
     breadth: str,
     rs: str,
     sell_ranking: str,
+    trend_benchmark: str = "fresh",
+    fundamentals: str = "fresh",
 ) -> FreshnessResponse:
     return FreshnessResponse(
         generated_at=datetime.now(UTC),
         services=[
             _service("prices", prices),
+            _service("trend_benchmark", trend_benchmark),
             _service("market_breadth", breadth),
             _service("relative_strength", rs),
+            _service("fundamentals_tracked", fundamentals),
             _service("sell_ranking", sell_ranking),
         ],
     )

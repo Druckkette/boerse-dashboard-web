@@ -14,6 +14,9 @@ SMART_REFRESH_PAYLOAD = {
     "rs_lookback_days": 430,
     "benchmark_ticker": "SPY",
     "include_position_monitor": True,
+    "include_fundamentals": True,
+    "fundamental_universe": "tracked",
+    "fundamental_limit": 100,
 }
 
 

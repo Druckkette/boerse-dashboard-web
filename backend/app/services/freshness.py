@@ -5,7 +5,16 @@ from datetime import UTC, date, datetime, time
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.models import BreadthDaily, Instrument, MarketSnapshot, PriceBar, RsRating
+from app.db.models import (
+    AppSetting,
+    BreadthDaily,
+    FundamentalSnapshot,
+    Instrument,
+    MarketSnapshot,
+    Position,
+    PriceBar,
+    RsRating,
+)
 from app.db.session import SessionLocal
 from app.domain.market.constants import MARKET_INDEX_FALLBACK_TICKERS, MARKET_TREND_BENCHMARK
 from app.repositories import jobs as job_repository
@@ -27,6 +36,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             latest_breadth = db.scalar(select(func.max(BreadthDaily.date)))
             latest_rs = db.scalar(select(func.max(RsRating.date)))
             trend_benchmark = _trend_benchmark_freshness(db, now)
+            tracked_fundamentals = _tracked_fundamentals_freshness(db, now)
     except SQLAlchemyError:
         return [
             _missing("prices"),
@@ -34,6 +44,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             _missing("trend_benchmark"),
             _missing("market_breadth"),
             _missing("relative_strength"),
+            _missing("fundamentals_tracked"),
         ]
 
     return [
@@ -42,6 +53,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
         trend_benchmark,
         _date_freshness(now, "market_breadth", latest_breadth, max_lag_days=5, detail="BreadthDaily-Daten für Marktbreite, McClellan, NH/NL und AD-Linie."),
         _date_freshness(now, "relative_strength", latest_rs, max_lag_days=7, detail="Zuletzt berechnete Relative-Strength-Ratings."),
+        tracked_fundamentals,
     ]
 
 
@@ -131,6 +143,91 @@ def _trend_benchmark_freshness(db, now: datetime) -> ServiceFreshness:
             "candidate_dates": candidate_dates,
         },
     )
+
+
+def _tracked_fundamentals_freshness(db, now: datetime) -> ServiceFreshness:
+    tickers = _tracked_fundamental_tickers(db)
+    if not tickers:
+        latest_date = db.scalar(select(func.max(FundamentalSnapshot.as_of)))
+        return _date_freshness(
+            now,
+            "fundamentals_tracked",
+            latest_date,
+            max_lag_days=3,
+            detail="Kein getracktes Aktien-Set; Datum über alle Fundamental-Snapshots.",
+            metadata={"tracked_tickers": [], "missing_tickers": []},
+        )
+
+    rows = db.execute(
+        select(FundamentalSnapshot.ticker, func.max(FundamentalSnapshot.as_of))
+        .where(FundamentalSnapshot.ticker.in_(tickers))
+        .group_by(FundamentalSnapshot.ticker)
+    ).all()
+    latest_by_ticker = {
+        str(ticker).upper(): latest_date
+        for ticker, latest_date in rows
+        if ticker and latest_date is not None
+    }
+    missing_tickers = [ticker for ticker in tickers if ticker not in latest_by_ticker]
+    if not latest_by_ticker:
+        return _missing(
+            "fundamentals_tracked",
+            detail="Für offene Positionen, Watchlist oder zuletzt geöffnete Aktien fehlen Fundamental-Snapshots.",
+            metadata={"tracked_tickers": tickers, "missing_tickers": missing_tickers},
+        )
+
+    oldest_fresh_ticker = min(latest_by_ticker, key=lambda ticker: latest_by_ticker[ticker])
+    latest_date = latest_by_ticker[oldest_fresh_ticker]
+    base = _date_freshness(
+        now,
+        "fundamentals_tracked",
+        latest_date,
+        max_lag_days=3,
+        detail=(
+            "Fundamental-Cache für offene Positionen, Watchlist und zuletzt geöffnete Aktien. "
+            f"Ältester aktueller Ticker: {oldest_fresh_ticker}."
+        ),
+        metadata={
+            "tracked_tickers": tickers,
+            "missing_tickers": missing_tickers,
+            "ticker_dates": {
+                ticker: value.isoformat()
+                for ticker, value in latest_by_ticker.items()
+            },
+        },
+    )
+    if missing_tickers and base.status == "fresh":
+        return base.model_copy(update={"status": "stale"})
+    return base
+
+
+def _tracked_fundamental_tickers(db) -> list[str]:
+    tickers: list[str] = []
+    rows = db.scalars(select(Position.ticker).where(Position.is_open.is_(True))).all()
+    tickers.extend(str(ticker) for ticker in rows if ticker)
+
+    workspace = db.get(AppSetting, "workspace")
+    if workspace is not None and isinstance(workspace.value_json, dict):
+        values = workspace.value_json
+        tickers.extend(_list_values(values.get("watchlist")))
+        tickers.extend(_list_values(values.get("recent_tickers")))
+
+    return _dedupe_tickers(tickers)[:100]
+
+
+def _list_values(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item]
+
+
+def _dedupe_tickers(values: list[str]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        clean = str(value or "").strip().upper()
+        if clean and clean not in out:
+            out.append(clean)
+    return out
 
 
 def _missing(service_name: str, *, detail: str = "", metadata: dict | None = None) -> ServiceFreshness:

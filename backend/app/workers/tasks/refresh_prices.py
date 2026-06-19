@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS, SECTOR_ETF_TICKERS
+from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS, MARKET_INDEX_FALLBACK_TICKERS, MARKET_TREND_BENCHMARK, SECTOR_ETF_TICKERS
 from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.repositories import jobs as job_repository
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
@@ -39,6 +39,8 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         fallback=PRICE_REFRESH_PRESETS[preset],
         limit=limit,
     )
+    if _should_include_market_helpers(payload, preset=preset, explicit_tickers=explicit_tickers):
+        symbols = _merge_market_helper_symbols(symbols)
     tickers = [symbol.source_ticker for symbol in symbols]
     range_key = _normalize_range(payload.get("range") or "1y")
     fail_fast = bool(payload.get("fail_fast") or False)
@@ -163,3 +165,33 @@ def _normalize_limit(value: object) -> int:
         return max(1, min(5_000, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _should_include_market_helpers(payload: dict, *, preset: PriceRefreshPreset, explicit_tickers: object) -> bool:
+    if payload.get("include_market_helpers") is False:
+        return False
+    if payload.get("include_market_helpers"):
+        return True
+    return not explicit_tickers and preset in {"all", "market_core"}
+
+
+def _merge_market_helper_symbols(symbols: list) -> list:
+    by_ticker = {str(symbol.source_ticker).upper(): symbol for symbol in symbols if str(symbol.source_ticker).strip()}
+    helper_tickers = [
+        *MARKET_CORE_PRICE_TICKERS,
+        MARKET_TREND_BENCHMARK,
+        *MARKET_INDEX_FALLBACK_TICKERS.get(MARKET_TREND_BENCHMARK, []),
+    ]
+    for ticker in helper_tickers:
+        clean = ticker.strip().upper()
+        if clean and clean not in by_ticker:
+            by_ticker[clean] = _SimplePriceSymbol(source_ticker=clean, yahoo_symbol=clean)
+    return list(by_ticker.values())
+
+
+class _SimplePriceSymbol:
+    def __init__(self, *, source_ticker: str, yahoo_symbol: str) -> None:
+        self.source_ticker = source_ticker
+        self.yahoo_symbol = yahoo_symbol
+        self.status = "market_helper"
+        self.source = "preset"
