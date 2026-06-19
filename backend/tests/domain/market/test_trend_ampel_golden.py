@@ -33,6 +33,26 @@ def test_trend_ampel_survives_empty_input() -> None:
     assert compute_trend_ampel([]) == []
 
 
+def test_negative_upper_half_close_counts_as_anchor_day() -> None:
+    bars = _correction_to_red_bars()
+    bars.append(
+        _bar(
+            62,
+            open_price=98.2,
+            close=97.5,
+            high=99.0,
+            low=95.0,
+            volume=1_100_000,
+        )
+    )
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.phase == "rot"
+    assert latest.anchor_date == "2025-03-05"
+    assert latest.floor_mark == 95.0
+
+
 def test_green_resets_to_red_when_close_breaks_startschuss_low() -> None:
     bars = _startschuss_to_green_bars()
     points = compute_trend_ampel(bars)
@@ -162,6 +182,30 @@ def test_green_waits_for_full_ma_order_before_uptrend() -> None:
     assert latest.ema21 > latest.sma50
     assert latest.sma50 < latest.sma200
     assert latest.ma_order is False
+
+
+def test_green_waits_for_close_above_ema21_before_uptrend() -> None:
+    bars = _green_to_uptrend_bars()[:-1]
+    bars.append(
+        _bar(
+            239,
+            open_price=169.0,
+            close=155.0,
+            high=170.0,
+            low=154.0,
+            volume=1_120_000,
+        )
+    )
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.phase == "gruen"
+    assert latest.close is not None
+    assert latest.ema21 is not None
+    assert latest.sma200 is not None
+    assert latest.ma_order is True
+    assert latest.close < latest.ema21
+    assert latest.close > latest.sma200
 
 
 def _bars_for_scenario(scenario: str) -> list[TrendAmpelBar]:

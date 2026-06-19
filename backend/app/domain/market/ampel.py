@@ -180,7 +180,6 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     startschuss_bonuses: list[bool | None] = [None] * row_count
 
     close = df["Close"].to_numpy(dtype=float)
-    open_ = df["Open"].to_numpy(dtype=float)
     high = df["High"].to_numpy(dtype=float)
     low = df["Low"].to_numpy(dtype=float)
     volume = df["Volume"].to_numpy(dtype=float)
@@ -218,6 +217,16 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             and _is_finite(sma50[index])
             and _is_finite(sma200[index])
             and ema21[index] > sma50[index] > sma200[index]
+        )
+
+    def uptrend_confirmed(index: int) -> bool:
+        return bool(
+            _is_finite(close[index])
+            and _is_finite(ema21[index])
+            and _is_finite(sma200[index])
+            and close[index] > ema21[index]
+            and close[index] > sma200[index]
+            and moving_averages_in_correct_order(index)
         )
 
     def sma200_broken(index: int) -> bool:
@@ -259,7 +268,7 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 anchor_idx = None
                 floor_mark = None
 
-            if anchor_idx is None and (daily_pct > 0.0 or (close[index] > open_[index] and range_position >= 0.5)):
+            if anchor_idx is None and (daily_pct > 0.0 or range_position >= 0.5):
                 anchor_idx = index
                 floor_mark = float(np.nanmin([low[index], low[index - 1]]))
 
@@ -287,7 +296,7 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 phase = "rot"
                 clear_state()
             elif (
-                moving_averages_in_correct_order(index)
+                uptrend_confirmed(index)
                 and gruen_since is not None
                 and index - gruen_since >= UPTREND_CONFIRMATION_DAYS
             ):
