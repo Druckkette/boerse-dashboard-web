@@ -19,6 +19,7 @@ export function MarketOverviewPanel() {
   if (error || !data) return <div className="rounded border border-rose-400/40 p-4">Market API nicht erreichbar.</div>;
 
   const overviewKpis = data.kpis.filter((item) => !isBreadthKpi(item.label));
+  const trendDateMismatch = Boolean(data.trend_ampel && data.trend_ampel.as_of !== data.as_of);
 
   return (
     <section className="space-y-4">
@@ -47,34 +48,43 @@ export function MarketOverviewPanel() {
         </div>
       </div>
       {data.trend_ampel && (
-        <div className="grid gap-3 md:grid-cols-4">
-          <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-sm text-[#a0a7b4]">Trend-Ampel</div>
-              <StatusChip tone={toneForPhase(data.trend_ampel.phase)}>{data.trend_ampel.phase_label}</StatusChip>
+        <div className="space-y-3">
+          {trendDateMismatch ? (
+            <div className="rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm leading-6 text-amber-100">
+              Trend-Ampel und Market Snapshot haben unterschiedliche Datenstände:
+              {" "}Snapshot {data.as_of}, Trend-Ampel {data.trend_ampel.as_of}. Prüfe im Dashboard die Freshness-Zeile
+              „Trend-Ampel Benchmark“ oder aktualisiere die Marktdaten.
             </div>
-            <div className="text-2xl font-semibold tracking-normal">{data.trend_ampel.ticker}</div>
-            <div className="mt-2 text-sm text-[#a0a7b4]">Stand {data.trend_ampel.as_of}</div>
-          </div>
-          <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="text-sm text-[#a0a7b4]">Close</div>
-            <div className="mt-3 text-2xl font-semibold tracking-normal">
-              {formatNumber(data.trend_ampel.close)}
+          ) : null}
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-sm text-[#a0a7b4]">Trend-Ampel</div>
+                <StatusChip tone={toneForPhase(data.trend_ampel.phase)}>{data.trend_ampel.phase_label}</StatusChip>
+              </div>
+              <div className="text-2xl font-semibold tracking-normal">{data.trend_ampel.ticker}</div>
+              <div className="mt-2 text-sm text-[#a0a7b4]">Stand {data.trend_ampel.as_of}</div>
             </div>
-            <div className="mt-2 text-sm text-[#a0a7b4]">Stand {data.trend_ampel.as_of}</div>
-          </div>
-          <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="text-sm text-[#a0a7b4]">Anchor</div>
-            <div className="mt-3 text-2xl font-semibold tracking-normal">{data.trend_ampel.anchor_date ?? "-"}</div>
-            <div className="mt-2 text-sm text-[#a0a7b4]">Floor {formatNumber(data.trend_ampel.floor_mark)}</div>
-          </div>
-          <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="text-sm text-[#a0a7b4]">Startschuss</div>
-            <div className="mt-3 text-2xl font-semibold tracking-normal">
-              {formatNumber(data.trend_ampel.startschuss_low)}
+            <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+              <div className="text-sm text-[#a0a7b4]">Close</div>
+              <div className="mt-3 text-2xl font-semibold tracking-normal">
+                {formatNumber(data.trend_ampel.close)}
+              </div>
+              <div className="mt-2 text-sm text-[#a0a7b4]">Stand {data.trend_ampel.as_of}</div>
             </div>
-            <div className="mt-2 text-sm text-[#a0a7b4]">
-              Bonus {data.trend_ampel.startschuss_bonus ? "aktiv" : "inaktiv"}
+            <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+              <div className="text-sm text-[#a0a7b4]">Anchor</div>
+              <div className="mt-3 text-2xl font-semibold tracking-normal">{data.trend_ampel.anchor_date ?? "-"}</div>
+              <div className="mt-2 text-sm text-[#a0a7b4]">Floor {formatNumber(data.trend_ampel.floor_mark)}</div>
+            </div>
+            <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+              <div className="text-sm text-[#a0a7b4]">Startschuss</div>
+              <div className="mt-3 text-2xl font-semibold tracking-normal">
+                {formatNumber(data.trend_ampel.startschuss_low)}
+              </div>
+              <div className="mt-2 text-sm text-[#a0a7b4]">
+                Bonus {data.trend_ampel.startschuss_bonus ? "aktiv" : "inaktiv"}
+              </div>
             </div>
           </div>
         </div>

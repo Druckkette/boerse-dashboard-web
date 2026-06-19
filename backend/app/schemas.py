@@ -15,6 +15,8 @@ class ServiceFreshness(BaseModel):
     status: Literal["fresh", "stale", "missing"]
     as_of: str
     lag_minutes: int
+    detail: str = ""
+    metadata: dict = Field(default_factory=dict)
 
 
 class FreshnessResponse(BaseModel):

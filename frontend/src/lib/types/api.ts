@@ -425,6 +425,8 @@ export type ServiceFreshness = {
   status: "fresh" | "stale" | "missing";
   as_of: string;
   lag_minutes: number;
+  detail?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type Freshness = {

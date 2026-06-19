@@ -18,6 +18,7 @@ from app.domain.market.constants import (
     DEFAULT_MARKET_UNIVERSE_TICKERS,
     EQUAL_WEIGHT_MARKET_TICKERS,
     MARKET_INDEX_FALLBACK_TICKERS,
+    MARKET_TREND_BENCHMARK,
     SECTOR_ETFS,
     SECTOR_ETF_TICKERS,
 )
@@ -77,7 +78,6 @@ from app.schemas import (
 )
 
 
-MARKET_TREND_BENCHMARK = "^GSPC"
 MARKET_AMPEL_INDEXES = {
     "^GSPC": "S&P 500",
     "^IXIC": "Nasdaq Composite",
