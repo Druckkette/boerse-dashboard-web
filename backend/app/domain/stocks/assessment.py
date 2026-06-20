@@ -222,7 +222,7 @@ def evaluate_technicals(
 
     checks.append(
         AssessmentCheck(
-            category="risk",
+            category="technical",
             label="Preis >= $15",
             passed=price is not None and price >= 15,
             detail=f"${price:,.2f}" if price is not None else "Nicht verfügbar",
@@ -230,19 +230,39 @@ def evaluate_technicals(
         )
     )
 
-    high_52w = high.rolling(252, min_periods=20).max().iloc[-1]
-    if price is not None and pd.notna(high_52w) and float(high_52w) > 0:
-        distance = (price / float(high_52w) - 1) * 100
+    prior_highs = high.iloc[:-1].dropna()
+    ath = _safe_float(prior_highs.max()) if len(prior_highs) else None
+    if ath is None:
+        ath = _safe_float(high.max())
+    if price is not None and ath is not None and ath > 0:
+        distance = (price / ath - 1) * 100
         checks.append(
             AssessmentCheck(
                 category="technical",
-                label="Nahe am 52W-Hoch",
-                passed=distance > -10,
-                detail=f"{distance:+.1f}% vom Hoch (${float(high_52w):,.2f})",
+                label="Entfernung zum All-Time-High",
+                passed=distance >= 0,
+                detail=f"{distance:+.1f}% zum bisherigen ATH (${ath:,.2f})",
             )
         )
     else:
-        checks.append(_missing_check("technical", "Nahe am 52W-Hoch"))
+        checks.append(_missing_check("technical", "Entfernung zum All-Time-High"))
+
+    prior_high_52w = high.iloc[:-1].tail(252).dropna()
+    high_52w = _safe_float(prior_high_52w.max()) if len(prior_high_52w) >= 20 else None
+    if high_52w is None:
+        high_52w = _safe_float(high.rolling(252, min_periods=20).max().iloc[-1])
+    if price is not None and high_52w is not None and high_52w > 0:
+        distance = (price / high_52w - 1) * 100
+        checks.append(
+            AssessmentCheck(
+                category="technical",
+                label="Entfernung zum 52-Wochen-Hoch",
+                passed=distance >= 0,
+                detail=f"{distance:+.1f}% zum bisherigen 52W-Hoch (${high_52w:,.2f})",
+            )
+        )
+    else:
+        checks.append(_missing_check("technical", "Entfernung zum 52-Wochen-Hoch"))
 
     avg_volume_20 = volume.tail(20).mean()
     dollar_volume_mio = avg_volume_20 * price / 1_000_000 if price and pd.notna(avg_volume_20) else np.nan
@@ -683,9 +703,10 @@ def _technical_points_score(
 ) -> float:
     check_map = {check.label: bool(check.passed) for check in technical_checks}
     score = 0.0
-    max_score = 95.0
+    max_score = 102.0
     score += 5 if check_map.get("Preis >= $15", False) else 0
-    score += 5 if check_map.get("Nahe am 52W-Hoch", False) else 0
+    score += 8 if check_map.get("Entfernung zum All-Time-High", False) else 0
+    score += 4 if check_map.get("Entfernung zum 52-Wochen-Hoch", False) else 0
     score += 5 if check_map.get("Dollar-Volumen >= $30 Mio.", False) else 0
     score += 10 if check_map.get("Up/Down Vol. Ratio >=1.0", False) else 0
 
@@ -793,6 +814,8 @@ def _build_drivers_and_warnings(
         "RS-Bewertung >=80",
         "RS-Linie steigt über 13 Wochen",
         "RS-Linie nahe 52W-Hoch",
+        "Entfernung zum All-Time-High",
+        "Entfernung zum 52-Wochen-Hoch",
         "Kurs über 200-SMA",
         "Kurs über 50-SMA",
         "MA-Ordnung (21>50>200)",

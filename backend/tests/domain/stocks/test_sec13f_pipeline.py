@@ -5,6 +5,7 @@ import pandas as pd
 from app.data_sources.sec13f_client import (
     SymbolRecord,
     aggregate_by_ticker,
+    append_override_meta_rows,
     build_cusip_mapping,
     build_outputs,
     load_default_overrides,
@@ -54,6 +55,60 @@ def test_sec13f_default_overrides_include_current_sandisk_cusip() -> None:
     overrides = load_default_overrides({"SNDK"})
 
     assert overrides["80004C200"] == "SNDK"
+
+
+def test_sec13f_override_meta_rows_allow_mapping_when_sec_meta_is_missing() -> None:
+    holdings = pd.DataFrame(
+        [
+            {
+                "period": "2025-12-31",
+                "CUSIP": "80004C200",
+                "CIK": "0000000001",
+                "value_usd": 15_000_000.0,
+                "shares": 250_000.0,
+                "is_large_holder": True,
+            },
+            {
+                "period": "2025-09-30",
+                "CUSIP": "80004C200",
+                "CIK": "0000000001",
+                "value_usd": 10_000_000.0,
+                "shares": 200_000.0,
+                "is_large_holder": True,
+            },
+        ]
+    )
+    overrides = load_default_overrides({"SNDK"})
+    meta = append_override_meta_rows(
+        pd.DataFrame(columns=["CUSIP", "issuer", "title"]),
+        holdings,
+        overrides,
+        {"SNDK"},
+    )
+
+    mapping, unmatched = build_cusip_mapping(meta, {"SNDK"}, records=[], overrides=overrides)
+    ticker_agg = aggregate_by_ticker(holdings, mapping, large_holder_min_value_usd=10_000_000)
+    payload, _ = build_outputs(
+        ticker_agg,
+        mapping,
+        holdings,
+        current_period="2025-12-31",
+        previous_period="2025-09-30",
+        metadata={"source": "test"},
+    )
+
+    assert unmatched.empty
+    assert mapping.to_dict(orient="records") == [
+        {
+            "cusip": "80004C200",
+            "ticker": "SNDK",
+            "issuer": "SNDK",
+            "title": "COM",
+            "method": "override",
+        }
+    ]
+    assert payload["tickers"]["SNDK"]["holder_count"] == 1
+    assert payload["tickers"]["SNDK"]["cusip"] == "80004C200"
 
 
 def test_sec13f_aggregate_outputs_stable_trend_payload() -> None:
@@ -194,6 +249,7 @@ def test_sec13f_ticker_breakdown_explains_matched_and_unmapped_tickers() -> None
                 "candidate_tickers": "",
             }
         ],
+        known_overrides={},
     )
 
     assert breakdown[0]["ticker"] == "NVDA"
@@ -201,3 +257,24 @@ def test_sec13f_ticker_breakdown_explains_matched_and_unmapped_tickers() -> None
     assert breakdown[0]["holder_count_delta"] == 1
     assert breakdown[1]["ticker"] == "SNDK"
     assert breakdown[1]["status"] == "no_cusip_mapping"
+
+
+def test_sec13f_ticker_breakdown_reports_known_cusip_missing_from_loaded_dataset() -> None:
+    breakdown = _ticker_breakdown(
+        universe=["SNDK"],
+        payload={"metadata": {"current_period": "2025-12-31", "previous_period": "2025-09-30"}, "tickers": {}},
+        mapping_rows=[],
+        unmatched_rows=[],
+        known_overrides=load_default_overrides({"SNDK"}),
+    )
+
+    assert breakdown == [
+        {
+            "ticker": "SNDK",
+            "status": "known_cusip_not_in_dataset",
+            "report_period": "2025-12-31",
+            "previous_period": "2025-09-30",
+            "cusip": "80004C200",
+            "reason": "Bekannte CUSIP(s) waren im geladenen 13F-Holdingsatz nicht enthalten.",
+        }
+    ]

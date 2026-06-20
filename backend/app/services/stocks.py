@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
 
 from app.domain.stocks.assessment import StockAssessmentResult, compute_stock_assessment
@@ -32,15 +32,10 @@ from app.schemas import (
     StockFundamentalsUpdateRequest,
 )
 
-
-ASSESSMENT_LOOKBACK_DAYS = 740
-
-
 def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
     clean = ticker.strip().upper()
-    start_date = date.today() - timedelta(days=ASSESSMENT_LOOKBACK_DAYS)
     try:
-        bars = price_repository.list_price_bars(clean, start_date=start_date)
+        bars = price_repository.list_price_bars(clean)
     except PriceRepositoryUnavailable:
         bars = []
 
@@ -96,9 +91,8 @@ def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingRe
 
     rows: list[StockAssessmentRankingItem] = []
     for rs_row in rs_rows:
-        start_date = date.today() - timedelta(days=ASSESSMENT_LOOKBACK_DAYS)
         try:
-            bars = price_repository.list_price_bars(rs_row.ticker, start_date=start_date)
+            bars = price_repository.list_price_bars(rs_row.ticker)
         except PriceRepositoryUnavailable:
             bars = []
         fundamentals_row = _safe_latest_fundamentals(rs_row.ticker)
@@ -238,9 +232,8 @@ def _safe_latest_13f(ticker: str) -> Institutional13FTrendRow | None:
 
 def _build_assessment_result(ticker: str) -> tuple[StockAssessmentResult, RsRatingRow | None, dict]:
     clean = ticker.strip().upper()
-    start_date = date.today() - timedelta(days=ASSESSMENT_LOOKBACK_DAYS)
     try:
-        bars = price_repository.list_price_bars(clean, start_date=start_date)
+        bars = price_repository.list_price_bars(clean)
     except PriceRepositoryUnavailable:
         bars = []
 

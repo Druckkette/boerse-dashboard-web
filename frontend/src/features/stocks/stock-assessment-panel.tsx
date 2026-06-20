@@ -85,10 +85,10 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Metric label="Letzter Schluss" value={money(assessment.metrics.last_close)} detail={pct(assessment.metrics.change_pct)} />
-        <Metric label="ATR" value={pct(assessment.metrics.atr_pct)} detail="21 Tage" />
+        <Metric label="ATR" value={pct(assessment.metrics.atr_pct)} detail={atrRegime(assessment.metrics.atr_pct)} />
         <Metric label="Dollar-Volumen" value={mio(assessment.metrics.dollar_volume_mio)} detail="20 Tage Ø" />
         <Metric label="RS-Rating" value={numberOrDash(assessment.metrics.rs_rating)} detail={pct(assessment.metrics.rs_percentile)} />
-        <Metric label="Beta" value={numberOrDash(assessment.metrics.beta)} detail="Fundamental-Cache" />
+        <Metric label="Beta" value={numberOrDash(assessment.metrics.beta)} detail={betaRegime(assessment.metrics.beta)} />
         <Metric
           label="13F-Halter"
           value={numberOrDash(assessment.fundamentals?.institutional_13f_holders)}
@@ -347,6 +347,22 @@ function money(value?: number | null) {
 function pct(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function atrRegime(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "21 Tage";
+  if (value < 2.5) return "Ruhig (<2,5%)";
+  if (value <= 4) return "Lebhaft (2,5-4%)";
+  if (value <= 8) return "Stürmisch (4-8%)";
+  return "Explosiv (>8%)";
+}
+
+function betaRegime(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "Fundamental-Cache";
+  if (value < 0.98) return "Defensiv (<0,98)";
+  if (value <= 1.02) return "Marktnah (0,98-1,02)";
+  if (value <= 2) return "Wachstumsorientiert (>1,03-2)";
+  return "Hochdynamisch (>2)";
 }
 
 function mio(value?: number | null) {

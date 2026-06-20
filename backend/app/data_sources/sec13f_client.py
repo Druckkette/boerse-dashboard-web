@@ -169,6 +169,7 @@ def build_institutional_13f_payload(
         ticker = normalize_ticker(raw_ticker)
         if cusip and ticker and ticker in tickers:
             overrides[cusip] = ticker
+    cusip_meta = append_override_meta_rows(cusip_meta, holdings, overrides, tickers)
     mapping, unmatched = build_cusip_mapping(cusip_meta, tickers, records, overrides)
 
     _emit(progress, 78, "Ticker-Trends berechnen", "13F-Halter und Werte werden je Ticker aggregiert.", {})
@@ -506,6 +507,26 @@ def build_cusip_mapping(
             )
 
     return pd.DataFrame(mapped_rows), pd.DataFrame(unmatched_rows)
+
+
+def append_override_meta_rows(
+    meta: pd.DataFrame,
+    holdings: pd.DataFrame,
+    overrides: dict[str, str],
+    universe: set[str],
+) -> pd.DataFrame:
+    if holdings.empty or not overrides:
+        return meta
+    known_meta = set(meta["CUSIP"].map(normalize_cusip)) if not meta.empty and "CUSIP" in meta.columns else set()
+    holding_cusips = set(holdings["CUSIP"].map(normalize_cusip)) if "CUSIP" in holdings.columns else set()
+    rows = [
+        {"CUSIP": cusip, "issuer": ticker, "title": "COM"}
+        for cusip, ticker in overrides.items()
+        if cusip in holding_cusips and cusip not in known_meta and (not universe or ticker in universe)
+    ]
+    if not rows:
+        return meta
+    return pd.concat([meta, pd.DataFrame(rows)], ignore_index=True)
 
 
 def aggregate_by_ticker(

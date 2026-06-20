@@ -55,6 +55,31 @@ def test_stock_assessment_flags_weak_position() -> None:
     assert any(signal.category == "negative" for signal in result.chart_signals)
 
 
+def test_stock_assessment_places_price_and_high_distance_in_technical_checks() -> None:
+    bars = _synthetic_bars(start_price=35, drift=0.004, volume=2_500_000)
+    prior_high = max(bar.high or 0 for bar in bars[:-1])
+    last = bars[-1]
+    close = round(prior_high * 1.02, 2)
+    bars[-1] = StockAssessmentBar(
+        date=last.date,
+        open=last.open,
+        high=round(close * 1.01, 2),
+        low=last.low,
+        close=close,
+        volume=last.volume,
+    )
+
+    result = compute_stock_assessment("HIGH", bars)
+    checks = {check.label: check for check in result.checks}
+
+    assert checks["Preis >= $15"].category == "technical"
+    assert checks["Entfernung zum All-Time-High"].category == "technical"
+    assert checks["Entfernung zum All-Time-High"].passed is True
+    assert checks["Entfernung zum 52-Wochen-Hoch"].category == "technical"
+    assert checks["Entfernung zum 52-Wochen-Hoch"].passed is True
+    assert "Nahe am 52W-Hoch" not in checks
+
+
 def test_stock_assessment_missing_payload_is_stable() -> None:
     result = compute_stock_assessment("MISS", [])
 

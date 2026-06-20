@@ -6,7 +6,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from app.data_sources.sec13f_client import build_institutional_13f_payload, normalize_ticker
+from app.data_sources.sec13f_client import (
+    build_institutional_13f_payload,
+    load_default_overrides,
+    normalize_ticker,
+)
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import sec13f as sec13f_repository
 from app.repositories import jobs as job_repository
@@ -84,12 +88,14 @@ def refresh_institutional_13f_from_sec(
         progress=progress_callback,
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT"),
     )
+    known_overrides = {**load_default_overrides(set(universe)), **manual_overrides}
     ingest_result = ingest_institutional_13f_payload(build_result.payload)
     ticker_breakdown = _ticker_breakdown(
         universe=universe,
         payload=build_result.payload,
         mapping_rows=build_result.mapping_rows,
         unmatched_rows=build_result.unmatched_rows,
+        known_overrides=known_overrides,
     )
     ingest_result.update(
         {
@@ -272,6 +278,7 @@ def _ticker_breakdown(
     payload: dict[str, Any],
     mapping_rows: list[dict[str, Any]],
     unmatched_rows: list[dict[str, Any]],
+    known_overrides: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     tickers_payload = payload.get("tickers") if isinstance(payload.get("tickers"), dict) else {}
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
@@ -280,6 +287,12 @@ def _ticker_breakdown(
         ticker = normalize_ticker(row.get("ticker"))
         if ticker:
             mapping_by_ticker.setdefault(ticker, []).append(row)
+    known_cusips_by_ticker: dict[str, list[str]] = {}
+    for cusip, ticker in (known_overrides or {}).items():
+        clean = normalize_ticker(ticker)
+        normalized_cusip = str(cusip or "").strip().upper()
+        if clean and normalized_cusip:
+            known_cusips_by_ticker.setdefault(clean, []).append(normalized_cusip)
     unmatched_by_candidate: dict[str, list[dict[str, Any]]] = {}
     for row in unmatched_rows:
         candidates = str(row.get("candidate_tickers") or "")
@@ -322,6 +335,19 @@ def _ticker_breakdown(
                     "previous_period": metadata.get("previous_period"),
                     "cusip": _join_unique(row.get("cusip") for row in mappings),
                     "reason": "CUSIP wurde gemappt, aber in der aktuellen 13F-Periode nicht aggregiert.",
+                }
+            )
+            continue
+        known_cusips = _join_unique(known_cusips_by_ticker.get(clean, []))
+        if known_cusips:
+            breakdown.append(
+                {
+                    "ticker": clean,
+                    "status": "known_cusip_not_in_dataset",
+                    "report_period": metadata.get("current_period"),
+                    "previous_period": metadata.get("previous_period"),
+                    "cusip": known_cusips,
+                    "reason": "Bekannte CUSIP(s) waren im geladenen 13F-Holdingsatz nicht enthalten.",
                 }
             )
             continue
