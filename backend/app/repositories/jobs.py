@@ -21,6 +21,7 @@ SUPPORTED_JOB_TYPES: set[str] = {
     "refresh_breadth",
     "refresh_relative_strength",
     "refresh_fundamentals",
+    "refresh_stock_detail",
     "refresh_sec13f",
     "refresh_universe",
     "position_atr_monitor",

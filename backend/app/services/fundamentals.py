@@ -57,8 +57,8 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
         quarterly_revenue_accelerating=result_fields["quarterly_revenue_accelerating"],
         institutional_holders=fetched.institutional_holders,
         institutional_ownership_pct=fetched.institutional_ownership_pct,
-        next_earnings_date=fetched.next_earnings_date,
-        beta=fetched.beta,
+        next_earnings_date=enrichment.next_earnings_date or fetched.next_earnings_date,
+        beta=enrichment.beta if enrichment.beta is not None else fetched.beta,
         metadata_json={
             "provider": "yfinance",
             "refresh_mode": "worker",
@@ -99,8 +99,14 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "annual_revenue_history": enrichment.annual_revenue_history,
         "institutional_holders": fetched.institutional_holders,
         "institutional_ownership_pct": fetched.institutional_ownership_pct,
-        "next_earnings_date": fetched.next_earnings_date.isoformat() if fetched.next_earnings_date else None,
-        "beta": fetched.beta,
+        "next_earnings_date": (
+            enrichment.next_earnings_date.isoformat()
+            if enrichment.next_earnings_date
+            else fetched.next_earnings_date.isoformat()
+            if fetched.next_earnings_date
+            else None
+        ),
+        "beta": enrichment.beta if enrichment.beta is not None else fetched.beta,
     }
 
 

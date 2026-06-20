@@ -243,6 +243,10 @@ export const api = {
     const payload = await getJson<{ jobs: Job[] }>("/jobs");
     return payload.jobs;
   },
+  job: async (jobId: string) => {
+    const payload = await getJson<{ job: Job }>(`/jobs/${jobId}`);
+    return payload.job;
+  },
   startJob: async (body: { type: JobType; payload?: Record<string, unknown> }) => {
     const payload = await postJson<{ job: Job }>("/jobs", {
       type: body.type,

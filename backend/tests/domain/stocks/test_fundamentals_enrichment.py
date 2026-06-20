@@ -7,9 +7,11 @@ import pandas as pd
 from app.data_sources.fundamentals_client import (
     FundamentalEnrichment,
     compute_fundamental_enrichment,
+    fetch_fmp_next_earnings_date,
+    fetch_fmp_profile,
     fetch_quarterly_fmp,
 )
-from app.data_sources.fmp_client import FMP_INCOME_STATEMENT_URL, FMP_RATIOS_TTM_URL
+from app.data_sources.fmp_client import FMP_EARNINGS_URL, FMP_INCOME_STATEMENT_URL, FMP_PROFILE_URL, FMP_RATIOS_TTM_URL
 from app.data_sources.yfinance_client import FetchedFundamentals
 from app.repositories.fundamentals import FundamentalSnapshotRow
 from app.services import fundamentals as fundamentals_service
@@ -153,6 +155,56 @@ def test_fetch_quarterly_fmp_returns_response_body_on_403(monkeypatch) -> None:
     assert "Legacy Endpoint" in note
 
 
+def test_fetch_fmp_profile_uses_stable_profile_endpoint(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class FakeResponse:
+        status_code = 200
+        text = "[]"
+
+        def json(self):
+            return [{"symbol": "SNDK", "companyName": "SanDisk Corporation", "beta": 1.42}]
+
+    import app.data_sources.fundamentals_client as fundamentals_client
+
+    def fake_get(url, *, params, timeout):
+        calls.append({"url": url, "params": params, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(fundamentals_client.requests, "get", fake_get)
+
+    profile, note = fetch_fmp_profile("sndk", "test-key")
+
+    assert note == "FMP Profile"
+    assert profile["beta"] == 1.42
+    assert calls == [{"url": FMP_PROFILE_URL, "params": {"symbol": "SNDK", "apikey": "test-key"}, "timeout": 10}]
+
+
+def test_fetch_fmp_next_earnings_date_uses_stable_earnings_endpoint(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class FakeResponse:
+        status_code = 200
+        text = "[]"
+
+        def json(self):
+            return [{"symbol": "SNDK", "date": "2099-08-05"}]
+
+    import app.data_sources.fundamentals_client as fundamentals_client
+
+    def fake_get(url, *, params, timeout):
+        calls.append({"url": url, "params": params, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(fundamentals_client.requests, "get", fake_get)
+
+    earnings_date, note = fetch_fmp_next_earnings_date("sndk", "test-key")
+
+    assert note == "FMP Earnings"
+    assert earnings_date == date(2099, 8, 5)
+    assert calls == [{"url": FMP_EARNINGS_URL, "params": {"symbol": "SNDK", "apikey": "test-key"}, "timeout": 10}]
+
+
 def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> None:
     fetched = FetchedFundamentals(
         ticker="NVDA",
@@ -169,7 +221,7 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         institutional_holders=120,
         institutional_ownership_pct=62.0,
         next_earnings_date=None,
-        beta=1.3,
+        beta=None,
     )
     enrichment = FundamentalEnrichment(
         source="fmp+sec",
@@ -215,6 +267,8 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
                 "revenue_growth_yoy_pct": 35.0,
             }
         ],
+        beta=1.42,
+        next_earnings_date=date(2026, 8, 5),
         metadata={"notes": ["FMP stable"]},
     )
 
@@ -237,6 +291,8 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         assert payload.trailing_eps == 8.1
         assert payload.roe_pct == 53.1
         assert payload.profit_margin_pct == 18.2
+        assert payload.beta == 1.42
+        assert payload.next_earnings_date == date(2026, 8, 5)
         assert payload.metadata_json["eps_quarter_history"][0]["eps_growth_yoy_pct"] == 60.0
         assert payload.metadata_json["annual_eps_history"][0]["eps_growth_yoy_pct"] == 44.0
         assert payload.metadata_json["revenue_quarter_history"][0]["revenue_growth_yoy_pct"] == 42.0
@@ -271,4 +327,6 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
     assert result["quarterly_revenue_growth_pct"] == 42.0
     assert result["annual_revenue_growth_pct"] == 35.0
     assert result["quarterly_eps_accelerating"] is True
+    assert result["beta"] == 1.42
+    assert result["next_earnings_date"] == "2026-08-05"
     assert result["enrichment_source"] == "fmp+sec"

@@ -1,19 +1,61 @@
 "use client";
 
-import { Building2, TrendingDown, TrendingUp } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Building2, Loader2, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { Institutional13FTrendItem, Tone } from "@/lib/types/api";
+import type { Institutional13FTrendItem, Job, Tone } from "@/lib/types/api";
 
 export function Institutional13FPanel({ ticker }: { ticker: string }) {
   const clean = ticker.toUpperCase();
+  const queryClient = useQueryClient();
+  const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
+  const handledRefreshJobId = useRef<string | null>(null);
   const query = useQuery({
     queryKey: ["institutional-13f", clean],
     queryFn: () => api.stockInstitutional13F(clean),
     staleTime: 5 * 60_000
   });
+  const refreshJobQuery = useQuery({
+    queryKey: ["job", refreshJobId],
+    queryFn: () => api.job(refreshJobId ?? ""),
+    enabled: Boolean(refreshJobId),
+    refetchInterval: (pollQuery) => {
+      const job = pollQuery.state.data as Job | undefined;
+      return job && isTerminalJob(job) ? false : 1500;
+    }
+  });
+  const refreshMutation = useMutation({
+    mutationFn: () =>
+      api.startJob({
+        type: "refresh_sec13f",
+        payload: {
+          mode: "stock_detail",
+          source: "stock_detail",
+          tickers: [clean],
+          limit_universe: 1,
+          dataset_count: 2
+        }
+      }),
+    onSuccess: (job) => {
+      setRefreshJobId(job.job_id);
+      handledRefreshJobId.current = null;
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    }
+  });
   const item = query.data?.item;
+  const refreshJob = refreshJobQuery.data;
+  const refreshRunning = Boolean(refreshJob && !isTerminalJob(refreshJob));
+
+  useEffect(() => {
+    if (!refreshJob || !isTerminalJob(refreshJob) || handledRefreshJobId.current === refreshJob.job_id) return;
+    handledRefreshJobId.current = refreshJob.job_id;
+    void queryClient.invalidateQueries({ queryKey: ["institutional-13f", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  }, [clean, queryClient, refreshJob]);
 
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -27,15 +69,43 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
             {item ? `${item.previous_period ?? "-"} bis ${item.report_period}` : "Noch keine gespeicherten 13F-Trends."}
           </p>
         </div>
-        <StatusChip tone={item ? toneForTrend(item.trend) : "warning"}>{item?.trend ?? "missing"}</StatusChip>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusChip tone={item ? toneForTrend(item.trend) : "warning"}>{item?.trend ?? "missing"}</StatusChip>
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={refreshMutation.isPending || refreshRunning}
+            type="button"
+            onClick={() => refreshMutation.mutate()}
+          >
+            {refreshMutation.isPending || refreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            {refreshRunning ? "13F läuft" : "13F für Aktie laden"}
+          </button>
+        </div>
       </div>
 
       {query.isLoading && <div className="text-sm text-[#a0a7b4]">Lädt...</div>}
       {query.isError && <div className="text-sm text-rose-200">13F-Trend konnte nicht geladen werden.</div>}
+      {refreshMutation.isError && (
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+          13F-Refresh konnte nicht gestartet werden. Prüfe, ob bereits ein Worker-Job läuft.
+        </div>
+      )}
+      {refreshJob?.status === "failed" && (
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+          {refreshJob.error_message || "13F-Refresh ist fehlgeschlagen."}
+        </div>
+      )}
+      {refreshJob && refreshJob.status !== "failed" ? (
+        <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100">
+          {refreshRunning
+            ? `${refreshJob.current_step || "13F-Refresh läuft"} · ${refreshJob.progress}%`
+            : "13F-Refresh wurde abgeschlossen. Die Detaildaten wurden neu geladen."}
+        </div>
+      ) : null}
       {!query.isLoading && !query.isError && !item && (
         <div className="rounded border border-dashed border-[#4b5563] bg-[#111419] p-5 text-sm text-[#a0a7b4]">
-          Starte den 13F/SEC-Job auf der Jobs-Seite. Der Worker lädt die offiziellen SEC-Datensätze
-          und speichert danach aggregierte Ticker-Trends.
+          Lade 13F direkt für {clean}. Der Worker nutzt die offiziellen SEC-Datensätze und speichert danach
+          aggregierte Ticker-Trends, sofern der Ticker im aktuellen 13F-Universum gefunden wird.
         </div>
       )}
       {item && (
@@ -82,6 +152,10 @@ function toneForTrend(trend: Institutional13FTrendItem["trend"]): Tone {
   if (trend === "negative") return "bad";
   if (trend === "neutral") return "neutral";
   return "warning";
+}
+
+function isTerminalJob(job: Job) {
+  return ["done", "failed", "skipped", "cancelled"].includes(job.status);
 }
 
 function number(value?: number | null) {

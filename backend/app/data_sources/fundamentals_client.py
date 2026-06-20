@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -8,7 +9,9 @@ import pandas as pd
 import requests
 
 from app.data_sources.fmp_client import (
+    FMP_EARNINGS_URL,
     FMP_INCOME_STATEMENT_URL,
+    FMP_PROFILE_URL,
     FMP_RATIOS_TTM_URL,
     compact_fmp_response_body,
 )
@@ -43,6 +46,8 @@ class FundamentalEnrichment:
     annual_eps_history: list[dict[str, Any]] = field(default_factory=list)
     revenue_quarter_history: list[dict[str, Any]] = field(default_factory=list)
     annual_revenue_history: list[dict[str, Any]] = field(default_factory=list)
+    beta: float | None = None
+    next_earnings_date: date | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -56,12 +61,20 @@ def fetch_fundamental_enrichment(
     clean = ticker.strip().upper()
     notes: list[str] = []
     raw: QuarterlyRaw | None = None
+    fmp_profile: dict[str, Any] = {}
+    fmp_next_earnings_date: date | None = None
 
     if fmp_api_key:
         fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout)
         if fmp_note:
             notes.append(fmp_note)
         raw = merge_quarterly_raw(fmp_raw, raw)
+        fmp_profile, fmp_profile_note = fetch_fmp_profile(clean, fmp_api_key, timeout=timeout)
+        if fmp_profile_note:
+            notes.append(fmp_profile_note)
+        fmp_next_earnings_date, fmp_earnings_note = fetch_fmp_next_earnings_date(clean, fmp_api_key, timeout=timeout)
+        if fmp_earnings_note:
+            notes.append(fmp_earnings_note)
     else:
         notes.append("FMP: kein API-Key")
 
@@ -73,7 +86,17 @@ def fetch_fundamental_enrichment(
     else:
         notes.append("SEC: kein User-Agent")
 
-    return compute_fundamental_enrichment(clean, raw, notes=notes)
+    enrichment = compute_fundamental_enrichment(clean, raw, notes=notes)
+    metadata = {
+        **enrichment.metadata,
+        "fmp_profile": _compact_metadata(fmp_profile),
+    }
+    return replace(
+        enrichment,
+        beta=_float_or_none(fmp_profile.get("beta")),
+        next_earnings_date=fmp_next_earnings_date,
+        metadata=metadata,
+    )
 
 
 def fetch_quarterly_fmp(
@@ -135,6 +158,76 @@ def fetch_quarterly_fmp(
         errors.append(f"{label}: Keine verwertbaren Quartalsdaten")
 
     return None, " | ".join(errors) if errors else "FMP: keine Quartalsdaten"
+
+
+def fetch_fmp_profile(
+    ticker: str,
+    api_key: str,
+    *,
+    timeout: int = 15,
+) -> tuple[dict[str, Any], str]:
+    if not api_key:
+        return {}, "FMP Profile: kein API-Key"
+    try:
+        response = requests.get(
+            FMP_PROFILE_URL,
+            params={"symbol": ticker.upper(), "apikey": api_key},
+            timeout=min(timeout, 10),
+        )
+    except requests.exceptions.Timeout:
+        return {}, "FMP Profile: Timeout"
+    except requests.exceptions.ConnectionError as exc:
+        return {}, f"FMP Profile: Verbindung {str(exc)[:60]}"
+    if response.status_code != 200:
+        body = compact_fmp_response_body(response)
+        return {}, f"FMP Profile: HTTP {response.status_code}" + (f" ({body})" if body else "")
+    try:
+        payload = response.json()
+    except ValueError:
+        return {}, "FMP Profile: Ungueltiges JSON"
+    item = payload[0] if isinstance(payload, list) and payload else payload if isinstance(payload, dict) else {}
+    if not isinstance(item, dict) or not item:
+        return {}, "FMP Profile: Leere Antwort"
+    return item, "FMP Profile"
+
+
+def fetch_fmp_next_earnings_date(
+    ticker: str,
+    api_key: str,
+    *,
+    timeout: int = 15,
+) -> tuple[date | None, str]:
+    if not api_key:
+        return None, "FMP Earnings: kein API-Key"
+    try:
+        response = requests.get(
+            FMP_EARNINGS_URL,
+            params={"symbol": ticker.upper(), "apikey": api_key},
+            timeout=min(timeout, 10),
+        )
+    except requests.exceptions.Timeout:
+        return None, "FMP Earnings: Timeout"
+    except requests.exceptions.ConnectionError as exc:
+        return None, f"FMP Earnings: Verbindung {str(exc)[:60]}"
+    if response.status_code != 200:
+        body = compact_fmp_response_body(response)
+        return None, f"FMP Earnings: HTTP {response.status_code}" + (f" ({body})" if body else "")
+    try:
+        payload = response.json()
+    except ValueError:
+        return None, "FMP Earnings: Ungueltiges JSON"
+    rows = payload if isinstance(payload, list) else [payload] if isinstance(payload, dict) else []
+    today = date.today()
+    dates = [
+        parsed
+        for row in rows
+        if isinstance(row, dict)
+        for parsed in [_parse_date(row.get("date") or row.get("epsDate") or row.get("fiscalDateEnding"))]
+        if parsed is not None and parsed >= today
+    ]
+    if not dates:
+        return None, "FMP Earnings: kein kommender Termin"
+    return min(dates), "FMP Earnings"
 
 
 def fetch_quarterly_sec_companyfacts(
@@ -628,3 +721,30 @@ def _float_or_none(value: Any) -> float | None:
     if pd.isna(number):
         return None
     return number
+
+
+def _parse_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()[:10]
+    for fmt in ("%Y-%m-%d", "%Y%m%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _compact_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "symbol",
+        "companyName",
+        "currency",
+        "exchangeShortName",
+        "industry",
+        "sector",
+        "beta",
+    }
+    return {key: value.get(key) for key in allowed if value.get(key) not in (None, "")}

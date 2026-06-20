@@ -1,12 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Clock3, Loader2, TriangleAlert } from "lucide-react";
+import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Clock3, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { PriceHistory, StockAssessment, WorkspaceState } from "@/lib/types/api";
+import type { Job, PriceHistory, StockAssessment, WorkspaceState } from "@/lib/types/api";
 
 const workspaceKey = ["workspace"];
 const portfolioSnapshotKey = ["portfolio-snapshot"];
@@ -16,6 +16,8 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   const clean = normalizeTicker(ticker);
   const queryClient = useQueryClient();
   const [positionSaved, setPositionSaved] = useState(false);
+  const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
+  const handledRefreshJobId = useRef<string | null>(null);
 
   const workspaceQuery = useQuery({ queryKey: workspaceKey, queryFn: api.workspace, staleTime: 30_000 });
   const assessmentQuery = useQuery({
@@ -29,6 +31,33 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     queryFn: () => api.stockPrices(clean, "1y"),
     enabled: Boolean(clean),
     staleTime: 60_000
+  });
+  const fundamentalsQuery = useQuery({
+    queryKey: ["stock-fundamentals", clean],
+    queryFn: () => api.stockFundamentals(clean),
+    enabled: Boolean(clean),
+    staleTime: 60_000
+  });
+  const rsQuery = useQuery({
+    queryKey: ["stock-rs", clean],
+    queryFn: () => api.stockRs(clean),
+    enabled: Boolean(clean),
+    staleTime: 60_000
+  });
+  const institutionalQuery = useQuery({
+    queryKey: ["institutional-13f", clean],
+    queryFn: () => api.stockInstitutional13F(clean),
+    enabled: Boolean(clean),
+    staleTime: 5 * 60_000
+  });
+  const refreshJobQuery = useQuery({
+    queryKey: ["job", refreshJobId],
+    queryFn: () => api.job(refreshJobId ?? ""),
+    enabled: Boolean(refreshJobId),
+    refetchInterval: (query) => {
+      const job = query.state.data as Job | undefined;
+      return job && isTerminalJob(job) ? false : 1500;
+    }
   });
 
   useEffect(() => {
@@ -87,9 +116,67 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
       queryClient.invalidateQueries({ queryKey: portfolioPositionsKey });
     }
   });
+  const refreshStockMutation = useMutation({
+    mutationFn: () =>
+      api.startJob({
+        type: "refresh_stock_detail",
+        payload: {
+          ticker: clean,
+          range: "2y",
+          benchmark_ticker: "SPY",
+          include_fundamentals: true,
+          include_rs: true,
+          include_13f: true,
+          incremental: true,
+          source: "stock_detail"
+        }
+      }),
+    onSuccess: (job) => {
+      setRefreshJobId(job.job_id);
+      handledRefreshJobId.current = null;
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    }
+  });
+
+  useEffect(() => {
+    const job = refreshJobQuery.data;
+    if (!job || !isTerminalJob(job) || handledRefreshJobId.current === job.job_id) return;
+    handledRefreshJobId.current = job.job_id;
+    void queryClient.invalidateQueries({ queryKey: ["stock-prices", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-fundamentals", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-rs", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["institutional-13f", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  }, [clean, queryClient, refreshJobQuery.data]);
 
   const loadingPrice = assessmentQuery.isLoading || priceQuery.isLoading;
   const canSavePosition = Boolean(clean && positionDefaults.price && !savePositionMutation.isPending);
+  const refreshJob = refreshJobQuery.data;
+  const refreshRunning = Boolean(refreshJob && !isTerminalJob(refreshJob));
+  const detailDataLoading =
+    priceQuery.isLoading || fundamentalsQuery.isLoading || rsQuery.isLoading || institutionalQuery.isLoading;
+  const detailDataMissing =
+    priceQuery.data?.source !== "database" ||
+    !fundamentalsQuery.data?.item ||
+    !rsQuery.data?.found ||
+    !institutionalQuery.data?.item;
+
+  useEffect(() => {
+    if (!clean || detailDataLoading || !detailDataMissing || refreshRunning || refreshStockMutation.isPending || refreshJobId) return;
+    const storageKey = `stock-detail-refresh:${clean}:${today()}`;
+    if (typeof window !== "undefined" && window.sessionStorage.getItem(storageKey)) return;
+    if (typeof window !== "undefined") window.sessionStorage.setItem(storageKey, "1");
+    refreshStockMutation.mutate();
+  }, [
+    clean,
+    detailDataLoading,
+    detailDataMissing,
+    refreshJobId,
+    refreshRunning,
+    refreshStockMutation
+  ]);
 
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -100,6 +187,9 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
             <StatusChip tone={isWatchlisted ? "good" : "neutral"}>{isWatchlisted ? "Watchlist" : "Nicht vorgemerkt"}</StatusChip>
             <StatusChip tone={positionDefaults.price ? "good" : loadingPrice ? "warning" : "bad"}>
               {positionDefaults.price ? "Kurs bereit" : loadingPrice ? "Kurs lädt" : "Kurs fehlt"}
+            </StatusChip>
+            <StatusChip tone={!detailDataMissing ? "good" : refreshRunning ? "warning" : "neutral"}>
+              {!detailDataMissing ? "Daten vollständig" : refreshRunning ? "Daten werden ergänzt" : "Daten fehlen"}
             </StatusChip>
             {positionSaved ? <StatusChip tone="good">Position vorgemerkt</StatusChip> : null}
           </div>
@@ -127,6 +217,15 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
             {savePositionMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <BriefcaseBusiness size={16} />}
             Als Position merken
           </button>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded border border-amber-300/40 bg-amber-300/10 px-4 py-2 text-sm text-amber-100 hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!clean || refreshStockMutation.isPending || refreshRunning}
+            type="button"
+            onClick={() => refreshStockMutation.mutate()}
+          >
+            {refreshStockMutation.isPending || refreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={16} />}
+            {refreshRunning ? "Daten laufen" : "Alle Daten aktualisieren"}
+          </button>
         </div>
       </div>
 
@@ -142,6 +241,30 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           <span>{errorText(addWatchlistMutation.error ?? savePositionMutation.error)}</span>
         </div>
       )}
+      {(refreshStockMutation.error || (refreshJob && refreshJob.status === "failed")) && (
+        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <span>{refreshJob?.error_message || errorText(refreshStockMutation.error)}</span>
+        </div>
+      )}
+      {refreshJob ? (
+        <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="font-medium">{refreshJob.current_step || "Aktien-Datenrefresh"}</div>
+              <div className="mt-1 text-xs leading-5 text-[#8e97a6]">
+                {refreshJob.message || "Kurse, RS, Fundamentals und 13F werden für diese Aktie aktualisiert."}
+              </div>
+            </div>
+            <StatusChip tone={refreshJob.status === "done" ? "good" : refreshJob.status === "failed" ? "bad" : "warning"}>
+              {refreshJob.progress}%
+            </StatusChip>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded bg-[#242a33]">
+            <div className="h-full rounded bg-amber-300" style={{ width: `${refreshJob.progress}%` }} />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -227,4 +350,8 @@ function money(value: number) {
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : "Aktion fehlgeschlagen. Die Oberfläche bleibt bedienbar.";
+}
+
+function isTerminalJob(job: Job) {
+  return ["done", "failed", "skipped", "cancelled"].includes(job.status);
 }

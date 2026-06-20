@@ -1261,6 +1261,7 @@ export type JobType =
   | "refresh_breadth"
   | "refresh_relative_strength"
   | "refresh_fundamentals"
+  | "refresh_stock_detail"
   | "refresh_universe"
   | "refresh_sec13f"
   | "position_atr_monitor"

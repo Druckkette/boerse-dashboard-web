@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { BarChart3, CalendarClock, Database, RefreshCw, TrendingUp } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type {
+  Job,
   StockFundamentalsAnnualEps,
   StockFundamentalsAnnualRevenue,
   StockFundamentalsEpsQuarter,
@@ -18,6 +19,8 @@ import type {
 export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
   const clean = ticker.toUpperCase();
   const queryClient = useQueryClient();
+  const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
+  const handledRefreshJobId = useRef<string | null>(null);
 
   const query = useQuery({
     queryKey: ["stock-fundamentals", clean],
@@ -26,6 +29,15 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
   });
 
   const item = query.data?.item ?? null;
+  const refreshJobQuery = useQuery({
+    queryKey: ["job", refreshJobId],
+    queryFn: () => api.job(refreshJobId ?? ""),
+    enabled: Boolean(refreshJobId),
+    refetchInterval: (pollQuery) => {
+      const job = pollQuery.state.data as Job | undefined;
+      return job && isTerminalJob(job) ? false : 1500;
+    }
+  });
   const scorePreview = useMemo(() => previewFundamentalScore(item), [item]);
   const earningsTone = useMemo(() => toneForEarnings(item?.next_earnings_date), [item?.next_earnings_date]);
 
@@ -36,18 +48,27 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
         payload: {
           tickers: [clean],
           include_holders: true,
+          incremental: false,
           source: "stock_detail"
         }
       }),
-    onSuccess: () => {
+    onSuccess: (job) => {
+      setRefreshJobId(job.job_id);
+      handledRefreshJobId.current = null;
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      window.setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: ["stock-fundamentals", clean] });
-        void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
-        void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
-      }, 1200);
     }
   });
+  const refreshJob = refreshJobQuery.data;
+  const refreshRunning = Boolean(refreshJob && !isTerminalJob(refreshJob));
+
+  useEffect(() => {
+    if (!refreshJob || !isTerminalJob(refreshJob) || handledRefreshJobId.current === refreshJob.job_id) return;
+    handledRefreshJobId.current = refreshJob.job_id;
+    void queryClient.invalidateQueries({ queryKey: ["stock-fundamentals", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
+    void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  }, [clean, queryClient, refreshJob]);
 
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -68,12 +89,12 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
           <StatusChip tone={toneForScore(scorePreview)}>{Math.round(scorePreview)}/100</StatusChip>
           <button
             className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={refreshMutation.isPending}
+            disabled={refreshMutation.isPending || refreshRunning}
             onClick={() => refreshMutation.mutate()}
             type="button"
           >
-            <RefreshCw className={`size-4 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-            {refreshMutation.isPending ? "Job startet" : "Fundamentals aktualisieren"}
+            <RefreshCw className={`size-4 ${refreshMutation.isPending || refreshRunning ? "animate-spin" : ""}`} />
+            {refreshMutation.isPending ? "Job startet" : refreshRunning ? "Job läuft" : "Fundamentals aktualisieren"}
           </button>
         </div>
       </div>
@@ -88,9 +109,16 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
           Fundamental-Refresh konnte nicht gestartet werden. Prüfe Backend, Worker und Job-Seite.
         </div>
       )}
+      {refreshJob?.status === "failed" && (
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+          {refreshJob.error_message || "Fundamental-Refresh ist fehlgeschlagen."}
+        </div>
+      )}
       {refreshMutation.isSuccess && (
         <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100">
-          Fundamental-Refresh wurde als Worker-Job gestartet. Die Detaildaten aktualisieren sich nach Abschluss.
+          {refreshRunning
+            ? `${refreshJob?.current_step || "Fundamental-Refresh läuft"} · ${refreshJob?.progress ?? 0}%`
+            : "Fundamental-Refresh wurde abgeschlossen. Die Detaildaten wurden neu geladen."}
         </div>
       )}
 
@@ -194,6 +222,10 @@ function EmptyFundamentals({ ticker }: { ticker: string }) {
       </p>
     </div>
   );
+}
+
+function isTerminalJob(job: Job) {
+  return ["done", "failed", "skipped", "cancelled"].includes(job.status);
 }
 
 function MetricTile({
