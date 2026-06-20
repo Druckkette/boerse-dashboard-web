@@ -11,7 +11,13 @@ from app.data_sources.fundamentals_client import (
     fetch_fmp_profile,
     fetch_quarterly_fmp,
 )
-from app.data_sources.fmp_client import FMP_EARNINGS_URL, FMP_INCOME_STATEMENT_URL, FMP_PROFILE_URL, FMP_RATIOS_TTM_URL
+from app.data_sources.fmp_client import (
+    FMP_BALANCE_SHEET_URL,
+    FMP_EARNINGS_URL,
+    FMP_INCOME_STATEMENT_URL,
+    FMP_PROFILE_URL,
+    FMP_RATIOS_TTM_URL,
+)
 from app.data_sources.yfinance_client import FetchedFundamentals
 from app.repositories.fundamentals import FundamentalSnapshotRow
 from app.services import fundamentals as fundamentals_service
@@ -110,7 +116,7 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
 
     def fake_get(url, *, params, timeout):
         calls.append({"url": url, "params": params, "timeout": timeout})
-        if url == FMP_INCOME_STATEMENT_URL:
+        if url == FMP_INCOME_STATEMENT_URL and params.get("period") == "quarter":
             return FakeResponse(
                 [
                     {
@@ -119,6 +125,20 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
                         "revenue": 240.0,
                         "netIncome": 48.0,
                     }
+                ]
+            )
+        if url == FMP_INCOME_STATEMENT_URL and params.get("period") == "annual":
+            return FakeResponse(
+                [
+                    {"date": "2025-12-31", "epsDiluted": 7.2, "revenue": 1350.0, "netIncome": 255.0},
+                    {"date": "2024-12-31", "epsDiluted": 5.0, "revenue": 1000.0, "netIncome": 160.0},
+                ]
+            )
+        if url == FMP_BALANCE_SHEET_URL:
+            return FakeResponse(
+                [
+                    {"date": "2025-12-31", "totalStockholdersEquity": 900.0},
+                    {"date": "2024-12-31", "totalStockholdersEquity": 700.0},
                 ]
             )
         return FakeResponse([{"returnOnEquityTTM": 0.34, "netProfitMarginTTM": 0.18}])
@@ -131,9 +151,18 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
 
     assert raw is not None
     assert note == "FMP stable"
-    assert [call["url"] for call in calls] == [FMP_INCOME_STATEMENT_URL, FMP_RATIOS_TTM_URL]
-    assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 20, "apikey": "test-key"}
-    assert calls[1]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
+    assert [call["url"] for call in calls] == [
+        FMP_INCOME_STATEMENT_URL,
+        FMP_INCOME_STATEMENT_URL,
+        FMP_BALANCE_SHEET_URL,
+        FMP_RATIOS_TTM_URL,
+    ]
+    assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 40, "apikey": "test-key"}
+    assert calls[1]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
+    assert calls[2]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
+    assert calls[3]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
+    assert "AnnualDilutedEPS" in raw
+    assert "AnnualStockholdersEquity" in raw
 
 
 def test_fetch_quarterly_fmp_returns_response_body_on_403(monkeypatch) -> None:
@@ -267,6 +296,14 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
                 "revenue_growth_yoy_pct": 35.0,
             }
         ],
+        roe_history=[
+            {
+                "fiscal_year": "2025",
+                "roe_pct": 28.3,
+                "net_income": 255.0,
+                "shareholders_equity": 900.0,
+            }
+        ],
         beta=1.42,
         next_earnings_date=date(2026, 8, 5),
         metadata={"notes": ["FMP stable"]},
@@ -297,6 +334,7 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         assert payload.metadata_json["annual_eps_history"][0]["eps_growth_yoy_pct"] == 44.0
         assert payload.metadata_json["revenue_quarter_history"][0]["revenue_growth_yoy_pct"] == 42.0
         assert payload.metadata_json["annual_revenue_history"][0]["revenue_growth_yoy_pct"] == 35.0
+        assert payload.metadata_json["roe_history"][0]["roe_pct"] == 28.3
         return FundamentalSnapshotRow(
             ticker="NVDA",
             as_of=payload.as_of,

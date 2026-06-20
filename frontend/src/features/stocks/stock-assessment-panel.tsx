@@ -90,15 +90,17 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
         <Metric label="RS-Rating" value={numberOrDash(assessment.metrics.rs_rating)} detail={pct(assessment.metrics.rs_percentile)} />
         <Metric label="Beta" value={numberOrDash(assessment.metrics.beta)} detail="Fundamental-Cache" />
         <Metric
-          label="Inst. gehalten"
+          label="Inst. Anteil"
           value={pctPlain(assessment.metrics.institutional_ownership_pct)}
-          detail={assessment.fundamentals?.institutional_holders ? `${assessment.fundamentals.institutional_holders} Halter` : "13F/Fundamentals"}
+          detail={institutionMetricDetail(assessment)}
         />
-        <Metric
-          label="Earnings"
-          value={assessment.earnings?.trading_days !== undefined && assessment.earnings?.trading_days !== null ? `${assessment.earnings.trading_days} HT` : "-"}
-          detail={assessment.earnings?.next_earnings_date ?? "kein Termin"}
-        />
+        {assessment.earnings && (
+          <Metric
+            label="Earnings"
+            value={assessment.earnings.trading_days !== undefined && assessment.earnings.trading_days !== null ? `${assessment.earnings.trading_days} HT` : "-"}
+            detail={assessment.earnings.next_earnings_date ?? "kein Termin"}
+          />
+        )}
       </div>
 
       {assessment.earnings && (
@@ -298,6 +300,25 @@ function groupSignals(signals: StockAssessmentSignal[]) {
     negative: signals.filter((signal) => signal.category === "negative"),
     neutral: signals.filter((signal) => signal.category === "neutral")
   };
+}
+
+function institutionMetricDetail(assessment: StockAssessment) {
+  const parts = ["institutionell gehaltener Aktienanteil"];
+  const fundamentals = assessment.fundamentals;
+  if (typeof fundamentals?.institutional_holders === "number") {
+    parts.push(`${fundamentals.institutional_holders} Provider-Halter`);
+  }
+  if (typeof fundamentals?.institutional_holders_delta === "number") {
+    parts.push(`13F-Halter ${signedInteger(fundamentals.institutional_holders_delta)}`);
+  }
+  if (typeof fundamentals?.institutional_large_holders === "number") {
+    parts.push(`große 13F ${fundamentals.institutional_large_holders}`);
+  }
+  return parts.join(" · ");
+}
+
+function signedInteger(value: number) {
+  return `${value >= 0 ? "+" : ""}${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value)}`;
 }
 
 function toneForScore(value: number): Tone {

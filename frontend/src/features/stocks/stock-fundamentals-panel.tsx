@@ -13,6 +13,7 @@ import type {
   StockFundamentalsEpsQuarter,
   StockFundamentalsItem,
   StockFundamentalsRevenueQuarter,
+  StockFundamentalsRoeYear,
   Tone
 } from "@/lib/types/api";
 
@@ -40,6 +41,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
   });
   const scorePreview = useMemo(() => previewFundamentalScore(item), [item]);
   const earningsTone = useMemo(() => toneForEarnings(item?.next_earnings_date), [item?.next_earnings_date]);
+  const hasEarningsDate = Boolean(item?.next_earnings_date);
 
   const refreshMutation = useMutation({
     mutationFn: () =>
@@ -128,12 +130,14 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <MetricTile label="Stichtag" value={item?.as_of || "n/a"} detail={item?.fiscal_period || "Keine Periode"} />
-            <MetricTile label="ROE" value={formatPct(item?.roe_pct)} detail="Zielbereich ab 17%" tone={thresholdTone(item?.roe_pct, 17)} />
+            <MetricTile label="ROE" value={formatPct(item?.roe_pct)} detail={roeHistoryDetail(item)} tone={roeHistoryTone(item?.roe_history ?? [], item?.roe_pct)} />
             <MetricTile label="Gewinnmarge" value={formatPct(item?.profit_margin_pct)} detail="Positiv ist Pflicht" tone={thresholdTone(item?.profit_margin_pct, 0, true)} />
             <MetricTile label="Summe EPS 4Q" value={formatNumber(item?.trailing_eps)} detail="Muss über 0 liegen" tone={(item?.trailing_eps ?? -Infinity) > 0 ? "good" : "warning"} />
-            <MetricTile label="Institutionen" value={formatInteger(item?.institutional_holders)} detail={formatPct(item?.institutional_ownership_pct, "gehalten")} />
+            <MetricTile label="Institutionen" value={formatInteger(item?.institutional_holders)} detail={institutionDetail(item)} />
             <MetricTile label="Beta" value={formatNumber(item?.beta)} detail="Risikokontext" />
-            <MetricTile label="Nächste Earnings" value={item?.next_earnings_date || "n/a"} detail={earningsHint(item?.next_earnings_date)} tone={earningsTone} />
+            {hasEarningsDate && (
+              <MetricTile label="Nächste Earnings" value={item?.next_earnings_date || "n/a"} detail={earningsHint(item?.next_earnings_date)} tone={earningsTone} />
+            )}
             <MetricTile label="Kurzfelder" value={formatPct(item?.quarterly_eps_growth_pct)} detail={`EPS Q · Umsatz Q ${formatPct(item?.quarterly_revenue_growth_pct)}`} />
           </div>
 
@@ -194,12 +198,14 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
               value={accelerationLabel(revenueAcceleration(item?.revenue_quarter_history ?? [], item?.quarterly_revenue_accelerating))}
               detail="Bonus: Umsatzwachstum steigt über die letzten Quartale."
             />
-            <RuleTile
-              label="Earnings-Risiko"
-              tone={earningsTone}
-              value={item?.next_earnings_date || "kein Termin"}
-              detail={earningsHint(item?.next_earnings_date)}
-            />
+            {hasEarningsDate && (
+              <RuleTile
+                label="Earnings-Risiko"
+                tone={earningsTone}
+                value={item?.next_earnings_date || "kein Termin"}
+                detail={earningsHint(item?.next_earnings_date)}
+              />
+            )}
           </div>
 
           <div className="flex items-center gap-2 border-t border-[#242a33] pt-4 text-sm text-[#a0a7b4]">
@@ -305,7 +311,10 @@ function HistoryPanel({
 }
 
 function EpsQuarterTable({ history }: { history: StockFundamentalsEpsQuarter[] }) {
-  const rows = padEpsHistory(history);
+  const rows = comparableEpsHistory(history);
+  if (rows.length === 0) {
+    return <EmptyHistoryTable message="Keine vollständigen EPS-Quartalsvergleiche gespeichert." />;
+  }
   return (
     <HistoryTable
       columns={["Quartal", "EPS", "Vorjahr", "YoY", "Status"]}
@@ -324,7 +333,10 @@ function EpsQuarterTable({ history }: { history: StockFundamentalsEpsQuarter[] }
 }
 
 function AnnualEpsTable({ history }: { history: StockFundamentalsAnnualEps[] }) {
-  const rows = padAnnualEpsHistory(history);
+  const rows = comparableAnnualEpsHistory(history);
+  if (rows.length === 0) {
+    return <EmptyHistoryTable message="Keine vollständigen EPS-Jahresvergleiche gespeichert." />;
+  }
   return (
     <HistoryTable
       columns={["Jahr", "EPS", "Vorjahr", "YoY", "Status"]}
@@ -343,7 +355,10 @@ function AnnualEpsTable({ history }: { history: StockFundamentalsAnnualEps[] }) 
 }
 
 function RevenueQuarterTable({ history }: { history: StockFundamentalsRevenueQuarter[] }) {
-  const rows = padRevenueHistory(history);
+  const rows = comparableRevenueHistory(history);
+  if (rows.length === 0) {
+    return <EmptyHistoryTable message="Keine vollständigen Umsatz-Quartalsvergleiche gespeichert." />;
+  }
   return (
     <HistoryTable
       columns={["Quartal", "Umsatz", "Vorjahr", "YoY", "Status"]}
@@ -362,7 +377,10 @@ function RevenueQuarterTable({ history }: { history: StockFundamentalsRevenueQua
 }
 
 function AnnualRevenueTable({ history }: { history: StockFundamentalsAnnualRevenue[] }) {
-  const rows = padAnnualRevenueHistory(history);
+  const rows = comparableAnnualRevenueHistory(history);
+  if (rows.length === 0) {
+    return <EmptyHistoryTable message="Keine vollständigen Umsatz-Jahresvergleiche gespeichert." />;
+  }
   return (
     <HistoryTable
       columns={["Jahr", "Umsatz", "Vorjahr", "YoY", "Status"]}
@@ -377,6 +395,15 @@ function AnnualRevenueTable({ history }: { history: StockFundamentalsAnnualReven
         ];
       })}
     />
+  );
+}
+
+function EmptyHistoryTable({ message }: { message: string }) {
+  return (
+    <div className="rounded border border-dashed border-[#343b47] bg-[#0d1117] px-3 py-4 text-sm leading-6 text-[#a0a7b4]">
+      {message} Der Worker lädt mehr Historie; bei jungen Aktien, Spin-offs oder fehlenden Provider-Daten kann der
+      Vorjahresvergleich trotzdem fehlen.
+    </div>
   );
 }
 
@@ -428,10 +455,14 @@ function previewFundamentalScore(item: StockFundamentalsItem | null) {
     revenueHistoryScore(item.revenue_quarter_history),
     revenueAcceleration(item.revenue_quarter_history, item.quarterly_revenue_accelerating) === true ? 1 : 0,
     annualRevenueHistoryScore(item.annual_revenue_history),
-    (item.roe_pct ?? -Infinity) >= 17 ? 1 : 0,
+    roeHistoryScore(item.roe_history ?? [], item.roe_pct),
     (item.profit_margin_pct ?? -Infinity) > 0 ? 1 : 0
   ];
   return (checks.reduce((sum, value) => sum + value, 0) / checks.length) * 100;
+}
+
+function comparableEpsHistory(history: StockFundamentalsEpsQuarter[]) {
+  return history.slice(0, 3).filter((item) => computeEpsGrowth(item) !== null);
 }
 
 function padEpsHistory(history: StockFundamentalsEpsQuarter[]) {
@@ -475,6 +506,10 @@ function epsHistorySummary(history: StockFundamentalsEpsQuarter[]) {
   return `${passed}/3 >=20%`;
 }
 
+function comparableAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
+  return history.slice(0, 3).filter((item) => computeAnnualEpsGrowth(item) !== null);
+}
+
 function padAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
   const rows = history.slice(0, 3).map((item) => ({
     fiscal_year: item.fiscal_year ?? "",
@@ -514,6 +549,10 @@ function annualEpsHistorySummary(history: StockFundamentalsAnnualEps[]) {
   const passed = valid.filter((value) => value >= 20).length;
   if (valid.length < 3) return `${valid.length}/3 verfügbar`;
   return `${passed}/3 >=20%`;
+}
+
+function comparableRevenueHistory(history: StockFundamentalsRevenueQuarter[]) {
+  return history.slice(0, 3).filter((item) => computeRevenueGrowth(item) !== null);
 }
 
 function padRevenueHistory(history: StockFundamentalsRevenueQuarter[]) {
@@ -557,6 +596,10 @@ function revenueHistorySummary(history: StockFundamentalsRevenueQuarter[]) {
   return `${passed}/3 >=20%`;
 }
 
+function comparableAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
+  return history.slice(0, 3).filter((item) => computeAnnualRevenueGrowth(item) !== null);
+}
+
 function padAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
   const rows = history.slice(0, 3).map((item) => ({
     fiscal_year: item.fiscal_year ?? "",
@@ -575,6 +618,48 @@ function padAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
     });
   }
   return rows;
+}
+
+function roeHistoryScore(history: StockFundamentalsRoeYear[], currentRoe?: number | null) {
+  const rows = history.slice(0, 3);
+  if (rows.length > 0) {
+    const passed = rows.filter((item) => typeof item.roe_pct === "number" && item.roe_pct >= 17).length;
+    return passed / 3;
+  }
+  return (currentRoe ?? -Infinity) >= 17 ? 1 / 3 : 0;
+}
+
+function roeHistoryTone(history: StockFundamentalsRoeYear[], currentRoe?: number | null): Tone {
+  const score = roeHistoryScore(history, currentRoe);
+  if (score >= 1) return "good";
+  if (score > 0) return "warning";
+  return "neutral";
+}
+
+function roeHistoryDetail(item: StockFundamentalsItem | null) {
+  if (!item) return "3 Jahre jeweils >=17%";
+  const rows = (item.roe_history ?? []).slice(0, 3).filter((entry) => typeof entry.roe_pct === "number");
+  if (rows.length > 0) {
+    const passed = rows.filter((entry) => typeof entry.roe_pct === "number" && entry.roe_pct >= 17).length;
+    return `${passed}/3 Jahre >=17%${rows.length < 3 ? ` · ${rows.length}/3 verfügbar` : ""}`;
+  }
+  if (typeof item.roe_pct === "number") return `nur aktueller ROE · Ziel 3 Jahre >=17%`;
+  return "3 Jahre jeweils >=17%";
+}
+
+function institutionDetail(item: StockFundamentalsItem | null) {
+  if (!item) return "Anteil institutionell gehaltener Aktien";
+  const parts = [formatPct(item.institutional_ownership_pct, "institutionell gehalten")];
+  if (typeof item.institutional_holders_delta === "number") {
+    parts.push(`13F-Halter ${signedInteger(item.institutional_holders_delta)}`);
+  }
+  if (typeof item.institutional_large_holders === "number") {
+    parts.push(`große 13F ${formatInteger(item.institutional_large_holders)}`);
+  }
+  if (item.institutional_report_period) {
+    parts.push(item.institutional_report_period);
+  }
+  return parts.filter((part) => part && part !== "n/a").join(" · ") || "Anteil institutionell gehaltener Aktien";
 }
 
 function annualRevenueHistoryScore(history: StockFundamentalsAnnualRevenue[]) {
@@ -685,6 +770,10 @@ function formatNumber(value?: number | null) {
 function formatInteger(value?: number | null) {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
   return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value);
+}
+
+function signedInteger(value: number) {
+  return `${value >= 0 ? "+" : ""}${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value)}`;
 }
 
 function formatLargeNumber(value?: number | null) {

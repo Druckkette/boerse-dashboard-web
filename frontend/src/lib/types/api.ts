@@ -827,6 +827,14 @@ export type StockFundamentalsAnnualRevenue = {
   flag?: string | null;
 };
 
+export type StockFundamentalsRoeYear = {
+  fiscal_year: string;
+  roe_pct?: number | null;
+  net_income?: number | null;
+  shareholders_equity?: number | null;
+  flag?: string | null;
+};
+
 export type StockFundamentalsItem = {
   ticker: string;
   as_of: string;
@@ -842,6 +850,10 @@ export type StockFundamentalsItem = {
   quarterly_eps_accelerating?: boolean | null;
   quarterly_revenue_accelerating?: boolean | null;
   institutional_holders?: number | null;
+  institutional_holders_delta?: number | null;
+  institutional_large_holders?: number | null;
+  institutional_large_holders_delta?: number | null;
+  institutional_report_period?: string | null;
   institutional_ownership_pct?: number | null;
   next_earnings_date?: string | null;
   beta?: number | null;
@@ -849,6 +861,7 @@ export type StockFundamentalsItem = {
   annual_eps_history: StockFundamentalsAnnualEps[];
   revenue_quarter_history: StockFundamentalsRevenueQuarter[];
   annual_revenue_history: StockFundamentalsAnnualRevenue[];
+  roe_history: StockFundamentalsRoeYear[];
 };
 
 export type StockFundamentals = {
@@ -878,6 +891,7 @@ export type StockFundamentalsUpdate = {
   annual_eps_history?: StockFundamentalsAnnualEps[];
   revenue_quarter_history?: StockFundamentalsRevenueQuarter[];
   annual_revenue_history?: StockFundamentalsAnnualRevenue[];
+  roe_history?: StockFundamentalsRoeYear[];
 };
 
 export type StockEarningsWarning = {

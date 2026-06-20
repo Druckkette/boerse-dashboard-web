@@ -149,6 +149,7 @@ def compute_stock_assessment(
     rs = dict(rs_context or {})
     fundamentals = dict(fundamentals_context or {})
     institutional = dict(institutional_context or {})
+    fundamentals = _merge_institutional_fields(fundamentals, institutional)
     technical_checks, cmf_value = evaluate_technicals(df, rs_context=rs)
     fundamental_checks, fundamental_score, fundamentals_available = evaluate_fundamentals_context(
         fundamentals,
@@ -417,15 +418,8 @@ def evaluate_fundamentals_context(
     annual_revenue_history = _normalize_annual_revenue_history(fundamentals.get("annual_revenue_history"))
     checks.append(_revenue_three_year_growth_check(annual_revenue_history))
 
-    roe = _safe_float(fundamentals.get("roe_pct"))
-    checks.append(
-        AssessmentCheck(
-            category="fundamental",
-            label="ROE >=17%",
-            passed=roe is not None and roe >= 17.0,
-            detail=f"{roe:.1f}%" if roe is not None else "Nicht verfügbar",
-        )
-    )
+    roe_history = _normalize_roe_history(fundamentals.get("roe_history"))
+    checks.append(_roe_three_year_check(roe_history, current_roe=_safe_float(fundamentals.get("roe_pct"))))
 
     margin = _safe_float(fundamentals.get("profit_margin_pct"))
     checks.append(
@@ -752,12 +746,6 @@ def _fundamental_checklist_score_100(
     check_map = {check.label: bool(check.passed) for check in checks}
     unit = 100.0 / 9.0
 
-    def tiered_pct(key: str, *, minimum: float, stretch: float) -> float:
-        value = _safe_float(fundamentals_context.get(key))
-        if value is None or value < minimum:
-            return 0.0
-        return unit * min((value - minimum) / max(stretch - minimum, 1e-9), 1.0)
-
     score = 0.0
     score += _eps_three_quarter_score(fundamentals_context, unit=unit)
     score += unit if check_map.get("Bonus: EPS-Beschleunigung letzte 3 Quartale", False) else 0.0
@@ -766,7 +754,7 @@ def _fundamental_checklist_score_100(
     score += _revenue_three_quarter_score(fundamentals_context, unit=unit)
     score += unit if check_map.get("Bonus: Umsatz-Beschleunigung letzte 3 Quartale", False) else 0.0
     score += _revenue_three_year_score(fundamentals_context, unit=unit)
-    score += tiered_pct("roe_pct", minimum=17.0, stretch=35.0)
+    score += _roe_three_year_score(fundamentals_context, unit=unit)
 
     margin = _safe_float(fundamentals_context.get("profit_margin_pct"))
     if margin is not None and margin > 0:
@@ -817,7 +805,7 @@ def _build_drivers_and_warnings(
         "Summe EPS letzte 4 Quartale > 0",
         "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY",
         "Umsatz-Wachstum letzte 3 Jahre jeweils >=20% YoY",
-        "ROE >=17%",
+        "ROE >=17% über letzte 3 Jahre",
         "Gewinnmarge positiv",
         "Institutionelle Unterstützung",
     }
@@ -1004,6 +992,43 @@ def _revenue_three_year_score(fundamentals_context: Mapping[str, Any], *, unit: 
     return unit * (passed_count / 3.0)
 
 
+def _roe_three_year_check(history: list[dict[str, Any]], *, current_roe: float | None) -> AssessmentCheck:
+    latest_three = history[:3]
+    values = [_safe_float(item.get("roe_pct")) for item in latest_three]
+    valid_values = [value for value in values if value is not None]
+    below = [
+        _roe_year_label(item, index)
+        for index, (item, value) in enumerate(zip(latest_three, values, strict=False), start=1)
+        if value is not None and value < 17.0
+    ]
+    invalid = [
+        _roe_year_label(item, index)
+        for index, (item, value) in enumerate(zip(latest_three, values, strict=False), start=1)
+        if value is None
+    ]
+    passed = len(latest_three) >= 3 and len(valid_values) >= 3 and not below
+    detail = _roe_history_detail(latest_three, values, below=below, invalid=invalid, current_roe=current_roe)
+    severity: Literal["info", "warning", "critical"] = "warning" if below or (latest_three and invalid) else "info"
+    return AssessmentCheck(
+        category="fundamental",
+        label="ROE >=17% über letzte 3 Jahre",
+        passed=passed,
+        detail=detail,
+        severity=severity,
+    )
+
+
+def _roe_three_year_score(fundamentals_context: Mapping[str, Any], *, unit: float) -> float:
+    history = _normalize_roe_history(fundamentals_context.get("roe_history"))
+    latest_three = history[:3]
+    if latest_three:
+        values = [_safe_float(item.get("roe_pct")) for item in latest_three]
+        passed_count = sum(1 for value in values if value is not None and value >= 17.0)
+        return unit * (passed_count / 3.0)
+    current_roe = _safe_float(fundamentals_context.get("roe_pct"))
+    return unit / 3.0 if current_roe is not None and current_roe >= 17.0 else 0.0
+
+
 def _normalize_eps_quarter_history(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -1098,6 +1123,26 @@ def _normalize_annual_revenue_history(value: Any) -> list[dict[str, Any]]:
                 "revenue_current_year": current,
                 "revenue_previous_year": previous,
                 "revenue_growth_yoy_pct": growth,
+                "flag": item.get("flag"),
+            }
+        )
+    return history[:3]
+
+
+def _normalize_roe_history(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    history: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        fiscal_year = str(item.get("fiscal_year") or item.get("label") or item.get("year") or "").strip()
+        history.append(
+            {
+                "fiscal_year": fiscal_year,
+                "roe_pct": _safe_float(item.get("roe_pct", item.get("growth_pct"))),
+                "net_income": _safe_float(item.get("net_income", item.get("current"))),
+                "shareholders_equity": _safe_float(item.get("shareholders_equity", item.get("previous"))),
                 "flag": item.get("flag"),
             }
         )
@@ -1228,6 +1273,30 @@ def _revenue_annual_history_detail(
     return f"{prefix} · alle >=20%"
 
 
+def _roe_history_detail(
+    latest_three: list[dict[str, Any]],
+    values: list[float | None],
+    *,
+    below: list[str],
+    invalid: list[str],
+    current_roe: float | None,
+) -> str:
+    if len(latest_three) < 3:
+        prefix = _format_roe_history_values(latest_three, values)
+        fallback = f" · aktueller ROE {current_roe:.1f}%" if current_roe is not None else ""
+        if prefix:
+            return f"{prefix} · nur {len(latest_three)}/3 Jahre verfügbar{fallback}"
+        if current_roe is not None:
+            return f"Keine ROE-Jahreshistorie gespeichert · aktueller ROE {current_roe:.1f}%"
+        return "Nicht verfügbar: keine ROE-Jahreshistorie gespeichert"
+    prefix = _format_roe_history_values(latest_three, values)
+    if invalid:
+        return f"{prefix} · {', '.join(invalid)} nicht auswertbar"
+    if below:
+        return f"{prefix} · {', '.join(below)} unter 17%"
+    return f"{prefix} · alle >=17%"
+
+
 def _format_eps_history_values(items: list[dict[str, Any]], values: list[float | None]) -> str:
     return ", ".join(
         f"{_eps_period_label(item, index)} {_format_signed_pct(value)}"
@@ -1256,6 +1325,13 @@ def _format_annual_revenue_history_values(items: list[dict[str, Any]], values: l
     )
 
 
+def _format_roe_history_values(items: list[dict[str, Any]], values: list[float | None]) -> str:
+    return ", ".join(
+        f"{_roe_year_label(item, index)} {_format_pct(value)}"
+        for index, (item, value) in enumerate(zip(items, values, strict=False), start=1)
+    )
+
+
 def _eps_period_label(item: Mapping[str, Any], index: int) -> str:
     return str(item.get("fiscal_period") or f"Q{index}").strip()
 
@@ -1272,8 +1348,27 @@ def _revenue_year_label(item: Mapping[str, Any], index: int) -> str:
     return str(item.get("fiscal_year") or f"Jahr {index}").strip()
 
 
+def _roe_year_label(item: Mapping[str, Any], index: int) -> str:
+    return str(item.get("fiscal_year") or f"Jahr {index}").strip()
+
+
 def _format_signed_pct(value: float | None) -> str:
     return f"{value:+.1f}%" if value is not None else "n/a"
+
+
+def _format_pct(value: float | None) -> str:
+    return f"{value:.1f}%" if value is not None else "n/a"
+
+
+def _merge_institutional_fields(fundamentals: dict[str, Any], institutional: Mapping[str, Any]) -> dict[str, Any]:
+    if not institutional:
+        return fundamentals
+    merged = dict(fundamentals)
+    merged["institutional_report_period"] = institutional.get("report_period") or institutional.get("period")
+    merged["institutional_holders_delta"] = _int_or_none(institutional.get("holder_count_delta"))
+    merged["institutional_large_holders"] = _int_or_none(institutional.get("large_holder_count"))
+    merged["institutional_large_holders_delta"] = _int_or_none(institutional.get("large_holder_delta"))
+    return merged
 
 
 def _institutional_support_check(
@@ -1410,6 +1505,7 @@ def _has_fundamental_data(fundamentals_context: Mapping[str, Any]) -> bool:
         "annual_revenue_history",
         "annual_revenue_growth_pct",
         "roe_pct",
+        "roe_history",
         "profit_margin_pct",
         "trailing_eps",
         "institutional_holders",

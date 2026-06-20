@@ -67,6 +67,7 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
             "annual_eps_history": result_fields["annual_eps_history"],
             "revenue_quarter_history": result_fields["revenue_quarter_history"],
             "annual_revenue_history": result_fields["annual_revenue_history"],
+            "roe_history": result_fields["roe_history"],
         },
     )
 
@@ -97,6 +98,7 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "quarterly_revenue_accelerating": enrichment.quarterly_revenue_accelerating,
         "revenue_quarter_history": enrichment.revenue_quarter_history,
         "annual_revenue_history": enrichment.annual_revenue_history,
+        "roe_history": enrichment.roe_history,
         "institutional_holders": fetched.institutional_holders,
         "institutional_ownership_pct": fetched.institutional_ownership_pct,
         "next_earnings_date": (

@@ -267,6 +267,7 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
     annual_eps_history = _annual_eps_history_from_metadata(row.metadata_json)
     revenue_quarter_history = _revenue_quarter_history_from_metadata(row.metadata_json)
     annual_revenue_history = _annual_revenue_history_from_metadata(row.metadata_json)
+    roe_history = _roe_history_from_metadata(row.metadata_json)
     return {
         "ticker": row.ticker,
         "as_of": row.as_of.isoformat(),
@@ -289,6 +290,7 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
         "annual_eps_history": annual_eps_history,
         "revenue_quarter_history": revenue_quarter_history,
         "annual_revenue_history": annual_revenue_history,
+        "roe_history": roe_history,
     }
 
 
@@ -312,6 +314,7 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
     annual_eps_history = _annual_eps_history_from_metadata(row.metadata_json)
     revenue_quarter_history = _revenue_quarter_history_from_metadata(row.metadata_json)
     annual_revenue_history = _annual_revenue_history_from_metadata(row.metadata_json)
+    roe_history = _roe_history_from_metadata(row.metadata_json)
     return StockFundamentalsItem(
         ticker=row.ticker,
         as_of=row.as_of.isoformat(),
@@ -334,6 +337,7 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
         annual_eps_history=annual_eps_history,
         revenue_quarter_history=revenue_quarter_history,
         annual_revenue_history=annual_revenue_history,
+        roe_history=roe_history,
     )
 
 
@@ -392,6 +396,21 @@ def _annual_revenue_history_from_metadata(metadata: dict | None) -> list[dict[st
     ]
     for candidate in candidates:
         history = _coerce_annual_revenue_history(candidate)
+        if history:
+            return history
+    return []
+
+
+def _roe_history_from_metadata(metadata: dict | None) -> list[dict[str, Any]]:
+    raw = dict(metadata or {})
+    candidates = [
+        raw.get("roe_history"),
+        (raw.get("enrichment") or {}).get("roe_history") if isinstance(raw.get("enrichment"), dict) else None,
+        (raw.get("enrichment") or {}).get("annual_roe") if isinstance(raw.get("enrichment"), dict) else None,
+        raw.get("annual_roe"),
+    ]
+    for candidate in candidates:
+        history = _coerce_roe_history(candidate)
         if history:
             return history
     return []
@@ -516,6 +535,29 @@ def _coerce_annual_revenue_history(value: Any) -> list[dict[str, Any]]:
     return out[:3]
 
 
+def _coerce_roe_history(value: Any) -> list[dict[str, Any]]:
+    if value is None or not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in value:
+        if hasattr(item, "model_dump"):
+            raw = item.model_dump()
+        elif isinstance(item, dict):
+            raw = item
+        else:
+            continue
+        out.append(
+            {
+                "fiscal_year": str(raw.get("fiscal_year") or raw.get("label") or raw.get("year") or "").strip(),
+                "roe_pct": _float_or_none(raw.get("roe_pct", raw.get("growth_pct"))),
+                "net_income": _float_or_none(raw.get("net_income", raw.get("current"))),
+                "shareholders_equity": _float_or_none(raw.get("shareholders_equity", raw.get("previous"))),
+                "flag": raw.get("flag"),
+            }
+        )
+    return out[:3]
+
+
 def _latest_eps_growth(history: list[dict[str, Any]]) -> float | None:
     for item in history:
         value = _float_or_none(item.get("eps_growth_yoy_pct"))
@@ -620,6 +662,10 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
                 quarterly_eps_accelerating=fundamentals.get("quarterly_eps_accelerating"),
                 quarterly_revenue_accelerating=fundamentals.get("quarterly_revenue_accelerating"),
                 institutional_holders=fundamentals.get("institutional_holders"),
+                institutional_holders_delta=fundamentals.get("institutional_holders_delta"),
+                institutional_large_holders=fundamentals.get("institutional_large_holders"),
+                institutional_large_holders_delta=fundamentals.get("institutional_large_holders_delta"),
+                institutional_report_period=fundamentals.get("institutional_report_period"),
                 institutional_ownership_pct=fundamentals.get("institutional_ownership_pct"),
                 next_earnings_date=fundamentals.get("next_earnings_date"),
                 beta=fundamentals.get("beta"),
@@ -627,6 +673,7 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
                 annual_eps_history=fundamentals.get("annual_eps_history") or [],
                 revenue_quarter_history=fundamentals.get("revenue_quarter_history") or [],
                 annual_revenue_history=fundamentals.get("annual_revenue_history") or [],
+                roe_history=fundamentals.get("roe_history") or [],
             )
             if fundamentals
             else None

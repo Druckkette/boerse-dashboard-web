@@ -14,6 +14,7 @@ def fmp_endpoint(path: str) -> str:
 FMP_PROFILE_URL = fmp_endpoint("profile")
 FMP_EARNINGS_URL = fmp_endpoint("earnings")
 FMP_INCOME_STATEMENT_URL = fmp_endpoint("income-statement")
+FMP_BALANCE_SHEET_URL = fmp_endpoint("balance-sheet-statement")
 FMP_RATIOS_TTM_URL = fmp_endpoint("ratios-ttm")
 
 

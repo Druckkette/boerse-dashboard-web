@@ -85,6 +85,7 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
             "annual_revenue_growth_pct": 31.0,
             "annual_revenue_history": _annual_revenue_history([31.0, 28.0, 25.0]),
             "roe_pct": 28.0,
+            "roe_history": _roe_history([28.0, 22.0, 18.0]),
             "profit_margin_pct": 18.0,
             "trailing_eps": 3.42,
             "quarterly_eps_accelerating": True,
@@ -98,7 +99,7 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
     assert result.fundamentals_available is True
     assert result.scores.fundamental > 70
     assert result.metrics.beta == 1.25
-    assert any(check.label == "ROE >=17%" and check.passed for check in result.checks)
+    assert any(check.label == "ROE >=17% über letzte 3 Jahre" and check.passed for check in result.checks)
     assert any("ROE" in driver or "EPS" in driver for driver in result.drivers)
 
 
@@ -354,6 +355,32 @@ def test_revenue_acceleration_bonus_uses_last_three_quarter_growth_rates() -> No
     assert "Bonus erfüllt" in accel_check.detail
 
 
+def test_roe_three_year_rule_scores_each_year_over_threshold() -> None:
+    checks, score, _ = evaluate_fundamentals_context({"roe_history": _roe_history([28.0, 21.0, 17.5])})
+
+    roe_check = _check(checks, "ROE >=17% über letzte 3 Jahre")
+    assert roe_check.passed is True
+    assert "alle >=17%" in roe_check.detail
+    assert score > 0
+
+
+def test_roe_three_year_rule_fails_when_one_year_is_below_threshold() -> None:
+    checks, _, _ = evaluate_fundamentals_context({"roe_history": _roe_history([28.0, 12.0, 18.0])})
+
+    roe_check = _check(checks, "ROE >=17% über letzte 3 Jahre")
+    assert roe_check.passed is False
+    assert "2024 unter 17%" in roe_check.detail
+
+
+def test_roe_current_value_is_only_fallback_when_history_missing() -> None:
+    checks, score, _ = evaluate_fundamentals_context({"roe_pct": 30.0})
+
+    roe_check = _check(checks, "ROE >=17% über letzte 3 Jahre")
+    assert roe_check.passed is False
+    assert "Keine ROE-Jahreshistorie" in roe_check.detail
+    assert score < 20
+
+
 def test_stock_assessment_flags_near_earnings() -> None:
     near_earnings = date.today() + timedelta(days=3)
     bars = _synthetic_bars(start_price=45, drift=0.003, volume=2_500_000)
@@ -444,6 +471,18 @@ def _annual_revenue_history(values: list[float]) -> list[dict]:
             "revenue_previous_year": 1000.0,
         }
         for index, growth in enumerate(values, start=1)
+    ]
+
+
+def _roe_history(values: list[float]) -> list[dict]:
+    return [
+        {
+            "fiscal_year": str(2026 - index),
+            "roe_pct": value,
+            "net_income": round(100.0 * value / 17.0, 4),
+            "shareholders_equity": 100.0,
+        }
+        for index, value in enumerate(values, start=1)
     ]
 
 
