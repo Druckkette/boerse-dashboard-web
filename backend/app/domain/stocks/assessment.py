@@ -470,6 +470,7 @@ def evaluate_chart_signs(
     volume = pd.to_numeric(df["Volume"], errors="coerce")
     pct = close.pct_change(fill_method=None)
     vol_avg_50 = volume.rolling(50).mean()
+    sma10 = close.rolling(10, min_periods=10).mean()
     ema21 = close.ewm(span=21).mean()
     sma50 = close.rolling(50, min_periods=50).mean()
     sma200 = close.rolling(200, min_periods=200).mean()
@@ -486,8 +487,15 @@ def evaluate_chart_signs(
     above_50 = int((close.tail(10) > sma50.tail(10)).sum())
     if above_21 >= 8 and above_50 >= 8:
         signals.append(ChartSignal("positive", "Leben über den Durchschnitten", f"{above_21}/10 über 21-EMA, {above_50}/10 über 50-SMA"))
-    elif above_21 <= 2 or above_50 <= 2:
-        signals.append(ChartSignal("negative", "Leben unter den Durchschnitten", f"{above_21}/10 über 21-EMA, {above_50}/10 über 50-SMA"))
+    below_21_streak = _trailing_true_count(close < ema21)
+    below_50_streak = _trailing_true_count(close < sma50)
+    if below_21_streak >= 4 or below_50_streak >= 4:
+        parts = []
+        if below_21_streak >= 4:
+            parts.append(f"{below_21_streak}T unter 21-EMA")
+        if below_50_streak >= 4:
+            parts.append(f"{below_50_streak}T unter 50-SMA")
+        signals.append(ChartSignal("negative", "Leben unter den Durchschnitten", ", ".join(parts)))
 
     e21 = _safe_float(ema21.iloc[-1])
     s50 = _safe_float(sma50.iloc[-1])
@@ -515,27 +523,42 @@ def evaluate_chart_signs(
 
     drops = pct.tail(20) < -0.005
     low_volume_drops = int((drops & (volume.tail(20) < vol_avg_50.tail(20) * 0.8)).sum())
-    high_volume_drops = int((drops & (volume.tail(20) > vol_avg_50.tail(20) * 1.2)).sum())
+    high_volume_drops = int(((pct.tail(15) <= -0.009) & (volume.tail(15) > volume.shift(1).tail(15))).sum())
     if low_volume_drops >= 3:
         signals.append(ChartSignal("positive", "Preisrückgänge bei niedrigem Vol.", f"{low_volume_drops} Tage"))
-    if high_volume_drops >= 3:
-        signals.append(ChartSignal("negative", "Preisrückgänge bei hohem Vol.", f"{high_volume_drops} Tage"))
+    if high_volume_drops >= 5:
+        signals.append(ChartSignal("negative", "Preisrückgänge bei hohem Vol.", f"{high_volume_drops}/15 Tage, Volumen > Vortag, Kurs <= -0.9%"))
 
     high_volume_rises = int(((pct.tail(20) > 0.005) & (volume.tail(20) > vol_avg_50.tail(20) * 1.2)).sum())
     if high_volume_rises >= 3:
         signals.append(ChartSignal("positive", "Preissteigerungen bei hohem Vol.", f"{high_volume_rises} in 20T"))
 
     close_range = _close_range_position(close, high, low)
-    stall_days = int(((pct.tail(10) >= 0) & (pct.tail(10) < 0.005) & (volume.tail(10) >= volume.shift(1).tail(10) * 0.95) & (close_range.tail(10) < 0.5)).sum())
+    stall_days = int(((pct.tail(10).abs() <= 0.005) & (volume.tail(10) >= volume.shift(1).tail(10) * 0.95) & (close_range.tail(10) < 0.5)).sum())
     if stall_days >= 2:
         signals.append(ChartSignal("negative", "Stau-Tage", f"{stall_days} in 10T"))
 
     upside_reversals = int(((open_.tail(10) < close.shift(1).tail(10)) & (close.tail(10) > open_.tail(10)) & (close_range.tail(10) > 0.7)).sum())
-    downside_reversals = int(((open_.tail(10) > close.shift(1).tail(10)) & (close.tail(10) < open_.tail(10)) & (close_range.tail(10) < 0.3)).sum())
+    downside_reversals = int(
+        (
+            (high.tail(10) > high.shift(1).tail(10))
+            & (close.tail(10) < open_.tail(10))
+            & (close.tail(10) < close.shift(1).tail(10))
+            & (close_range.tail(10) <= 1 / 3)
+        ).sum()
+    )
     if upside_reversals >= 2:
         signals.append(ChartSignal("positive", "Upside Reversals", f"{upside_reversals} in 10T"))
     if downside_reversals >= 2:
         signals.append(ChartSignal("negative", "Downside Reversals", f"{downside_reversals} in 10T"))
+
+    bearish_outside_days = int(_bearish_outside_day_mask(open_, high, low, close, close_range).tail(15).sum())
+    if bearish_outside_days >= 1:
+        signals.append(ChartSignal("negative", "Bearisher Outside Day", f"{bearish_outside_days} in 15T"))
+
+    bearish_engulfing = int(_bearish_engulfing_mask(open_, close, close_range).tail(15).sum())
+    if bearish_engulfing >= 1:
+        signals.append(ChartSignal("negative", "Bearish Engulfing", f"{bearish_engulfing} in 15T"))
 
     signals.extend(_rs_chart_signals(rs))
 
@@ -546,10 +569,17 @@ def evaluate_chart_signs(
         signals.append(ChartSignal("negative", "Tiefe Schlussposition", f"Ø {avg_close_range:.0%}"))
 
     current_close = _safe_float(close.iloc[-1])
-    if current_close is not None and s50 is not None and s50 > 0:
-        distance_50 = (current_close / s50 - 1) * 100
-        if distance_50 > 15:
-            signals.append(ChartSignal("negative", "Großer Abstand zu Durchschnitten", f"{distance_50:+.1f}% zur 50-SMA"))
+    distance_warnings = _moving_average_distance_warnings(
+        current_close,
+        {
+            "10-SMA": (_safe_float(sma10.iloc[-1]), 10.0),
+            "21-EMA": (_safe_float(ema21.iloc[-1]), 14.0),
+            "50-SMA": (s50, 25.0),
+            "200-SMA": (s200, 70.0),
+        },
+    )
+    if distance_warnings:
+        signals.append(ChartSignal("negative", "Großer Abstand zu Durchschnitten", ", ".join(distance_warnings)))
 
     weekly_close = close.resample("W-FRI").last().dropna()
     if len(weekly_close) >= 6 and bool((weekly_close.pct_change(fill_method=None).tail(5) > 0).all()):
@@ -1626,7 +1656,9 @@ def _rs_chart_signals(rs_context: Mapping[str, Any]) -> list[ChartSignal]:
         signals.append(ChartSignal("negative", "RS-Linie fällt", "über 5 Wochen"))
     if bool(rs_context.get("above_21")) and bool(rs_context.get("above_50")):
         signals.append(ChartSignal("positive", "RS-Linie über ihren Durchschnitten"))
-    elif rs_context.get("above_50") is False:
+    if rs_context.get("above_21") is False:
+        signals.append(ChartSignal("negative", "RS-Linie unter 21-EMA"))
+    if rs_context.get("above_50") is False:
         signals.append(ChartSignal("negative", "RS-Linie unter 50-SMA"))
     if bool(rs_context.get("new_high_52w")):
         signals.append(ChartSignal("positive", "RS-Linie auf neuem 52W-Hoch", "Marktführerschaft bestätigt"))
@@ -1673,6 +1705,61 @@ def _recent_reaction_signals(
         if low.iloc[-1] < prior_low and close.iloc[-1] > prior_low and close_range >= 0.5 and volume_like:
             signals.append(ChartSignal("positive", "Shake-out", "Tief unter Vor-20T-Tief, Schluss wieder darüber"))
     return signals
+
+
+def _trailing_true_count(mask: pd.Series) -> int:
+    count = 0
+    for value in reversed(mask.fillna(False).astype(bool).tolist()):
+        if not value:
+            break
+        count += 1
+    return count
+
+
+def _bearish_outside_day_mask(
+    open_: pd.Series,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    close_range: pd.Series,
+) -> pd.Series:
+    daily_range = (high - low).replace(0, np.nan)
+    upper_wick_ratio = (high - pd.concat([open_, close], axis=1).max(axis=1)) / daily_range
+    return (
+        (high > high.shift(1))
+        & (low < low.shift(1))
+        & (close_range <= 1 / 3)
+        & (upper_wick_ratio >= 0.4)
+    ).fillna(False)
+
+
+def _bearish_engulfing_mask(open_: pd.Series, close: pd.Series, close_range: pd.Series) -> pd.Series:
+    current_body_high = pd.concat([open_, close], axis=1).max(axis=1)
+    current_body_low = pd.concat([open_, close], axis=1).min(axis=1)
+    previous_body_high = pd.concat([open_.shift(1), close.shift(1)], axis=1).max(axis=1)
+    previous_body_low = pd.concat([open_.shift(1), close.shift(1)], axis=1).min(axis=1)
+    return (
+        (close < open_)
+        & (current_body_high >= previous_body_high)
+        & (current_body_low <= previous_body_low)
+        & (close_range <= 1 / 3)
+    ).fillna(False)
+
+
+def _moving_average_distance_warnings(
+    price: float | None,
+    averages: Mapping[str, tuple[float | None, float]],
+) -> list[str]:
+    if price is None:
+        return []
+    warnings: list[str] = []
+    for label, (average, threshold) in averages.items():
+        distance = _distance_pct(price, average)
+        if distance is None:
+            continue
+        if abs(distance) >= threshold:
+            warnings.append(f"{label} {distance:+.1f}% (Limit ±{threshold:.0f}%)")
+    return warnings
 
 
 def _missing_check(

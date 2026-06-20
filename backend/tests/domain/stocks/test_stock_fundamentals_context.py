@@ -4,7 +4,8 @@ from datetime import date
 
 from app.domain.stocks.assessment import evaluate_fundamentals_context
 from app.repositories.fundamentals import FundamentalSnapshotRow
-from app.services.stocks import _fundamentals_context
+from app.repositories.relative_strength import RsRatingRow
+from app.services.stocks import _fundamentals_context, _rs_context
 
 
 def test_fundamentals_context_accepts_alternative_annual_growth_keys() -> None:
@@ -68,6 +69,61 @@ def test_fundamentals_context_exposes_legacy_annual_scalars_without_passing_thre
     assert "nur 1/3 Jahre verfügbar" in eps_check.detail
     assert revenue_check.passed is False
     assert "nur 1/3 Jahre verfügbar" in revenue_check.detail
+
+
+def test_rs_context_maps_persisted_average_metadata_for_stock_assessment() -> None:
+    context = _rs_context(
+        RsRatingRow(
+            ticker="NVDA",
+            name="NVDA",
+            date=date(2026, 6, 20),
+            rating=92,
+            score=0.42,
+            percentile=94.0,
+            method="test",
+            source="computed",
+            universe_size=100,
+            metadata_json={
+                "rs_line_last": 112.5,
+                "rs_ema21_last": 110.0,
+                "rs_sma50_last": 108.0,
+                "rs_ema50_last": 107.0,
+                "above_21": True,
+                "above_50": True,
+            },
+        )
+    )
+
+    assert context["ema21"] == 110.0
+    assert context["sma50"] == 108.0
+    assert context["above_21"] is True
+    assert context["above_50"] is True
+
+
+def test_rs_context_falls_back_to_legacy_ema50_metadata() -> None:
+    context = _rs_context(
+        RsRatingRow(
+            ticker="NVDA",
+            name="NVDA",
+            date=date(2026, 6, 20),
+            rating=92,
+            score=0.42,
+            percentile=94.0,
+            method="test",
+            source="computed",
+            universe_size=100,
+            metadata_json={
+                "rs_line_last": 112.5,
+                "rs_ema21_last": 110.0,
+                "rs_ema50_last": 107.0,
+                "above_21": True,
+                "above_50": True,
+            },
+        )
+    )
+
+    assert context["ema21"] == 110.0
+    assert context["sma50"] == 107.0
 
 
 def _snapshot(

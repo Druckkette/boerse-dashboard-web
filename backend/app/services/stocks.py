@@ -205,6 +205,8 @@ def _rs_context(row: RsRatingRow | None) -> dict:
         "excess_return_6m_pct": metadata.get("excess_return_6m_pct"),
         "excess_return_12m_pct": metadata.get("excess_return_12m_pct"),
         "rs_line_last": metadata.get("rs_line_last"),
+        "ema21": metadata.get("rs_ema21_last"),
+        "sma50": metadata.get("rs_sma50_last") if metadata.get("rs_sma50_last") is not None else metadata.get("rs_ema50_last"),
         "above_21": metadata.get("above_21"),
         "above_50": metadata.get("above_50"),
         "above_200": metadata.get("above_200"),

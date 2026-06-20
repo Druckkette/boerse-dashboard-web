@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.domain.stocks.assessment import StockAssessmentBar, compute_stock_assessment, evaluate_fundamentals_context
+import pandas as pd
+
+from app.domain.stocks.assessment import (
+    StockAssessmentBar,
+    compute_stock_assessment,
+    evaluate_chart_signs,
+    evaluate_fundamentals_context,
+)
 
 
 def test_stock_assessment_scores_constructive_leader() -> None:
@@ -435,6 +442,107 @@ def test_stock_assessment_flags_near_earnings() -> None:
     assert any("Quartalszahlen" in warning for warning in result.warnings)
 
 
+def test_stock_assessment_living_below_averages_requires_four_trading_days_and_current_day_under_line() -> None:
+    frame = _flat_frame()
+    for index in frame.index[-4:]:
+        frame.loc[index, ["Open", "High", "Low", "Close"]] = [91.0, 92.0, 89.0, 90.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Leben unter den Durchschnitten")
+    assert signal.category == "negative"
+    assert "4T unter 21-EMA" in signal.detail
+
+
+def test_stock_assessment_high_volume_price_drops_use_15_day_window_and_prior_day_volume() -> None:
+    frame = _flat_frame()
+    drop_positions = list(frame.index[-15:-10])
+    for position in drop_positions:
+        previous_close = float(frame["Close"].shift(1).loc[position])
+        frame.loc[position, ["Open", "High", "Low", "Close", "Volume"]] = [
+            previous_close,
+            previous_close * 1.002,
+            previous_close * 0.985,
+            previous_close * 0.99,
+            float(frame["Volume"].shift(1).loc[position]) + 1_000,
+        ]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Preisrückgänge bei hohem Vol.")
+    assert signal.category == "negative"
+    assert "5/15" in signal.detail
+    assert "-0.9%" in signal.detail
+
+
+def test_stock_assessment_stall_days_allow_small_losses() -> None:
+    frame = _flat_frame()
+    for position, multiplier in zip(frame.index[-2:], [0.997, 1.003], strict=True):
+        previous_close = float(frame["Close"].shift(1).loc[position])
+        close = previous_close * multiplier
+        frame.loc[position, ["Open", "High", "Low", "Close", "Volume"]] = [
+            previous_close,
+            close + 3.0,
+            close - 1.0,
+            close,
+            float(frame["Volume"].shift(1).loc[position]),
+        ]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Stau-Tage")
+    assert signal.category == "negative"
+    assert "2 in 10T" in signal.detail
+
+
+def test_stock_assessment_warns_for_downside_reversal_outside_day_and_bearish_engulfing() -> None:
+    frame = _flat_frame()
+    first = frame.index[-6]
+    prior_first = frame.index[-7]
+    frame.loc[prior_first, ["Open", "High", "Low", "Close"]] = [100.0, 102.0, 98.0, 101.0]
+    frame.loc[first, ["Open", "High", "Low", "Close"]] = [103.0, 105.0, 97.0, 98.0]
+
+    second = frame.index[-2]
+    prior_second = frame.index[-3]
+    frame.loc[prior_second, ["Open", "High", "Low", "Close"]] = [98.0, 101.0, 97.0, 100.0]
+    frame.loc[second, ["Open", "High", "Low", "Close"]] = [101.0, 106.0, 96.0, 97.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    assert _signal(signals, "Downside Reversals").category == "negative"
+    assert _signal(signals, "Bearisher Outside Day").category == "negative"
+    assert _signal(signals, "Bearish Engulfing").category == "negative"
+
+
+def test_stock_assessment_warns_when_rs_line_is_below_21_ema() -> None:
+    result = compute_stock_assessment(
+        "RSWARN",
+        _synthetic_bars(start_price=50, drift=0.002, volume=2_000_000),
+        rs_context={
+            "rating": 76,
+            "above_21": False,
+            "above_50": True,
+            "trend_5w": True,
+            "trend_13w": True,
+        },
+    )
+
+    assert any(signal.label == "RS-Linie unter 21-EMA" and signal.category == "negative" for signal in result.chart_signals)
+
+
+def test_stock_assessment_moving_average_distance_warning_uses_all_thresholds() -> None:
+    frame = _flat_frame()
+    for index in frame.index[-5:]:
+        frame.loc[index, ["Open", "High", "Low", "Close"]] = [160.0, 162.0, 158.0, 160.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Großer Abstand zu Durchschnitten")
+    assert signal.category == "negative"
+    assert "10-SMA" in signal.detail
+    assert "21-EMA" in signal.detail
+
+
 def _synthetic_bars(*, start_price: float, drift: float, volume: float) -> list[StockAssessmentBar]:
     bars: list[StockAssessmentBar] = []
     current = start_price
@@ -462,6 +570,30 @@ def _synthetic_bars(*, start_price: float, drift: float, volume: float) -> list[
         current_date += timedelta(days=1)
         index += 1
     return bars
+
+
+def _flat_frame(days: int = 90) -> pd.DataFrame:
+    start = date.today() - timedelta(days=150)
+    dates = []
+    current = start
+    while len(dates) < days:
+        if current.weekday() < 5:
+            dates.append(pd.Timestamp(current))
+        current += timedelta(days=1)
+    return pd.DataFrame(
+        {
+            "Open": [100.0] * days,
+            "High": [101.0] * days,
+            "Low": [99.0] * days,
+            "Close": [100.0] * days,
+            "Volume": [1_000_000.0] * days,
+        },
+        index=pd.DatetimeIndex(dates),
+    )
+
+
+def _signal(signals, label: str):
+    return next(signal for signal in signals if signal.label == label)
 
 
 def _eps_history(values: list[float]) -> list[dict]:

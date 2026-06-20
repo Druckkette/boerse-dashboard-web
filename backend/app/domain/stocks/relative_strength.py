@@ -195,17 +195,19 @@ def _build_metadata(stock_close: pd.Series, raw_rs: pd.Series, plot_rs: pd.Serie
 
     ema21 = plot_rs.ewm(span=21, adjust=False).mean()
     ema50 = plot_rs.ewm(span=50, adjust=False).mean()
+    sma50 = plot_rs.rolling(50, min_periods=50).mean()
     sma200 = plot_rs.rolling(200).mean()
     last = float(plot_rs.iloc[-1])
     metadata.update(
         {
             "rs_line_last": last,
             "above_21": _last_bool(plot_rs, ema21),
-            "above_50": _last_bool(plot_rs, ema50),
+            "above_50": _last_bool(plot_rs, sma50),
             "above_200": _last_bool(plot_rs, sma200),
             "rs_ema21_last": _last_float(ema21),
             "rs_ema50_last": _last_float(ema50),
-            "rs_history": _rs_history(plot_rs, ema21=ema21, ema50=ema50),
+            "rs_sma50_last": _last_float(sma50),
+            "rs_history": _rs_history(plot_rs, ema21=ema21, ema50=ema50, sma50=sma50),
             "trend_5w": _trend_bool(plot_rs, 25),
             "trend_13w": _trend_bool(plot_rs, 65),
         }
@@ -245,8 +247,17 @@ def _last_float(series: pd.Series) -> float | None:
     return float(clean.iloc[-1])
 
 
-def _rs_history(plot_rs: pd.Series, *, ema21: pd.Series, ema50: pd.Series, limit: int = 370) -> list[dict[str, Any]]:
-    frame = pd.DataFrame({"rs": plot_rs, "rs_ema21": ema21, "rs_ema50": ema50}).dropna(subset=["rs"]).tail(limit)
+def _rs_history(
+    plot_rs: pd.Series,
+    *,
+    ema21: pd.Series,
+    ema50: pd.Series,
+    sma50: pd.Series,
+    limit: int = 370,
+) -> list[dict[str, Any]]:
+    frame = pd.DataFrame({"rs": plot_rs, "rs_ema21": ema21, "rs_ema50": ema50, "rs_sma50": sma50}).dropna(
+        subset=["rs"]
+    ).tail(limit)
     history: list[dict[str, Any]] = []
     for timestamp, row in frame.iterrows():
         history.append(
@@ -255,6 +266,7 @@ def _rs_history(plot_rs: pd.Series, *, ema21: pd.Series, ema50: pd.Series, limit
                 "rs": _rounded_or_none(row.get("rs")),
                 "rs_ema21": _rounded_or_none(row.get("rs_ema21")),
                 "rs_ema50": _rounded_or_none(row.get("rs_ema50")),
+                "rs_sma50": _rounded_or_none(row.get("rs_sma50")),
             }
         )
     return history

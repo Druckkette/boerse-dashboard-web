@@ -53,6 +53,8 @@ def test_refresh_relative_strength_uses_cached_prices_and_persists(monkeypatch: 
     assert result["records_written"] == 3
     assert result["top"][0]["ticker"] == "NVDA"
     assert stored[0].source == "computed"
+    assert stored[0].metadata_json["rs_ema21_last"] is not None
+    assert stored[0].metadata_json["rs_sma50_last"] is not None
 
 
 def _series(daily_growth: float, *, days: int = 320) -> list[ClosePoint]:
