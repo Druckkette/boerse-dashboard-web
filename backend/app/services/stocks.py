@@ -260,6 +260,10 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
     annual_eps_history = _annual_eps_history_from_metadata(row.metadata_json)
     revenue_quarter_history = _revenue_quarter_history_from_metadata(row.metadata_json)
     annual_revenue_history = _annual_revenue_history_from_metadata(row.metadata_json)
+    if not annual_eps_history:
+        annual_eps_history = _single_annual_eps_history(row.annual_eps_growth_pct, row.as_of)
+    if not annual_revenue_history:
+        annual_revenue_history = _single_annual_revenue_history(row.annual_revenue_growth_pct, row.as_of)
     roe_history = _roe_history_from_metadata(row.metadata_json)
     return {
         "ticker": row.ticker,
@@ -305,6 +309,10 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
     annual_eps_history = _annual_eps_history_from_metadata(row.metadata_json)
     revenue_quarter_history = _revenue_quarter_history_from_metadata(row.metadata_json)
     annual_revenue_history = _annual_revenue_history_from_metadata(row.metadata_json)
+    if not annual_eps_history:
+        annual_eps_history = _single_annual_eps_history(row.annual_eps_growth_pct, row.as_of)
+    if not annual_revenue_history:
+        annual_revenue_history = _single_annual_revenue_history(row.annual_revenue_growth_pct, row.as_of)
     roe_history = _roe_history_from_metadata(row.metadata_json)
     return StockFundamentalsItem(
         ticker=row.ticker,
@@ -420,11 +428,11 @@ def _coerce_eps_quarter_history(value: Any) -> list[dict[str, Any]]:
         else:
             continue
         fiscal_period = str(raw.get("fiscal_period") or raw.get("label") or raw.get("period") or "").strip()
-        current = _float_or_none(raw.get("eps_current_quarter", raw.get("current")))
-        previous = _float_or_none(raw.get("eps_same_quarter_last_year", raw.get("previous")))
+        current = _first_float(raw, "eps_current_quarter", "current", "eps", "epsDiluted", "epsdiluted")
+        previous = _first_float(raw, "eps_same_quarter_last_year", "previous", "prior", "prior_eps")
         growth = _computed_eps_growth(current, previous)
         if growth is None and current is None and previous is None:
-            growth = _float_or_none(raw.get("eps_growth_yoy_pct", raw.get("growth_pct")))
+            growth = _first_float(raw, "eps_growth_yoy_pct", "growth_pct", "quarterly_eps_growth_pct", "yoy_growth_pct")
         out.append(
             {
                 "fiscal_period": fiscal_period,
@@ -449,11 +457,11 @@ def _coerce_revenue_quarter_history(value: Any) -> list[dict[str, Any]]:
         else:
             continue
         fiscal_period = str(raw.get("fiscal_period") or raw.get("label") or raw.get("period") or "").strip()
-        current = _float_or_none(raw.get("revenue_current_quarter", raw.get("current")))
-        previous = _float_or_none(raw.get("revenue_same_quarter_last_year", raw.get("previous")))
+        current = _first_float(raw, "revenue_current_quarter", "current", "revenue", "totalRevenue", "total_revenue")
+        previous = _first_float(raw, "revenue_same_quarter_last_year", "previous", "prior", "prior_revenue")
         growth = _computed_eps_growth(current, previous)
         if growth is None and current is None and previous is None:
-            growth = _float_or_none(raw.get("revenue_growth_yoy_pct", raw.get("growth_pct")))
+            growth = _first_float(raw, "revenue_growth_yoy_pct", "growth_pct", "quarterly_revenue_growth_pct", "yoy_growth_pct")
         out.append(
             {
                 "fiscal_period": fiscal_period,
@@ -477,12 +485,20 @@ def _coerce_annual_eps_history(value: Any) -> list[dict[str, Any]]:
             raw = item
         else:
             continue
-        fiscal_year = str(raw.get("fiscal_year") or raw.get("label") or raw.get("year") or "").strip()
-        current = _float_or_none(raw.get("eps_current_year", raw.get("current")))
-        previous = _float_or_none(raw.get("eps_previous_year", raw.get("previous")))
+        fiscal_year = str(raw.get("fiscal_year") or raw.get("label") or raw.get("year") or raw.get("calendarYear") or "").strip()
+        current = _first_float(
+            raw,
+            "eps_current_year",
+            "current",
+            "eps",
+            "epsDiluted",
+            "epsdiluted",
+            "annual_eps",
+        )
+        previous = _first_float(raw, "eps_previous_year", "previous", "prior", "prior_eps", "previous_eps")
         growth = _computed_eps_growth(current, previous)
         if growth is None and current is None and previous is None:
-            growth = _float_or_none(raw.get("eps_growth_yoy_pct", raw.get("growth_pct")))
+            growth = _first_float(raw, "eps_growth_yoy_pct", "growth_pct", "annual_eps_growth_pct", "yoy_growth_pct")
         out.append(
             {
                 "fiscal_year": fiscal_year,
@@ -506,12 +522,26 @@ def _coerce_annual_revenue_history(value: Any) -> list[dict[str, Any]]:
             raw = item
         else:
             continue
-        fiscal_year = str(raw.get("fiscal_year") or raw.get("label") or raw.get("year") or "").strip()
-        current = _float_or_none(raw.get("revenue_current_year", raw.get("current")))
-        previous = _float_or_none(raw.get("revenue_previous_year", raw.get("previous")))
+        fiscal_year = str(raw.get("fiscal_year") or raw.get("label") or raw.get("year") or raw.get("calendarYear") or "").strip()
+        current = _first_float(
+            raw,
+            "revenue_current_year",
+            "current",
+            "revenue",
+            "totalRevenue",
+            "total_revenue",
+            "annual_revenue",
+        )
+        previous = _first_float(raw, "revenue_previous_year", "previous", "prior", "prior_revenue", "previous_revenue")
         growth = _computed_eps_growth(current, previous)
         if growth is None and current is None and previous is None:
-            growth = _float_or_none(raw.get("revenue_growth_yoy_pct", raw.get("growth_pct")))
+            growth = _first_float(
+                raw,
+                "revenue_growth_yoy_pct",
+                "growth_pct",
+                "annual_revenue_growth_pct",
+                "yoy_growth_pct",
+            )
         out.append(
             {
                 "fiscal_year": fiscal_year,
@@ -583,6 +613,44 @@ def _computed_eps_growth(current: float | None, previous: float | None) -> float
     if current is None or previous is None or previous <= 0:
         return None
     return round((current / previous - 1) * 100, 1)
+
+
+def _first_float(raw: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = _float_or_none(raw.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _single_annual_eps_history(growth_pct: float | None, as_of: date) -> list[dict[str, Any]]:
+    growth = _float_or_none(growth_pct)
+    if growth is None:
+        return []
+    return [
+        {
+            "fiscal_year": str(as_of.year),
+            "eps_current_year": None,
+            "eps_previous_year": None,
+            "eps_growth_yoy_pct": growth,
+            "flag": "legacy_scalar",
+        }
+    ]
+
+
+def _single_annual_revenue_history(growth_pct: float | None, as_of: date) -> list[dict[str, Any]]:
+    growth = _float_or_none(growth_pct)
+    if growth is None:
+        return []
+    return [
+        {
+            "fiscal_year": str(as_of.year),
+            "revenue_current_year": None,
+            "revenue_previous_year": None,
+            "revenue_growth_yoy_pct": growth,
+            "flag": "legacy_scalar",
+        }
+    ]
 
 
 def _float_or_none(value: Any) -> float | None:

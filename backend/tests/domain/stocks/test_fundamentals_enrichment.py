@@ -130,15 +130,15 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
         if url == FMP_INCOME_STATEMENT_URL and params.get("period") == "annual":
             return FakeResponse(
                 [
-                    {"date": "2025-12-31", "epsDiluted": 7.2, "revenue": 1350.0, "netIncome": 255.0},
-                    {"date": "2024-12-31", "epsDiluted": 5.0, "revenue": 1000.0, "netIncome": 160.0},
+                    {"calendarYear": "2025", "epsDiluted": 7.2, "revenue": 1350.0, "netIncome": 255.0},
+                    {"calendarYear": "2024", "epsDiluted": 5.0, "revenue": 1000.0, "netIncome": 160.0},
                 ]
             )
         if url == FMP_BALANCE_SHEET_URL:
             return FakeResponse(
                 [
-                    {"date": "2025-12-31", "totalStockholdersEquity": 900.0},
-                    {"date": "2024-12-31", "totalStockholdersEquity": 700.0},
+                    {"fiscalDateEnding": "2025-12-31", "totalStockholdersEquity": 900.0},
+                    {"year": "2024", "totalStockholdersEquity": 700.0},
                 ]
             )
         return FakeResponse([{"returnOnEquityTTM": 0.34, "netProfitMarginTTM": 0.18}])

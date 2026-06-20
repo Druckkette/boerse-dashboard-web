@@ -71,8 +71,11 @@ def test_stock_assessment_places_price_and_high_distance_in_technical_checks() -
 
     result = compute_stock_assessment("HIGH", bars)
     checks = {check.label: check for check in result.checks}
+    labels = [check.label for check in result.checks]
 
     assert checks["Preis >= $15"].category == "technical"
+    assert checks["Dollar-Volumen >= $30 Mio."].category == "technical"
+    assert labels.index("Dollar-Volumen >= $30 Mio.") == labels.index("Preis >= $15") + 1
     assert checks["Entfernung zum All-Time-High"].category == "technical"
     assert checks["Entfernung zum All-Time-High"].passed is True
     assert checks["Entfernung zum 52-Wochen-Hoch"].category == "technical"

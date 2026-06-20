@@ -230,6 +230,21 @@ def evaluate_technicals(
         )
     )
 
+    avg_volume_20 = volume.tail(20).mean()
+    dollar_volume_mio = avg_volume_20 * price / 1_000_000 if price and pd.notna(avg_volume_20) else np.nan
+    if pd.notna(dollar_volume_mio):
+        checks.append(
+            AssessmentCheck(
+                category="technical",
+                label="Dollar-Volumen >= $30 Mio.",
+                passed=float(dollar_volume_mio) >= 30,
+                detail=f"${float(dollar_volume_mio):,.0f} Mio./Tag",
+                severity="critical",
+            )
+        )
+    else:
+        checks.append(_missing_check("technical", "Dollar-Volumen >= $30 Mio.", severity="critical"))
+
     prior_highs = high.iloc[:-1].dropna()
     ath = _safe_float(prior_highs.max()) if len(prior_highs) else None
     if ath is None:
@@ -263,21 +278,6 @@ def evaluate_technicals(
         )
     else:
         checks.append(_missing_check("technical", "Entfernung zum 52-Wochen-Hoch"))
-
-    avg_volume_20 = volume.tail(20).mean()
-    dollar_volume_mio = avg_volume_20 * price / 1_000_000 if price and pd.notna(avg_volume_20) else np.nan
-    if pd.notna(dollar_volume_mio):
-        checks.append(
-            AssessmentCheck(
-                category="risk",
-                label="Dollar-Volumen >= $30 Mio.",
-                passed=float(dollar_volume_mio) >= 30,
-                detail=f"${float(dollar_volume_mio):,.0f} Mio./Tag",
-                severity="critical",
-            )
-        )
-    else:
-        checks.append(_missing_check("risk", "Dollar-Volumen >= $30 Mio.", severity="critical"))
 
     pct = close.pct_change(fill_method=None)
     up_volume = volume.where(pct > 0).tail(50).sum()

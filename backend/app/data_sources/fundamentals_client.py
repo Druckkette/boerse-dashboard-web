@@ -587,7 +587,7 @@ def _raw_from_fmp_income_statement(rows: list[dict[str, Any]]) -> QuarterlyRaw:
     revenue: dict[pd.Timestamp, float] = {}
     net_income: dict[pd.Timestamp, float] = {}
     for row in rows:
-        ts = pd.to_datetime(row.get("date"), errors="coerce")
+        ts = _fmp_statement_timestamp(row)
         if pd.isna(ts):
             continue
         eps_value = _float_or_none(row.get("epsDiluted", row.get("epsdiluted", row.get("eps"))))
@@ -614,7 +614,7 @@ def _raw_from_fmp_annual_income_statement(rows: list[dict[str, Any]]) -> Quarter
     revenue: dict[pd.Timestamp, float] = {}
     net_income: dict[pd.Timestamp, float] = {}
     for row in rows:
-        ts = pd.to_datetime(row.get("date"), errors="coerce")
+        ts = _fmp_statement_timestamp(row)
         if pd.isna(ts):
             continue
         eps_value = _float_or_none(row.get("epsDiluted", row.get("epsdiluted", row.get("eps"))))
@@ -639,7 +639,7 @@ def _raw_from_fmp_annual_income_statement(rows: list[dict[str, Any]]) -> Quarter
 def _raw_from_fmp_annual_balance_sheet(rows: list[dict[str, Any]]) -> QuarterlyRaw:
     equity: dict[pd.Timestamp, float] = {}
     for row in rows:
-        ts = pd.to_datetime(row.get("date"), errors="coerce")
+        ts = _fmp_statement_timestamp(row)
         if pd.isna(ts):
             continue
         value = _float_or_none(
@@ -661,6 +661,23 @@ def _raw_from_fmp_annual_balance_sheet(rows: list[dict[str, Any]]) -> QuarterlyR
     if not equity:
         return {}
     return {"AnnualStockholdersEquity": pd.Series(equity).sort_index(ascending=False)}
+
+
+def _fmp_statement_timestamp(row: dict[str, Any]) -> pd.Timestamp:
+    raw_date = (
+        row.get("date")
+        or row.get("fiscalDateEnding")
+        or row.get("fiscal_date_ending")
+        or row.get("period")
+    )
+    parsed = pd.to_datetime(raw_date, errors="coerce")
+    if not pd.isna(parsed):
+        return parsed
+    year = row.get("calendarYear") or row.get("year") or row.get("fiscalYear")
+    try:
+        return pd.Timestamp(year=int(year), month=12, day=31)
+    except (TypeError, ValueError):
+        return pd.NaT
 
 
 def _merge_fmp_ttm_ratios(raw: QuarterlyRaw, ticker: str, api_key: str, *, timeout: int) -> None:
