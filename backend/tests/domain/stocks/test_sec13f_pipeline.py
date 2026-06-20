@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.data_sources import sec13f_client
 from app.data_sources.sec13f_client import (
+    DatasetLink,
     SymbolRecord,
     aggregate_by_ticker,
     append_override_meta_rows,
     build_cusip_mapping,
     build_outputs,
     load_default_overrides,
+    list_sec_13f_datasets,
     sec_headers,
 )
 from app.services.sec13f import _ticker_breakdown
@@ -49,6 +52,46 @@ def test_sec13f_headers_accept_explicit_runtime_user_agent(monkeypatch) -> None:
     headers = sec_headers("boerse-dashboard-web tests@example.com")
 
     assert headers["User-Agent"] == "boerse-dashboard-web tests@example.com"
+
+
+def test_sec13f_dataset_sorting_prefers_current_month_range_files() -> None:
+    current = DatasetLink(
+        label="2026 March April May 13F",
+        url="https://www.sec.gov/files/structureddata/data/form-13f-data-sets/01mar2026-31may2026_form13f.zip",
+    )
+    prior = DatasetLink(
+        label="2025 December 2026 January February 13F",
+        url="https://www.sec.gov/files/structureddata/data/form-13f-data-sets/01dec2025-28feb2026_form13f.zip",
+    )
+    old_quarter = DatasetLink(
+        label="2023 Q4 13F",
+        url="https://www.sec.gov/files/structureddata/data/form-13f-data-sets/2023q4_form13f.zip",
+    )
+
+    assert current.sort_key > prior.sort_key > old_quarter.sort_key
+
+
+def test_sec13f_dataset_listing_sorts_mixed_sec_formats(monkeypatch) -> None:
+    html = """
+    <a href="/files/structureddata/data/form-13f-data-sets/2023q4_form13f.zip">2023 Q4 13F</a>
+    <a href="/files/structureddata/data/form-13f-data-sets/01dec2025-28feb2026_form13f.zip">
+      2025 December 2026 January February 13F
+    </a>
+    <a href="/files/structureddata/data/form-13f-data-sets/2023q3_form13f.zip">2023 Q3 13F</a>
+    <a href="/files/structureddata/data/form-13f-data-sets/01mar2026-31may2026_form13f.zip">
+      2026 March April May 13F
+    </a>
+    """
+    monkeypatch.setattr(sec13f_client, "fetch_text", lambda *args, **kwargs: html)
+
+    links = list_sec_13f_datasets(sec_user_agent="boerse-dashboard-web tests@example.com")
+
+    assert [link.label for link in links] == [
+        "2026 March April May 13F",
+        "2025 December 2026 January February 13F",
+        "2023 Q4 13F",
+        "2023 Q3 13F",
+    ]
 
 
 def test_sec13f_default_overrides_include_current_sandisk_cusip() -> None:

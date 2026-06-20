@@ -19,6 +19,33 @@ import requests
 SEC_13F_DATASETS_URL = "https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets"
 SEC_COMPANY_TICKERS_EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 
+MONTH_INDEX = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
 DEFAULT_CUSIP_OVERRIDES = {
     "02079K305": "GOOGL",
     "02079K107": "GOOG",
@@ -48,12 +75,8 @@ class DatasetLink:
         return self.url.rsplit("/", 1)[-1]
 
     @property
-    def sort_key(self) -> tuple[int, int]:
-        text = f"{self.label} {self.url}".lower()
-        match = re.search(r"(20\d{2})\D*q([1-4])", text)
-        if match:
-            return int(match.group(1)), int(match.group(2))
-        return 0, 0
+    def sort_key(self) -> tuple[int, int, int]:
+        return dataset_sort_key(self.label, self.url)
 
 
 @dataclass(frozen=True)
@@ -248,6 +271,43 @@ def list_sec_13f_datasets(*, sec_user_agent: str = "") -> list[DatasetLink]:
     if not links:
         raise RuntimeError("No SEC 13F data set links found.")
     return links
+
+
+def dataset_sort_key(label: str, url: str) -> tuple[int, int, int]:
+    text = f"{label} {url}".lower()
+    range_match = re.search(
+        r"\d{2}([a-z]{3})(20\d{2})-(\d{2})([a-z]{3})(20\d{2})_form13f\.zip",
+        text,
+    )
+    if range_match:
+        end_day = int(range_match.group(3))
+        end_month = MONTH_INDEX.get(range_match.group(4), 0)
+        end_year = int(range_match.group(5))
+        return end_year, end_month, end_day
+
+    named_month_key = _named_month_label_sort_key(label)
+    if named_month_key != (0, 0, 0):
+        return named_month_key
+
+    quarter_match = re.search(r"(20\d{2})\s*[_-]?\s*q([1-4])", text)
+    if quarter_match:
+        quarter = int(quarter_match.group(2))
+        return int(quarter_match.group(1)), quarter * 3, 31
+
+    return 0, 0, 0
+
+
+def _named_month_label_sort_key(label: str) -> tuple[int, int, int]:
+    current_year: int | None = None
+    dates: list[tuple[int, int, int]] = []
+    for token in re.findall(r"20\d{2}|[a-zA-Z]+", label.lower()):
+        if re.fullmatch(r"20\d{2}", token):
+            current_year = int(token)
+            continue
+        month = MONTH_INDEX.get(token)
+        if current_year is not None and month is not None:
+            dates.append((current_year, month, 31))
+    return max(dates) if dates else (0, 0, 0)
 
 
 def download_dataset(link: DatasetLink, cache_dir: Path, *, sec_user_agent: str = "") -> Path:
