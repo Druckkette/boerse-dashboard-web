@@ -1248,7 +1248,15 @@ class WorkspaceTickerRequest(BaseModel):
 
 
 class SetupStep(BaseModel):
-    key: Literal["system", "portfolio", "prices", "market_breadth", "relative_strength", "atr_monitor"]
+    key: Literal[
+        "system",
+        "portfolio",
+        "prices",
+        "market_breadth",
+        "relative_strength",
+        "institutional_13f",
+        "atr_monitor",
+    ]
     label: str
     status: Literal["complete", "pending", "running", "warning", "blocked", "error"]
     detail: str

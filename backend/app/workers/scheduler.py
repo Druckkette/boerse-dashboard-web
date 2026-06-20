@@ -16,17 +16,21 @@ SMART_REFRESH_PAYLOAD = {
     "benchmark_ticker": "SPY",
     "include_position_monitor": True,
     "include_fundamentals": True,
+    "include_sec13f": True,
     "fundamental_universe": "all",
     "fundamental_limit": 5000,
     "incremental_fundamentals": True,
+    "sec13f_universe": "open_positions",
+    "sec13f_limit_universe": 500,
+    "sec13f_dataset_count": 2,
 }
 
 
 def get_beat_schedule() -> dict:
     """Central Celery Beat schedule.
 
-    NAS defaults are intentionally conservative. 13F refreshes run monthly because SEC
-    artefacts are large and do not need frequent refreshes.
+    NAS defaults are intentionally conservative. 13F refreshes are freshness-gated
+    in Smart Refresh and also run monthly as a backup because SEC artefacts are large.
     """
     return {
         "smart-market-refresh-afternoon": {

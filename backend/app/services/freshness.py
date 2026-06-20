@@ -9,6 +9,7 @@ from app.db.models import (
     AppSetting,
     BreadthDaily,
     FundamentalSnapshot,
+    Institutional13FTrend,
     Instrument,
     MarketSnapshot,
     Position,
@@ -35,6 +36,11 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             latest_market_snapshot = db.scalar(select(func.max(MarketSnapshot.date)))
             latest_breadth = db.scalar(select(func.max(BreadthDaily.date)))
             latest_rs = db.scalar(select(func.max(RsRating.date)))
+            latest_13f = db.scalar(
+                select(func.max(Institutional13FTrend.report_period)).where(
+                    Institutional13FTrend.manager_cik == "AGGREGATE"
+                )
+            )
             trend_benchmark = _trend_benchmark_freshness(db, now)
             tracked_fundamentals = _tracked_fundamentals_freshness(db, now)
     except SQLAlchemyError:
@@ -45,6 +51,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             _missing("market_breadth"),
             _missing("relative_strength"),
             _missing("fundamentals_tracked"),
+            _missing("institutional_13f"),
         ]
 
     return [
@@ -54,6 +61,14 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
         _date_freshness(now, "market_breadth", latest_breadth, max_lag_days=5, detail="BreadthDaily-Daten für Marktbreite, McClellan, NH/NL und AD-Linie."),
         _date_freshness(now, "relative_strength", latest_rs, max_lag_days=7, detail="Zuletzt berechnete Relative-Strength-Ratings."),
         tracked_fundamentals,
+        _date_freshness(
+            now,
+            "institutional_13f",
+            latest_13f,
+            max_lag_days=120,
+            detail="Letzter aggregierter SEC-Form-13F-Reportzeitraum. 13F-Daten werden quartalsweise veröffentlicht.",
+            metadata={"expected_interval": "quarterly", "max_lag_days": 120},
+        ),
     ]
 
 

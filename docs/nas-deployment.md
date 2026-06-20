@@ -59,8 +59,9 @@ Open `http://NAS-IP-ODER-HOSTNAME:3000/jobs` for the first data bootstrap and cl
 **Alles initialisieren** only when the database is empty or you deliberately want a full rebuild.
 For normal operation use **Alles smart aktualisieren**. This smart worker job checks
 freshness first and runs only the missing or stale parts: position prices, market prices, breadth,
-RS ratings and the ATR position monitor path where needed. You do not have to copy CSV files into a
-container or run `curl` commands manually.
+RS ratings, institutional 13F data and the ATR position monitor path where needed. 13F/SEC is only
+started when reports are missing or stale, so it is not downloaded on every daily market refresh.
+You do not have to copy CSV files into a container or run `curl` commands manually.
 
 The scheduler runs the same smart refresh automatically at 16:00 and 22:30 Europe/Berlin time.
 Scheduled runs force the market-data path, so price cache, breadth snapshots and RS ratings are
@@ -270,7 +271,8 @@ API_ACCESS_LOG_ENABLED=1
 
 - Keep `WORKER_CONCURRENCY=1` on DS220+ until measured otherwise.
 - Do not run multiple full refresh jobs in parallel; the API rejects a second active heavy job.
-- Keep 13F jobs monthly or manual. They are large and rarely time-critical.
+- Keep 13F jobs freshness-gated. Smart Refresh starts them only when missing/stale; the monthly
+  schedule remains a backup because the SEC artefacts are large.
 - Price refreshes must stay incremental; full backfills belong in a planned maintenance window.
 - Redis is capped with `REDIS_MAXMEMORY` and `allkeys-lru`.
 - API endpoints should return prepared snapshots from Postgres/cache, not live Pandas recomputes.

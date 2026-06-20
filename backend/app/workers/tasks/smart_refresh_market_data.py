@@ -20,7 +20,8 @@ from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.market import refresh_market_breadth
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
 from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
-from app.services.settings import get_data_diagnostics
+from app.services.sec13f import refresh_institutional_13f_from_sec
+from app.services.settings import get_data_diagnostics, get_runtime_config_value
 from app.services.universes import (
     get_universe_status,
     refresh_us_common_stock_universe,
@@ -155,6 +156,8 @@ def build_smart_refresh_plan(
     initial_price_range = _normalize_range(payload.get("initial_range") or payload.get("price_range") or "2y")
     include_position_monitor = bool(payload.get("include_position_monitor", True))
     include_fundamentals = bool(payload.get("include_fundamentals", True))
+    include_sec13f = _normalize_bool(payload.get("include_sec13f"), default=True)
+    force_sec13f = _normalize_bool(payload.get("force_sec13f"), default=False)
     force_market_refresh = _scheduled_or_forced(payload)
     incremental_prices = _normalize_bool(payload.get("incremental_prices"), default=True)
     incremental_fundamentals = _normalize_bool(payload.get("incremental_fundamentals"), default=True)
@@ -171,6 +174,7 @@ def build_smart_refresh_plan(
     rs_freshness = freshness_by_name.get("relative_strength")
     sell_ranking_freshness = freshness_by_name.get("sell_ranking")
     fundamentals_freshness = freshness_by_name.get("fundamentals_tracked")
+    sec13f_freshness = freshness_by_name.get("institutional_13f")
     issue_by_key = {issue.key: issue for issue in diagnostics.issues}
 
     actions: list[SmartRefreshAction] = []
@@ -310,6 +314,25 @@ def build_smart_refresh_plan(
             )
         )
 
+    if include_sec13f and (force_sec13f or _is_missing(sec13f_freshness) or _is_stale(sec13f_freshness)):
+        actions.append(
+            SmartRefreshAction(
+                key="refresh_sec13f",
+                job_type="refresh_sec13f",
+                label="13F/SEC-Trends aktualisieren",
+                reason="Institutionelle 13F-Trends fehlen oder sind älter als das Quartals-Freshness-Fenster.",
+                payload={
+                    "mode": "incremental",
+                    "source": "smart_refresh",
+                    "universe": str(payload.get("sec13f_universe") or "open_positions"),
+                    "limit_universe": _normalize_13f_limit(
+                        payload.get("sec13f_limit_universe") or payload.get("sec13f_limit") or 500
+                    ),
+                    "dataset_count": _normalize_dataset_count(payload.get("sec13f_dataset_count") or 2),
+                },
+            )
+        )
+
     prices_refreshed = any(action.job_type == "refresh_prices" for action in actions)
     if include_position_monitor and diagnostics.open_positions_count > 0:
         if prices_refreshed or _is_missing(sell_ranking_freshness) or _is_stale(sell_ranking_freshness):
@@ -367,6 +390,8 @@ def _run_action(
         return monitor_open_positions(tickers=None)
     if action.job_type == "refresh_fundamentals":
         return _refresh_fundamentals(job_id, action.payload, result=result, action_index=action_index, total_actions=total_actions)
+    if action.job_type == "refresh_sec13f":
+        return _refresh_sec13f(job_id, action.payload, result=result, action_index=action_index, total_actions=total_actions)
     raise ValueError(f"Unsupported smart refresh action: {action.job_type}")
 
 
@@ -530,6 +555,47 @@ def _latest_fundamental_dates(tickers: list[str]) -> dict[str, Any]:
         return {}
 
 
+def _refresh_sec13f(
+    job_id: str,
+    payload: dict[str, Any],
+    *,
+    result: dict[str, Any],
+    action_index: int,
+    total_actions: int,
+) -> dict[str, Any]:
+    if not str(get_runtime_config_value("SEC_USER_AGENT") or "").strip():
+        return {
+            "ok": False,
+            "skipped": True,
+            "job_type": "refresh_sec13f",
+            "reason": "SEC_USER_AGENT fehlt. Trage ihn im Setup/Security-Bereich ein; der nächste Smart-Refresh zieht 13F automatisch nach.",
+        }
+
+    sec13f_result: dict[str, Any] = {
+        "ok": False,
+        "job_type": "refresh_sec13f",
+        "source": "sec",
+    }
+    base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
+    next_progress = 8 + int(action_index / max(1, total_actions) * 82)
+
+    def progress_callback(progress: int, step: str, message: str, partial: dict[str, Any]) -> None:
+        raise_if_cancelled(job_id)
+        sec13f_result.update(partial)
+        scaled_progress = min(92, base_progress + int(progress / 100 * max(1, next_progress - base_progress)))
+        job_repository.update_progress(
+            job_id,
+            progress=scaled_progress,
+            step=step,
+            message=message,
+            result={**result, "current_sec13f_refresh": sec13f_result},
+        )
+
+    sec13f_result = refresh_institutional_13f_from_sec(payload, progress_callback=progress_callback)
+    sec13f_result["job_type"] = "refresh_sec13f"
+    return sec13f_result
+
+
 @dataclass(frozen=True)
 class _SimplePriceSymbol:
     source_ticker: str
@@ -585,6 +651,20 @@ def _normalize_fundamental_limit(value: object) -> int:
         return max(1, min(5000, int(value)))
     except (TypeError, ValueError):
         return 80
+
+
+def _normalize_13f_limit(value: object) -> int:
+    try:
+        return max(1, min(500, int(value)))
+    except (TypeError, ValueError):
+        return 120
+
+
+def _normalize_dataset_count(value: object) -> int:
+    try:
+        return max(2, min(8, int(value)))
+    except (TypeError, ValueError):
+        return 2
 
 
 def _normalize_bool(value: object, *, default: bool) -> bool:

@@ -125,7 +125,8 @@ For operational refreshes open `/jobs` and use the primary assistant actions:
 
 1. **Alles smart aktualisieren** checks system freshness first and runs only the missing
    or stale parts: missing/stale position prices, global market prices, breadth, RS ratings and
-   the position monitor where needed.
+   the position monitor where needed. It also checks institutional 13F data and starts the
+   SEC refresh only when those quarterly reports are missing or stale.
 2. **Alles initialisieren** loads the US common-stock universe, price cache, market breadth,
    RS ratings and the position monitor in one worker job.
 3. **Alles aktualisieren** refreshes the same prepared data path without rebuilding the universe.
@@ -163,8 +164,10 @@ After a monitor run, `/sell-monitor` reads the precomputed ranking snapshot from
 falls back to live Sell-Engine evaluation when no snapshot exists yet.
 
 The 13F/SEC job downloads official SEC Form-13F quarterly data sets in the worker, caches ZIP files
-under the backend cache volume and persists aggregate ticker trends. It requires `SEC_USER_AGENT`;
-run it manually or monthly, not as part of the normal daily bootstrap. The preferred path is now
+under the backend cache volume and persists aggregate ticker trends. It requires `SEC_USER_AGENT`.
+Smart Refresh now checks the 13F freshness state automatically and runs the job when reports are
+missing or older than the quarterly freshness window; the monthly scheduler entry remains as a
+backup. The preferred configuration path is
 `/setup` > `Konfiguration & Secrets`: enter `SEC_USER_AGENT` there and the backend/worker will read it
 from Postgres without editing `.env.nas`.
 
@@ -274,7 +277,7 @@ This prevents small controls, such as ATR threshold changes, from starting a ful
 
 - `WORKER_CONCURRENCY=1` is the default.
 - The Jobs API rejects a second active heavy job.
-- SEC/13F jobs are scheduled monthly and should not be run frequently.
-- Smart refresh checks freshness first and only runs the required price, breadth, RS and monitor steps.
+- SEC/13F jobs are freshness-gated in Smart Refresh and also scheduled monthly as a backup.
+- Smart refresh checks freshness first and only runs the required price, breadth, RS, 13F and monitor steps.
 - Redis uses a memory cap in Compose.
 - API endpoints should read prepared snapshots, not run live Pandas recomputes.

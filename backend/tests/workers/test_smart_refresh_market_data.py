@@ -120,6 +120,25 @@ def test_smart_plan_refreshes_stale_tracked_fundamentals() -> None:
     assert plan[0].payload["incremental"] is True
 
 
+def test_smart_plan_refreshes_missing_13f_trends() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            sec13f="missing",
+        ),
+        universe_status=_universe(),
+        payload={"universe": "us_common_stocks"},
+    )
+
+    assert [action.key for action in plan] == ["refresh_sec13f"]
+    assert plan[0].payload["universe"] == "open_positions"
+    assert plan[0].payload["limit_universe"] == 500
+
+
 def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> None:
     plan = smart_module.build_smart_refresh_plan(
         diagnostics=_diagnostics(),
@@ -145,6 +164,29 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
     assert "Geplanter Smart-Refresh" in plan[0].reason
 
 
+def test_scheduled_smart_plan_adds_13f_only_when_stale() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            sec13f="stale",
+        ),
+        universe_status=_universe(),
+        payload={"mode": "scheduled", "universe": "us_common_stocks"},
+    )
+
+    assert [action.key for action in plan] == [
+        "refresh_market_prices",
+        "refresh_breadth",
+        "refresh_relative_strength",
+        "refresh_fundamentals",
+        "refresh_sec13f",
+    ]
+
+
 def test_smart_refresh_task_marks_done_without_unnecessary_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics())
     monkeypatch.setattr(
@@ -163,6 +205,59 @@ def test_smart_refresh_task_marks_done_without_unnecessary_work(monkeypatch: pyt
     assert updated is not None
     assert updated.status == "done"
     assert "aktuell" in updated.message
+
+
+def test_smart_refresh_task_runs_13f_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics())
+    monkeypatch.setattr(
+        smart_module,
+        "get_freshness",
+        lambda: _freshness(prices="fresh", breadth="fresh", rs="fresh", sell_ranking="fresh", sec13f="missing"),
+    )
+    monkeypatch.setattr(smart_module, "get_universe_status", lambda key: _universe(key=key))
+    monkeypatch.setattr(smart_module, "get_runtime_config_value", lambda key: "boerse-dashboard-web test@example.com")
+
+    def fake_13f_refresh(payload: dict, *, progress_callback):
+        calls.append(f"13f:{payload['universe']}:{payload['limit_universe']}")
+        progress_callback(50, "SEC Test", "synthetische 13F-Daten", {"records_seen": 1})
+        return {"ok": True, "records_seen": 1, "records_written": 1, "source": "sec"}
+
+    monkeypatch.setattr(smart_module, "refresh_institutional_13f_from_sec", fake_13f_refresh)
+
+    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart"})
+    result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
+    updated = job_repository.get_job(job.job_id)
+
+    assert result["ok"] is True
+    assert calls == ["13f:open_positions:500"]
+    assert result["results"]["refresh_sec13f"]["records_written"] == 1
+    assert updated is not None
+    assert updated.status == "done"
+
+
+def test_smart_refresh_task_skips_13f_without_sec_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics())
+    monkeypatch.setattr(
+        smart_module,
+        "get_freshness",
+        lambda: _freshness(prices="fresh", breadth="fresh", rs="fresh", sell_ranking="fresh", sec13f="missing"),
+    )
+    monkeypatch.setattr(smart_module, "get_universe_status", lambda key: _universe(key=key))
+    monkeypatch.setattr(smart_module, "get_runtime_config_value", lambda key: "")
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_institutional_13f_from_sec",
+        lambda *args, **kwargs: pytest.fail("13F should not start without SEC_USER_AGENT"),
+    )
+
+    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart"})
+    result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
+
+    assert result["ok"] is True
+    assert result["results"]["refresh_sec13f"]["skipped"] is True
+    assert "SEC_USER_AGENT" in result["results"]["refresh_sec13f"]["reason"]
 
 
 def test_smart_refresh_task_runs_only_planned_actions(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -341,6 +436,7 @@ def _freshness(
     sell_ranking: str,
     trend_benchmark: str = "fresh",
     fundamentals: str = "fresh",
+    sec13f: str = "fresh",
 ) -> FreshnessResponse:
     return FreshnessResponse(
         generated_at=datetime.now(UTC),
@@ -350,6 +446,7 @@ def _freshness(
             _service("market_breadth", breadth),
             _service("relative_strength", rs),
             _service("fundamentals_tracked", fundamentals),
+            _service("institutional_13f", sec13f),
             _service("sell_ranking", sell_ranking),
         ],
     )

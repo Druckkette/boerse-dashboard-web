@@ -769,15 +769,16 @@ export default function JobsPage() {
         </div>
         {selectedType === "refresh_sec13f" && (
           <div className="mt-3 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-sm leading-6 text-amber-100">
-            13F/SEC benötigt auf der NAS `SEC_USER_AGENT` in `infra/.env.nas`, zum Beispiel
-            `boerse-dashboard-web name@example.com`. Nach dem Ändern den Worker neu erstellen.
+            13F/SEC benötigt einen SEC User-Agent im Setup/Security-Bereich, zum Beispiel
+            `boerse-dashboard-web name@example.com`. Danach zieht Smart-Refresh fehlende 13F-Daten automatisch nach.
           </div>
         )}
         <details className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
           <summary className="cursor-pointer text-[#d8dde6]">Default-Einstellungen für diesen manuellen Start</summary>
           <p className="mt-2 leading-6 text-[#a0a7b4]">
             Diese Werte sind unabhängig von den Hauptbuttons. Für Marktbreite und RS wird das volle gespeicherte
-            US-Common-Stocks-Universum verwendet; Spezialjobs wie 13F bleiben bewusst separat.
+            US-Common-Stocks-Universum verwendet. 13F wird im Smart-Refresh nur bei fehlenden oder veralteten
+            Quartalsdaten gestartet.
           </p>
           <pre className="mt-3 max-h-44 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-3 text-xs text-[#d8dde6]">
             {JSON.stringify(defaultPayloadForJob(selectedType), null, 2)}
@@ -850,7 +851,7 @@ function JobsSetupStatusPanel({
             {activeJob ? <StatusChip tone="warning">läuft: {activeJob.job_type}</StatusChip> : null}
           </div>
           <p className="max-w-4xl text-sm leading-6 text-[#a0a7b4]">
-            {setupStatus?.summary ?? "Prüfe System, Depot, Kursdaten, Marktbreite, RS-Ratings und Positionsmonitor."}
+            {setupStatus?.summary ?? "Prüfe System, Depot, Kursdaten, Marktbreite, RS-Ratings, 13F-Daten und Positionsmonitor."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -922,7 +923,7 @@ function JobsSetupStatusPanel({
         </div>
       ) : null}
       {steps.length > 0 ? (
-        <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-7">
           {steps.map((step) => (
             <div key={step.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -970,7 +971,8 @@ function MarketDataAssistantPanel({
           </div>
           <p className="text-sm leading-6 text-[#a0a7b4]">
             Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
-            Alles smart aktualisieren prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile.
+            Alles smart aktualisieren prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile,
+            inklusive 13F/SEC-Trends, wenn sie fehlen oder veraltet sind.
             Geplante Smart-Refreshes laufen automatisch um 16:00 und 22:30 Uhr deutscher Zeit und erzwingen den Market-Refresh-Pfad.
           </p>
           <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-4">
@@ -1498,7 +1500,10 @@ function buildSmartRefreshPayload(config: MarketDataBootstrapConfig): Record<str
     breadth_lookback_days: config.breadthLookbackDays,
     rs_lookback_days: config.rsLookbackDays,
     benchmark_ticker: normalizeTicker(config.rsBenchmarkTicker) || "SPY",
-    include_position_monitor: true
+    include_position_monitor: true,
+    include_sec13f: true,
+    sec13f_universe: "open_positions",
+    sec13f_limit_universe: 500
   };
 }
 
@@ -1514,7 +1519,10 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
       breadth_lookback_days: 550,
       rs_lookback_days: 430,
       benchmark_ticker: "SPY",
-      include_position_monitor: true
+      include_position_monitor: true,
+      include_sec13f: true,
+      sec13f_universe: "open_positions",
+      sec13f_limit_universe: 500
     };
   }
   if (type === "bootstrap_market_data") {

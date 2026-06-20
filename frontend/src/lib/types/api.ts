@@ -1392,7 +1392,14 @@ export type WorkspacePatch = {
 };
 
 export type SetupStep = {
-  key: "system" | "portfolio" | "prices" | "market_breadth" | "relative_strength" | "atr_monitor";
+  key:
+    | "system"
+    | "portfolio"
+    | "prices"
+    | "market_breadth"
+    | "relative_strength"
+    | "institutional_13f"
+    | "atr_monitor";
   label: string;
   status: "complete" | "pending" | "running" | "warning" | "blocked" | "error";
   detail: string;

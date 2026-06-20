@@ -21,7 +21,15 @@ from app.services.system import get_system_readiness
 
 
 ACTIVE_STATUSES = {"queued", "running"}
-SetupStepKey = Literal["system", "portfolio", "prices", "market_breadth", "relative_strength", "atr_monitor"]
+SetupStepKey = Literal[
+    "system",
+    "portfolio",
+    "prices",
+    "market_breadth",
+    "relative_strength",
+    "institutional_13f",
+    "atr_monitor",
+]
 SetupStepStatus = Literal["complete", "pending", "running", "warning", "blocked", "error"]
 SetupOverallStatus = Literal["ready", "needs_action", "running", "blocked"]
 
@@ -58,6 +66,7 @@ def _build_steps(
         _prices_step(diagnostics, freshness_by_name.get("prices"), jobs),
         _breadth_step(freshness_by_name.get("market_breadth"), freshness_by_name.get("prices"), jobs),
         _relative_strength_step(freshness_by_name.get("relative_strength"), freshness_by_name.get("prices"), jobs),
+        _institutional_13f_step(freshness_by_name.get("institutional_13f"), jobs),
         _atr_monitor_step(diagnostics, freshness_by_name.get("sell_ranking"), freshness_by_name.get("prices"), jobs),
     ]
 
@@ -310,6 +319,62 @@ def _relative_strength_step(
     )
 
 
+def _institutional_13f_step(
+    freshness: ServiceFreshness | None,
+    jobs: list[Job],
+) -> SetupStep:
+    latest_job = _latest_job(jobs, "refresh_sec13f")
+    payload = {
+        "mode": "incremental",
+        "source": "setup",
+        "universe": "open_positions",
+        "limit_universe": 500,
+        "dataset_count": 2,
+    }
+    if _is_active(latest_job):
+        return _job_step(
+            key="institutional_13f",
+            label="13F/SEC",
+            status="running",
+            detail="13F/SEC-Refresh läuft im Worker.",
+            job_type="refresh_sec13f",
+            job_payload=payload,
+            latest_job=latest_job,
+        )
+    if freshness is None or freshness.status == "missing":
+        return _job_step(
+            key="institutional_13f",
+            label="13F/SEC",
+            status="pending",
+            detail="Noch keine institutionellen 13F-Trends gespeichert. SEC_USER_AGENT muss im Setup/Security-Bereich gesetzt sein.",
+            job_type="refresh_sec13f",
+            job_payload=payload,
+            latest_job=latest_job,
+            action_label="13F laden",
+        )
+    if freshness.status == "stale":
+        return _job_step(
+            key="institutional_13f",
+            label="13F/SEC",
+            status="warning",
+            detail=f"13F-Trends sind vorhanden, aber veraltet ({freshness.as_of}).",
+            job_type="refresh_sec13f",
+            job_payload=payload,
+            latest_job=latest_job,
+            action_label="13F aktualisieren",
+        )
+    return _job_step(
+        key="institutional_13f",
+        label="13F/SEC",
+        status="complete",
+        detail=f"13F-Trends sind aktuell bis Report-Periode {freshness.as_of}.",
+        job_type="refresh_sec13f",
+        job_payload=payload,
+        latest_job=latest_job,
+        action_label="13F aktualisieren",
+    )
+
+
 def _atr_monitor_step(
     diagnostics: DataDiagnosticsResponse,
     freshness: ServiceFreshness | None,
@@ -451,7 +516,7 @@ def _next_action_step(steps: list[SetupStep]) -> SetupStep | None:
 
 def _summary(status: str, steps: list[SetupStep]) -> str:
     if status == "ready":
-        return "Erststart abgeschlossen. Depot, Marktdaten, RS-Ratings und Positionsmonitor sind vorbereitet."
+        return "Erststart abgeschlossen. Depot, Marktdaten, RS-Ratings, 13F-Daten und Positionsmonitor sind vorbereitet."
     if status == "running":
         running = next((step for step in steps if step.status == "running"), None)
         return f"{running.label if running else 'Ein Job'} läuft im Worker. Die Oberfläche bleibt bedienbar."

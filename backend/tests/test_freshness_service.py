@@ -20,6 +20,7 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
                 date(2026, 6, 16),
                 date(2026, 6, 16),
                 date(2026, 6, 16),
+                date(2026, 3, 31),
             ]
 
         def __enter__(self):
@@ -59,3 +60,5 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
         "SPY": "2026-06-16",
     }
     assert services["fundamentals_tracked"].as_of == "2026-06-16"
+    assert services["institutional_13f"].as_of == "2026-03-31"
+    assert services["institutional_13f"].metadata["expected_interval"] == "quarterly"
