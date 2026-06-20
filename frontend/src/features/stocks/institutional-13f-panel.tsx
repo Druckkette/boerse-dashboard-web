@@ -105,9 +105,8 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
       {!query.isLoading && !query.isError && !item && (
         <div className="rounded border border-dashed border-[#4b5563] bg-[#111419] p-5 text-sm text-[#a0a7b4]">
           Lade 13F direkt für {clean}. Der Worker nutzt die offiziellen SEC-Datensätze und speichert danach
-          aggregierte Ticker-Trends, sofern der Ticker im aktuellen 13F-Universum gefunden wird. Das ist getrennt
-          vom Prozentwert „institutionell gehalten“ aus dem Fundamental-Provider; 13F-Trends brauchen ein passendes
-          SEC-CUSIP-Mapping und mindestens zwei vergleichbare Berichtsperioden.
+          aggregierte Ticker-Trends, sofern der Ticker im aktuellen 13F-Universum gefunden wird. 13F-Trends brauchen
+          ein passendes SEC-CUSIP-Mapping und mindestens zwei vergleichbare Berichtsperioden.
         </div>
       )}
       {item && (

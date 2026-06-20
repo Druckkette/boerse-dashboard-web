@@ -85,6 +85,12 @@ def refresh_institutional_13f_from_sec(
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT"),
     )
     ingest_result = ingest_institutional_13f_payload(build_result.payload)
+    ticker_breakdown = _ticker_breakdown(
+        universe=universe,
+        payload=build_result.payload,
+        mapping_rows=build_result.mapping_rows,
+        unmatched_rows=build_result.unmatched_rows,
+    )
     ingest_result.update(
         {
             "source": "sec",
@@ -94,6 +100,7 @@ def refresh_institutional_13f_from_sec(
             "mapping_count": len(build_result.mapping_rows),
             "unmatched_count": len(build_result.unmatched_rows),
             "unmatched_sample": build_result.unmatched_rows[:50],
+            "ticker_breakdown": ticker_breakdown,
             "records_seen": len(build_result.payload.get("tickers", {})),
         }
     )
@@ -257,6 +264,96 @@ def _load_manual_overrides() -> dict[str, str]:
         return sec13f_repository.list_manual_cusip_overrides()
     except Sec13FRepositoryUnavailable:
         return {}
+
+
+def _ticker_breakdown(
+    *,
+    universe: list[str],
+    payload: dict[str, Any],
+    mapping_rows: list[dict[str, Any]],
+    unmatched_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tickers_payload = payload.get("tickers") if isinstance(payload.get("tickers"), dict) else {}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    mapping_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    for row in mapping_rows:
+        ticker = normalize_ticker(row.get("ticker"))
+        if ticker:
+            mapping_by_ticker.setdefault(ticker, []).append(row)
+    unmatched_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    for row in unmatched_rows:
+        candidates = str(row.get("candidate_tickers") or "")
+        for candidate in [normalize_ticker(item) for item in candidates.split(",")]:
+            if candidate:
+                unmatched_by_candidate.setdefault(candidate, []).append(row)
+
+    breakdown: list[dict[str, Any]] = []
+    for ticker in universe:
+        clean = normalize_ticker(ticker)
+        if not clean:
+            continue
+        item = tickers_payload.get(clean)
+        mappings = mapping_by_ticker.get(clean, [])
+        if isinstance(item, dict):
+            breakdown.append(
+                {
+                    "ticker": clean,
+                    "status": "matched",
+                    "report_period": item.get("period") or metadata.get("current_period"),
+                    "previous_period": item.get("previous_period") or metadata.get("previous_period"),
+                    "cusip": item.get("cusip") or _join_unique(row.get("cusip") for row in mappings),
+                    "holder_count": _int_or_none(item.get("holder_count")),
+                    "previous_holder_count": _int_or_none(item.get("previous_holder_count")),
+                    "holder_count_delta": _int_or_none(item.get("holder_count_delta")),
+                    "large_holder_count": _int_or_none(item.get("large_holder_count")),
+                    "previous_large_holder_count": _int_or_none(item.get("previous_large_holder_count")),
+                    "large_holder_delta": _int_or_none(item.get("large_holder_delta")),
+                    "total_value_usd": _float_or_none(item.get("total_value_usd")),
+                    "total_shares": _float_or_none(item.get("total_shares")),
+                }
+            )
+            continue
+        if mappings:
+            breakdown.append(
+                {
+                    "ticker": clean,
+                    "status": "mapped_without_holdings",
+                    "report_period": metadata.get("current_period"),
+                    "previous_period": metadata.get("previous_period"),
+                    "cusip": _join_unique(row.get("cusip") for row in mappings),
+                    "reason": "CUSIP wurde gemappt, aber in der aktuellen 13F-Periode nicht aggregiert.",
+                }
+            )
+            continue
+        unmatched = unmatched_by_candidate.get(clean, [])
+        breakdown.append(
+            {
+                "ticker": clean,
+                "status": "no_cusip_mapping",
+                "report_period": metadata.get("current_period"),
+                "previous_period": metadata.get("previous_period"),
+                "reason": "Kein SEC-CUSIP-Mapping fuer diesen Ticker gefunden.",
+                "unmatched_candidates": [
+                    {
+                        "cusip": row.get("cusip"),
+                        "issuer": row.get("issuer"),
+                        "title": row.get("title"),
+                        "reason": row.get("reason"),
+                    }
+                    for row in unmatched[:5]
+                ],
+            }
+        )
+    return breakdown
+
+
+def _join_unique(values: Any) -> str:
+    out = []
+    for value in values:
+        clean = str(value or "").strip().upper()
+        if clean and clean not in out:
+            out.append(clean)
+    return ",".join(out)
 
 
 def _resolve_universe(payload: dict[str, Any]) -> list[str]:

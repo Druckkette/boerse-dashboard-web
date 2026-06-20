@@ -66,7 +66,6 @@ class StockAssessmentMetrics:
     rs_rating: int | None = None
     rs_percentile: float | None = None
     beta: float | None = None
-    institutional_ownership_pct: float | None = None
     next_earnings_calendar_days: int | None = None
     next_earnings_trading_days: int | None = None
 
@@ -672,7 +671,6 @@ def _compute_metrics(
         rs_rating=_int_or_none(rs_context.get("rating")),
         rs_percentile=_safe_float(rs_context.get("percentile")),
         beta=_safe_float(fundamentals_context.get("beta")),
-        institutional_ownership_pct=_safe_float(fundamentals_context.get("institutional_ownership_pct")),
         next_earnings_calendar_days=earnings.calendar_days if earnings else None,
         next_earnings_trading_days=earnings.trading_days if earnings else None,
     )
@@ -1365,6 +1363,7 @@ def _merge_institutional_fields(fundamentals: dict[str, Any], institutional: Map
         return fundamentals
     merged = dict(fundamentals)
     merged["institutional_report_period"] = institutional.get("report_period") or institutional.get("period")
+    merged["institutional_13f_holders"] = _int_or_none(institutional.get("holder_count"))
     merged["institutional_holders_delta"] = _int_or_none(institutional.get("holder_count_delta"))
     merged["institutional_large_holders"] = _int_or_none(institutional.get("large_holder_count"))
     merged["institutional_large_holders_delta"] = _int_or_none(institutional.get("large_holder_delta"))
@@ -1405,30 +1404,11 @@ def _institutional_support_check(
             detail=" · ".join(details) if details else "13F-Kontext gespeichert",
         )
 
-    holders = _int_or_none(fundamentals_context.get("institutional_holders"))
-    ownership = _safe_float(fundamentals_context.get("institutional_ownership_pct"))
-    if holders is not None:
-        detail = f"{holders} Institutionen"
-        if ownership is not None:
-            detail += f" · {ownership:.1f}% inst. gehalten"
-        return AssessmentCheck(
-            category="fundamental",
-            label="Institutionelle Unterstützung",
-            passed=holders >= 5,
-            detail=detail,
-        )
-    if ownership is not None:
-        return AssessmentCheck(
-            category="fundamental",
-            label="Institutionelle Unterstützung",
-            passed=ownership >= 20,
-            detail=f"{ownership:.1f}% inst. gehalten",
-        )
     return AssessmentCheck(
         category="fundamental",
         label="Institutionelle Unterstützung",
         passed=False,
-        detail="Nicht verfügbar",
+        detail="Keine gespeicherten 13F-Trends",
     )
 
 
@@ -1508,8 +1488,6 @@ def _has_fundamental_data(fundamentals_context: Mapping[str, Any]) -> bool:
         "roe_history",
         "profit_margin_pct",
         "trailing_eps",
-        "institutional_holders",
-        "institutional_ownership_pct",
         "next_earnings_date",
         "beta",
     }

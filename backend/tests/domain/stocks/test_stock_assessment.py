@@ -90,9 +90,15 @@ def test_stock_assessment_uses_cached_fundamentals() -> None:
             "trailing_eps": 3.42,
             "quarterly_eps_accelerating": True,
             "quarterly_revenue_accelerating": True,
-            "institutional_holders": 22,
-            "institutional_ownership_pct": 58.0,
             "beta": 1.25,
+        },
+        institutional_context={
+            "report_period": "2025-12-31",
+            "holder_count": 22,
+            "holder_count_delta": 3,
+            "large_holder_count": 12,
+            "large_holder_delta": 2,
+            "trend": "positive",
         },
     )
 

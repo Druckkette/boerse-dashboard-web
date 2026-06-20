@@ -55,8 +55,8 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
         trailing_eps=result_fields["trailing_eps"],
         quarterly_eps_accelerating=result_fields["quarterly_eps_accelerating"],
         quarterly_revenue_accelerating=result_fields["quarterly_revenue_accelerating"],
-        institutional_holders=fetched.institutional_holders,
-        institutional_ownership_pct=fetched.institutional_ownership_pct,
+        institutional_holders=None,
+        institutional_ownership_pct=None,
         next_earnings_date=enrichment.next_earnings_date or fetched.next_earnings_date,
         beta=enrichment.beta if enrichment.beta is not None else fetched.beta,
         metadata_json={
@@ -99,8 +99,8 @@ def _result_fields(fetched: FetchedFundamentals, enrichment: FundamentalEnrichme
         "revenue_quarter_history": enrichment.revenue_quarter_history,
         "annual_revenue_history": enrichment.annual_revenue_history,
         "roe_history": enrichment.roe_history,
-        "institutional_holders": fetched.institutional_holders,
-        "institutional_ownership_pct": fetched.institutional_ownership_pct,
+        "institutional_holders": None,
+        "institutional_ownership_pct": None,
         "next_earnings_date": (
             enrichment.next_earnings_date.isoformat()
             if enrichment.next_earnings_date

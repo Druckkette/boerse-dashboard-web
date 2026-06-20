@@ -411,14 +411,14 @@ def test_patch_stock_fundamentals_contract(monkeypatch) -> None:
                 trailing_eps=None,
                 quarterly_eps_accelerating=None,
                 quarterly_revenue_accelerating=None,
-                institutional_holders=None,
-                institutional_ownership_pct=None,
+                institutional_13f_holders=None,
                 next_earnings_date=None,
                 beta=None,
                 eps_quarter_history=request.eps_quarter_history,
                 annual_eps_history=request.annual_eps_history,
                 revenue_quarter_history=request.revenue_quarter_history,
                 annual_revenue_history=request.annual_revenue_history,
+                roe_history=request.roe_history,
             ),
         )
 

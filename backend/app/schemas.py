@@ -564,7 +564,6 @@ class StockAssessmentMetrics(BaseModel):
     rs_rating: int | None = Field(default=None, ge=1, le=99)
     rs_percentile: float | None = Field(default=None, ge=0, le=100)
     beta: float | None = None
-    institutional_ownership_pct: float | None = None
     next_earnings_calendar_days: int | None = None
     next_earnings_trading_days: int | None = None
 
@@ -623,12 +622,11 @@ class StockFundamentalsItem(BaseModel):
     trailing_eps: float | None = None
     quarterly_eps_accelerating: bool | None = None
     quarterly_revenue_accelerating: bool | None = None
-    institutional_holders: int | None = None
+    institutional_13f_holders: int | None = None
     institutional_holders_delta: int | None = None
     institutional_large_holders: int | None = None
     institutional_large_holders_delta: int | None = None
     institutional_report_period: str | None = None
-    institutional_ownership_pct: float | None = None
     next_earnings_date: str | None = None
     beta: float | None = None
     eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)
@@ -657,8 +655,6 @@ class StockFundamentalsUpdateRequest(BaseModel):
     trailing_eps: float | None = None
     quarterly_eps_accelerating: bool | None = None
     quarterly_revenue_accelerating: bool | None = None
-    institutional_holders: int | None = Field(default=None, ge=0)
-    institutional_ownership_pct: float | None = Field(default=None, ge=0, le=100)
     next_earnings_date: str | None = None
     beta: float | None = None
     eps_quarter_history: list[StockFundamentalsEpsQuarter] = Field(default_factory=list)

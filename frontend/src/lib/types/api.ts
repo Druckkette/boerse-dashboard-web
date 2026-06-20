@@ -790,7 +790,6 @@ export type StockAssessmentMetrics = {
   rs_rating?: number | null;
   rs_percentile?: number | null;
   beta?: number | null;
-  institutional_ownership_pct?: number | null;
   next_earnings_calendar_days?: number | null;
   next_earnings_trading_days?: number | null;
 };
@@ -849,12 +848,11 @@ export type StockFundamentalsItem = {
   trailing_eps?: number | null;
   quarterly_eps_accelerating?: boolean | null;
   quarterly_revenue_accelerating?: boolean | null;
-  institutional_holders?: number | null;
+  institutional_13f_holders?: number | null;
   institutional_holders_delta?: number | null;
   institutional_large_holders?: number | null;
   institutional_large_holders_delta?: number | null;
   institutional_report_period?: string | null;
-  institutional_ownership_pct?: number | null;
   next_earnings_date?: string | null;
   beta?: number | null;
   eps_quarter_history: StockFundamentalsEpsQuarter[];
@@ -883,8 +881,6 @@ export type StockFundamentalsUpdate = {
   trailing_eps?: number | null;
   quarterly_eps_accelerating?: boolean | null;
   quarterly_revenue_accelerating?: boolean | null;
-  institutional_holders?: number | null;
-  institutional_ownership_pct?: number | null;
   next_earnings_date?: string | null;
   beta?: number | null;
   eps_quarter_history?: StockFundamentalsEpsQuarter[];

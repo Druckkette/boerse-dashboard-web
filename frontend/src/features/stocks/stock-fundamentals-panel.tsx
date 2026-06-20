@@ -133,7 +133,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
             <MetricTile label="ROE" value={formatPct(item?.roe_pct)} detail={roeHistoryDetail(item)} tone={roeHistoryTone(item?.roe_history ?? [], item?.roe_pct)} />
             <MetricTile label="Gewinnmarge" value={formatPct(item?.profit_margin_pct)} detail="Positiv ist Pflicht" tone={thresholdTone(item?.profit_margin_pct, 0, true)} />
             <MetricTile label="Summe EPS 4Q" value={formatNumber(item?.trailing_eps)} detail="Muss über 0 liegen" tone={(item?.trailing_eps ?? -Infinity) > 0 ? "good" : "warning"} />
-            <MetricTile label="Institutionen" value={formatInteger(item?.institutional_holders)} detail={institutionDetail(item)} />
+            <MetricTile label="13F-Halter" value={formatInteger(item?.institutional_13f_holders)} detail={institutionDetail(item)} />
             <MetricTile label="Beta" value={formatNumber(item?.beta)} detail="Risikokontext" />
             {hasEarningsDate && (
               <MetricTile label="Nächste Earnings" value={item?.next_earnings_date || "n/a"} detail={earningsHint(item?.next_earnings_date)} tone={earningsTone} />
@@ -648,10 +648,10 @@ function roeHistoryDetail(item: StockFundamentalsItem | null) {
 }
 
 function institutionDetail(item: StockFundamentalsItem | null) {
-  if (!item) return "Anteil institutionell gehaltener Aktien";
-  const parts = [formatPct(item.institutional_ownership_pct, "institutionell gehalten")];
+  if (!item) return "SEC-13F Reports";
+  const parts = ["SEC-13F Reports"];
   if (typeof item.institutional_holders_delta === "number") {
-    parts.push(`13F-Halter ${signedInteger(item.institutional_holders_delta)}`);
+    parts.push(`Halter ${signedInteger(item.institutional_holders_delta)}`);
   }
   if (typeof item.institutional_large_holders === "number") {
     parts.push(`große 13F ${formatInteger(item.institutional_large_holders)}`);
@@ -659,7 +659,7 @@ function institutionDetail(item: StockFundamentalsItem | null) {
   if (item.institutional_report_period) {
     parts.push(item.institutional_report_period);
   }
-  return parts.filter((part) => part && part !== "n/a").join(" · ") || "Anteil institutionell gehaltener Aktien";
+  return parts.filter((part) => part && part !== "n/a").join(" · ") || "SEC-13F Reports";
 }
 
 function annualRevenueHistoryScore(history: StockFundamentalsAnnualRevenue[]) {

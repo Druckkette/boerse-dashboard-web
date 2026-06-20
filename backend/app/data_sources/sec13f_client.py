@@ -32,6 +32,7 @@ DEFAULT_CUSIP_OVERRIDES = {
     "115637209": "BF-B",
     "526057104": "LEN",
     "526057302": "LEN-B",
+    "80004C200": "SNDK",
 }
 
 ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]

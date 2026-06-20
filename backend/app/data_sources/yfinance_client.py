@@ -125,7 +125,6 @@ def fetch_fundamentals(symbol: str, *, include_holders: bool = True) -> FetchedF
 
     ticker = yf.Ticker(clean_symbol)
     info = _safe_info(ticker)
-    holders_count = _safe_holders_count(ticker) if include_holders else None
     return FetchedFundamentals(
         ticker=clean_symbol,
         as_of=date.today(),
@@ -142,12 +141,8 @@ def fetch_fundamentals(symbol: str, *, include_holders: bool = True) -> FetchedF
         roe_pct=_ratio_to_pct(info.get("returnOnEquity")),
         profit_margin_pct=_ratio_to_pct(info.get("profitMargins")),
         trailing_eps=_float_or_none(info.get("trailingEps")),
-        institutional_holders=holders_count,
-        institutional_ownership_pct=_ratio_to_pct(
-            info.get("heldPercentInstitutions")
-            or info.get("heldByInstitutions")
-            or info.get("institutionPercentHeld")
-        ),
+        institutional_holders=None,
+        institutional_ownership_pct=None,
         next_earnings_date=_next_earnings_date(ticker),
         beta=_float_or_none(info.get("beta")),
     )
@@ -183,16 +178,6 @@ def _safe_info(ticker: Any) -> dict:
         except Exception:
             info = {}
     return info if isinstance(info, dict) else {}
-
-
-def _safe_holders_count(ticker: Any) -> int | None:
-    try:
-        holders = ticker.institutional_holders
-    except Exception:
-        return None
-    if isinstance(holders, pd.DataFrame) and not holders.empty:
-        return int(len(holders))
-    return None
 
 
 def _next_earnings_date(ticker: Any) -> date | None:

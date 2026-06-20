@@ -90,8 +90,8 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
         <Metric label="RS-Rating" value={numberOrDash(assessment.metrics.rs_rating)} detail={pct(assessment.metrics.rs_percentile)} />
         <Metric label="Beta" value={numberOrDash(assessment.metrics.beta)} detail="Fundamental-Cache" />
         <Metric
-          label="Inst. Anteil"
-          value={pctPlain(assessment.metrics.institutional_ownership_pct)}
+          label="13F-Halter"
+          value={numberOrDash(assessment.fundamentals?.institutional_13f_holders)}
           detail={institutionMetricDetail(assessment)}
         />
         {assessment.earnings && (
@@ -303,16 +303,16 @@ function groupSignals(signals: StockAssessmentSignal[]) {
 }
 
 function institutionMetricDetail(assessment: StockAssessment) {
-  const parts = ["institutionell gehaltener Aktienanteil"];
+  const parts = ["SEC-13F Reports"];
   const fundamentals = assessment.fundamentals;
-  if (typeof fundamentals?.institutional_holders === "number") {
-    parts.push(`${fundamentals.institutional_holders} Provider-Halter`);
-  }
   if (typeof fundamentals?.institutional_holders_delta === "number") {
-    parts.push(`13F-Halter ${signedInteger(fundamentals.institutional_holders_delta)}`);
+    parts.push(`Halter ${signedInteger(fundamentals.institutional_holders_delta)}`);
   }
   if (typeof fundamentals?.institutional_large_holders === "number") {
     parts.push(`große 13F ${fundamentals.institutional_large_holders}`);
+  }
+  if (fundamentals?.institutional_report_period) {
+    parts.push(fundamentals.institutional_report_period);
   }
   return parts.join(" · ");
 }
@@ -347,11 +347,6 @@ function money(value?: number | null) {
 function pct(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
-}
-
-function pctPlain(value?: number | null) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "-";
-  return `${value.toFixed(1)}%`;
 }
 
 function mio(value?: number | null) {
