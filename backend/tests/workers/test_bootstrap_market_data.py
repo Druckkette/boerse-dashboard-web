@@ -110,7 +110,14 @@ def test_bootstrap_redelivery_of_completed_job_is_noop(monkeypatch: pytest.Monke
 def test_price_refresh_checkpoint_skips_completed_tickers(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
 
-    def fake_refresh(symbols: list, *, range_key: str, incremental: bool, batch_size: int = 50) -> list[dict]:
+    def fake_refresh(
+        symbols: list,
+        *,
+        range_key: str,
+        incremental: bool,
+        batch_size: int = 50,
+        overlap_days: int = 1,
+    ) -> list[dict]:
         seen.extend(symbol.ticker for symbol in symbols)
         return [
             {

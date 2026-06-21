@@ -187,6 +187,7 @@ def build_smart_refresh_plan(
         max_value=12 * 60 * 60,
     )
     price_batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
+    price_overlap_days = _normalize_overlap_days(payload.get("price_overlap_days") or payload.get("overlap_days") or 1)
     include_position_monitor = bool(payload.get("include_position_monitor", True))
     include_fundamentals = bool(payload.get("include_fundamentals", True))
     include_sec13f = _normalize_bool(payload.get("include_sec13f"), default=True)
@@ -263,6 +264,7 @@ def build_smart_refresh_plan(
                     "price_provider_timeout_seconds": price_provider_timeout_seconds,
                     "price_action_max_seconds": price_action_max_seconds,
                     "price_batch_size": price_batch_size,
+                    "price_overlap_days": price_overlap_days,
                 },
             )
         )
@@ -284,6 +286,7 @@ def build_smart_refresh_plan(
                         "price_provider_timeout_seconds": price_provider_timeout_seconds,
                         "price_action_max_seconds": price_action_max_seconds,
                         "price_batch_size": price_batch_size,
+                        "price_overlap_days": price_overlap_days,
                     },
                 )
             )
@@ -302,6 +305,7 @@ def build_smart_refresh_plan(
                         "price_provider_timeout_seconds": price_provider_timeout_seconds,
                         "price_action_max_seconds": price_action_max_seconds,
                         "price_batch_size": price_batch_size,
+                        "price_overlap_days": price_overlap_days,
                     },
                 )
             )
@@ -466,6 +470,7 @@ def _refresh_prices(
         max_value=12 * 60 * 60,
     )
     batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
+    overlap_days = _normalize_overlap_days(payload.get("price_overlap_days") or payload.get("overlap_days") or 1)
     symbols = resolve_universe_price_symbols(
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
@@ -488,6 +493,7 @@ def _refresh_prices(
         "provider_timeout_seconds": provider_timeout_seconds,
         "max_action_seconds": max_action_seconds,
         "batch_size": batch_size,
+        "overlap_days": overlap_days,
         "batch_count": 0,
     }
     total_symbols = max(1, len(symbols))
@@ -539,6 +545,7 @@ def _refresh_prices(
                 incremental=_normalize_bool(payload.get("incremental"), default=True),
                 timeout=provider_timeout_seconds,
                 batch_size=batch_size,
+                overlap_days=overlap_days,
             )
         except Exception as exc:
             batch_items = [
@@ -830,6 +837,13 @@ def _normalize_batch_size(value: object) -> int:
         return max(1, min(250, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _normalize_overlap_days(value: object) -> int:
+    try:
+        return max(0, min(30, int(value)))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _elapsed_seconds(started_at: float) -> int:

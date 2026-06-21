@@ -162,6 +162,7 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
     assert plan[0].payload["price_provider_timeout_seconds"] == 15
     assert plan[0].payload["price_action_max_seconds"] == 7200
     assert plan[0].payload["price_batch_size"] == 50
+    assert plan[0].payload["price_overlap_days"] == 1
     assert plan[-1].payload["fundamental_universe"] == "all"
     assert plan[-1].payload["fundamental_limit"] == 5000
     assert plan[-1].payload["fundamental_action_max_seconds"] == 2700
@@ -281,7 +282,7 @@ def test_smart_refresh_task_runs_only_planned_actions(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         smart_module,
         "refresh_price_cache_for_symbols",
-        lambda symbols, *, range_key, incremental=False, timeout=15, batch_size=50: [
+        lambda symbols, *, range_key, incremental=False, timeout=15, batch_size=50, overlap_days=1: [
             calls.append(f"price:{symbol.ticker}:{range_key}:{incremental}") or {
                 "ticker": symbol.ticker,
                 "ok": True,
@@ -336,7 +337,7 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
     monkeypatch.setattr(
         smart_module,
         "refresh_price_cache_for_symbols",
-        lambda symbols, *, range_key, incremental=False, timeout=15, batch_size=50: [
+        lambda symbols, *, range_key, incremental=False, timeout=15, batch_size=50, overlap_days=1: [
             calls.append(f"price:{symbol.ticker}:{range_key}:{incremental}") or {
                 "ticker": symbol.ticker,
                 "ok": True,

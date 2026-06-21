@@ -21,6 +21,7 @@ def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> No
         incremental: bool = False,
         timeout: int = 15,
         batch_size: int = 50,
+        overlap_days: int = 1,
     ) -> list[dict]:
         seen.extend(symbol.ticker for symbol in symbols)
         return [
@@ -71,6 +72,7 @@ def test_refresh_prices_all_preset_includes_trend_benchmark_helpers(monkeypatch:
         incremental: bool = False,
         timeout: int = 15,
         batch_size: int = 50,
+        overlap_days: int = 1,
     ) -> list[dict]:
         seen.extend(symbol.ticker for symbol in symbols)
         return [
@@ -107,6 +109,7 @@ def test_refresh_prices_passes_incremental_mode(monkeypatch: pytest.MonkeyPatch)
         incremental: bool = False,
         timeout: int = 15,
         batch_size: int = 50,
+        overlap_days: int = 1,
     ) -> list[dict]:
         seen.extend((symbol.ticker, incremental) for symbol in symbols)
         return [
@@ -129,6 +132,7 @@ def test_refresh_prices_passes_incremental_mode(monkeypatch: pytest.MonkeyPatch)
 
     assert result["ok"] is True
     assert result["incremental"] is True
+    assert result["overlap_days"] == 1
     assert seen == [("AAA", True)]
 
 
@@ -142,6 +146,7 @@ def test_refresh_prices_passes_provider_timeout(monkeypatch: pytest.MonkeyPatch)
         incremental: bool = False,
         timeout: int = 15,
         batch_size: int = 50,
+        overlap_days: int = 1,
     ) -> list[dict]:
         seen.append(timeout)
         return [
@@ -167,6 +172,42 @@ def test_refresh_prices_passes_provider_timeout(monkeypatch: pytest.MonkeyPatch)
     assert seen == [7]
 
 
+def test_refresh_prices_passes_overlap_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[int] = []
+
+    def fake_refresh(
+        symbols: list,
+        *,
+        range_key: str,
+        incremental: bool = False,
+        timeout: int = 15,
+        batch_size: int = 50,
+        overlap_days: int = 1,
+    ) -> list[dict]:
+        seen.append(overlap_days)
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                "ok": True,
+                "records_seen": 1,
+                "records_written": 1,
+                "source": "yfinance",
+            }
+            for symbol in symbols
+        ]
+
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
+    payload = {"tickers": ["AAA"], "range": "6m", "incremental": True, "price_overlap_days": 3}
+    job = job_repository.create_job("refresh_prices", payload)
+
+    result = refresh_prices_module.refresh_prices.run(job.job_id, payload)
+
+    assert result["ok"] is True
+    assert result["overlap_days"] == 3
+    assert seen == [3]
+
+
 def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_refresh(
         symbols: list,
@@ -175,6 +216,7 @@ def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytes
         incremental: bool = False,
         timeout: int = 15,
         batch_size: int = 50,
+        overlap_days: int = 1,
     ) -> list[dict]:
         items = []
         for symbol in symbols:
@@ -231,6 +273,7 @@ def test_refresh_prices_marks_job_failed_when_all_tickers_fail(
         incremental: bool = False,
         timeout: int = 15,
         batch_size: int = 50,
+        overlap_days: int = 1,
     ) -> list[dict]:
         return [
             {

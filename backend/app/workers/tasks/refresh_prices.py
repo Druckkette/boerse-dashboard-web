@@ -51,6 +51,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         max_value=120,
     )
     batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
+    overlap_days = _normalize_overlap_days(payload.get("price_overlap_days") or payload.get("overlap_days") or 1)
     fail_fast = bool(payload.get("fail_fast") or False)
     result: dict = {
         "ok": False,
@@ -76,6 +77,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         "records_written": 0,
         "provider_timeout_seconds": provider_timeout_seconds,
         "batch_size": batch_size,
+        "overlap_days": overlap_days,
         "batch_count": 0,
         "items": [],
     }
@@ -105,6 +107,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
                     incremental=incremental,
                     timeout=provider_timeout_seconds,
                     batch_size=batch_size,
+                    overlap_days=overlap_days,
                 )
             except Exception as exc:
                 batch_items = [
@@ -214,6 +217,13 @@ def _normalize_batch_size(value: object) -> int:
         return max(1, min(250, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _normalize_overlap_days(value: object) -> int:
+    try:
+        return max(0, min(30, int(value)))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _should_include_market_helpers(payload: dict, *, preset: PriceRefreshPreset, explicit_tickers: object) -> bool:

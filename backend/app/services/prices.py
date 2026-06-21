@@ -37,6 +37,8 @@ YFINANCE_PERIOD_BY_RANGE: dict[PriceRange, str] = {
     "5y": "10y",
 }
 
+DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS = 1
+
 
 @dataclass(frozen=True)
 class PriceRefreshSymbol:
@@ -85,12 +87,17 @@ def refresh_price_cache_for_ticker(
     yahoo_symbol: str | None = None,
     incremental: bool = False,
     timeout: int = 15,
+    overlap_days: int = DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS,
 ) -> dict:
     clean = _normalize_ticker(ticker)
     fetch_symbol = (yahoo_symbol or clean).strip().upper()
     period = YFINANCE_PERIOD_BY_RANGE[range_key]
     latest_cached_date = _latest_cached_date(clean) if incremental else None
-    start_date = _incremental_start_date(latest_cached_date) if latest_cached_date else None
+    start_date = (
+        _incremental_start_date(latest_cached_date, overlap_days=overlap_days)
+        if latest_cached_date
+        else None
+    )
     fetched = fetch_daily_price_bars(fetch_symbol, period=period, start=start_date, timeout=timeout)
     return _write_price_cache_result(
         ticker=clean,
@@ -99,6 +106,7 @@ def refresh_price_cache_for_ticker(
         latest_cached_date=latest_cached_date,
         start_date=start_date,
         timeout=timeout,
+        overlap_days=overlap_days,
         batch=False,
     )
 
@@ -110,6 +118,7 @@ def refresh_price_cache_for_symbols(
     incremental: bool = False,
     timeout: int = 15,
     batch_size: int = 50,
+    overlap_days: int = DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS,
 ) -> list[dict]:
     period = YFINANCE_PERIOD_BY_RANGE[range_key]
     normalized = [_normalize_refresh_symbol(symbol) for symbol in symbols]
@@ -128,6 +137,7 @@ def refresh_price_cache_for_symbols(
                 range_key=range_key,
                 incremental=incremental,
                 timeout=timeout,
+                overlap_days=overlap_days,
             )
         )
     return results
@@ -140,6 +150,7 @@ def _refresh_price_cache_chunk(
     range_key: PriceRange,
     incremental: bool,
     timeout: int,
+    overlap_days: int,
 ) -> list[dict]:
     latest_by_ticker: dict[str, date | None] = {}
     for symbol in symbols:
@@ -160,7 +171,11 @@ def _refresh_price_cache_chunk(
     for symbol in symbols:
         ticker = _normalize_ticker(symbol.ticker)
         latest_cached_date = latest_by_ticker.get(ticker)
-        start = _incremental_start_date(latest_cached_date) if latest_cached_date else None
+        start = (
+            _incremental_start_date(latest_cached_date, overlap_days=overlap_days)
+            if latest_cached_date
+            else None
+        )
         grouped_by_start.setdefault(start, []).append(symbol)
 
     result_by_ticker: dict[str, dict] = {}
@@ -172,6 +187,7 @@ def _refresh_price_cache_chunk(
             start=start,
             latest_by_ticker=latest_by_ticker,
             timeout=timeout,
+            overlap_days=overlap_days,
         ):
             result_by_ticker[str(item.get("ticker") or "").upper()] = item
 
@@ -192,6 +208,7 @@ def _fetch_and_write_price_symbol_group(
     start: date | None,
     latest_by_ticker: dict[str, date | None],
     timeout: int,
+    overlap_days: int,
 ) -> list[dict]:
     fetch_symbols = list(dict.fromkeys(_fetch_symbol(symbol) for symbol in symbols))
     try:
@@ -207,6 +224,7 @@ def _fetch_and_write_price_symbol_group(
             range_key=range_key,
             incremental=start is not None,
             timeout=timeout,
+            overlap_days=overlap_days,
             batch_error=exc,
         )
 
@@ -225,6 +243,7 @@ def _fetch_and_write_price_symbol_group(
                 latest_cached_date=latest_by_ticker.get(ticker),
                 start_date=start,
                 timeout=timeout,
+                overlap_days=overlap_days,
                 batch=True,
                 batch_size=len(symbols),
                 batch_start_date=start,
@@ -239,6 +258,7 @@ def _refresh_price_cache_chunk_fallback(
     range_key: PriceRange,
     incremental: bool,
     timeout: int,
+    overlap_days: int,
     batch_error: Exception,
 ) -> list[dict]:
     results: list[dict] = []
@@ -252,6 +272,7 @@ def _refresh_price_cache_chunk_fallback(
                 yahoo_symbol=fetch_symbol,
                 incremental=incremental,
                 timeout=timeout,
+                overlap_days=overlap_days,
             )
             item["batch_fallback"] = True
             item["batch_error_message"] = f"{type(batch_error).__name__}: {batch_error}"
@@ -280,6 +301,7 @@ def _write_price_cache_result(
     latest_cached_date: date | None,
     start_date: date | None,
     timeout: int,
+    overlap_days: int,
     batch: bool,
     batch_size: int | None = None,
     batch_start_date: date | None = None,
@@ -309,6 +331,7 @@ def _write_price_cache_result(
         "incremental_start_date": start_date.isoformat() if start_date else None,
         "latest_cached_date": latest_cached_date.isoformat() if latest_cached_date else None,
         "timeout_seconds": max(3, int(timeout)),
+        "overlap_days": _normalize_overlap_days(overlap_days),
         "batch": batch,
         "source": "yfinance",
     }
@@ -326,11 +349,16 @@ def _latest_cached_date(ticker: str) -> date | None:
         return None
 
 
-def _incremental_start_date(latest_cached_date: date | None) -> date | None:
+def _incremental_start_date(
+    latest_cached_date: date | None,
+    *,
+    overlap_days: int = DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS,
+) -> date | None:
     if latest_cached_date is None:
         return None
-    # A small overlap keeps the most recent adjusted prices and late provider updates consistent.
-    return max(date(2000, 1, 1), latest_cached_date - timedelta(days=7))
+    # Smart Refresh runs twice per day, so the default overlap stays tight.
+    # Larger repair windows can opt in via the job payload.
+    return max(date(2000, 1, 1), latest_cached_date - timedelta(days=_normalize_overlap_days(overlap_days)))
 
 
 def _build_response(
@@ -416,3 +444,10 @@ def _normalize_refresh_symbol(symbol: PriceRefreshSymbol) -> PriceRefreshSymbol 
 
 def _fetch_symbol(symbol: PriceRefreshSymbol) -> str:
     return (symbol.yahoo_symbol or symbol.ticker).strip().upper()
+
+
+def _normalize_overlap_days(value: object) -> int:
+    try:
+        return max(0, min(30, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS

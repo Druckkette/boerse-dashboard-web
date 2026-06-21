@@ -42,6 +42,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
     range_key = _normalize_range(payload.get("range") or ("2y" if is_initial else "6m"))
     incremental_prices = _normalize_bool(payload.get("incremental_prices"), default=not is_initial)
     price_batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
+    price_overlap_days = _normalize_overlap_days(payload.get("price_overlap_days") or payload.get("overlap_days") or 1)
     breadth_lookback_days = _normalize_days(payload.get("breadth_lookback_days") or payload.get("lookback_days") or 550)
     rs_lookback_days = _normalize_days(payload.get("rs_lookback_days") or 430)
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
@@ -55,6 +56,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
         "range": range_key,
         "incremental_prices": incremental_prices,
         "price_batch_size": price_batch_size,
+        "price_overlap_days": price_overlap_days,
         "breadth_lookback_days": breadth_lookback_days,
         "rs_lookback_days": rs_lookback_days,
         "benchmark_ticker": benchmark_ticker,
@@ -119,6 +121,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
                 range_key=range_key,
                 incremental=incremental_prices,
                 batch_size=price_batch_size,
+                overlap_days=price_overlap_days,
                 result=result,
                 existing_result=result.get("prices") if isinstance(result.get("prices"), dict) else None,
             )
@@ -223,6 +226,7 @@ def _refresh_prices_for_symbols(
     result: dict[str, Any],
     existing_result: dict[str, Any] | None = None,
     batch_size: int = 50,
+    overlap_days: int = 1,
 ) -> dict[str, Any]:
     completed_tickers = _normalize_ticker_list((existing_result or {}).get("completed_tickers"))
     price_result: dict[str, Any] = {
@@ -236,6 +240,7 @@ def _refresh_prices_for_symbols(
         "incremental": incremental,
         "resumed": bool(completed_tickers),
         "batch_size": batch_size,
+        "overlap_days": overlap_days,
         "batch_count": 0,
     }
     completed_set = set(completed_tickers)
@@ -264,6 +269,7 @@ def _refresh_prices_for_symbols(
                 range_key=range_key,
                 incremental=incremental,
                 batch_size=batch_size,
+                overlap_days=overlap_days,
             )
         except Exception as exc:
             batch_items = [
@@ -314,6 +320,7 @@ def _resume_result(existing: dict[str, Any] | None, fresh: dict[str, Any]) -> di
     resumed["range"] = fresh["range"]
     resumed["incremental_prices"] = fresh["incremental_prices"]
     resumed["price_batch_size"] = fresh["price_batch_size"]
+    resumed["price_overlap_days"] = fresh["price_overlap_days"]
     resumed["breadth_lookback_days"] = fresh["breadth_lookback_days"]
     resumed["rs_lookback_days"] = fresh["rs_lookback_days"]
     resumed["benchmark_ticker"] = fresh["benchmark_ticker"]
@@ -397,3 +404,10 @@ def _normalize_batch_size(value: object) -> int:
         return max(1, min(250, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _normalize_overlap_days(value: object) -> int:
+    try:
+        return max(0, min(30, int(value)))
+    except (TypeError, ValueError):
+        return 1
