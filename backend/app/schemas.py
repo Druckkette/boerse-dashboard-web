@@ -479,9 +479,18 @@ class PriceHistoryResponse(BaseModel):
     as_of: str
     first_date: str | None = None
     last_date: str | None = None
+    cache_updated_at: datetime | None = None
     last_close: float | None = None
     change_pct: float | None = None
     points: list[PriceBarPoint]
+
+
+class PriceRefreshResponse(BaseModel):
+    ticker: str
+    ok: bool
+    refreshed_at: datetime
+    refresh: dict = Field(default_factory=dict)
+    history: PriceHistoryResponse
 
 
 class RsLinePoint(BaseModel):

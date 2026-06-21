@@ -17,6 +17,7 @@ import type {
   IsinMappingPatchRequest,
   PriceHistory,
   PriceRange,
+  PriceRefresh,
   PortfolioCashFlow,
   PortfolioCashFlowRequest,
   PortfolioCurve,
@@ -165,6 +166,10 @@ export const api = {
   setupStatus: () => getJson<SetupStatus>("/setup/status"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
     getJson<PriceHistory>(`/stocks/${ticker}/prices?range=${range}`),
+  refreshStockPrices: (ticker: string, range: PriceRange = "1y") =>
+    postJson<PriceRefresh>(
+      `/stocks/${encodeURIComponent(ticker)}/prices/refresh?range=${range}&fetch_range=2y&incremental=true&timeout=15`
+    ),
   rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),
   stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   stockAssessment: (ticker: string) => getJson<StockAssessment>(`/stocks/${ticker}/assessment`),

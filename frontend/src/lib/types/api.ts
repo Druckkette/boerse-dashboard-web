@@ -707,9 +707,18 @@ export type PriceHistory = {
   as_of: string;
   first_date?: string | null;
   last_date?: string | null;
+  cache_updated_at?: string | null;
   last_close?: number | null;
   change_pct?: number | null;
   points: PriceBarPoint[];
+};
+
+export type PriceRefresh = {
+  ticker: string;
+  ok: boolean;
+  refreshed_at: string;
+  refresh: Record<string, unknown>;
+  history: PriceHistory;
 };
 
 export type RsRatingItem = {

@@ -29,6 +29,7 @@ def refresh_stock_detail(self, job_id: str | None = None, payload: dict | None =
     include_13f = _normalize_bool(payload.get("include_13f"), default=True)
     include_fundamentals = _normalize_bool(payload.get("include_fundamentals"), default=True)
     include_rs = _normalize_bool(payload.get("include_rs"), default=True)
+    include_prices = _normalize_bool(payload.get("include_prices"), default=True)
     incremental = _normalize_bool(payload.get("incremental"), default=True)
 
     result: dict[str, Any] = {
@@ -38,6 +39,7 @@ def refresh_stock_detail(self, job_id: str | None = None, payload: dict | None =
         "ticker_count": len(tickers),
         "range": range_key,
         "benchmark_ticker": benchmark_ticker,
+        "include_prices": include_prices,
         "success_count": 0,
         "failure_count": 0,
         "partial": False,
@@ -60,6 +62,7 @@ def refresh_stock_detail(self, job_id: str | None = None, payload: dict | None =
                 benchmark_ticker=benchmark_ticker,
                 include_13f=include_13f,
                 include_fundamentals=include_fundamentals,
+                include_prices=include_prices,
                 include_rs=include_rs,
                 incremental=incremental,
                 base_progress=5 + int((index - 1) / max(1, total) * 90),
@@ -104,6 +107,7 @@ def _refresh_one_stock(
     benchmark_ticker: str,
     include_13f: bool,
     include_fundamentals: bool,
+    include_prices: bool,
     include_rs: bool,
     incremental: bool,
     base_progress: int,
@@ -128,16 +132,30 @@ def _refresh_one_stock(
             result={**parent_result, "current_stock_refresh": item},
         )
 
-    update(0.05, f"{ticker} Kursdaten laden", f"{ticker}: Price-Cache wird aktualisiert.")
-    item["steps"]["price"] = _safe_step(
-        lambda: refresh_price_cache_for_ticker(ticker, range_key=range_key, incremental=incremental)
-    )
+    if include_prices:
+        update(0.05, f"{ticker} Kursdaten laden", f"{ticker}: Price-Cache wird aktualisiert.")
+        item["steps"]["price"] = _safe_step(
+            lambda: refresh_price_cache_for_ticker(ticker, range_key=range_key, incremental=incremental)
+        )
+    else:
+        item["steps"]["price"] = {
+            "ok": True,
+            "skipped": True,
+            "reason": "Kursrefresh wurde von der Aktien-Detailseite separat ausgelöst.",
+        }
 
     if include_rs:
-        update(0.22, f"{benchmark_ticker} Benchmark laden", f"{benchmark_ticker}: Benchmark-Kurse für RS prüfen.")
-        item["steps"]["benchmark_price"] = _safe_step(
-            lambda: refresh_price_cache_for_ticker(benchmark_ticker, range_key=range_key, incremental=incremental)
-        )
+        if include_prices:
+            update(0.22, f"{benchmark_ticker} Benchmark laden", f"{benchmark_ticker}: Benchmark-Kurse für RS prüfen.")
+            item["steps"]["benchmark_price"] = _safe_step(
+                lambda: refresh_price_cache_for_ticker(benchmark_ticker, range_key=range_key, incremental=incremental)
+            )
+        else:
+            item["steps"]["benchmark_price"] = {
+                "ok": True,
+                "skipped": True,
+                "reason": "Benchmark-Kursrefresh wurde im automatischen Detailjob übersprungen.",
+            }
         update(0.38, f"{ticker} Relative Stärke berechnen", f"{ticker}: RS-Rating gegen {benchmark_ticker} berechnen.")
         item["steps"]["relative_strength"] = _safe_step(
             lambda: refresh_relative_strength_ratings(tickers=[ticker], benchmark_ticker=benchmark_ticker)

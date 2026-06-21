@@ -11,10 +11,11 @@ from app.repositories.prices import (
     PriceBarWrite,
     PriceRepositoryUnavailable,
     get_latest_price_bar_date,
+    get_price_cache_metadata,
     list_price_bars,
     upsert_price_bars,
 )
-from app.schemas import PriceBarPoint, PriceHistoryResponse
+from app.schemas import PriceBarPoint, PriceHistoryResponse, PriceRefreshResponse
 
 
 PriceRange = Literal["1m", "3m", "6m", "1y", "2y", "5y"]
@@ -49,9 +50,12 @@ class PriceRefreshSymbol:
 def get_price_history(ticker: str, *, range_key: PriceRange = "1y") -> PriceHistoryResponse:
     clean = _normalize_ticker(ticker)
     start_date = date.today() - timedelta(days=RANGE_DAYS[range_key])
+    cache_updated_at = None
 
     try:
         rows = list_price_bars(clean, start_date=start_date)
+        metadata = get_price_cache_metadata(clean)
+        cache_updated_at = metadata.cache_updated_at if metadata else None
     except PriceRepositoryUnavailable:
         rows = []
 
@@ -69,7 +73,13 @@ def get_price_history(ticker: str, *, range_key: PriceRange = "1y") -> PriceHist
             for row in rows
             if row.close is not None
         ]
-        return _build_response(clean, range_key=range_key, source="database", points=points)
+        return _build_response(
+            clean,
+            range_key=range_key,
+            source="database",
+            points=points,
+            cache_updated_at=cache_updated_at,
+        )
 
     fallback_points = _synthetic_price_points(clean, start_date=start_date)
     return _build_response(
@@ -77,6 +87,34 @@ def get_price_history(ticker: str, *, range_key: PriceRange = "1y") -> PriceHist
         range_key=range_key,
         source="synthetic_fallback",
         points=fallback_points,
+        cache_updated_at=None,
+    )
+
+
+def refresh_and_get_price_history(
+    ticker: str,
+    *,
+    range_key: PriceRange = "1y",
+    fetch_range_key: PriceRange = "2y",
+    incremental: bool = True,
+    timeout: int = 15,
+    overlap_days: int = DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS,
+) -> PriceRefreshResponse:
+    clean = _normalize_ticker(ticker)
+    refresh_result = refresh_price_cache_for_ticker(
+        clean,
+        range_key=fetch_range_key,
+        incremental=incremental,
+        timeout=timeout,
+        overlap_days=overlap_days,
+    )
+    history = get_price_history(clean, range_key=range_key)
+    return PriceRefreshResponse(
+        ticker=clean,
+        ok=bool(refresh_result.get("ok")),
+        refreshed_at=datetime.now(UTC),
+        refresh=refresh_result,
+        history=history,
     )
 
 
@@ -367,6 +405,7 @@ def _build_response(
     range_key: PriceRange,
     source: Literal["database", "synthetic_fallback"],
     points: list[PriceBarPoint],
+    cache_updated_at: datetime | None,
 ) -> PriceHistoryResponse:
     first_close = points[0].close if points else None
     last_close = points[-1].close if points else None
@@ -384,6 +423,7 @@ def _build_response(
         as_of=as_of,
         first_date=points[0].date if points else None,
         last_date=points[-1].date if points else None,
+        cache_updated_at=cache_updated_at,
         last_close=last_close,
         change_pct=change_pct,
         points=points,

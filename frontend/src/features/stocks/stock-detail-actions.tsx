@@ -18,6 +18,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   const [positionSaved, setPositionSaved] = useState(false);
   const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
   const handledRefreshJobId = useRef<string | null>(null);
+  const autoPriceRefreshTicker = useRef<string | null>(null);
 
   const workspaceQuery = useQuery({ queryKey: workspaceKey, queryFn: api.workspace, staleTime: 30_000 });
   const assessmentQuery = useQuery({
@@ -117,13 +118,14 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     }
   });
   const refreshStockMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (options?: { includePrices?: boolean }) =>
       api.startJob({
         type: "refresh_stock_detail",
         payload: {
           ticker: clean,
           range: "2y",
           benchmark_ticker: "SPY",
+          include_prices: options?.includePrices ?? true,
           include_fundamentals: true,
           include_rs: true,
           include_13f: true,
@@ -135,6 +137,14 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
       setRefreshJobId(job.job_id);
       handledRefreshJobId.current = null;
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    }
+  });
+  const refreshPriceMutation = useMutation({
+    mutationFn: () => api.refreshStockPrices(clean, "1y"),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["stock-prices", clean, "1y"], payload.history);
+      void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
     }
   });
 
@@ -151,10 +161,21 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     void queryClient.invalidateQueries({ queryKey: ["jobs"] });
   }, [clean, queryClient, refreshJobQuery.data]);
 
+  useEffect(() => {
+    if (!clean || autoPriceRefreshTicker.current === clean || refreshPriceMutation.isPending) return;
+    if (typeof window === "undefined") return;
+    const storageKey = `stock-detail-price-refresh:${clean}`;
+    if (window.sessionStorage.getItem(storageKey)) return;
+    autoPriceRefreshTicker.current = clean;
+    window.sessionStorage.setItem(storageKey, "1");
+    refreshPriceMutation.mutate();
+  }, [clean, refreshPriceMutation]);
+
   const loadingPrice = assessmentQuery.isLoading || priceQuery.isLoading;
   const canSavePosition = Boolean(clean && positionDefaults.price && !savePositionMutation.isPending);
   const refreshJob = refreshJobQuery.data;
   const refreshRunning = Boolean(refreshJob && !isTerminalJob(refreshJob));
+  const priceRefreshRunning = refreshPriceMutation.isPending;
   const detailDataLoading =
     priceQuery.isLoading || fundamentalsQuery.isLoading || rsQuery.isLoading || institutionalQuery.isLoading;
   const detailDataMissing =
@@ -168,7 +189,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     const storageKey = `stock-detail-refresh:${clean}:${today()}`;
     if (typeof window !== "undefined" && window.sessionStorage.getItem(storageKey)) return;
     if (typeof window !== "undefined") window.sessionStorage.setItem(storageKey, "1");
-    refreshStockMutation.mutate();
+    refreshStockMutation.mutate({ includePrices: false });
   }, [
     clean,
     detailDataLoading,
@@ -185,8 +206,8 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">Arbeitsbereich</h2>
             <StatusChip tone={isWatchlisted ? "good" : "neutral"}>{isWatchlisted ? "Watchlist" : "Nicht vorgemerkt"}</StatusChip>
-            <StatusChip tone={positionDefaults.price ? "good" : loadingPrice ? "warning" : "bad"}>
-              {positionDefaults.price ? "Kurs bereit" : loadingPrice ? "Kurs lädt" : "Kurs fehlt"}
+            <StatusChip tone={priceRefreshRunning ? "warning" : positionDefaults.price ? "good" : loadingPrice ? "warning" : "bad"}>
+              {priceRefreshRunning ? "Kurs wird geprüft" : positionDefaults.price ? "Kurs bereit" : loadingPrice ? "Kurs lädt" : "Kurs fehlt"}
             </StatusChip>
             <StatusChip tone={!detailDataMissing ? "good" : refreshRunning ? "warning" : "neutral"}>
               {!detailDataMissing ? "Daten vollständig" : refreshRunning ? "Daten werden ergänzt" : "Daten fehlen"}
@@ -198,7 +219,19 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap xl:justify-end">
+          <div className="flex min-w-[235px] flex-col gap-1">
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100 hover:border-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!clean || priceRefreshRunning}
+              type="button"
+              onClick={() => refreshPriceMutation.mutate()}
+            >
+              {priceRefreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={16} />}
+              {priceRefreshRunning ? "yfinance prüft" : "Kursdaten aktualisieren"}
+            </button>
+            <span className="text-xs leading-5 text-[#8e97a6]">{priceDataStatus(priceQuery.data, priceRefreshRunning)}</span>
+          </div>
           <button
             className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!clean || addWatchlistMutation.isPending || isWatchlisted}
@@ -221,7 +254,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
             className="inline-flex items-center justify-center gap-2 rounded border border-amber-300/40 bg-amber-300/10 px-4 py-2 text-sm text-amber-100 hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!clean || refreshStockMutation.isPending || refreshRunning}
             type="button"
-            onClick={() => refreshStockMutation.mutate()}
+            onClick={() => refreshStockMutation.mutate({ includePrices: true })}
           >
             {refreshStockMutation.isPending || refreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={16} />}
             {refreshRunning ? "Daten laufen" : "Alle Daten aktualisieren"}
@@ -232,13 +265,29 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <ActionMetric icon={<Clock3 size={16} />} label="Recent" value={clean} detail="Beim Öffnen gespeichert" />
         <ActionMetric label="Einstand" value={positionDefaults.price ? money(positionDefaults.price) : "-"} detail={positionDefaults.date ?? "Price Cache fehlt"} />
-        <ActionMetric label="Währung" value={positionDefaults.currency} detail={priceQuery.data?.source === "database" ? "Price Cache" : "Fallback"} />
+        <ActionMetric
+          label="Währung"
+          value={positionDefaults.currency}
+          detail={
+            priceQuery.data?.cache_updated_at
+              ? `Cache ${formatDateTime(priceQuery.data.cache_updated_at)}`
+              : priceQuery.data?.source === "database"
+                ? "Price Cache"
+                : "Fallback"
+          }
+        />
       </div>
 
       {(addWatchlistMutation.error || savePositionMutation.error) && (
         <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>{errorText(addWatchlistMutation.error ?? savePositionMutation.error)}</span>
+        </div>
+      )}
+      {refreshPriceMutation.error && (
+        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <span>{errorText(refreshPriceMutation.error)}</span>
         </div>
       )}
       {(refreshStockMutation.error || (refreshJob && refreshJob.status === "failed")) && (
@@ -292,6 +341,14 @@ function ActionMetric({
   );
 }
 
+function priceDataStatus(history: PriceHistory | undefined, isRefreshing: boolean) {
+  if (isRefreshing) return "yfinance wird jetzt abgefragt";
+  if (!history) return "Kursstand noch nicht geladen";
+  const marketDate = formatDateOnly(history.last_date ?? history.as_of);
+  const cacheDate = history.cache_updated_at ? formatDateTime(history.cache_updated_at) : "noch nicht geprüft";
+  return `Kursstand ${marketDate} · Cache ${cacheDate}`;
+}
+
 function buildPositionDefaults(ticker: string, assessment?: StockAssessment, priceHistory?: PriceHistory) {
   const assessmentPrice = finitePositive(assessment?.metrics.last_close);
   const historyPrice = finitePositive(priceHistory?.last_close);
@@ -338,6 +395,24 @@ function finitePositive(value: number | null | undefined) {
 function dateOnly(value: string | null | undefined) {
   if (!value) return undefined;
   return value.slice(0, 10);
+}
+
+function formatDateOnly(value: string | null | undefined) {
+  const raw = dateOnly(value);
+  if (!raw) return "unbekannt";
+  const [year, month, day] = raw.split("-");
+  if (!year || !month || !day) return raw;
+  return `${day}.${month}.${year}`;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "unbekannt";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("de-DE", {
+    dateStyle: "short",
+    timeStyle: "short"
+  }).format(parsed);
 }
 
 function today() {

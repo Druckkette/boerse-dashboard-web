@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.repositories.fundamentals import FundamentalsRepositoryUnavailable
 from app.schemas import (
     PriceHistoryResponse,
+    PriceRefreshResponse,
     Institutional13FRankingResponse,
     Institutional13FTrendResponse,
     RsRatingDetailResponse,
@@ -15,7 +16,7 @@ from app.schemas import (
     StockAssessmentRankingResponse,
     StockAssessmentResponse,
 )
-from app.services.prices import PriceRange, get_price_history
+from app.services.prices import PriceRange, get_price_history, refresh_and_get_price_history
 from app.services.relative_strength import get_relative_strength_for_ticker, get_relative_strength_ranking
 from app.services.sec13f import (
     get_institutional_13f_for_ticker,
@@ -82,6 +83,31 @@ def stock_prices(
     range: PriceRange = Query(default="1y", pattern="^(1m|3m|6m|1y|2y|5y)$"),
 ) -> PriceHistoryResponse:
     return get_price_history(ticker, range_key=range)
+
+
+@router.post("/{ticker}/prices/refresh", response_model=PriceRefreshResponse)
+def refresh_stock_prices(
+    ticker: str,
+    range: PriceRange = Query(default="1y", pattern="^(1m|3m|6m|1y|2y|5y)$"),
+    fetch_range: PriceRange = Query(default="2y", pattern="^(1m|3m|6m|1y|2y|5y)$"),
+    incremental: bool = Query(default=True),
+    timeout: int = Query(default=15, ge=3, le=45),
+) -> PriceRefreshResponse:
+    try:
+        return refresh_and_get_price_history(
+            ticker,
+            range_key=range,
+            fetch_range_key=fetch_range,
+            incremental=incremental,
+            timeout=timeout,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Kursdaten konnten nicht über yfinance aktualisiert werden: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @router.get("/{ticker}/rs", response_model=RsRatingDetailResponse)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -20,6 +20,13 @@ class PriceBarWrite:
     close: float
     adj_close: float | None
     volume: float | None
+
+
+@dataclass(frozen=True)
+class PriceCacheMetadata:
+    ticker: str
+    latest_date: date | None
+    cache_updated_at: datetime | None
 
 
 class PriceRepositoryUnavailable(RuntimeError):
@@ -58,6 +65,31 @@ def get_latest_price_bar_date(ticker: str) -> date | None:
         raise PriceRepositoryUnavailable(str(exc)) from exc
 
 
+def get_price_cache_metadata(ticker: str) -> PriceCacheMetadata | None:
+    clean = ticker.strip().upper()
+    if not clean:
+        return None
+    try:
+        with SessionLocal() as db:
+            row = db.execute(
+                select(Instrument.updated_at, func.max(PriceBar.date))
+                .select_from(Instrument)
+                .outerjoin(PriceBar, PriceBar.instrument_id == Instrument.id)
+                .where(Instrument.ticker == clean)
+                .group_by(Instrument.updated_at)
+            ).one_or_none()
+            if row is None:
+                return None
+            updated_at, latest_date = row
+            return PriceCacheMetadata(
+                ticker=clean,
+                latest_date=latest_date,
+                cache_updated_at=updated_at,
+            )
+    except SQLAlchemyError as exc:
+        raise PriceRepositoryUnavailable(str(exc)) from exc
+
+
 def upsert_price_bars(
     ticker: str,
     bars: Iterable[PriceBarWrite],
@@ -84,6 +116,7 @@ def upsert_price_bars(
                 db.flush()
             elif yahoo_symbol:
                 instrument.yahoo_symbol = yahoo_symbol
+            instrument.updated_at = datetime.now(UTC)
 
             existing_rows = db.scalars(
                 select(PriceBar).where(

@@ -96,6 +96,43 @@ def test_refresh_stock_detail_skips_13f_without_user_agent(monkeypatch: pytest.M
     assert "SEC_USER_AGENT" in item["steps"]["sec13f"]["reason"]
 
 
+def test_refresh_stock_detail_can_skip_price_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_price_cache_for_ticker",
+        lambda *args, **kwargs: pytest.fail("price refresh should be handled by the detail page"),
+    )
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_relative_strength_ratings",
+        lambda *, tickers, benchmark_ticker: calls.append(f"rs:{tickers[0]}:{benchmark_ticker}") or {
+            "ok": True,
+            "records_written": 1,
+        },
+    )
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_fundamentals_for_ticker",
+        lambda ticker, *, include_holders: calls.append(f"fundamentals:{ticker}") or {
+            "ok": True,
+            "records_written": 1,
+        },
+    )
+
+    payload = {"ticker": "NVDA", "include_prices": False, "include_13f": False}
+    job = job_repository.create_job("refresh_stock_detail", payload)
+    result = stock_detail_module.refresh_stock_detail.run(job.job_id, payload)
+    item = result["items"][0]
+
+    assert result["ok"] is True
+    assert result["include_prices"] is False
+    assert item["steps"]["price"]["skipped"] is True
+    assert item["steps"]["benchmark_price"]["skipped"] is True
+    assert calls == ["rs:NVDA:SPY", "fundamentals:NVDA"]
+
+
 def test_refresh_stock_detail_reports_fundamental_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def raise_provider_empty(*args, **kwargs):
         raise RuntimeError("provider empty")
