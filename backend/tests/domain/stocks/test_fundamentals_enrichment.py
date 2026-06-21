@@ -12,6 +12,7 @@ from app.data_sources.fundamentals_client import (
     fetch_quarterly_fmp,
     annual_yoy_growth,
     _extract_sec_duration_series,
+    _extract_sec_quarterly_series,
     _raw_from_yfinance_statements,
 )
 from app.data_sources.fmp_client import (
@@ -200,6 +201,75 @@ def test_sec_eps_extraction_ignores_ytd_and_annual_values() -> None:
 
     assert series is not None
     assert series.to_dict() == {pd.Timestamp("2025-10-26"): 1.3}
+
+
+def test_sec_quarterly_series_derives_missing_fiscal_q4_from_annual_minus_ytd() -> None:
+    facts = {
+        "EarningsPerShareDiluted": {
+            "units": {
+                "USD/shares": [
+                    {
+                        "form": "10-Q",
+                        "fp": "Q3",
+                        "start": "2025-07-28",
+                        "end": "2025-10-26",
+                        "filed": "2025-11-19",
+                        "val": 1.3,
+                    },
+                    {
+                        "form": "10-Q",
+                        "fp": "Q3",
+                        "start": "2025-01-27",
+                        "end": "2025-10-26",
+                        "filed": "2025-11-19",
+                        "val": 3.14,
+                    },
+                    {
+                        "form": "10-K",
+                        "fp": "FY",
+                        "start": "2025-01-27",
+                        "end": "2026-01-25",
+                        "filed": "2026-02-25",
+                        "val": 4.9,
+                    },
+                    {
+                        "form": "10-Q",
+                        "fp": "Q3",
+                        "start": "2024-01-29",
+                        "end": "2024-10-27",
+                        "filed": "2024-11-20",
+                        "val": 2.04,
+                    },
+                    {
+                        "form": "10-K",
+                        "fp": "FY",
+                        "start": "2024-01-29",
+                        "end": "2025-01-26",
+                        "filed": "2025-02-26",
+                        "val": 2.94,
+                    },
+                ]
+            }
+        }
+    }
+
+    series = _extract_sec_quarterly_series(
+        facts,
+        concepts=["EarningsPerShareDiluted"],
+        unit_keys=["USD/shares"],
+        duration_min=75,
+        duration_max=110,
+    )
+    raw = {"DilutedEPS": series} if series is not None else {}
+    points = compute_fundamental_enrichment("NVDA", raw, notes=["SEC ergaenzt"]).eps_quarter_history
+
+    assert series is not None
+    assert series.loc[pd.Timestamp("2026-01-25")] == 1.76
+    assert series.loc[pd.Timestamp("2025-01-26")] == 0.9
+    assert points[0]["fiscal_period"] == "2026 Q1"
+    assert points[0]["eps_current_quarter"] == 1.76
+    assert points[0]["eps_same_quarter_last_year"] == 0.9
+    assert points[0]["eps_growth_yoy_pct"] == 95.6
 
 
 def test_yfinance_statement_history_parses_eps_and_revenue_histories() -> None:

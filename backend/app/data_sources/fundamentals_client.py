@@ -306,7 +306,7 @@ def fetch_quarterly_sec_companyfacts(
 
     facts = (((facts_payload or {}).get("facts") or {}).get("us-gaap") or {})
     raw: QuarterlyRaw = {}
-    eps = _extract_sec_duration_series(
+    eps = _extract_sec_quarterly_series(
         facts,
         concepts=[
             "EarningsPerShareDiluted",
@@ -317,7 +317,7 @@ def fetch_quarterly_sec_companyfacts(
         duration_min=75,
         duration_max=110,
     )
-    revenue = _extract_sec_duration_series(
+    revenue = _extract_sec_quarterly_series(
         facts,
         concepts=[
             "Revenues",
@@ -329,7 +329,7 @@ def fetch_quarterly_sec_companyfacts(
         duration_min=75,
         duration_max=110,
     )
-    net_income = _extract_sec_duration_series(
+    net_income = _extract_sec_quarterly_series(
         facts,
         concepts=["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
         unit_keys=["USD"],
@@ -1011,6 +1011,97 @@ def _extract_sec_duration_series(
                 if previous is None or filed > previous[0]:
                     by_end[end] = (filed, value)
     return _series_from_by_end(by_end)
+
+
+def _extract_sec_quarterly_series(
+    facts: dict[str, Any],
+    *,
+    concepts: list[str],
+    unit_keys: list[str],
+    duration_min: int | None = None,
+    duration_max: int | None = None,
+) -> pd.Series | None:
+    direct = _extract_sec_duration_series(
+        facts,
+        concepts=concepts,
+        unit_keys=unit_keys,
+        duration_min=duration_min,
+        duration_max=duration_max,
+    )
+    derived_q4 = _extract_sec_derived_q4_series(facts, concepts=concepts, unit_keys=unit_keys)
+    return _merge_series_prefer_primary(direct, derived_q4)
+
+
+def _extract_sec_derived_q4_series(
+    facts: dict[str, Any],
+    *,
+    concepts: list[str],
+    unit_keys: list[str],
+) -> pd.Series | None:
+    by_end: dict[pd.Timestamp, tuple[pd.Timestamp, float]] = {}
+    for concept in concepts:
+        units = ((facts.get(concept) or {}).get("units") or {})
+        for unit_key in unit_keys:
+            items = [_sec_duration_item(item) for item in units.get(unit_key) or []]
+            valid_items = [item for item in items if item is not None]
+            annual_items = [
+                item
+                for item in valid_items
+                if item["form"] == "10-K" and item["fp"] == "FY" and 330 <= item["days"] <= 380
+            ]
+            ytd_q3_items = [
+                item
+                for item in valid_items
+                if item["form"] == "10-Q" and item["fp"] == "Q3" and 240 <= item["days"] <= 290
+            ]
+            for annual in annual_items:
+                candidates = [
+                    item
+                    for item in ytd_q3_items
+                    if item["start"] == annual["start"] and 70 <= (annual["end"] - item["end"]).days <= 120
+                ]
+                if not candidates:
+                    continue
+                ytd_q3 = max(candidates, key=lambda item: (item["end"], item["filed"]))
+                derived_value = round(float(annual["value"] - ytd_q3["value"]), 6)
+                previous = by_end.get(annual["end"])
+                if previous is None or annual["filed"] > previous[0]:
+                    by_end[annual["end"]] = (annual["filed"], derived_value)
+    return _series_from_by_end(by_end)
+
+
+def _sec_duration_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    form = str(item.get("form") or "")
+    fp = str(item.get("fp") or "")
+    if form not in {"10-Q", "10-K"}:
+        return None
+    end = pd.to_datetime(item.get("end"), errors="coerce")
+    start = pd.to_datetime(item.get("start"), errors="coerce")
+    value = _float_or_none(item.get("val"))
+    if pd.isna(end) or pd.isna(start) or value is None:
+        return None
+    filed = pd.to_datetime(item.get("filed"), errors="coerce")
+    filed = filed if not pd.isna(filed) else pd.Timestamp.min
+    return {
+        "form": form,
+        "fp": fp,
+        "start": start,
+        "end": end,
+        "filed": filed,
+        "value": value,
+        "days": int((end - start).days),
+    }
+
+
+def _merge_series_prefer_primary(primary: pd.Series | None, secondary: pd.Series | None) -> pd.Series | None:
+    if primary is None:
+        return secondary
+    if secondary is None:
+        return primary
+    missing_secondary = secondary[~secondary.index.isin(primary.index)]
+    if missing_secondary.empty:
+        return primary.sort_index(ascending=False)
+    return pd.concat([primary, missing_secondary]).sort_index(ascending=False)
 
 
 def _extract_sec_point_series(
