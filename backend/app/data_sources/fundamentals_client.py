@@ -11,6 +11,7 @@ import requests
 from app.data_sources.fmp_client import (
     FMP_BALANCE_SHEET_URL,
     FMP_EARNINGS_URL,
+    FMP_INCOME_STATEMENT_GROWTH_URL,
     FMP_INCOME_STATEMENT_URL,
     FMP_PROFILE_URL,
     FMP_RATIOS_TTM_URL,
@@ -88,6 +89,12 @@ def fetch_fundamental_enrichment(
     else:
         notes.append("SEC: kein User-Agent")
 
+    if _needs_yfinance_statement_history(raw):
+        yf_raw, yf_note = fetch_yfinance_statement_history(clean)
+        if yf_note:
+            notes.append(yf_note)
+        raw = merge_quarterly_raw(raw, yf_raw)
+
     enrichment = compute_fundamental_enrichment(clean, raw, notes=notes)
     metadata = {
         **enrichment.metadata,
@@ -129,6 +136,18 @@ def fetch_quarterly_fmp(
             {"symbol": ticker.upper(), "period": "annual", "limit": 8, "apikey": api_key},
             _raw_from_fmp_annual_balance_sheet,
         ),
+        (
+            "FMP stable Wachstum quartalsweise",
+            FMP_INCOME_STATEMENT_GROWTH_URL,
+            {"symbol": ticker.upper(), "period": "quarter", "limit": 40, "apikey": api_key},
+            _raw_from_fmp_quarterly_growth,
+        ),
+        (
+            "FMP stable Wachstum jaehrlich",
+            FMP_INCOME_STATEMENT_GROWTH_URL,
+            {"symbol": ticker.upper(), "period": "annual", "limit": 8, "apikey": api_key},
+            _raw_from_fmp_annual_growth,
+        ),
     ]
     errors: list[str] = []
     raw: QuarterlyRaw = {}
@@ -163,11 +182,12 @@ def fetch_quarterly_fmp(
         if isinstance(payload, dict) and payload.get("Error Message"):
             errors.append(f"{label}: {str(payload['Error Message'])[:120]}")
             continue
-        if not isinstance(payload, list) or not payload:
+        rows = _payload_rows(payload)
+        if not rows:
             errors.append(f"{label}: Leere Antwort")
             continue
 
-        parsed = parser(payload)
+        parsed = parser(rows)
         raw = merge_quarterly_raw(raw, parsed) or raw
         if not any(isinstance(value, pd.Series) and not value.empty for value in parsed.values()):
             errors.append(f"{label}: Keine verwertbaren Daten")
@@ -337,6 +357,26 @@ def fetch_quarterly_sec_companyfacts(
     return raw, "SEC ergaenzt"
 
 
+def fetch_yfinance_statement_history(ticker: str) -> tuple[QuarterlyRaw | None, str]:
+    clean = ticker.upper().strip()
+    if not clean:
+        return None, "yfinance Statements: kein Ticker"
+    try:
+        import yfinance as yf
+
+        yf_ticker = yf.Ticker(clean)
+        raw = _raw_from_yfinance_statements(
+            quarterly_income_stmt=_safe_yfinance_frame(yf_ticker, "quarterly_income_stmt", "quarterly_financials"),
+            annual_income_stmt=_safe_yfinance_frame(yf_ticker, "income_stmt", "financials"),
+            annual_balance_sheet=_safe_yfinance_frame(yf_ticker, "balance_sheet"),
+        )
+    except Exception as exc:
+        return None, f"yfinance Statements: {type(exc).__name__}: {str(exc)[:80]}"
+    if not raw:
+        return None, "yfinance Statements: keine Historie"
+    return raw, "yfinance statements"
+
+
 @lru_cache(maxsize=4)
 def _sec_cik_map(user_agent: str, timeout: int) -> dict[str, str]:
     headers = {"User-Agent": user_agent}
@@ -452,11 +492,13 @@ def compute_fundamental_enrichment(
 def quarterly_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
     key = {"eps": "DilutedEPS", "revenue": "TotalRevenue"}.get(field)
     series = raw.get(key or "")
+    growth_series = raw.get({"eps": "QuarterlyDilutedEPSGrowthPct", "revenue": "QuarterlyRevenueGrowthPct"}.get(field, ""))
+    growth_points = _growth_points_from_growth_series(growth_series, annual=False)
     if not isinstance(series, pd.Series):
-        return []
+        return growth_points[:3]
     values = pd.to_numeric(series, errors="coerce").dropna().sort_index(ascending=False)
     if len(values) < 2:
-        return []
+        return growth_points[:3]
 
     buckets: dict[tuple[int, int], float] = {}
     for index, value in values.items():
@@ -474,24 +516,26 @@ def quarterly_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
         previous = buckets.get((year - 1, quarter))
         label = f"{year} Q{quarter}"
         points.append(_growth_point(label, current, previous))
-    return points
+    return _prefer_growth_history(points, growth_points)
 
 
 def annual_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
     annual_key = {"eps": "AnnualDilutedEPS", "revenue": "AnnualTotalRevenue"}.get(field)
     annual_series = raw.get(annual_key or "")
+    direct_growth_series = raw.get({"eps": "AnnualDilutedEPSGrowthPct", "revenue": "AnnualRevenueGrowthPct"}.get(field, ""))
+    direct_growth_points = _growth_points_from_growth_series(direct_growth_series, annual=True)
+    annual_points: list[GrowthPoint] = []
     if isinstance(annual_series, pd.Series):
         annual_points = _annual_yoy_from_series(annual_series)
-        if annual_points:
-            return annual_points
+    annual_points = _prefer_growth_history(annual_points, direct_growth_points)
 
     key = {"eps": "DilutedEPS", "revenue": "TotalRevenue"}.get(field)
     series = raw.get(key or "")
     if not isinstance(series, pd.Series):
-        return []
+        return annual_points[:3]
     values = pd.to_numeric(series, errors="coerce").dropna().sort_index(ascending=False)
     if len(values) < 8:
-        return []
+        return annual_points[:3]
 
     buckets: dict[int, dict[int, float]] = {}
     for index, value in values.items():
@@ -506,14 +550,14 @@ def annual_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
         if len(quarters) >= 4
     }
     if not annual_totals:
-        return []
+        return annual_points[:3]
 
-    points: list[GrowthPoint] = []
+    quarterly_derived_points: list[GrowthPoint] = []
     for year in sorted(annual_totals.keys(), reverse=True)[:3]:
         current = annual_totals[year]
         previous = annual_totals.get(year - 1)
-        points.append(_growth_point(str(year), current, previous))
-    return points
+        quarterly_derived_points.append(_growth_point(str(year), current, previous))
+    return _prefer_growth_history(annual_points, quarterly_derived_points)
 
 
 def annual_roe_history(raw: QuarterlyRaw) -> list[GrowthPoint]:
@@ -549,6 +593,42 @@ def _annual_yoy_from_series(series: pd.Series) -> list[GrowthPoint]:
         previous = values_by_year.get(year - 1)
         points.append(_growth_point(str(year), current, previous))
     return points
+
+
+def _growth_points_from_growth_series(value: Any, *, annual: bool) -> list[GrowthPoint]:
+    if not isinstance(value, pd.Series):
+        return []
+    series = pd.to_numeric(value, errors="coerce").dropna().sort_index(ascending=False)
+    points: list[GrowthPoint] = []
+    for index, growth in series.items():
+        ts = pd.to_datetime(index, errors="coerce")
+        if pd.isna(ts):
+            label = str(index)
+        elif annual:
+            label = str(int(ts.year))
+        else:
+            label = f"{int(ts.year)} Q{int(ts.quarter)}"
+        points.append(GrowthPoint(label, _normalize_growth_pct(float(growth)), None, None, None))
+    return points[:3]
+
+
+def _prefer_growth_history(primary: list[GrowthPoint], fallback: list[GrowthPoint]) -> list[GrowthPoint]:
+    if not primary:
+        return fallback[:3]
+    if not fallback:
+        return primary[:3]
+    primary_quality = _growth_history_quality(primary)
+    fallback_quality = _growth_history_quality(fallback)
+    if fallback_quality > primary_quality:
+        return fallback[:3]
+    return primary[:3]
+
+
+def _growth_history_quality(points: list[GrowthPoint]) -> tuple[int, int, int]:
+    latest_three = points[:3]
+    comparable = sum(1 for point in latest_three if point.growth_pct is not None)
+    valued = sum(1 for point in latest_three if point.current is not None and point.previous is not None)
+    return comparable, valued, len(latest_three)
 
 
 def _year_value_map(series: pd.Series) -> dict[int, float]:
@@ -590,9 +670,17 @@ def _raw_from_fmp_income_statement(rows: list[dict[str, Any]]) -> QuarterlyRaw:
         ts = _fmp_statement_timestamp(row)
         if pd.isna(ts):
             continue
-        eps_value = _float_or_none(row.get("epsDiluted", row.get("epsdiluted", row.get("eps"))))
-        revenue_value = _float_or_none(row.get("revenue"))
-        net_income_value = _float_or_none(row.get("netIncome", row.get("netincome")))
+        eps_value = _first_float_value(
+            row,
+            "epsDiluted",
+            "epsdiluted",
+            "dilutedEPS",
+            "dilutedEps",
+            "diluted_eps",
+            "eps",
+        )
+        revenue_value = _first_float_value(row, "revenue", "totalRevenue", "total_revenue")
+        net_income_value = _first_float_value(row, "netIncome", "netincome", "net_income", "bottomLineNetIncome")
         if eps_value is not None:
             eps[ts] = eps_value
         if revenue_value is not None:
@@ -617,9 +705,17 @@ def _raw_from_fmp_annual_income_statement(rows: list[dict[str, Any]]) -> Quarter
         ts = _fmp_statement_timestamp(row)
         if pd.isna(ts):
             continue
-        eps_value = _float_or_none(row.get("epsDiluted", row.get("epsdiluted", row.get("eps"))))
-        revenue_value = _float_or_none(row.get("revenue"))
-        net_income_value = _float_or_none(row.get("netIncome", row.get("netincome")))
+        eps_value = _first_float_value(
+            row,
+            "epsDiluted",
+            "epsdiluted",
+            "dilutedEPS",
+            "dilutedEps",
+            "diluted_eps",
+            "eps",
+        )
+        revenue_value = _first_float_value(row, "revenue", "totalRevenue", "total_revenue")
+        net_income_value = _first_float_value(row, "netIncome", "netincome", "net_income", "bottomLineNetIncome")
         if eps_value is not None:
             eps[ts] = eps_value
         if revenue_value is not None:
@@ -642,18 +738,17 @@ def _raw_from_fmp_annual_balance_sheet(rows: list[dict[str, Any]]) -> QuarterlyR
         ts = _fmp_statement_timestamp(row)
         if pd.isna(ts):
             continue
-        value = _float_or_none(
-            row.get(
-                "totalStockholdersEquity",
-                row.get(
-                    "totalEquity",
-                    row.get("totalEquityGrossMinorityInterest"),
-                ),
-            )
+        value = _first_float_value(
+            row,
+            "totalStockholdersEquity",
+            "totalEquity",
+            "totalEquityGrossMinorityInterest",
+            "stockholdersEquity",
+            "shareholdersEquity",
         )
         if value is None:
-            assets = _float_or_none(row.get("totalAssets"))
-            liabilities = _float_or_none(row.get("totalLiabilities"))
+            assets = _first_float_value(row, "totalAssets", "assets")
+            liabilities = _first_float_value(row, "totalLiabilities", "liabilities")
             if assets is not None and liabilities is not None:
                 value = assets - liabilities
         if value is not None:
@@ -661,6 +756,171 @@ def _raw_from_fmp_annual_balance_sheet(rows: list[dict[str, Any]]) -> QuarterlyR
     if not equity:
         return {}
     return {"AnnualStockholdersEquity": pd.Series(equity).sort_index(ascending=False)}
+
+
+def _raw_from_fmp_quarterly_growth(rows: list[dict[str, Any]]) -> QuarterlyRaw:
+    eps_growth: dict[pd.Timestamp, float] = {}
+    revenue_growth: dict[pd.Timestamp, float] = {}
+    for row in rows:
+        ts = _fmp_statement_timestamp(row)
+        if pd.isna(ts):
+            continue
+        eps_value = _first_float_value(
+            row,
+            "growthEPSDiluted",
+            "growthEpsDiluted",
+            "growthEPS",
+            "epsDilutedGrowth",
+            "epsdilutedGrowth",
+            "epsGrowth",
+        )
+        revenue_value = _first_float_value(
+            row,
+            "growthRevenue",
+            "revenueGrowth",
+            "growthTotalRevenue",
+            "totalRevenueGrowth",
+        )
+        if eps_value is not None:
+            eps_growth[ts] = eps_value
+        if revenue_value is not None:
+            revenue_growth[ts] = revenue_value
+    raw: QuarterlyRaw = {}
+    if eps_growth:
+        raw["QuarterlyDilutedEPSGrowthPct"] = pd.Series(eps_growth).sort_index(ascending=False)
+    if revenue_growth:
+        raw["QuarterlyRevenueGrowthPct"] = pd.Series(revenue_growth).sort_index(ascending=False)
+    return raw
+
+
+def _raw_from_fmp_annual_growth(rows: list[dict[str, Any]]) -> QuarterlyRaw:
+    eps_growth: dict[pd.Timestamp, float] = {}
+    revenue_growth: dict[pd.Timestamp, float] = {}
+    for row in rows:
+        ts = _fmp_statement_timestamp(row)
+        if pd.isna(ts):
+            continue
+        eps_value = _first_float_value(
+            row,
+            "growthEPSDiluted",
+            "growthEpsDiluted",
+            "growthEPS",
+            "epsDilutedGrowth",
+            "epsdilutedGrowth",
+            "epsGrowth",
+        )
+        revenue_value = _first_float_value(
+            row,
+            "growthRevenue",
+            "revenueGrowth",
+            "growthTotalRevenue",
+            "totalRevenueGrowth",
+        )
+        if eps_value is not None:
+            eps_growth[ts] = eps_value
+        if revenue_value is not None:
+            revenue_growth[ts] = revenue_value
+    raw: QuarterlyRaw = {}
+    if eps_growth:
+        raw["AnnualDilutedEPSGrowthPct"] = pd.Series(eps_growth).sort_index(ascending=False)
+    if revenue_growth:
+        raw["AnnualRevenueGrowthPct"] = pd.Series(revenue_growth).sort_index(ascending=False)
+    return raw
+
+
+def _raw_from_yfinance_statements(
+    *,
+    quarterly_income_stmt: pd.DataFrame | None,
+    annual_income_stmt: pd.DataFrame | None,
+    annual_balance_sheet: pd.DataFrame | None,
+) -> QuarterlyRaw:
+    raw: QuarterlyRaw = {}
+    quarterly_eps = _series_from_yfinance_statement(
+        quarterly_income_stmt,
+        "Diluted EPS",
+        "DilutedEPS",
+        "Basic EPS",
+    )
+    quarterly_revenue = _series_from_yfinance_statement(
+        quarterly_income_stmt,
+        "Total Revenue",
+        "TotalRevenue",
+        "Revenue",
+    )
+    quarterly_net_income = _series_from_yfinance_statement(
+        quarterly_income_stmt,
+        "Net Income",
+        "NetIncome",
+        "Net Income Common Stockholders",
+    )
+    annual_eps = _series_from_yfinance_statement(
+        annual_income_stmt,
+        "Diluted EPS",
+        "DilutedEPS",
+        "Basic EPS",
+    )
+    annual_revenue = _series_from_yfinance_statement(
+        annual_income_stmt,
+        "Total Revenue",
+        "TotalRevenue",
+        "Revenue",
+    )
+    annual_net_income = _series_from_yfinance_statement(
+        annual_income_stmt,
+        "Net Income",
+        "NetIncome",
+        "Net Income Common Stockholders",
+    )
+    annual_equity = _series_from_yfinance_statement(
+        annual_balance_sheet,
+        "Stockholders Equity",
+        "StockholdersEquity",
+        "Total Equity Gross Minority Interest",
+        "Common Stock Equity",
+    )
+    if quarterly_eps is not None:
+        raw["DilutedEPS"] = quarterly_eps
+    if quarterly_revenue is not None:
+        raw["TotalRevenue"] = quarterly_revenue
+    if quarterly_net_income is not None:
+        raw["NetIncome"] = quarterly_net_income
+    if annual_eps is not None:
+        raw["AnnualDilutedEPS"] = annual_eps
+    if annual_revenue is not None:
+        raw["AnnualTotalRevenue"] = annual_revenue
+    if annual_net_income is not None:
+        raw["AnnualNetIncome"] = annual_net_income
+    if annual_equity is not None:
+        raw["AnnualStockholdersEquity"] = annual_equity
+    return raw
+
+
+def _series_from_yfinance_statement(frame: pd.DataFrame | None, *row_names: str) -> pd.Series | None:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return None
+    by_normalized = {_normalize_statement_row_name(index): index for index in frame.index}
+    selected = None
+    for name in row_names:
+        selected = by_normalized.get(_normalize_statement_row_name(name))
+        if selected is not None:
+            break
+    if selected is None:
+        return None
+    try:
+        series = pd.to_numeric(frame.loc[selected], errors="coerce").dropna()
+    except Exception:
+        return None
+    if series.empty:
+        return None
+    series.index = pd.to_datetime(series.index, errors="coerce")
+    series = series[~pd.isna(series.index)]
+    if series.empty:
+        return None
+    return series.sort_index(ascending=False)
+
+
+def _normalize_statement_row_name(value: Any) -> str:
+    return "".join(char for char in str(value or "").lower() if char.isalnum())
 
 
 def _fmp_statement_timestamp(row: dict[str, Any]) -> pd.Timestamp:
@@ -674,6 +934,14 @@ def _fmp_statement_timestamp(row: dict[str, Any]) -> pd.Timestamp:
     if not pd.isna(parsed):
         return parsed
     year = row.get("calendarYear") or row.get("year") or row.get("fiscalYear")
+    period = str(row.get("period") or "").strip().upper()
+    quarter_month_by_period = {"Q1": 3, "Q2": 6, "Q3": 9, "Q4": 12}
+    if period in quarter_month_by_period:
+        try:
+            month = quarter_month_by_period[period]
+            return pd.Timestamp(year=int(year), month=month, day=1) + pd.offsets.MonthEnd(0)
+        except (TypeError, ValueError):
+            return pd.NaT
     try:
         return pd.Timestamp(year=int(year), month=12, day=31)
     except (TypeError, ValueError):
@@ -880,10 +1148,73 @@ def _latest_period_label(raw: QuarterlyRaw) -> str:
     return ""
 
 
+def _needs_yfinance_statement_history(raw: QuarterlyRaw | None) -> bool:
+    if not raw:
+        return True
+    return (
+        _usable_growth_count(quarterly_yoy_growth(raw, "eps")) < 3
+        or _usable_growth_count(quarterly_yoy_growth(raw, "revenue")) < 3
+        or _usable_growth_count(annual_yoy_growth(raw, "eps")) < 3
+        or _usable_growth_count(annual_yoy_growth(raw, "revenue")) < 3
+    )
+
+
+def _usable_growth_count(points: list[GrowthPoint]) -> int:
+    return sum(
+        1
+        for point in points[:3]
+        if point.growth_pct is not None or (point.current is not None and point.previous is not None)
+    )
+
+
+def _payload_rows(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in ("data", "results", "incomeStatement", "incomeStatements"):
+            rows = payload.get(key)
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+        if payload:
+            return [payload]
+    return []
+
+
+def _safe_yfinance_frame(ticker: Any, *attributes: str) -> pd.DataFrame | None:
+    for attribute in attributes:
+        try:
+            value = getattr(ticker, attribute)
+        except Exception:
+            continue
+        if callable(value):
+            try:
+                value = value()
+            except Exception:
+                continue
+        if isinstance(value, pd.DataFrame) and not value.empty:
+            return value
+    return None
+
+
+def _first_float_value(row: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = _float_or_none(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
 def _ratio_to_pct(value: Any) -> float | None:
     number = _float_or_none(value)
     if number is None:
         return None
+    if abs(number) <= 5:
+        number *= 100
+    return round(number, 1)
+
+
+def _normalize_growth_pct(value: float) -> float:
+    number = float(value)
     if abs(number) <= 5:
         number *= 100
     return round(number, 1)

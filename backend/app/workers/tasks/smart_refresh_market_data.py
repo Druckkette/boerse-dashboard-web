@@ -610,7 +610,7 @@ def _refresh_fundamentals(
         min_value=60,
         max_value=6 * 60 * 60,
     )
-    latest_dates = _latest_fundamental_dates(tickers) if incremental else {}
+    latest_states = _latest_fundamental_states(tickers) if incremental else {}
     fundamental_result: dict[str, Any] = {
         "ok": False,
         "job_type": "refresh_fundamentals",
@@ -652,8 +652,14 @@ def _refresh_fundamentals(
             if fundamental_result["success_count"] == 0:
                 raise RuntimeError(str(fundamental_result["timeout_message"]))
             return fundamental_result
-        latest_date = latest_dates.get(ticker)
-        if incremental and latest_date is not None and latest_date >= datetime.now(UTC).date():
+        latest_state = latest_states.get(ticker)
+        if (
+            incremental
+            and latest_state is not None
+            and latest_state.latest_date is not None
+            and latest_state.latest_date >= datetime.now(UTC).date()
+            and latest_state.complete
+        ):
             fundamental_result["skipped_count"] += 1
             continue
         progress = min(92, base_progress + int(index / total_tickers * max(1, next_progress - base_progress)))
@@ -682,6 +688,11 @@ def _refresh_fundamentals(
         and fundamental_result["failure_count"] == 0
     )
     fundamental_result["partial"] = fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] > 0
+    if tickers and fundamental_result["success_count"] == 0 and fundamental_result["skipped_count"] > 0:
+        fundamental_result["ok"] = True
+        fundamental_result["skipped"] = True
+        fundamental_result["reason"] = "Fundamental-Cache war bereits aktuell und vollständig."
+        return fundamental_result
     if tickers and fundamental_result["success_count"] == 0:
         raise RuntimeError("Smart Refresh konnte keine Fundamentals aktualisieren.")
     if not tickers:
@@ -691,9 +702,9 @@ def _refresh_fundamentals(
     return fundamental_result
 
 
-def _latest_fundamental_dates(tickers: list[str]) -> dict[str, Any]:
+def _latest_fundamental_states(tickers: list[str]) -> dict[str, Any]:
     try:
-        return fundamentals_repository.latest_fundamental_dates(tickers)
+        return fundamentals_repository.latest_fundamental_refresh_states(tickers)
     except fundamentals_repository.FundamentalsRepositoryUnavailable:
         return {}
 

@@ -110,8 +110,15 @@ def test_refresh_fundamentals_incremental_skips_current_snapshots(monkeypatch: p
     )
     monkeypatch.setattr(
         refresh_fundamentals_module.fundamentals_repository,
-        "latest_fundamental_dates",
-        lambda tickers: {"AAA": date.today()},
+        "latest_fundamental_refresh_states",
+        lambda tickers: {
+            "AAA": refresh_fundamentals_module.fundamentals_repository.FundamentalRefreshState(
+                ticker="AAA",
+                latest_date=date.today(),
+                complete=True,
+                missing_history_keys=[],
+            )
+        },
     )
 
     def fake_refresh(ticker: str, *, include_holders: bool) -> dict:
@@ -128,6 +135,82 @@ def test_refresh_fundamentals_incremental_skips_current_snapshots(monkeypatch: p
     assert result["skipped_count"] == 1
     assert result["success_count"] == 1
     assert seen == ["BBB"]
+
+
+def test_refresh_fundamentals_incremental_repairs_incomplete_current_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "resolve_universe_tickers",
+        lambda **kwargs: ["AAA"],
+    )
+    monkeypatch.setattr(
+        refresh_fundamentals_module.fundamentals_repository,
+        "latest_fundamental_refresh_states",
+        lambda tickers: {
+            "AAA": refresh_fundamentals_module.fundamentals_repository.FundamentalRefreshState(
+                ticker="AAA",
+                latest_date=date.today(),
+                complete=False,
+                missing_history_keys=["eps_quarter_history", "annual_revenue_history"],
+            )
+        },
+    )
+
+    def fake_refresh(ticker: str, *, include_holders: bool) -> dict:
+        seen.append(ticker)
+        return {"ticker": ticker, "ok": True, "records_seen": 1, "records_written": 1, "source": "yfinance+fmp"}
+
+    monkeypatch.setattr(refresh_fundamentals_module, "refresh_fundamentals_for_ticker", fake_refresh)
+    payload = {"fundamental_universe": "all", "incremental": True}
+    job = job_repository.create_job("refresh_fundamentals", payload)
+
+    result = refresh_fundamentals_module.refresh_fundamentals.run(job.job_id, payload)
+
+    assert result["ok"] is True
+    assert result["skipped_count"] == 0
+    assert result["success_count"] == 1
+    assert seen == ["AAA"]
+
+
+def test_refresh_fundamentals_incremental_marks_all_current_snapshots_done(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "resolve_universe_tickers",
+        lambda **kwargs: ["AAA"],
+    )
+    monkeypatch.setattr(
+        refresh_fundamentals_module.fundamentals_repository,
+        "latest_fundamental_refresh_states",
+        lambda tickers: {
+            "AAA": refresh_fundamentals_module.fundamentals_repository.FundamentalRefreshState(
+                ticker="AAA",
+                latest_date=date.today(),
+                complete=True,
+                missing_history_keys=[],
+            )
+        },
+    )
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "refresh_fundamentals_for_ticker",
+        lambda *args, **kwargs: pytest.fail("complete current snapshot should be skipped"),
+    )
+    payload = {"fundamental_universe": "all", "incremental": True}
+    job = job_repository.create_job("refresh_fundamentals", payload)
+
+    result = refresh_fundamentals_module.refresh_fundamentals.run(job.job_id, payload)
+    updated = job_repository.get_job(job.job_id)
+
+    assert result["ok"] is True
+    assert result["skipped_count"] == 1
+    assert result["success_count"] == 0
+    assert updated is not None
+    assert updated.status == "done"
 
 
 def test_refresh_fundamentals_continues_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:

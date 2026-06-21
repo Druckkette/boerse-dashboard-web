@@ -54,6 +54,14 @@ class FundamentalSnapshotRow:
     metadata_json: dict
 
 
+@dataclass(frozen=True)
+class FundamentalRefreshState:
+    ticker: str
+    latest_date: date | None
+    complete: bool
+    missing_history_keys: list[str]
+
+
 class FundamentalsRepositoryUnavailable(RuntimeError):
     pass
 
@@ -92,6 +100,35 @@ def latest_fundamental_dates(tickers: list[str]) -> dict[str, date]:
                 str(ticker).upper(): value
                 for ticker, value in rows
                 if ticker and value is not None
+            }
+    except SQLAlchemyError as exc:
+        raise FundamentalsRepositoryUnavailable(str(exc)) from exc
+
+
+def latest_fundamental_refresh_states(tickers: list[str]) -> dict[str, FundamentalRefreshState]:
+    clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
+    if not clean_tickers:
+        return {}
+
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(FundamentalSnapshot)
+                .where(FundamentalSnapshot.ticker.in_(clean_tickers))
+                .order_by(
+                    FundamentalSnapshot.ticker.asc(),
+                    FundamentalSnapshot.as_of.desc(),
+                    FundamentalSnapshot.updated_at.desc(),
+                )
+            ).all()
+            latest_by_ticker: dict[str, FundamentalSnapshot] = {}
+            for row in rows:
+                ticker = str(row.ticker or "").upper()
+                if ticker and ticker not in latest_by_ticker:
+                    latest_by_ticker[ticker] = row
+            return {
+                ticker: _refresh_state_from_snapshot(ticker, latest_by_ticker.get(ticker))
+                for ticker in clean_tickers
             }
     except SQLAlchemyError as exc:
         raise FundamentalsRepositoryUnavailable(str(exc)) from exc
@@ -171,3 +208,96 @@ def _to_row(row: FundamentalSnapshot) -> FundamentalSnapshotRow:
         beta=row.beta,
         metadata_json=row.metadata_json or {},
     )
+
+
+def _refresh_state_from_snapshot(
+    ticker: str,
+    row: FundamentalSnapshot | None,
+) -> FundamentalRefreshState:
+    if row is None:
+        return FundamentalRefreshState(ticker=ticker, latest_date=None, complete=False, missing_history_keys=["snapshot"])
+    missing = _missing_required_history_keys(row.metadata_json or {})
+    return FundamentalRefreshState(
+        ticker=ticker,
+        latest_date=row.as_of,
+        complete=not missing,
+        missing_history_keys=missing,
+    )
+
+
+def _missing_required_history_keys(metadata: dict) -> list[str]:
+    required = [
+        "eps_quarter_history",
+        "annual_eps_history",
+        "revenue_quarter_history",
+        "annual_revenue_history",
+    ]
+    return [key for key in required if _usable_history_count(_metadata_history(metadata, key)) < 3]
+
+
+def _metadata_history(metadata: dict, key: str) -> list:
+    candidates = [
+        metadata.get(key),
+        (metadata.get("enrichment") or {}).get(key) if isinstance(metadata.get("enrichment"), dict) else None,
+    ]
+    fallback_by_key = {
+        "eps_quarter_history": "eps_growth",
+        "annual_eps_history": "annual_eps_growth",
+        "revenue_quarter_history": "revenue_growth",
+        "annual_revenue_history": "annual_revenue_growth",
+    }
+    fallback = fallback_by_key.get(key)
+    if fallback:
+        candidates.extend(
+            [
+                metadata.get(fallback),
+                (metadata.get("enrichment") or {}).get(fallback)
+                if isinstance(metadata.get("enrichment"), dict)
+                else None,
+            ]
+        )
+    for candidate in candidates:
+        if isinstance(candidate, list) and candidate:
+            return candidate
+    return []
+
+
+def _usable_history_count(history: list) -> int:
+    count = 0
+    for item in history[:3]:
+        if not isinstance(item, dict):
+            continue
+        current = _first_present(
+            item,
+            "eps_current_quarter",
+            "eps_current_year",
+            "revenue_current_quarter",
+            "revenue_current_year",
+            "current",
+        )
+        previous = _first_present(
+            item,
+            "eps_same_quarter_last_year",
+            "eps_previous_year",
+            "revenue_same_quarter_last_year",
+            "revenue_previous_year",
+            "previous",
+            "prior",
+        )
+        growth = _first_present(
+            item,
+            "eps_growth_yoy_pct",
+            "revenue_growth_yoy_pct",
+            "growth_pct",
+        )
+        if growth is not None or (current is not None and previous is not None):
+            count += 1
+    return count
+
+
+def _first_present(item: dict, *keys: str) -> object | None:
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, ""):
+            return value
+    return None

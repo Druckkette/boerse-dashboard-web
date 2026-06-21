@@ -27,7 +27,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
     tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
     incremental = _normalize_bool(payload.get("incremental"), default=False)
-    latest_dates = _latest_fundamental_dates(tickers) if incremental else {}
+    latest_states = _latest_fundamental_states(tickers) if incremental else {}
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
         "ok": False,
@@ -50,8 +50,14 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         total = max(1, len(tickers))
         for index, ticker in enumerate(tickers, start=1):
             raise_if_cancelled(job.job_id)
-            latest_date = latest_dates.get(ticker)
-            if incremental and latest_date is not None and latest_date >= date.today():
+            latest_state = latest_states.get(ticker)
+            if (
+                incremental
+                and latest_state is not None
+                and latest_state.latest_date is not None
+                and latest_state.latest_date >= date.today()
+                and latest_state.complete
+            ):
                 result["skipped_count"] += 1
                 result["items"].append(
                     {
@@ -59,7 +65,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
                         "ok": True,
                         "skipped": True,
                         "reason": "Fundamental-Snapshot ist heute bereits aktuell.",
-                        "as_of": latest_date.isoformat(),
+                        "as_of": latest_state.latest_date.isoformat(),
                         "records_seen": 0,
                         "records_written": 0,
                     }
@@ -97,6 +103,13 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
 
         result["ok"] = result["failure_count"] == 0 and (result["success_count"] > 0 or result["skipped_count"] > 0)
         result["partial"] = result["success_count"] > 0 and result["failure_count"] > 0
+        if result["success_count"] == 0 and result["skipped_count"] > 0:
+            job_repository.mark_done(
+                job.job_id,
+                result=result,
+                message="Fundamental-Cache war bereits aktuell und vollständig.",
+            )
+            return result
         if result["success_count"] == 0:
             job_repository.mark_failed(
                 job.job_id,
@@ -175,9 +188,9 @@ def _normalize_limit(value: object) -> int:
         return 50
 
 
-def _latest_fundamental_dates(tickers: list[str]) -> dict[str, date]:
+def _latest_fundamental_states(tickers: list[str]) -> dict[str, fundamentals_repository.FundamentalRefreshState]:
     try:
-        return fundamentals_repository.latest_fundamental_dates(tickers)
+        return fundamentals_repository.latest_fundamental_refresh_states(tickers)
     except fundamentals_repository.FundamentalsRepositoryUnavailable:
         return {}
 

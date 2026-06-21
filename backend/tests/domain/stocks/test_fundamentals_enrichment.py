@@ -10,10 +10,13 @@ from app.data_sources.fundamentals_client import (
     fetch_fmp_next_earnings_date,
     fetch_fmp_profile,
     fetch_quarterly_fmp,
+    annual_yoy_growth,
+    _raw_from_yfinance_statements,
 )
 from app.data_sources.fmp_client import (
     FMP_BALANCE_SHEET_URL,
     FMP_EARNINGS_URL,
+    FMP_INCOME_STATEMENT_GROWTH_URL,
     FMP_INCOME_STATEMENT_URL,
     FMP_PROFILE_URL,
     FMP_RATIOS_TTM_URL,
@@ -102,6 +105,100 @@ def test_compute_fundamental_enrichment_detects_growth_and_acceleration() -> Non
     assert enrichment.metadata["series_lengths"]["DilutedEPS"] == 17
 
 
+def test_annual_growth_falls_back_to_quarterly_totals_when_annual_series_is_incomplete() -> None:
+    raw = {
+        "AnnualTotalRevenue": pd.Series({pd.Timestamp("2025-12-31"): 1000.0}),
+        "TotalRevenue": pd.Series(
+            {
+                pd.Timestamp("2025-12-31"): 250.0,
+                pd.Timestamp("2025-09-30"): 240.0,
+                pd.Timestamp("2025-06-30"): 230.0,
+                pd.Timestamp("2025-03-31"): 220.0,
+                pd.Timestamp("2024-12-31"): 200.0,
+                pd.Timestamp("2024-09-30"): 190.0,
+                pd.Timestamp("2024-06-30"): 180.0,
+                pd.Timestamp("2024-03-31"): 170.0,
+                pd.Timestamp("2023-12-31"): 160.0,
+                pd.Timestamp("2023-09-30"): 150.0,
+                pd.Timestamp("2023-06-30"): 140.0,
+                pd.Timestamp("2023-03-31"): 130.0,
+                pd.Timestamp("2022-12-31"): 120.0,
+                pd.Timestamp("2022-09-30"): 110.0,
+                pd.Timestamp("2022-06-30"): 100.0,
+                pd.Timestamp("2022-03-31"): 90.0,
+            }
+        ),
+    }
+
+    points = annual_yoy_growth(raw, "revenue")
+
+    assert [point.label for point in points] == ["2025", "2024", "2023"]
+    assert [point.current for point in points] == [940.0, 740.0, 580.0]
+    assert [point.previous for point in points] == [740.0, 580.0, 420.0]
+    assert [point.growth_pct for point in points] == [27.0, 27.6, 38.1]
+
+
+def test_growth_series_rescues_missing_quarterly_eps_statement_values() -> None:
+    raw = {
+        "QuarterlyDilutedEPSGrowthPct": pd.Series(
+            {
+                pd.Timestamp("2026-03-31"): 0.32,
+                pd.Timestamp("2025-12-31"): 0.271,
+                pd.Timestamp("2025-09-30"): 45.8,
+            }
+        )
+    }
+
+    enrichment = compute_fundamental_enrichment("LEAD", raw, notes=["FMP stable Wachstum quartalsweise"])
+
+    assert [item["fiscal_period"] for item in enrichment.eps_quarter_history] == ["2026 Q1", "2025 Q4", "2025 Q3"]
+    assert [item["eps_growth_yoy_pct"] for item in enrichment.eps_quarter_history] == [32.0, 27.1, 45.8]
+
+
+def test_yfinance_statement_history_parses_eps_and_revenue_histories() -> None:
+    quarterly_income = pd.DataFrame(
+        {
+            pd.Timestamp("2026-03-31"): [2.4, 240.0, 48.0],
+            pd.Timestamp("2025-12-31"): [2.1, 225.0, 44.0],
+            pd.Timestamp("2025-09-30"): [1.9, 210.0, 40.0],
+        },
+        index=["Diluted EPS", "Total Revenue", "Net Income"],
+    )
+    annual_income = pd.DataFrame(
+        {
+            pd.Timestamp("2025-12-31"): [7.2, 1350.0, 255.0],
+            pd.Timestamp("2024-12-31"): [5.0, 1000.0, 160.0],
+            pd.Timestamp("2023-12-31"): [3.8, 780.0, 120.0],
+        },
+        index=["Diluted EPS", "Total Revenue", "Net Income"],
+    )
+    balance_sheet = pd.DataFrame(
+        {
+            pd.Timestamp("2025-12-31"): [900.0],
+            pd.Timestamp("2024-12-31"): [700.0],
+        },
+        index=["Stockholders Equity"],
+    )
+
+    raw = _raw_from_yfinance_statements(
+        quarterly_income_stmt=quarterly_income,
+        annual_income_stmt=annual_income,
+        annual_balance_sheet=balance_sheet,
+    )
+
+    assert set(raw) >= {
+        "DilutedEPS",
+        "TotalRevenue",
+        "NetIncome",
+        "AnnualDilutedEPS",
+        "AnnualTotalRevenue",
+        "AnnualNetIncome",
+        "AnnualStockholdersEquity",
+    }
+    assert raw["DilutedEPS"].iloc[0] == 2.4
+    assert raw["AnnualTotalRevenue"].iloc[0] == 1350.0
+
+
 def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
     calls: list[dict] = []
 
@@ -118,14 +215,16 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
         calls.append({"url": url, "params": params, "timeout": timeout})
         if url == FMP_INCOME_STATEMENT_URL and params.get("period") == "quarter":
             return FakeResponse(
-                [
-                    {
-                        "date": "2026-03-31",
-                        "epsDiluted": 2.4,
-                        "revenue": 240.0,
-                        "netIncome": 48.0,
-                    }
-                ]
+                {
+                    "data": [
+                        {
+                            "date": "2026-03-31",
+                            "epsdiluted": 2.4,
+                            "totalRevenue": 240.0,
+                            "net_income": 48.0,
+                        }
+                    ]
+                }
             )
         if url == FMP_INCOME_STATEMENT_URL and params.get("period") == "annual":
             return FakeResponse(
@@ -139,6 +238,20 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
                 [
                     {"fiscalDateEnding": "2025-12-31", "totalStockholdersEquity": 900.0},
                     {"year": "2024", "totalStockholdersEquity": 700.0},
+                ]
+            )
+        if url == FMP_INCOME_STATEMENT_GROWTH_URL and params.get("period") == "quarter":
+            return FakeResponse(
+                [
+                    {"date": "2026-03-31", "growthEPSDiluted": 0.6, "growthRevenue": 0.2},
+                    {"fiscalYear": "2025", "period": "Q4", "growthEPSDiluted": 0.5, "growthRevenue": 0.184},
+                ]
+            )
+        if url == FMP_INCOME_STATEMENT_GROWTH_URL and params.get("period") == "annual":
+            return FakeResponse(
+                [
+                    {"calendarYear": "2025", "growthEPSDiluted": 0.44, "growthRevenue": 0.35},
+                    {"calendarYear": "2024", "growthEPSDiluted": 0.31, "growthRevenue": 0.25},
                 ]
             )
         return FakeResponse([{"returnOnEquityTTM": 0.34, "netProfitMarginTTM": 0.18}])
@@ -155,14 +268,20 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
         FMP_INCOME_STATEMENT_URL,
         FMP_INCOME_STATEMENT_URL,
         FMP_BALANCE_SHEET_URL,
+        FMP_INCOME_STATEMENT_GROWTH_URL,
+        FMP_INCOME_STATEMENT_GROWTH_URL,
         FMP_RATIOS_TTM_URL,
     ]
     assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 40, "apikey": "test-key"}
     assert calls[1]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
     assert calls[2]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
-    assert calls[3]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
+    assert calls[3]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 40, "apikey": "test-key"}
+    assert calls[4]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
+    assert calls[5]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
     assert "AnnualDilutedEPS" in raw
     assert "AnnualStockholdersEquity" in raw
+    assert "QuarterlyDilutedEPSGrowthPct" in raw
+    assert "AnnualRevenueGrowthPct" in raw
 
 
 def test_fetch_quarterly_fmp_returns_response_body_on_403(monkeypatch) -> None:
