@@ -454,6 +454,18 @@ def test_stock_assessment_living_below_averages_requires_four_trading_days_and_c
     assert "4T unter 21-EMA" in signal.detail
 
 
+def test_stock_assessment_living_above_averages_requires_four_day_streak_and_current_day_over_line() -> None:
+    frame = _flat_frame()
+    for index in frame.index[-4:]:
+        frame.loc[index, ["Open", "High", "Low", "Close"]] = [101.0, 103.0, 100.0, 102.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Leben über den Durchschnitten")
+    assert signal.category == "positive"
+    assert "4T über 21-EMA" in signal.detail
+
+
 def test_stock_assessment_high_volume_price_drops_use_15_day_window_and_prior_day_volume() -> None:
     frame = _flat_frame()
     drop_positions = list(frame.index[-15:-10])
@@ -473,6 +485,46 @@ def test_stock_assessment_high_volume_price_drops_use_15_day_window_and_prior_da
     assert signal.category == "negative"
     assert "5/15" in signal.detail
     assert "-0.9%" in signal.detail
+
+
+def test_stock_assessment_high_volume_price_rises_use_15_day_window_and_volume_breakout() -> None:
+    frame = _flat_frame()
+    for position in frame.index[-15:-10]:
+        previous_close = float(frame["Close"].shift(1).loc[position])
+        frame.loc[position, ["Open", "High", "Low", "Close", "Volume"]] = [
+            previous_close,
+            previous_close * 1.014,
+            previous_close * 0.998,
+            previous_close * 1.01,
+            float(frame["Volume"].shift(1).loc[position]) + 1_000,
+        ]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Preissteigerungen bei hohem Vol.")
+    assert signal.category == "positive"
+    assert "5/15" in signal.detail
+    assert "+0.9%" in signal.detail
+
+
+def test_stock_assessment_low_volume_price_drops_are_positive_when_selling_is_quiet() -> None:
+    frame = _flat_frame()
+    for position in frame.index[-15:-12]:
+        previous_close = float(frame["Close"].shift(1).loc[position])
+        frame.loc[position, ["Open", "High", "Low", "Close", "Volume"]] = [
+            previous_close,
+            previous_close * 1.002,
+            previous_close * 0.985,
+            previous_close * 0.99,
+            700_000.0,
+        ]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Preisrückgänge bei niedrigem Vol.")
+    assert signal.category == "positive"
+    assert "3/15" in signal.detail
+    assert "<80% 50T" in signal.detail
 
 
 def test_stock_assessment_stall_days_allow_small_losses() -> None:
@@ -495,13 +547,44 @@ def test_stock_assessment_stall_days_allow_small_losses() -> None:
     assert "2 in 10T" in signal.detail
 
 
-def test_stock_assessment_warns_for_downside_reversal_outside_day_and_bearish_engulfing() -> None:
+def test_stock_assessment_gaps_use_10_day_window_and_positive_gap_requires_upper_half_close() -> None:
     frame = _flat_frame()
-    first = frame.index[-6]
-    prior_first = frame.index[-7]
-    frame.loc[prior_first, ["Open", "High", "Low", "Close"]] = [100.0, 102.0, 98.0, 101.0]
-    frame.loc[first, ["Open", "High", "Low", "Close"]] = [103.0, 105.0, 97.0, 98.0]
+    up_gap = frame.index[-5]
+    prior_up = frame.index[-6]
+    frame.loc[prior_up, ["Open", "High", "Low", "Close"]] = [100.0, 101.0, 99.0, 100.0]
+    frame.loc[up_gap, ["Open", "High", "Low", "Close"]] = [102.0, 104.0, 101.5, 103.5]
 
+    down_gap = frame.index[-3]
+    prior_down = frame.index[-4]
+    frame.loc[prior_down, ["Open", "High", "Low", "Close"]] = [100.0, 101.0, 99.0, 100.0]
+    frame.loc[down_gap, ["Open", "High", "Low", "Close", "Volume"]] = [98.0, 99.0, 96.0, 97.0, 1_200_000.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    assert _signal(signals, "Positive Kurslücken").category == "positive"
+    assert "10T" in _signal(signals, "Positive Kurslücken").detail
+    assert _signal(signals, "Negative Kurslücken bei hohem Vol.").category == "negative"
+    assert "10T" in _signal(signals, "Negative Kurslücken bei hohem Vol.").detail
+
+
+def test_stock_assessment_confirmed_downside_reversal_is_positive_not_warning() -> None:
+    frame = _flat_frame()
+    prior = frame.index[-5]
+    reversal = frame.index[-4]
+    confirmation = frame.index[-3]
+    frame.loc[prior, ["Open", "High", "Low", "Close"]] = [100.0, 101.0, 99.0, 100.0]
+    frame.loc[reversal, ["Open", "High", "Low", "Close"]] = [102.0, 105.0, 95.0, 97.0]
+    frame.loc[confirmation, ["Open", "High", "Low", "Close"]] = [98.0, 106.0, 100.0, 105.5]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Bestätigte Downside Reversals")
+    assert signal.category == "positive"
+    assert not any(item.label == "Downside Reversals" and item.category == "negative" for item in signals)
+
+
+def test_stock_assessment_warns_for_bearish_outside_day_and_bearish_engulfing() -> None:
+    frame = _flat_frame()
     second = frame.index[-2]
     prior_second = frame.index[-3]
     frame.loc[prior_second, ["Open", "High", "Low", "Close"]] = [98.0, 101.0, 97.0, 100.0]
@@ -509,9 +592,38 @@ def test_stock_assessment_warns_for_downside_reversal_outside_day_and_bearish_en
 
     signals = evaluate_chart_signs(frame)
 
-    assert _signal(signals, "Downside Reversals").category == "negative"
     assert _signal(signals, "Bearisher Outside Day").category == "negative"
     assert _signal(signals, "Bearish Engulfing").category == "negative"
+
+
+def test_stock_assessment_detects_bullish_outside_day_and_bullish_engulfing() -> None:
+    frame = _flat_frame()
+    prior = frame.index[-3]
+    current = frame.index[-2]
+    frame.loc[prior, ["Open", "High", "Low", "Close"]] = [101.0, 102.0, 99.0, 100.0]
+    frame.loc[current, ["Open", "High", "Low", "Close"]] = [99.5, 103.0, 97.5, 102.5]
+
+    signals = evaluate_chart_signs(frame)
+
+    assert _signal(signals, "Positiver Outside Day").category == "positive"
+    assert _signal(signals, "Bullish Engulfing").category == "positive"
+
+
+def test_stock_assessment_detects_support_week() -> None:
+    frame = _flat_frame(days=300)
+    last_week = frame.index[-8:-3]
+    frame.loc[last_week, "Volume"] = 2_000_000.0
+    frame.loc[last_week[0], ["Open", "High", "Low", "Close"]] = [105.0, 105.5, 101.0, 104.0]
+    frame.loc[last_week[1], ["Open", "High", "Low", "Close"]] = [104.0, 106.0, 99.0, 103.0]
+    frame.loc[last_week[2], ["Open", "High", "Low", "Close"]] = [103.0, 105.0, 101.0, 102.0]
+    frame.loc[last_week[3], ["Open", "High", "Low", "Close"]] = [102.0, 104.0, 101.0, 103.0]
+    frame.loc[last_week[4], ["Open", "High", "Low", "Close"]] = [103.0, 105.0, 102.0, 104.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Unterstützungswoche")
+    assert signal.category == "positive"
+    assert "Schluss obere Hälfte" in signal.detail
 
 
 def test_stock_assessment_warns_when_rs_line_is_below_21_ema() -> None:
@@ -528,6 +640,25 @@ def test_stock_assessment_warns_when_rs_line_is_below_21_ema() -> None:
     )
 
     assert any(signal.label == "RS-Linie unter 21-EMA" and signal.category == "negative" for signal in result.chart_signals)
+
+
+def test_stock_assessment_adds_positive_rs_counterparts_to_rs_warnings() -> None:
+    result = compute_stock_assessment(
+        "RSPOS",
+        _synthetic_bars(start_price=50, drift=0.002, volume=2_000_000),
+        rs_context={
+            "rating": 91,
+            "above_21": True,
+            "above_50": True,
+            "trend_5w": True,
+            "trend_13w": True,
+            "new_high_52w": True,
+        },
+    )
+
+    assert any(signal.label == "RS-Linie über 21-EMA" and signal.category == "positive" for signal in result.chart_signals)
+    assert any(signal.label == "RS-Linie über 50-SMA" and signal.category == "positive" for signal in result.chart_signals)
+    assert any(signal.label == "RS-Linie auf neuem 52W-Hoch" and signal.category == "positive" for signal in result.chart_signals)
 
 
 def test_stock_assessment_moving_average_distance_warning_uses_all_thresholds() -> None:

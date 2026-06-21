@@ -483,10 +483,15 @@ def evaluate_chart_signs(
     elif high_volume_down > high_volume_up:
         signals.append(ChartSignal("negative", "Mehr Verlust- als Gewinntage mit hohem Vol.", f"{high_volume_down} vs {high_volume_up} (20T)"))
 
-    above_21 = int((close.tail(10) > ema21.tail(10)).sum())
-    above_50 = int((close.tail(10) > sma50.tail(10)).sum())
-    if above_21 >= 8 and above_50 >= 8:
-        signals.append(ChartSignal("positive", "Leben über den Durchschnitten", f"{above_21}/10 über 21-EMA, {above_50}/10 über 50-SMA"))
+    above_21_streak = _trailing_true_count(close > ema21)
+    above_50_streak = _trailing_true_count(close > sma50)
+    if above_21_streak >= 4 or above_50_streak >= 4:
+        parts = []
+        if above_21_streak >= 4:
+            parts.append(f"{above_21_streak}T über 21-EMA")
+        if above_50_streak >= 4:
+            parts.append(f"{above_50_streak}T über 50-SMA")
+        signals.append(ChartSignal("positive", "Leben über den Durchschnitten", ", ".join(parts)))
     below_21_streak = _trailing_true_count(close < ema21)
     below_50_streak = _trailing_true_count(close < sma50)
     if below_21_streak >= 4 or below_50_streak >= 4:
@@ -514,43 +519,45 @@ def evaluate_chart_signs(
         elif not ema_up and sma_up is False:
             signals.append(ChartSignal("negative", "Nach unten zeigende Durchschnittslinien"))
 
-    up_gaps = int(((open_.tail(20) > high.shift(1).tail(20)) & (volume.tail(20) > vol_avg_50.tail(20))).sum())
-    down_gaps = int(((open_.tail(20) < low.shift(1).tail(20)) & (volume.tail(20) > vol_avg_50.tail(20))).sum())
-    if up_gaps > 0:
-        signals.append(ChartSignal("positive", "Positive Kurslücken", f"{up_gaps} in 20T"))
-    if down_gaps > 0:
-        signals.append(ChartSignal("negative", "Negative Kurslücken bei hohem Vol.", f"{down_gaps} in 20T"))
-
-    drops = pct.tail(20) < -0.005
-    low_volume_drops = int((drops & (volume.tail(20) < vol_avg_50.tail(20) * 0.8)).sum())
-    high_volume_drops = int(((pct.tail(15) <= -0.009) & (volume.tail(15) > volume.shift(1).tail(15))).sum())
-    if low_volume_drops >= 3:
-        signals.append(ChartSignal("positive", "Preisrückgänge bei niedrigem Vol.", f"{low_volume_drops} Tage"))
-    if high_volume_drops >= 5:
-        signals.append(ChartSignal("negative", "Preisrückgänge bei hohem Vol.", f"{high_volume_drops}/15 Tage, Volumen > Vortag, Kurs <= -0.9%"))
-
-    high_volume_rises = int(((pct.tail(20) > 0.005) & (volume.tail(20) > vol_avg_50.tail(20) * 1.2)).sum())
-    if high_volume_rises >= 3:
-        signals.append(ChartSignal("positive", "Preissteigerungen bei hohem Vol.", f"{high_volume_rises} in 20T"))
-
     close_range = _close_range_position(close, high, low)
+    up_gaps = int(((open_.tail(10) > high.shift(1).tail(10)) & (close_range.tail(10) >= 0.5)).sum())
+    down_gaps = int(((open_.tail(10) < low.shift(1).tail(10)) & (volume.tail(10) > vol_avg_50.tail(10))).sum())
+    if up_gaps > 0:
+        signals.append(ChartSignal("positive", "Positive Kurslücken", f"{up_gaps} in 10T, Schluss obere Hälfte"))
+    if down_gaps > 0:
+        signals.append(ChartSignal("negative", "Negative Kurslücken bei hohem Vol.", f"{down_gaps} in 10T"))
+
+    material_drops = pct.tail(15) <= -0.009
+    high_volume = (volume.tail(15) > volume.shift(1).tail(15)) | (volume.tail(15) > vol_avg_50.tail(15))
+    low_volume_drops = int((material_drops & (volume.tail(15) < vol_avg_50.tail(15) * 0.8)).sum())
+    high_volume_drops = int((material_drops & high_volume).sum())
+    if low_volume_drops >= 3:
+        signals.append(ChartSignal("positive", "Preisrückgänge bei niedrigem Vol.", f"{low_volume_drops}/15 Tage, Kurs <= -0.9%, Vol. <80% 50T"))
+    if high_volume_drops >= 5:
+        signals.append(ChartSignal("negative", "Preisrückgänge bei hohem Vol.", f"{high_volume_drops}/15 Tage, Kurs <= -0.9%, Vol. > Vortag oder 50T"))
+
+    high_volume_rises = int(((pct.tail(15) >= 0.009) & ((volume.tail(15) > volume.shift(1).tail(15)) | (volume.tail(15) > vol_avg_50.tail(15)))).sum())
+    if high_volume_rises >= 5:
+        signals.append(ChartSignal("positive", "Preissteigerungen bei hohem Vol.", f"{high_volume_rises}/15 Tage, Kurs >= +0.9%, Vol. > Vortag oder 50T"))
+
     stall_days = int(((pct.tail(10).abs() <= 0.005) & (volume.tail(10) >= volume.shift(1).tail(10) * 0.95) & (close_range.tail(10) < 0.5)).sum())
     if stall_days >= 2:
         signals.append(ChartSignal("negative", "Stau-Tage", f"{stall_days} in 10T"))
 
-    upside_reversals = int(((open_.tail(10) < close.shift(1).tail(10)) & (close.tail(10) > open_.tail(10)) & (close_range.tail(10) > 0.7)).sum())
-    downside_reversals = int(
-        (
-            (high.tail(10) > high.shift(1).tail(10))
-            & (close.tail(10) < open_.tail(10))
-            & (close.tail(10) < close.shift(1).tail(10))
-            & (close_range.tail(10) <= 1 / 3)
-        ).sum()
-    )
+    upside_reversals = int(((open_.tail(10) < close.shift(1).tail(10)) & (close.tail(10) > open_.tail(10)) & (close_range.tail(10) > 0.5)).sum())
+    confirmed_downside_reversals = int(_confirmed_downside_reversal_mask(open_, high, close, close_range).tail(10).sum())
     if upside_reversals >= 2:
         signals.append(ChartSignal("positive", "Upside Reversals", f"{upside_reversals} in 10T"))
-    if downside_reversals >= 2:
-        signals.append(ChartSignal("negative", "Downside Reversals", f"{downside_reversals} in 10T"))
+    if confirmed_downside_reversals >= 1:
+        signals.append(ChartSignal("positive", "Bestätigte Downside Reversals", f"{confirmed_downside_reversals} in 10T, Folgetag über Hoch und Schluss obere 20%"))
+
+    bullish_outside_days = int(_bullish_outside_day_mask(open_, high, low, close).tail(15).sum())
+    if bullish_outside_days >= 1:
+        signals.append(ChartSignal("positive", "Positiver Outside Day", f"{bullish_outside_days} in 15T"))
+
+    bullish_engulfing = int(_bullish_engulfing_mask(open_, close).tail(15).sum())
+    if bullish_engulfing >= 1:
+        signals.append(ChartSignal("positive", "Bullish Engulfing", f"{bullish_engulfing} in 15T"))
 
     bearish_outside_days = int(_bearish_outside_day_mask(open_, high, low, close, close_range).tail(15).sum())
     if bearish_outside_days >= 1:
@@ -559,6 +566,10 @@ def evaluate_chart_signs(
     bearish_engulfing = int(_bearish_engulfing_mask(open_, close, close_range).tail(15).sum())
     if bearish_engulfing >= 1:
         signals.append(ChartSignal("negative", "Bearish Engulfing", f"{bearish_engulfing} in 15T"))
+
+    support_week = _support_week_signal(open_, high, low, close, volume, sma50)
+    if support_week is not None:
+        signals.append(support_week)
 
     signals.extend(_rs_chart_signals(rs))
 
@@ -1654,6 +1665,10 @@ def _rs_chart_signals(rs_context: Mapping[str, Any]) -> list[ChartSignal]:
         signals.append(ChartSignal("positive", "RS-Linie steigt", "über 5 Wochen"))
     elif rs_context.get("trend_5w") is False:
         signals.append(ChartSignal("negative", "RS-Linie fällt", "über 5 Wochen"))
+    if bool(rs_context.get("above_21")):
+        signals.append(ChartSignal("positive", "RS-Linie über 21-EMA"))
+    if bool(rs_context.get("above_50")):
+        signals.append(ChartSignal("positive", "RS-Linie über 50-SMA"))
     if bool(rs_context.get("above_21")) and bool(rs_context.get("above_50")):
         signals.append(ChartSignal("positive", "RS-Linie über ihren Durchschnitten"))
     if rs_context.get("above_21") is False:
@@ -1714,6 +1729,114 @@ def _trailing_true_count(mask: pd.Series) -> int:
             break
         count += 1
     return count
+
+
+def _confirmed_downside_reversal_mask(
+    open_: pd.Series,
+    high: pd.Series,
+    close: pd.Series,
+    close_range: pd.Series,
+) -> pd.Series:
+    reversal_day = (
+        (high > high.shift(1))
+        & (close < open_)
+        & (close < close.shift(1))
+        & (close_range <= 1 / 3)
+    )
+    confirmation_day = (high > high.shift(1)) & (close_range >= 0.8)
+    return (reversal_day.shift(1).fillna(False) & confirmation_day).fillna(False)
+
+
+def _bullish_outside_day_mask(
+    open_: pd.Series,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+) -> pd.Series:
+    daily_range = (high - low).replace(0, np.nan)
+    body_high = pd.concat([open_, close], axis=1).max(axis=1)
+    body_low = pd.concat([open_, close], axis=1).min(axis=1)
+    upper_wick_ratio = (high - body_high) / daily_range
+    lower_wick_ratio = (body_low - low) / daily_range
+    long_lower_short_upper = (lower_wick_ratio >= 0.35) & (upper_wick_ratio <= 0.2)
+    compact_wicks = (lower_wick_ratio <= 0.15) & (upper_wick_ratio <= 0.15)
+    return (
+        (high > high.shift(1))
+        & (low < low.shift(1))
+        & (close > open_)
+        & (long_lower_short_upper | compact_wicks)
+    ).fillna(False)
+
+
+def _bullish_engulfing_mask(open_: pd.Series, close: pd.Series) -> pd.Series:
+    current_body_high = pd.concat([open_, close], axis=1).max(axis=1)
+    current_body_low = pd.concat([open_, close], axis=1).min(axis=1)
+    previous_body_high = pd.concat([open_.shift(1), close.shift(1)], axis=1).max(axis=1)
+    previous_body_low = pd.concat([open_.shift(1), close.shift(1)], axis=1).min(axis=1)
+    return (
+        (close > open_)
+        & (current_body_high >= previous_body_high)
+        & (current_body_low <= previous_body_low)
+    ).fillna(False)
+
+
+def _support_week_signal(
+    open_: pd.Series,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    volume: pd.Series,
+    sma50: pd.Series,
+) -> ChartSignal | None:
+    weekly = pd.DataFrame(
+        {
+            "Open": open_.resample("W-FRI").first(),
+            "High": high.resample("W-FRI").max(),
+            "Low": low.resample("W-FRI").min(),
+            "Close": close.resample("W-FRI").last(),
+            "Volume": volume.resample("W-FRI").sum(),
+        }
+    ).dropna()
+    if len(weekly) < 50:
+        return None
+
+    weekly_sma50_series = weekly["Close"].rolling(50, min_periods=50).mean()
+    volume_avg_10w_series = weekly["Volume"].rolling(10, min_periods=4).mean()
+    daily_sma50_weekly = sma50.resample("W-FRI").last()
+    for idx in reversed(range(max(0, len(weekly) - 3), len(weekly))):
+        last = weekly.iloc[idx]
+        prev = weekly.iloc[idx - 1] if idx > 0 else None
+        weekly_range = float(last["High"] - last["Low"])
+        if weekly_range <= 0:
+            continue
+        close_range = float((last["Close"] - last["Low"]) / weekly_range)
+        volume_avg_10w = _safe_float(volume_avg_10w_series.iloc[idx])
+        weekly_sma50 = _safe_float(weekly_sma50_series.iloc[idx])
+        daily_sma50 = _safe_float(daily_sma50_weekly.reindex(weekly.index).iloc[idx])
+        if weekly_sma50 is None or daily_sma50 is None:
+            continue
+
+        volume_ok = False
+        if prev is not None and float(last["Volume"]) > float(prev["Volume"]):
+            volume_ok = True
+        if volume_avg_10w is not None and float(last["Volume"]) > volume_avg_10w:
+            volume_ok = True
+
+        low_vs_50w_ok = float(last["Low"]) >= weekly_sma50 * 1.005 or float(last["Low"]) < weekly_sma50
+        week_down = float(last["Close"]) < float(last["Open"])
+        if (
+            week_down
+            and close_range >= 0.5
+            and volume_ok
+            and low_vs_50w_ok
+            and float(last["Close"]) > daily_sma50
+        ):
+            return ChartSignal(
+                "positive",
+                "Unterstützungswoche",
+                f"Wochen-Schluss obere Hälfte ({close_range:.0%}), Volumen bestätigt, Schluss über 50T",
+            )
+    return None
 
 
 def _bearish_outside_day_mask(
