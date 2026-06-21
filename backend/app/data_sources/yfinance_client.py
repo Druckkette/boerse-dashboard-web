@@ -43,6 +43,7 @@ def fetch_daily_price_bars(
     *,
     period: str = "1y",
     start: date | None = None,
+    timeout: int = 15,
 ) -> list[FetchedPriceBar]:
     """Fetch daily OHLC bars from yfinance for worker-side cache refreshes."""
     import yfinance as yf
@@ -56,6 +57,7 @@ def fetch_daily_price_bars(
         "auto_adjust": False,
         "progress": False,
         "threads": False,
+        "timeout": max(3, int(timeout)),
     }
     if start is not None:
         download_kwargs["start"] = start.isoformat()

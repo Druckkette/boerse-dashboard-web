@@ -44,6 +44,12 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
     tickers = [symbol.source_ticker for symbol in symbols]
     range_key = _normalize_range(payload.get("range") or "1y")
     incremental = _normalize_bool(payload.get("incremental"), default=False)
+    provider_timeout_seconds = _normalize_seconds(
+        payload.get("price_provider_timeout_seconds") or payload.get("provider_timeout_seconds"),
+        default=15,
+        min_value=3,
+        max_value=120,
+    )
     fail_fast = bool(payload.get("fail_fast") or False)
     result: dict = {
         "ok": False,
@@ -67,6 +73,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         "failed_tickers": [],
         "records_seen": 0,
         "records_written": 0,
+        "provider_timeout_seconds": provider_timeout_seconds,
         "items": [],
     }
 
@@ -90,6 +97,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
                     range_key=range_key,
                     yahoo_symbol=symbol.yahoo_symbol,
                     incremental=incremental,
+                    timeout=provider_timeout_seconds,
                 )
             except Exception as exc:
                 item = {
@@ -176,6 +184,13 @@ def _normalize_bool(value: object, *, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_seconds(value: object, *, default: int, min_value: int, max_value: int) -> int:
+    try:
+        return max(min_value, min(max_value, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _should_include_market_helpers(payload: dict, *, preset: PriceRefreshPreset, explicit_tickers: object) -> bool:

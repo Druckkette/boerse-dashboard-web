@@ -77,13 +77,14 @@ def refresh_price_cache_for_ticker(
     range_key: PriceRange = "1y",
     yahoo_symbol: str | None = None,
     incremental: bool = False,
+    timeout: int = 15,
 ) -> dict:
     clean = _normalize_ticker(ticker)
     fetch_symbol = (yahoo_symbol or clean).strip().upper()
     period = YFINANCE_PERIOD_BY_RANGE[range_key]
     latest_cached_date = _latest_cached_date(clean) if incremental else None
     start_date = _incremental_start_date(latest_cached_date) if latest_cached_date else None
-    fetched = fetch_daily_price_bars(fetch_symbol, period=period, start=start_date)
+    fetched = fetch_daily_price_bars(fetch_symbol, period=period, start=start_date, timeout=timeout)
     writes = [
         PriceBarWrite(
             date=bar.date,
@@ -107,6 +108,7 @@ def refresh_price_cache_for_ticker(
         "fetch_mode": "incremental" if start_date else "range",
         "incremental_start_date": start_date.isoformat() if start_date else None,
         "latest_cached_date": latest_cached_date.isoformat() if latest_cached_date else None,
+        "timeout_seconds": max(3, int(timeout)),
         "source": "yfinance",
     }
 

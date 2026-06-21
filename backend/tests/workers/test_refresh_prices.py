@@ -20,6 +20,7 @@ def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> No
         range_key: str,
         yahoo_symbol: str | None = None,
         incremental: bool = False,
+        timeout: int = 15,
     ) -> dict:
         seen.append(ticker)
         return {
@@ -65,6 +66,7 @@ def test_refresh_prices_all_preset_includes_trend_benchmark_helpers(monkeypatch:
         range_key: str,
         yahoo_symbol: str | None = None,
         incremental: bool = False,
+        timeout: int = 15,
     ) -> dict:
         seen.append(ticker)
         return {
@@ -96,6 +98,7 @@ def test_refresh_prices_passes_incremental_mode(monkeypatch: pytest.MonkeyPatch)
         range_key: str,
         yahoo_symbol: str | None = None,
         incremental: bool = False,
+        timeout: int = 15,
     ) -> dict:
         seen.append((ticker, incremental))
         return {
@@ -117,6 +120,37 @@ def test_refresh_prices_passes_incremental_mode(monkeypatch: pytest.MonkeyPatch)
     assert seen == [("AAA", True)]
 
 
+def test_refresh_prices_passes_provider_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[int] = []
+
+    def fake_refresh(
+        ticker: str,
+        *,
+        range_key: str,
+        yahoo_symbol: str | None = None,
+        incremental: bool = False,
+        timeout: int = 15,
+    ) -> dict:
+        seen.append(timeout)
+        return {
+            "ticker": ticker,
+            "yahoo_symbol": yahoo_symbol or ticker,
+            "records_seen": 1,
+            "records_written": 1,
+            "source": "yfinance",
+        }
+
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    payload = {"tickers": ["AAA"], "range": "6m", "price_provider_timeout_seconds": 7}
+    job = job_repository.create_job("refresh_prices", payload)
+
+    result = refresh_prices_module.refresh_prices.run(job.job_id, payload)
+
+    assert result["ok"] is True
+    assert result["provider_timeout_seconds"] == 7
+    assert seen == [7]
+
+
 def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_refresh(
         ticker: str,
@@ -124,6 +158,7 @@ def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytes
         range_key: str,
         yahoo_symbol: str | None = None,
         incremental: bool = False,
+        timeout: int = 15,
     ) -> dict:
         if ticker == "BAD":
             raise RuntimeError("upstream rejected ticker")
@@ -156,7 +191,14 @@ def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytes
 def test_refresh_prices_marks_job_failed_when_all_tickers_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_refresh(ticker: str, *, range_key: str, incremental: bool = False, yahoo_symbol: str | None = None) -> dict:
+    def fake_refresh(
+        ticker: str,
+        *,
+        range_key: str,
+        incremental: bool = False,
+        yahoo_symbol: str | None = None,
+        timeout: int = 15,
+    ) -> dict:
         raise RuntimeError(f"{ticker} unavailable")
 
     monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)

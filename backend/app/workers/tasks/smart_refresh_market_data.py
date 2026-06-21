@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 from typing import Any
 
 from app.domain.market.constants import (
@@ -31,6 +32,11 @@ from app.services.universes import (
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 from app.workers.tasks.refresh_fundamentals import resolve_fundamental_tickers
+
+
+DEFAULT_PRICE_PROVIDER_TIMEOUT_SECONDS = 15
+DEFAULT_PRICE_ACTION_MAX_SECONDS = 2 * 60 * 60
+DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS = 45 * 60
 
 
 @dataclass(frozen=True)
@@ -122,12 +128,26 @@ def smart_refresh_market_data(self, job_id: str | None = None, payload: dict | N
             action_result = _run_action(job.job_id, action, result=result, action_index=index, total_actions=total)
             result["results"][action.key] = action_result
 
+        partial_actions = [
+            key
+            for key, value in result["results"].items()
+            if isinstance(value, dict) and (value.get("partial") or value.get("stopped_due_to_timeout"))
+        ]
         result["ok"] = True
+        result["partial"] = bool(partial_actions)
+        if partial_actions:
+            result["partial_actions"] = partial_actions
         result["freshness_after"] = _freshness_summary(get_freshness())
+        message = f"Smart Refresh abgeschlossen: {len(actions)} notwendige Aktion(en) ausgeführt."
+        if partial_actions:
+            message = (
+                f"Smart Refresh teilweise abgeschlossen: {len(actions)} Aktion(en) geprüft; "
+                f"{', '.join(partial_actions)} wird im nächsten Lauf fortgesetzt."
+            )
         job_repository.mark_done(
             job.job_id,
             result=result,
-            message=f"Smart Refresh abgeschlossen: {len(actions)} notwendige Aktion(en) ausgeführt.",
+            message=message,
         )
         return result
     except JobCancelled:
@@ -154,6 +174,18 @@ def build_smart_refresh_plan(
     rs_lookback_days = _normalize_days(payload.get("rs_lookback_days") or 430)
     price_range = _normalize_range(payload.get("range") or "6m")
     initial_price_range = _normalize_range(payload.get("initial_range") or payload.get("price_range") or "2y")
+    price_provider_timeout_seconds = _normalize_seconds(
+        payload.get("price_provider_timeout_seconds") or payload.get("provider_timeout_seconds"),
+        default=DEFAULT_PRICE_PROVIDER_TIMEOUT_SECONDS,
+        min_value=3,
+        max_value=120,
+    )
+    price_action_max_seconds = _normalize_seconds(
+        payload.get("price_action_max_seconds") or payload.get("max_action_seconds"),
+        default=DEFAULT_PRICE_ACTION_MAX_SECONDS,
+        min_value=60,
+        max_value=12 * 60 * 60,
+    )
     include_position_monitor = bool(payload.get("include_position_monitor", True))
     include_fundamentals = bool(payload.get("include_fundamentals", True))
     include_sec13f = _normalize_bool(payload.get("include_sec13f"), default=True)
@@ -166,6 +198,12 @@ def build_smart_refresh_plan(
     ).strip().lower()
     fundamental_limit_default = limit_universe if fundamental_universe in {"all", "universe", universe_key} else 80
     fundamental_limit = _normalize_fundamental_limit(payload.get("fundamental_limit") or fundamental_limit_default)
+    fundamental_action_max_seconds = _normalize_seconds(
+        payload.get("fundamental_action_max_seconds") or payload.get("max_action_seconds"),
+        default=DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS,
+        min_value=60,
+        max_value=6 * 60 * 60,
+    )
 
     freshness_by_name = {item.name: item for item in freshness.services}
     price_freshness = freshness_by_name.get("prices")
@@ -221,6 +259,8 @@ def build_smart_refresh_plan(
                     "benchmark_ticker": benchmark_ticker,
                     "include_market_helpers": True,
                     "incremental": incremental_prices,
+                    "price_provider_timeout_seconds": price_provider_timeout_seconds,
+                    "price_action_max_seconds": price_action_max_seconds,
                 },
             )
         )
@@ -239,6 +279,8 @@ def build_smart_refresh_plan(
                         "source": "smart_refresh",
                         "range": "1y",
                         "tickers": missing_price_issue.tickers,
+                        "price_provider_timeout_seconds": price_provider_timeout_seconds,
+                        "price_action_max_seconds": price_action_max_seconds,
                     },
                 )
             )
@@ -254,6 +296,8 @@ def build_smart_refresh_plan(
                         "source": "smart_refresh",
                         "range": "6m",
                         "tickers": stale_price_issue.tickers,
+                        "price_provider_timeout_seconds": price_provider_timeout_seconds,
+                        "price_action_max_seconds": price_action_max_seconds,
                     },
                 )
             )
@@ -310,6 +354,7 @@ def build_smart_refresh_plan(
                     "fundamental_limit": fundamental_limit,
                     "include_holders": True,
                     "incremental": incremental_fundamentals,
+                    "fundamental_action_max_seconds": fundamental_action_max_seconds,
                 },
             )
         )
@@ -404,6 +449,18 @@ def _refresh_prices(
     total_actions: int,
 ) -> dict[str, Any]:
     range_key = _normalize_range(payload.get("range") or "6m")
+    provider_timeout_seconds = _normalize_seconds(
+        payload.get("price_provider_timeout_seconds") or payload.get("provider_timeout_seconds"),
+        default=DEFAULT_PRICE_PROVIDER_TIMEOUT_SECONDS,
+        min_value=3,
+        max_value=120,
+    )
+    max_action_seconds = _normalize_seconds(
+        payload.get("price_action_max_seconds") or payload.get("max_action_seconds"),
+        default=DEFAULT_PRICE_ACTION_MAX_SECONDS,
+        min_value=60,
+        max_value=12 * 60 * 60,
+    )
     symbols = resolve_universe_price_symbols(
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
@@ -423,21 +480,44 @@ def _refresh_prices(
         "failed_tickers": [],
         "records_seen": 0,
         "records_written": 0,
+        "provider_timeout_seconds": provider_timeout_seconds,
+        "max_action_seconds": max_action_seconds,
     }
     total_symbols = max(1, len(symbols))
     base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
     next_progress = 8 + int(action_index / max(1, total_actions) * 82)
+    started_at = monotonic()
     for index, symbol in enumerate(symbols, start=1):
         raise_if_cancelled(job_id)
+        if _elapsed_seconds(started_at) >= max_action_seconds:
+            skipped = total_symbols - index + 1
+            price_result["skipped_count"] = int(price_result.get("skipped_count") or 0) + skipped
+            price_result["stopped_due_to_timeout"] = True
+            price_result["partial"] = price_result["success_count"] > 0
+            price_result["ok"] = False
+            price_result["timeout_message"] = (
+                f"Price-Refresh nach {max_action_seconds // 60} Minuten gestoppt; "
+                f"{skipped} Symbol(e) werden im nächsten Smart Refresh nachgezogen."
+            )
+            job_repository.update_progress(
+                job_id,
+                progress=min(92, base_progress + int(index / total_symbols * max(1, next_progress - base_progress))),
+                step="Smart Price Cache gestoppt",
+                message=str(price_result["timeout_message"]),
+                result={**result, "current_price_refresh": price_result},
+            )
+            if price_result["success_count"] == 0:
+                raise RuntimeError(str(price_result["timeout_message"]))
+            return price_result
         ticker = symbol.source_ticker
         yahoo_symbol = symbol.yahoo_symbol
-        if index == 1 or index == total_symbols or index % 25 == 0:
+        if index == 1 or index == total_symbols or index % 10 == 0:
             progress = min(92, base_progress + int(index / total_symbols * max(1, next_progress - base_progress)))
             job_repository.update_progress(
                 job_id,
                 progress=progress,
                 step=f"Smart Price Cache {index}/{total_symbols}",
-                message=f"{ticker} über {yahoo_symbol} laden.",
+                message=f"{ticker} über {yahoo_symbol} laden. Timeout je Symbol: {provider_timeout_seconds}s.",
                 result={**result, "current_price_refresh": price_result},
             )
         try:
@@ -446,6 +526,7 @@ def _refresh_prices(
                 range_key=range_key,
                 yahoo_symbol=yahoo_symbol,
                 incremental=_normalize_bool(payload.get("incremental"), default=True),
+                timeout=provider_timeout_seconds,
             )
         except Exception as exc:
             price_result["failure_count"] += 1
@@ -489,6 +570,12 @@ def _refresh_fundamentals(
     tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
     incremental = _normalize_bool(payload.get("incremental"), default=True)
+    max_action_seconds = _normalize_seconds(
+        payload.get("fundamental_action_max_seconds") or payload.get("max_action_seconds"),
+        default=DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS,
+        min_value=60,
+        max_value=6 * 60 * 60,
+    )
     latest_dates = _latest_fundamental_dates(tickers) if incremental else {}
     fundamental_result: dict[str, Any] = {
         "ok": False,
@@ -503,12 +590,34 @@ def _refresh_fundamentals(
         "failed_tickers": [],
         "records_seen": 0,
         "records_written": 0,
+        "max_action_seconds": max_action_seconds,
     }
     total_tickers = max(1, len(tickers))
     base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
     next_progress = 8 + int(action_index / max(1, total_actions) * 82)
+    started_at = monotonic()
     for index, ticker in enumerate(tickers, start=1):
         raise_if_cancelled(job_id)
+        if _elapsed_seconds(started_at) >= max_action_seconds:
+            skipped = total_tickers - index + 1
+            fundamental_result["skipped_count"] += skipped
+            fundamental_result["stopped_due_to_timeout"] = True
+            fundamental_result["partial"] = fundamental_result["success_count"] > 0
+            fundamental_result["ok"] = False
+            fundamental_result["timeout_message"] = (
+                f"Fundamental-Refresh nach {max_action_seconds // 60} Minuten gestoppt; "
+                f"{skipped} Ticker werden im nächsten Smart Refresh nachgezogen."
+            )
+            job_repository.update_progress(
+                job_id,
+                progress=min(92, base_progress + int(index / total_tickers * max(1, next_progress - base_progress))),
+                step="Fundamentals gestoppt",
+                message=str(fundamental_result["timeout_message"]),
+                result={**result, "current_fundamental_refresh": fundamental_result},
+            )
+            if fundamental_result["success_count"] == 0:
+                raise RuntimeError(str(fundamental_result["timeout_message"]))
+            return fundamental_result
         latest_date = latest_dates.get(ticker)
         if incremental and latest_date is not None and latest_date >= datetime.now(UTC).date():
             fundamental_result["skipped_count"] += 1
@@ -680,3 +789,14 @@ def _normalize_days(value: object) -> int:
         return max(90, min(2500, int(value)))
     except (TypeError, ValueError):
         return 550
+
+
+def _normalize_seconds(value: object, *, default: int, min_value: int, max_value: int) -> int:
+    try:
+        return max(min_value, min(max_value, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _elapsed_seconds(started_at: float) -> int:
+    return max(0, int(monotonic() - started_at))
