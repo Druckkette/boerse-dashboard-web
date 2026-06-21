@@ -314,6 +314,8 @@ def fetch_quarterly_sec_companyfacts(
             "IncomeLossFromContinuingOperationsPerDilutedShare",
         ],
         unit_keys=["USD/shares"],
+        duration_min=75,
+        duration_max=110,
     )
     revenue = _extract_sec_duration_series(
         facts,

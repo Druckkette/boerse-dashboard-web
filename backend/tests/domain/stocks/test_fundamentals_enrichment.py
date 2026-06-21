@@ -11,6 +11,7 @@ from app.data_sources.fundamentals_client import (
     fetch_fmp_profile,
     fetch_quarterly_fmp,
     annual_yoy_growth,
+    _extract_sec_duration_series,
     _raw_from_yfinance_statements,
 )
 from app.data_sources.fmp_client import (
@@ -153,6 +154,52 @@ def test_growth_series_rescues_missing_quarterly_eps_statement_values() -> None:
 
     assert [item["fiscal_period"] for item in enrichment.eps_quarter_history] == ["2026 Q1", "2025 Q4", "2025 Q3"]
     assert [item["eps_growth_yoy_pct"] for item in enrichment.eps_quarter_history] == [32.0, 27.1, 45.8]
+
+
+def test_sec_eps_extraction_ignores_ytd_and_annual_values() -> None:
+    facts = {
+        "EarningsPerShareDiluted": {
+            "units": {
+                "USD/shares": [
+                    {
+                        "form": "10-Q",
+                        "fp": "Q3",
+                        "start": "2025-07-28",
+                        "end": "2025-10-26",
+                        "filed": "2025-11-19",
+                        "val": 1.3,
+                    },
+                    {
+                        "form": "10-Q",
+                        "fp": "Q3",
+                        "start": "2025-01-27",
+                        "end": "2025-10-26",
+                        "filed": "2025-11-19",
+                        "val": 3.14,
+                    },
+                    {
+                        "form": "10-K",
+                        "fp": "FY",
+                        "start": "2025-01-27",
+                        "end": "2026-01-25",
+                        "filed": "2026-02-25",
+                        "val": 4.9,
+                    },
+                ]
+            }
+        }
+    }
+
+    series = _extract_sec_duration_series(
+        facts,
+        concepts=["EarningsPerShareDiluted"],
+        unit_keys=["USD/shares"],
+        duration_min=75,
+        duration_max=110,
+    )
+
+    assert series is not None
+    assert series.to_dict() == {pd.Timestamp("2025-10-26"): 1.3}
 
 
 def test_yfinance_statement_history_parses_eps_and_revenue_histories() -> None:
