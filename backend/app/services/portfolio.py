@@ -9,6 +9,7 @@ import pandas as pd
 
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
+from app.repositories import relative_strength as relative_strength_repository
 from app.domain.portfolio.trade_republic import (
     TradeRepublicPosition as DomainTradeRepublicPosition,
     NON_SHARE_TYPES,
@@ -23,8 +24,13 @@ from app.domain.portfolio.trade_republic import (
 )
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
+from app.repositories.relative_strength import RelativeStrengthRepositoryUnavailable
 from app.services.fx import FxRate, eur_to_usd, get_eur_usd_rate
 from app.schemas import (
+    BuyStrengthAssessmentResponse,
+    BuyStrengthCheck,
+    BuyStrengthOverviewResponse,
+    BuyStrengthSummaryItem,
     IsinMappingListResponse,
     IsinMappingPatchRequest,
     KpiCard,
@@ -80,6 +86,7 @@ HEADER_ALIASES = {
     "account": {"account", "depot", "portfolio"},
     "note": {"note", "notiz", "comment", "kommentar"},
 }
+BUY_STRENGTH_WINDOW_DAYS = 21
 
 
 def get_portfolio_positions() -> list[PortfolioPosition]:
@@ -176,6 +183,587 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         ],
         positions=positions,
     )
+
+
+def get_buy_strength_overview() -> BuyStrengthOverviewResponse:
+    items: list[BuyStrengthSummaryItem] = []
+    for position in get_portfolio_positions():
+        buy_date = _parse_date(position.buy_date)
+        if buy_date is None:
+            continue
+        age_days = (date.today() - buy_date).days
+        if age_days < 0 or age_days > BUY_STRENGTH_WINDOW_DAYS:
+            continue
+        assessment = get_buy_strength_assessment(position.ticker)
+        items.append(
+            BuyStrengthSummaryItem(
+                ticker=assessment.ticker,
+                name=assessment.name,
+                buy_date=assessment.buy_date or buy_date.isoformat(),
+                age_days=assessment.age_days if assessment.age_days is not None else age_days,
+                pnl_pct=assessment.pnl_pct,
+                current_price=assessment.current_price,
+                entry_price=assessment.entry_price,
+                checks_passed=sum(1 for check in assessment.checks if check.passed),
+                checks_total=len(assessment.checks),
+                warnings_active=sum(1 for check in assessment.warnings if not check.passed),
+                warnings_total=len(assessment.warnings),
+                status=assessment.status,
+                status_label=assessment.status_label,
+                message=assessment.message,
+            )
+        )
+
+    items.sort(key=lambda item: (item.status in {"risk", "watch"}, item.age_days), reverse=True)
+    return BuyStrengthOverviewResponse(
+        as_of=datetime.now(UTC).isoformat(),
+        window_days=BUY_STRENGTH_WINDOW_DAYS,
+        items=items,
+    )
+
+
+def get_buy_strength_assessment(ticker: str) -> BuyStrengthAssessmentResponse:
+    clean = ticker.strip().upper()
+    if not clean:
+        return _missing_buy_strength_assessment("", "", "Ticker fehlt.")
+
+    row = _find_open_position_row(clean)
+    if row is None:
+        return _missing_buy_strength_assessment(clean, clean, "Keine offene Portfolio-Position gefunden.")
+
+    row = _normalize_trade_republic_row_to_usd(row)
+    if row.buy_date is None:
+        return _missing_buy_strength_assessment(
+            row.ticker,
+            row.name,
+            "Kein Kaufdatum gespeichert. Trage ein Kaufdatum ein oder importiere ein Depot mit Kaufdatum.",
+            entry_price=row.entry_price,
+            current_price=row.current_price,
+        )
+
+    start_date = row.buy_date - timedelta(days=90)
+    try:
+        price_rows = prices_repository.list_price_bars(row.ticker, start_date=start_date)
+    except PriceRepositoryUnavailable:
+        price_rows = []
+    frame = _price_frame_from_rows(price_rows)
+    if frame.empty:
+        return _missing_buy_strength_assessment(
+            row.ticker,
+            row.name,
+            "Keine Kursdaten im Price Cache. Starte Smart Refresh oder Kursdaten für diese Aktie.",
+            buy_date=row.buy_date,
+            entry_price=row.entry_price,
+            current_price=row.current_price,
+        )
+
+    after_buy = frame[frame.index.date >= row.buy_date]
+    if after_buy.empty:
+        return _missing_buy_strength_assessment(
+            row.ticker,
+            row.name,
+            "Kursdaten liegen vor, aber noch nicht ab Kaufdatum.",
+            buy_date=row.buy_date,
+            entry_price=row.entry_price,
+            current_price=row.current_price,
+        )
+
+    try:
+        rs_row = relative_strength_repository.get_latest_rs_rating(row.ticker)
+    except RelativeStrengthRepositoryUnavailable:
+        rs_row = None
+    rs_frame = _rs_frame_from_metadata(rs_row.metadata_json if rs_row else {})
+
+    return _evaluate_buy_strength(row, frame, rs_frame)
+
+
+def _find_open_position_row(ticker: str) -> portfolio_repository.PortfolioPositionRow | None:
+    try:
+        rows = portfolio_repository.list_open_positions()
+    except PortfolioRepositoryUnavailable:
+        return None
+    clean = ticker.strip().upper()
+    for row in rows:
+        if row.ticker.strip().upper() == clean:
+            return row
+    return None
+
+
+def _evaluate_buy_strength(
+    row: portfolio_repository.PortfolioPositionRow,
+    frame: pd.DataFrame,
+    rs_frame: pd.DataFrame,
+) -> BuyStrengthAssessmentResponse:
+    frame = frame.sort_index()
+    after_buy = frame[frame.index.date >= row.buy_date]
+    post_buy = after_buy.iloc[1:] if len(after_buy) > 1 else after_buy.iloc[0:0]
+    latest = frame.iloc[-1]
+    latest_date = pd.Timestamp(frame.index[-1]).date()
+    buy_day = after_buy.iloc[0]
+    before_buy = frame[frame.index < after_buy.index[0]]
+    previous_day_low = _finite_float(before_buy["low"].iloc[-1]) if not before_buy.empty else None
+    buy_day_low = _finite_float(buy_day["low"])
+    latest_close = _finite_float(latest["close"])
+    current_price = latest_close if latest_close is not None else row.current_price
+    pnl_pct = (current_price / row.entry_price - 1) * 100 if row.entry_price and current_price else None
+
+    close = frame["close"]
+    volume = frame["volume"].fillna(0.0)
+    ema21 = close.ewm(span=21, adjust=False, min_periods=5).mean()
+    sma50 = close.rolling(50, min_periods=20).mean()
+    close_range = _close_range(frame)
+    pct = close.pct_change()
+
+    checks = [
+        _check_immediate_strength(after_buy, row.entry_price, pnl_pct),
+        _check_upper_candle_closes(after_buy),
+        _check_rs_strength(rs_frame, row.buy_date),
+        _check_rs_above_averages(rs_frame),
+        _check_buy_low_not_undercut(after_buy, buy_day_low),
+        _check_green_red_distribution(after_buy),
+        _check_nearest_average_held(close, ema21, sma50),
+    ]
+    warnings = [
+        _warning_high_volume_negatives(after_buy, buy_day),
+        _warning_three_lower_lows(after_buy),
+        _warning_average_break("break_ema21", "Bruch der 21-Tage-Linie", close, ema21),
+        _warning_average_break("break_sma50", "Bruch der 50-Tage-Linie", close, sma50),
+        _warning_close_below_buy_and_previous_low(latest_close, buy_day_low, previous_day_low),
+        _warning_stall_days(post_buy, close_range, pct, volume),
+        _warning_lower_range_closes(post_buy, close_range),
+        _warning_down_volume_cluster(post_buy, pct, volume),
+        _warning_rs_declines(rs_frame, row.buy_date),
+        _warning_rs_breaks_averages(rs_frame),
+        _warning_up_down_volume_deteriorates(frame, after_buy, row.buy_date),
+    ]
+
+    passed = sum(1 for check in checks if check.passed)
+    active_warnings = sum(1 for check in warnings if not check.passed)
+    status, status_label = _buy_strength_status(passed, len(checks), active_warnings)
+    if status == "stark":
+        message = "Frischer Kauf bestätigt Stärke, ohne auffällige Warnzeichen."
+    elif status == "risk":
+        message = "Nach dem Kauf häufen sich Warnzeichen. Position eng prüfen."
+    elif status == "watch":
+        message = "Stärke ist gemischt. Kursverhalten nach Kauf weiter beobachten."
+    else:
+        message = "Frischer Kauf ist auswertbar, aber noch nicht eindeutig stark."
+
+    latest_lag = (date.today() - latest_date).days
+    data_status = "fresh" if latest_lag <= 3 else "stale"
+    return BuyStrengthAssessmentResponse(
+        ticker=row.ticker,
+        name=row.name,
+        buy_date=row.buy_date.isoformat(),
+        age_days=(date.today() - row.buy_date).days,
+        source="database",
+        data_status=data_status,
+        status=status,
+        status_label=status_label,
+        message=message,
+        entry_price=round(row.entry_price, 4),
+        current_price=round(current_price, 4) if current_price is not None else None,
+        pnl_pct=round(pnl_pct, 2) if pnl_pct is not None else None,
+        buy_day_low=round(buy_day_low, 4) if buy_day_low is not None else None,
+        previous_day_low=round(previous_day_low, 4) if previous_day_low is not None else None,
+        latest_close=round(latest_close, 4) if latest_close is not None else None,
+        latest_price_date=latest_date.isoformat(),
+        checks=checks,
+        warnings=warnings,
+    )
+
+
+def _missing_buy_strength_assessment(
+    ticker: str,
+    name: str,
+    message: str,
+    *,
+    buy_date: date | None = None,
+    entry_price: float | None = None,
+    current_price: float | None = None,
+) -> BuyStrengthAssessmentResponse:
+    return BuyStrengthAssessmentResponse(
+        ticker=ticker,
+        name=name or ticker,
+        buy_date=buy_date.isoformat() if buy_date else None,
+        age_days=(date.today() - buy_date).days if buy_date else None,
+        source="missing",
+        data_status="missing",
+        status="missing",
+        status_label="Nicht auswertbar",
+        message=message,
+        entry_price=entry_price,
+        current_price=current_price,
+        pnl_pct=(current_price / entry_price - 1) * 100 if entry_price and current_price else None,
+    )
+
+
+def _price_frame_from_rows(rows: list[object]) -> pd.DataFrame:
+    values: list[dict[str, object]] = []
+    for row in rows:
+        close_value = _finite_float(getattr(row, "close", None))
+        if close_value is None:
+            continue
+        open_value = _finite_float(getattr(row, "open", None)) or close_value
+        high_value = _finite_float(getattr(row, "high", None)) or max(open_value, close_value)
+        low_value = _finite_float(getattr(row, "low", None)) or min(open_value, close_value)
+        volume_value = _finite_float(getattr(row, "volume", None)) or 0.0
+        values.append(
+            {
+                "date": pd.Timestamp(getattr(row, "date")),
+                "open": open_value,
+                "high": high_value,
+                "low": low_value,
+                "close": close_value,
+                "volume": volume_value,
+            }
+        )
+    if not values:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    frame = pd.DataFrame(values).set_index("date").sort_index()
+    return frame[~frame.index.duplicated(keep="last")]
+
+
+def _rs_frame_from_metadata(metadata: dict) -> pd.DataFrame:
+    raw_history = metadata.get("rs_history") if isinstance(metadata, dict) else None
+    if not isinstance(raw_history, list):
+        return pd.DataFrame(columns=["rs", "rs_ema21", "rs_ema50"])
+    values: list[dict[str, object]] = []
+    for item in raw_history:
+        if not isinstance(item, dict):
+            continue
+        rs_value = _finite_float(item.get("rs"))
+        if rs_value is None:
+            continue
+        values.append(
+            {
+                "date": pd.Timestamp(item.get("date")),
+                "rs": rs_value,
+                "rs_ema21": _finite_float(item.get("rs_ema21")),
+                "rs_ema50": _finite_float(item.get("rs_ema50")),
+            }
+        )
+    if not values:
+        return pd.DataFrame(columns=["rs", "rs_ema21", "rs_ema50"])
+    frame = pd.DataFrame(values).set_index("date").sort_index()
+    return frame[~frame.index.duplicated(keep="last")]
+
+
+def _close_range(frame: pd.DataFrame) -> pd.Series:
+    span = (frame["high"] - frame["low"]).replace(0, math.nan)
+    return ((frame["close"] - frame["low"]) / span).fillna(0.5).clip(0, 1)
+
+
+def _positive_check(key: str, label: str, passed: bool, detail: str, *, unavailable: bool = False) -> BuyStrengthCheck:
+    return BuyStrengthCheck(
+        key=key,
+        label=label,
+        category="positive",
+        passed=passed,
+        tone="neutral" if unavailable else ("good" if passed else "bad"),
+        detail=detail,
+    )
+
+
+def _warning_check(key: str, label: str, active: bool, detail: str, *, unavailable: bool = False) -> BuyStrengthCheck:
+    return BuyStrengthCheck(
+        key=key,
+        label=label,
+        category="warning",
+        passed=not active,
+        tone="neutral" if unavailable else ("bad" if active else "good"),
+        detail=detail,
+    )
+
+
+def _check_immediate_strength(after_buy: pd.DataFrame, entry_price: float, pnl_pct: float | None) -> BuyStrengthCheck:
+    if after_buy.empty or not entry_price:
+        return _positive_check("immediate_strength", "Unmittelbare Stärke nach Kauf", False, "Nicht genügend Daten.", unavailable=True)
+    first_window = after_buy.head(min(5, len(after_buy)))
+    max_first_close = float(first_window["close"].max())
+    latest_close = float(after_buy["close"].iloc[-1])
+    first_gain_pct = (max_first_close / entry_price - 1) * 100
+    latest_gain_pct = (latest_close / entry_price - 1) * 100
+    passed = first_gain_pct > 0 or latest_gain_pct > 0
+    detail = f"Bestes frühes Close {first_gain_pct:+.1f}% vs. Einstand, aktuell {latest_gain_pct:+.1f}%."
+    if pnl_pct is not None:
+        detail = f"Aktueller P&L {pnl_pct:+.1f}%. " + detail
+    return _positive_check("immediate_strength", "Unmittelbare Stärke nach Kauf", passed, detail)
+
+
+def _check_upper_candle_closes(after_buy: pd.DataFrame) -> BuyStrengthCheck:
+    if after_buy.empty:
+        return _positive_check("upper_candle_closes", "Schlusskurse im oberen Kerzenbereich", False, "Nicht genügend Daten.", unavailable=True)
+    ranges = _close_range(after_buy).head(min(5, len(after_buy)))
+    upper_count = int((ranges >= 0.5).sum())
+    ratio = upper_count / len(ranges) if len(ranges) else 0.0
+    passed = ratio >= 0.6 and float(ranges.mean()) >= 0.5
+    return _positive_check(
+        "upper_candle_closes",
+        "Schlusskurse im oberen Kerzenbereich",
+        passed,
+        f"{upper_count}/{len(ranges)} erste Handelstage schließen in der oberen Tageshälfte.",
+    )
+
+
+def _check_rs_strength(rs_frame: pd.DataFrame, buy_date: date) -> BuyStrengthCheck:
+    if rs_frame.empty or "rs" not in rs_frame:
+        return _positive_check("rs_new_high_or_rising", "Relative-Stärke-Linie steigt oder macht Hochs", False, "Keine RS-Historie gespeichert.", unavailable=True)
+    after = rs_frame[rs_frame.index.date >= buy_date]
+    if len(after) < 2:
+        return _positive_check("rs_new_high_or_rising", "Relative-Stärke-Linie steigt oder macht Hochs", False, "Zu wenig RS-Punkte seit Kauf.", unavailable=True)
+    latest = float(after["rs"].iloc[-1])
+    previous = float(after["rs"].iloc[-2])
+    previous_high = float(rs_frame["rs"].iloc[:-1].tail(63).max()) if len(rs_frame) > 1 else previous
+    passed = latest >= previous or latest >= previous_high
+    detail = f"RS aktuell {latest:.2f}, vorher {previous:.2f}, 63T-Hoch vor heute {previous_high:.2f}."
+    return _positive_check("rs_new_high_or_rising", "Relative-Stärke-Linie steigt oder macht Hochs", passed, detail)
+
+
+def _check_rs_above_averages(rs_frame: pd.DataFrame) -> BuyStrengthCheck:
+    if rs_frame.empty:
+        return _positive_check("rs_above_averages", "Relative Stärke über 21/50 EMA", False, "Keine RS-Historie gespeichert.", unavailable=True)
+    latest = rs_frame.iloc[-1]
+    rs = _finite_float(latest.get("rs"))
+    rs_ema21 = _finite_float(latest.get("rs_ema21"))
+    rs_ema50 = _finite_float(latest.get("rs_ema50"))
+    if rs is None or rs_ema21 is None or rs_ema50 is None:
+        return _positive_check("rs_above_averages", "Relative Stärke über 21/50 EMA", False, "RS-Durchschnitte fehlen.", unavailable=True)
+    passed = rs >= rs_ema21 and rs >= rs_ema50
+    return _positive_check(
+        "rs_above_averages",
+        "Relative Stärke über 21/50 EMA",
+        passed,
+        f"RS {rs:.2f}, 21 EMA {rs_ema21:.2f}, 50 EMA {rs_ema50:.2f}.",
+    )
+
+
+def _check_buy_low_not_undercut(after_buy: pd.DataFrame, buy_day_low: float | None) -> BuyStrengthCheck:
+    if after_buy.empty or buy_day_low is None:
+        return _positive_check("buy_day_low_held", "Tief des Kauftags hält", False, "Kauftag-Tief fehlt.", unavailable=True)
+    min_low = float(after_buy["low"].min())
+    passed = min_low >= buy_day_low * 0.999
+    return _positive_check(
+        "buy_day_low_held",
+        "Tief des Kauftags hält",
+        passed,
+        f"Kauftag-Tief {buy_day_low:.2f}, tiefster Kurs seit Kauf {min_low:.2f}.",
+    )
+
+
+def _check_green_red_distribution(after_buy: pd.DataFrame) -> BuyStrengthCheck:
+    if after_buy.empty:
+        return _positive_check("green_red_distribution", "Grüne/rote Kerzen nach Kauf", False, "Nicht genügend Daten.", unavailable=True)
+    green = int((after_buy["close"] >= after_buy["open"]).sum())
+    red = len(after_buy) - green
+    red_ratio = red / len(after_buy) if len(after_buy) else 1.0
+    passed = red_ratio <= 0.30
+    return _positive_check(
+        "green_red_distribution",
+        "Grüne/rote Kerzen nach Kauf",
+        passed,
+        f"{green} grüne und {red} rote Kerzen seit Kauf; Rot-Anteil {red_ratio * 100:.0f}%.",
+    )
+
+
+def _check_nearest_average_held(close: pd.Series, ema21: pd.Series, sma50: pd.Series) -> BuyStrengthCheck:
+    latest_close = _finite_float(close.iloc[-1]) if not close.empty else None
+    latest_ema21 = _finite_float(ema21.iloc[-1]) if not ema21.empty else None
+    latest_sma50 = _finite_float(sma50.iloc[-1]) if not sma50.empty else None
+    if latest_close is None or (latest_ema21 is None and latest_sma50 is None):
+        return _positive_check("nearest_average_held", "Nähere 21/50-Tage-Linie hält", False, "Durchschnittsdaten fehlen.", unavailable=True)
+    candidates = [(label, value) for label, value in (("21 EMA", latest_ema21), ("50 SMA", latest_sma50)) if value is not None]
+    label, average = min(candidates, key=lambda item: abs(latest_close - item[1]))
+    passed = latest_close >= average
+    return _positive_check(
+        "nearest_average_held",
+        "Nähere 21/50-Tage-Linie hält",
+        passed,
+        f"Nähere Linie: {label} bei {average:.2f}; Schlusskurs {latest_close:.2f}.",
+    )
+
+
+def _warning_high_volume_negatives(after_buy: pd.DataFrame, buy_day: pd.Series) -> BuyStrengthCheck:
+    if after_buy.empty:
+        return _warning_check("more_negative_high_volume_days", "Mehr negative Hochvolumentage als positive", False, "Nicht genügend Daten.", unavailable=True)
+    buy_volume = _finite_float(buy_day.get("volume")) or 0.0
+    post = after_buy.iloc[1:] if len(after_buy) > 1 else after_buy.iloc[0:0]
+    if post.empty or buy_volume <= 0:
+        return _warning_check("more_negative_high_volume_days", "Mehr negative Hochvolumentage als positive", False, "Zu wenig Tage nach Kauf oder Kauftagsvolumen fehlt.", unavailable=True)
+    high_volume = post["volume"] > buy_volume
+    negative = int(((post["close"] < post["open"]) & high_volume).sum())
+    positive = int(((post["close"] >= post["open"]) & high_volume).sum())
+    active = negative > positive
+    return _warning_check(
+        "more_negative_high_volume_days",
+        "Mehr negative Hochvolumentage als positive",
+        active,
+        f"{negative} negative vs. {positive} positive Tage mit Volumen über Kauftag.",
+    )
+
+
+def _warning_three_lower_lows(after_buy: pd.DataFrame) -> BuyStrengthCheck:
+    lows = after_buy["low"].tolist()
+    active = any(lows[idx] < lows[idx - 1] < lows[idx - 2] for idx in range(2, len(lows)))
+    return _warning_check(
+        "three_lower_lows",
+        "Drei tiefere Tagestiefs in Folge",
+        active,
+        "Sequenz gefunden." if active else "Keine Serie aus drei tieferen Tagestiefs.",
+    )
+
+
+def _warning_average_break(key: str, label: str, close: pd.Series, average: pd.Series) -> BuyStrengthCheck:
+    latest_close = _finite_float(close.iloc[-1]) if not close.empty else None
+    latest_average = _finite_float(average.iloc[-1]) if not average.empty else None
+    if latest_close is None or latest_average is None:
+        return _warning_check(key, label, False, "Durchschnittsdaten fehlen.", unavailable=True)
+    active = latest_close < latest_average
+    return _warning_check(key, label, active, f"Schlusskurs {latest_close:.2f}, Linie {latest_average:.2f}.")
+
+
+def _warning_close_below_buy_and_previous_low(
+    latest_close: float | None,
+    buy_day_low: float | None,
+    previous_day_low: float | None,
+) -> BuyStrengthCheck:
+    if latest_close is None or buy_day_low is None or previous_day_low is None:
+        return _warning_check("close_below_buy_and_previous_low", "Schluss unter Kauftag- und Vortagstief", False, "Kauftag- oder Vortagstief fehlt.", unavailable=True)
+    active = latest_close < buy_day_low and latest_close < previous_day_low
+    return _warning_check(
+        "close_below_buy_and_previous_low",
+        "Schluss unter Kauftag- und Vortagstief",
+        active,
+        f"Schluss {latest_close:.2f}, Kauftag-Tief {buy_day_low:.2f}, Vortagstief {previous_day_low:.2f}.",
+    )
+
+
+def _warning_stall_days(post_buy: pd.DataFrame, close_range: pd.Series, pct: pd.Series, volume: pd.Series) -> BuyStrengthCheck:
+    if post_buy.empty:
+        return _warning_check("stall_days_after_buy", "Stau-Tage nach Kauf", False, "Noch keine Handelstage nach dem Kauftag.", unavailable=True)
+    aligned_range = close_range.reindex(post_buy.index)
+    aligned_pct = pct.reindex(post_buy.index)
+    aligned_volume = volume.reindex(post_buy.index)
+    previous_volume = volume.shift(1).reindex(post_buy.index)
+    stall = (aligned_pct.abs() <= 0.005) & (aligned_volume >= previous_volume * 0.95) & (aligned_range < 0.5)
+    count = int(stall.fillna(False).sum())
+    active = count >= 2
+    return _warning_check("stall_days_after_buy", "Stau-Tage nach Kauf", active, f"{count} Stau-Tag(e) seit Kauf.")
+
+
+def _warning_lower_range_closes(post_buy: pd.DataFrame, close_range: pd.Series) -> BuyStrengthCheck:
+    if post_buy.empty:
+        return _warning_check("lower_range_close_streak", "Mehrere Schlusskurse im unteren Kerzenbereich", False, "Noch keine Handelstage nach dem Kauftag.", unavailable=True)
+    flags = (close_range.reindex(post_buy.index) <= 0.35).fillna(False).tolist()
+    streak = _max_true_streak(flags)
+    active = streak >= 3
+    return _warning_check(
+        "lower_range_close_streak",
+        "Mehrere Schlusskurse im unteren Kerzenbereich",
+        active,
+        f"Maximale Serie: {streak} Tag(e) mit Schluss im unteren Kerzenbereich.",
+    )
+
+
+def _warning_down_volume_cluster(post_buy: pd.DataFrame, pct: pd.Series, volume: pd.Series) -> BuyStrengthCheck:
+    if post_buy.empty:
+        return _warning_check("down_volume_cluster", "Häufung negativer Tage mit erhöhtem Volumen", False, "Noch keine Handelstage nach dem Kauftag.", unavailable=True)
+    vol_sma50 = volume.rolling(50, min_periods=10).mean()
+    aligned_pct = pct.reindex(post_buy.index)
+    aligned_volume = volume.reindex(post_buy.index)
+    previous_volume = volume.shift(1).reindex(post_buy.index)
+    average_volume = vol_sma50.reindex(post_buy.index)
+    flags = (aligned_pct < 0) & ((aligned_volume > previous_volume) | (aligned_volume > average_volume))
+    count = int(flags.fillna(False).sum())
+    active = count >= 3
+    return _warning_check(
+        "down_volume_cluster",
+        "Häufung negativer Tage mit erhöhtem Volumen",
+        active,
+        f"{count} negativer Tag(e) mit Volumen über Vortag oder Schnitt.",
+    )
+
+
+def _warning_rs_declines(rs_frame: pd.DataFrame, buy_date: date) -> BuyStrengthCheck:
+    if rs_frame.empty or "rs" not in rs_frame:
+        return _warning_check("rs_declines", "Relative-Stärke-Linie sinkt", False, "Keine RS-Historie gespeichert.", unavailable=True)
+    after = rs_frame[rs_frame.index.date >= buy_date]
+    if len(after) < 2:
+        return _warning_check("rs_declines", "Relative-Stärke-Linie sinkt", False, "Zu wenig RS-Punkte seit Kauf.", unavailable=True)
+    latest = float(after["rs"].iloc[-1])
+    first = float(after["rs"].iloc[0])
+    previous = float(after["rs"].iloc[-2])
+    active = latest < first and latest < previous
+    return _warning_check("rs_declines", "Relative-Stärke-Linie sinkt", active, f"RS Start {first:.2f}, vorher {previous:.2f}, aktuell {latest:.2f}.")
+
+
+def _warning_rs_breaks_averages(rs_frame: pd.DataFrame) -> BuyStrengthCheck:
+    if rs_frame.empty:
+        return _warning_check("rs_breaks_averages", "Relative Stärke unter gleitenden Durchschnitten", False, "Keine RS-Historie gespeichert.", unavailable=True)
+    latest = rs_frame.iloc[-1]
+    rs = _finite_float(latest.get("rs"))
+    rs_ema21 = _finite_float(latest.get("rs_ema21"))
+    rs_ema50 = _finite_float(latest.get("rs_ema50"))
+    if rs is None or rs_ema21 is None or rs_ema50 is None:
+        return _warning_check("rs_breaks_averages", "Relative Stärke unter gleitenden Durchschnitten", False, "RS-Durchschnitte fehlen.", unavailable=True)
+    active = rs < rs_ema21 or rs < rs_ema50
+    return _warning_check(
+        "rs_breaks_averages",
+        "Relative Stärke unter gleitenden Durchschnitten",
+        active,
+        f"RS {rs:.2f}, 21 EMA {rs_ema21:.2f}, 50 EMA {rs_ema50:.2f}.",
+    )
+
+
+def _warning_up_down_volume_deteriorates(frame: pd.DataFrame, after_buy: pd.DataFrame, buy_date: date) -> BuyStrengthCheck:
+    pct = frame["close"].pct_change()
+    before = frame[frame.index.date < buy_date].tail(20)
+    after = after_buy.tail(20)
+    after_ratio = _up_down_volume_ratio(after, pct)
+    before_ratio = _up_down_volume_ratio(before, pct)
+    if after_ratio is None:
+        return _warning_check("up_down_volume_deteriorates", "Up/Down-Volume-Ratio verschlechtert sich", False, "Nicht genügend Volumendaten.", unavailable=True)
+    active = after_ratio < 1.0
+    detail = f"Nach Kauf {after_ratio:.2f}."
+    if before_ratio is not None:
+        active = after_ratio < before_ratio * 0.8 or after_ratio < 1.0
+        detail = f"Vor Kauf {before_ratio:.2f}, nach Kauf {after_ratio:.2f}."
+    return _warning_check("up_down_volume_deteriorates", "Up/Down-Volume-Ratio verschlechtert sich", active, detail)
+
+
+def _up_down_volume_ratio(window: pd.DataFrame, pct: pd.Series) -> float | None:
+    if window.empty:
+        return None
+    aligned_pct = pct.reindex(window.index)
+    up_volume = float(window.loc[aligned_pct > 0, "volume"].sum())
+    down_volume = float(window.loc[aligned_pct < 0, "volume"].sum())
+    if down_volume <= 0:
+        return None if up_volume <= 0 else 99.0
+    return up_volume / down_volume
+
+
+def _max_true_streak(values: list[bool]) -> int:
+    longest = 0
+    current = 0
+    for value in values:
+        if value:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def _buy_strength_status(passed: int, total: int, active_warnings: int) -> tuple[str, str]:
+    if total <= 0:
+        return "missing", "Nicht auswertbar"
+    if active_warnings >= 4:
+        return "risk", "Risiko"
+    if active_warnings >= 2:
+        return "watch", "Beobachten"
+    if passed >= max(5, math.ceil(total * 0.7)) and active_warnings <= 1:
+        return "stark", "Stark"
+    return "ok", "Neutral"
 
 
 def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:

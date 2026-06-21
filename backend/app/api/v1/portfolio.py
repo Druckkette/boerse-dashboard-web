@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.schemas import (
+    BuyStrengthAssessmentResponse,
+    BuyStrengthOverviewResponse,
     IsinMappingListResponse,
     IsinMappingPatchRequest,
     PortfolioCashFlowRequest,
@@ -28,6 +30,8 @@ from app.services.portfolio import (
     calculate_position_size,
     create_portfolio_cash_flow,
     delete_portfolio_position,
+    get_buy_strength_assessment,
+    get_buy_strength_overview,
     get_portfolio_cash_flows,
     get_portfolio_curve,
     get_portfolio_import_history,
@@ -101,6 +105,16 @@ def snapshot() -> PortfolioSnapshotResponse:
 @router.get("/curve", response_model=PortfolioCurveResponse)
 def curve(days: int = Query(default=370, ge=30, le=2500)) -> PortfolioCurveResponse:
     return get_portfolio_curve(days=days)
+
+
+@router.get("/buy-strength", response_model=BuyStrengthOverviewResponse)
+def buy_strength_overview() -> BuyStrengthOverviewResponse:
+    return get_buy_strength_overview()
+
+
+@router.get("/buy-strength/{ticker}", response_model=BuyStrengthAssessmentResponse)
+def buy_strength_detail(ticker: str) -> BuyStrengthAssessmentResponse:
+    return get_buy_strength_assessment(ticker)
 
 
 @router.post("/position-size", response_model=PortfolioPositionSizeResponse)

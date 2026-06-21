@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { KpiCard } from "@/components/ui/kpi-card";
+import { BuyStrengthPanel } from "@/features/portfolio/buy-strength-panel";
 import { PortfolioCurvePanel } from "@/features/portfolio/portfolio-curve-panel";
 import { PortfolioManagementPanel } from "@/features/portfolio/portfolio-management-panel";
 import { PositionTable } from "@/features/portfolio/position-table";
@@ -21,6 +22,7 @@ export default function PortfolioPage() {
       {data ? (
         <>
           <PortfolioCurvePanel />
+          <BuyStrengthPanel />
           <PositionTable positions={data.positions} />
           <PortfolioManagementPanel positions={data.positions} />
         </>

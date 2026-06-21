@@ -504,6 +504,59 @@ export type PortfolioCurve = {
   points: PortfolioCurvePoint[];
 };
 
+export type BuyStrengthCheck = {
+  key: string;
+  label: string;
+  category: "positive" | "warning";
+  passed: boolean;
+  tone: "good" | "neutral" | "warning" | "bad";
+  detail: string;
+};
+
+export type BuyStrengthSummaryItem = {
+  ticker: string;
+  name: string;
+  buy_date: string;
+  age_days: number;
+  pnl_pct?: number | null;
+  current_price?: number | null;
+  entry_price?: number | null;
+  checks_passed: number;
+  checks_total: number;
+  warnings_active: number;
+  warnings_total: number;
+  status: "stark" | "ok" | "watch" | "risk" | "missing";
+  status_label: string;
+  message: string;
+};
+
+export type BuyStrengthOverview = {
+  as_of: string;
+  window_days: number;
+  items: BuyStrengthSummaryItem[];
+};
+
+export type BuyStrengthAssessment = {
+  ticker: string;
+  name: string;
+  buy_date?: string | null;
+  age_days?: number | null;
+  source: "database" | "missing";
+  data_status: "fresh" | "stale" | "missing";
+  status: "stark" | "ok" | "watch" | "risk" | "missing";
+  status_label: string;
+  message: string;
+  entry_price?: number | null;
+  current_price?: number | null;
+  pnl_pct?: number | null;
+  buy_day_low?: number | null;
+  previous_day_low?: number | null;
+  latest_close?: number | null;
+  latest_price_date?: string | null;
+  checks: BuyStrengthCheck[];
+  warnings: BuyStrengthCheck[];
+};
+
 export type PortfolioPositionSizeRequest = {
   depot_value: number;
   risk_per_position_pct: number;

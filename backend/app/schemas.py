@@ -1094,6 +1094,59 @@ class PortfolioCurveResponse(BaseModel):
     points: list[PortfolioCurvePoint]
 
 
+class BuyStrengthCheck(BaseModel):
+    key: str
+    label: str
+    category: Literal["positive", "warning"]
+    passed: bool
+    tone: Literal["good", "neutral", "warning", "bad"]
+    detail: str
+
+
+class BuyStrengthSummaryItem(BaseModel):
+    ticker: str
+    name: str
+    buy_date: str
+    age_days: int
+    pnl_pct: float | None = None
+    current_price: float | None = None
+    entry_price: float | None = None
+    checks_passed: int
+    checks_total: int
+    warnings_active: int
+    warnings_total: int
+    status: Literal["stark", "ok", "watch", "risk", "missing"]
+    status_label: str
+    message: str
+
+
+class BuyStrengthOverviewResponse(BaseModel):
+    as_of: str
+    window_days: int
+    items: list[BuyStrengthSummaryItem]
+
+
+class BuyStrengthAssessmentResponse(BaseModel):
+    ticker: str
+    name: str
+    buy_date: str | None = None
+    age_days: int | None = None
+    source: Literal["database", "missing"]
+    data_status: Literal["fresh", "stale", "missing"]
+    status: Literal["stark", "ok", "watch", "risk", "missing"]
+    status_label: str
+    message: str
+    entry_price: float | None = None
+    current_price: float | None = None
+    pnl_pct: float | None = None
+    buy_day_low: float | None = None
+    previous_day_low: float | None = None
+    latest_close: float | None = None
+    latest_price_date: str | None = None
+    checks: list[BuyStrengthCheck] = Field(default_factory=list)
+    warnings: list[BuyStrengthCheck] = Field(default_factory=list)
+
+
 class PortfolioPositionSizeRequest(BaseModel):
     depot_value: float = Field(default=0, ge=0)
     risk_per_position_pct: float = Field(default=1.0, ge=0.1, le=5)

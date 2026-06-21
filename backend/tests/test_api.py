@@ -4,6 +4,10 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.schemas import (
+    BuyStrengthAssessmentResponse,
+    BuyStrengthCheck,
+    BuyStrengthOverviewResponse,
+    BuyStrengthSummaryItem,
     FreshnessResponse,
     ServiceFreshness,
     SetupStatusResponse,
@@ -654,6 +658,96 @@ def test_portfolio_curve_contract() -> None:
     assert payload["source"] in {"database", "trade_republic_transactions", "missing"}
     assert payload["data_status"] in {"fresh", "missing"}
     assert isinstance(payload["points"], list)
+
+
+def test_portfolio_buy_strength_contract(monkeypatch) -> None:
+    from app.api.v1 import portfolio as portfolio_api
+
+    def fake_overview() -> BuyStrengthOverviewResponse:
+        return BuyStrengthOverviewResponse(
+            as_of="2026-06-21T10:00:00+00:00",
+            window_days=21,
+            items=[
+                BuyStrengthSummaryItem(
+                    ticker="NVDA",
+                    name="Nvidia",
+                    buy_date="2026-06-14",
+                    age_days=7,
+                    pnl_pct=5.2,
+                    current_price=105.2,
+                    entry_price=100,
+                    checks_passed=6,
+                    checks_total=7,
+                    warnings_active=1,
+                    warnings_total=11,
+                    status="stark",
+                    status_label="Stark",
+                    message="Frischer Kauf bestätigt Stärke.",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(portfolio_api, "get_buy_strength_overview", fake_overview)
+
+    response = client.get("/api/v1/portfolio/buy-strength")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["window_days"] == 21
+    assert payload["items"][0]["ticker"] == "NVDA"
+    assert payload["items"][0]["warnings_total"] == 11
+
+
+def test_portfolio_buy_strength_detail_contract(monkeypatch) -> None:
+    from app.api.v1 import portfolio as portfolio_api
+
+    def fake_detail(ticker: str) -> BuyStrengthAssessmentResponse:
+        return BuyStrengthAssessmentResponse(
+            ticker=ticker.upper(),
+            name=ticker.upper(),
+            buy_date="2026-06-14",
+            age_days=7,
+            source="database",
+            data_status="fresh",
+            status="watch",
+            status_label="Beobachten",
+            message="Gemischtes Verhalten nach Kauf.",
+            entry_price=100,
+            current_price=101,
+            pnl_pct=1,
+            buy_day_low=98,
+            previous_day_low=97,
+            latest_close=101,
+            latest_price_date="2026-06-21",
+            checks=[
+                BuyStrengthCheck(
+                    key="immediate_strength",
+                    label="Unmittelbare Stärke nach Kauf",
+                    category="positive",
+                    passed=True,
+                    tone="good",
+                    detail="P&L positiv.",
+                )
+            ],
+            warnings=[
+                BuyStrengthCheck(
+                    key="rs_declines",
+                    label="Relative-Stärke-Linie sinkt",
+                    category="warning",
+                    passed=False,
+                    tone="bad",
+                    detail="RS fällt.",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(portfolio_api, "get_buy_strength_assessment", fake_detail)
+
+    response = client.get("/api/v1/portfolio/buy-strength/nvda")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ticker"] == "NVDA"
+    assert payload["checks"][0]["category"] == "positive"
+    assert payload["warnings"][0]["passed"] is False
 
 
 def test_portfolio_position_size_contract() -> None:

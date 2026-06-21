@@ -120,6 +120,98 @@ def test_empty_portfolio_returns_empty_state_not_demo_positions(monkeypatch: pyt
     assert snapshot.kpis[1].detail == "Import offen"
 
 
+def test_buy_strength_overview_detects_recent_manual_and_imported_positions(monkeypatch: pytest.MonkeyPatch) -> None:
+    today = date.today()
+    rows = [
+        PortfolioPositionRow(
+            ticker="NVDA",
+            name="Nvidia",
+            shares=4,
+            entry_price=100,
+            current_price=106,
+            currency="USD",
+            buy_date=date.fromordinal(today.toordinal() - 7),
+            broker="Manual",
+            account="Main",
+        ),
+        PortfolioPositionRow(
+            ticker="MSFT",
+            name="Microsoft",
+            shares=2,
+            entry_price=100,
+            current_price=102,
+            currency="USD",
+            buy_date=today.replace(year=today.year - 1),
+            broker="CSV",
+            account="Main",
+        ),
+    ]
+
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, start_date=None: _buy_strength_price_bars(today=today, direction="up"))
+    monkeypatch.setattr(portfolio_service.relative_strength_repository, "get_latest_rs_rating", lambda ticker: _rs_row(today=today, direction="up"))
+
+    overview = portfolio_service.get_buy_strength_overview()
+
+    assert [item.ticker for item in overview.items] == ["NVDA"]
+    assert overview.items[0].checks_total == 7
+    assert overview.items[0].warnings_total == 11
+    assert overview.items[0].warnings_active >= 0
+
+
+def test_buy_strength_assessment_flags_positive_purchase_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    today = date.today()
+    buy_date = date.fromordinal(today.toordinal() - 7)
+    row = PortfolioPositionRow(
+        ticker="NVDA",
+        name="Nvidia",
+        shares=4,
+        entry_price=100,
+        current_price=106,
+        currency="USD",
+        buy_date=buy_date,
+        broker="Manual",
+        account="Main",
+    )
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: [row])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, start_date=None: _buy_strength_price_bars(today=today, direction="up"))
+    monkeypatch.setattr(portfolio_service.relative_strength_repository, "get_latest_rs_rating", lambda ticker: _rs_row(today=today, direction="up"))
+
+    assessment = portfolio_service.get_buy_strength_assessment("nvda")
+
+    assert assessment.ticker == "NVDA"
+    assert assessment.checks[0].label == "Unmittelbare Stärke nach Kauf"
+    assert sum(check.passed for check in assessment.checks) >= 5
+    assert assessment.warnings[0].category == "warning"
+    assert assessment.status in {"stark", "ok", "watch"}
+
+
+def test_buy_strength_assessment_flags_post_buy_weakness(monkeypatch: pytest.MonkeyPatch) -> None:
+    today = date.today()
+    buy_date = date.fromordinal(today.toordinal() - 7)
+    row = PortfolioPositionRow(
+        ticker="WEAK",
+        name="Weak Stock",
+        shares=4,
+        entry_price=100,
+        current_price=91,
+        currency="USD",
+        buy_date=buy_date,
+        broker="Manual",
+        account="Main",
+    )
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: [row])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, start_date=None: _buy_strength_price_bars(today=today, direction="down"))
+    monkeypatch.setattr(portfolio_service.relative_strength_repository, "get_latest_rs_rating", lambda ticker: _rs_row(today=today, direction="down"))
+
+    assessment = portfolio_service.get_buy_strength_assessment("WEAK")
+
+    active_warning_keys = {check.key for check in assessment.warnings if not check.passed}
+    assert "three_lower_lows" in active_warning_keys
+    assert "rs_declines" in active_warning_keys
+    assert assessment.status in {"watch", "risk"}
+
+
 def test_trade_republic_parser_handles_broker_edge_cases() -> None:
     rows = parse_transaction_export_csv((FIXTURE_DIR / "trade_republic_edge_cases.csv").read_text())
 
@@ -315,3 +407,59 @@ def _price_bars(periods: int = 40):
         )
         for offset in range(periods)
     ]
+
+
+def _buy_strength_price_bars(*, today: date, direction: str):
+    start = today.fromordinal(today.toordinal() - 34)
+    bars = []
+    for offset in range(35):
+        day = start.fromordinal(start.toordinal() + offset)
+        base = 100 + offset * 0.2
+        if offset >= 27:
+            post_offset = offset - 27
+            if direction == "up":
+                open_value = 101 + post_offset
+                close_value = open_value + 1.2
+                high_value = close_value + 0.4
+                low_value = open_value - 0.8
+                volume = 1_000_000 + post_offset * 25_000
+            else:
+                open_value = 100 - post_offset * 1.2
+                close_value = open_value - 1.0
+                high_value = open_value + 0.3
+                low_value = close_value - 0.7
+                volume = 1_200_000 + post_offset * 80_000
+        else:
+            open_value = base
+            close_value = base + 0.3
+            high_value = base + 0.7
+            low_value = base - 0.7
+            volume = 900_000
+        bars.append(
+            SimpleNamespace(
+                date=day,
+                open=open_value,
+                high=high_value,
+                low=low_value,
+                close=close_value,
+                adj_close=close_value,
+                volume=volume,
+            )
+        )
+    return bars
+
+
+def _rs_row(*, today: date, direction: str):
+    start = today.fromordinal(today.toordinal() - 34)
+    history = []
+    for offset in range(35):
+        value = 80 + offset * 0.4 if direction == "up" else 100 - offset * 0.6
+        history.append(
+            {
+                "date": start.fromordinal(start.toordinal() + offset).isoformat(),
+                "rs": value,
+                "rs_ema21": value - 1 if direction == "up" else value + 1,
+                "rs_ema50": value - 2 if direction == "up" else value + 2,
+            }
+        )
+    return SimpleNamespace(metadata_json={"rs_history": history})

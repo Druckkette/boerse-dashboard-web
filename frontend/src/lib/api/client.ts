@@ -1,6 +1,8 @@
 import type {
   AppSettings,
   Breadth,
+  BuyStrengthAssessment,
+  BuyStrengthOverview,
   DataDiagnostics,
   DatabaseTargetResponse,
   DatabaseTargetSwitchRequest,
@@ -190,6 +192,9 @@ export const api = {
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
   portfolioCurve: (days = 370) => getJson<PortfolioCurve>(`/portfolio/curve?days=${days}`),
+  portfolioBuyStrength: () => getJson<BuyStrengthOverview>("/portfolio/buy-strength"),
+  portfolioBuyStrengthDetail: (ticker: string) =>
+    getJson<BuyStrengthAssessment>(`/portfolio/buy-strength/${encodeURIComponent(ticker)}`),
   portfolioPositionSize: (body: PortfolioPositionSizeRequest) =>
     postJson<PortfolioPositionSizeResult>("/portfolio/position-size", body),
   upsertPortfolioPosition: async (body: PortfolioPositionWriteRequest) => {

@@ -14,7 +14,7 @@ export function PortfolioManagementPanel({ positions }: { positions: PortfolioPo
       <PositionSizeCalculator />
       <CollapsibleSection
         title="Positionen, Verkäufe und Cashflows"
-        description="Manuelle Depotpflege nur bei Bedarf öffnen."
+        description="Manuelle Depotpflege nur bei Bedarf öffnen. Das Kaufdatum steuert den Stärke-nach-Kauf-Check."
         badge={`${positions.length} Positionen`}
       >
         <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
@@ -123,7 +123,9 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Position erfassen</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">Manuelle Pflege ohne CSV-Datei und ohne Seitenreload.</p>
+          <p className="mt-1 text-sm text-[#a0a7b4]">
+            Das Kaufdatum macht frische Käufe automatisch im Stärke-nach-Kauf-Check sichtbar.
+          </p>
         </div>
         <StatusChip tone={selected ? "warning" : "neutral"}>{selected ? "Update" : "Neu"}</StatusChip>
       </div>
@@ -351,6 +353,7 @@ function invalidatePortfolio(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ["portfolio-transactions"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-cash-flows"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-import-history"] });
+  queryClient.invalidateQueries({ queryKey: ["portfolio-buy-strength"] });
   queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
 }
 
