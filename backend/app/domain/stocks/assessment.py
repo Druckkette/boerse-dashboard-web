@@ -555,7 +555,7 @@ def evaluate_chart_signs(
     if bullish_outside_days >= 1:
         signals.append(ChartSignal("positive", "Positiver Outside Day", f"{bullish_outside_days} in 15T"))
 
-    bullish_engulfing = int(_bullish_engulfing_mask(open_, close).tail(15).sum())
+    bullish_engulfing = int(_bullish_engulfing_mask(open_, close, close_range).tail(15).sum())
     if bullish_engulfing >= 1:
         signals.append(ChartSignal("positive", "Bullish Engulfing", f"{bullish_engulfing} in 15T"))
 
@@ -608,7 +608,7 @@ def evaluate_chart_signs(
     if current_close is not None and s50 is not None and abs(low.iloc[-1] - s50) / s50 < 0.005:
         signals.append(ChartSignal("neutral", "Test der 50-SMA"))
 
-    signals.extend(_recent_reaction_signals(close, high, low, open_, pct, s50))
+    signals.extend(_recent_reaction_signals(close, high, low, open_, pct, s50, volume, _safe_float(vol_avg_50.iloc[-1])))
     return signals
 
 
@@ -1695,6 +1695,8 @@ def _recent_reaction_signals(
     open_: pd.Series,
     pct: pd.Series,
     sma50_last: float | None,
+    volume: pd.Series,
+    volume_avg_50_last: float | None,
 ) -> list[ChartSignal]:
     signals: list[ChartSignal] = []
     if len(pct) >= 3:
@@ -1704,8 +1706,9 @@ def _recent_reaction_signals(
     if len(close) >= 20 and sma50_last is not None:
         high_20 = high.tail(20).max()
         drawdown = _safe_float((close.iloc[-1] / high_20 - 1) * 100)
-        if drawdown is not None and -12.0 <= drawdown <= -8.0 and close.iloc[-1] > sma50_last:
-            signals.append(ChartSignal("neutral", "Natürliche Reaktion", f"{drawdown:+.1f}% vom 20T-Hoch"))
+        volume_ok = volume_avg_50_last is not None and volume.iloc[-1] < volume_avg_50_last
+        if drawdown is not None and -12.0 <= drawdown <= -8.0 and close.iloc[-1] > sma50_last and volume_ok:
+            signals.append(ChartSignal("neutral", "Natürliche Reaktion", f"{drawdown:+.1f}% vom 20T-Hoch, Volumen unter Ø"))
     if len(close) >= 3:
         red_2 = close.iloc[-3] < open_.iloc[-3] and close.iloc[-2] < open_.iloc[-2]
         daily_range = high.iloc[-1] - low.iloc[-1]
@@ -1768,15 +1771,17 @@ def _bullish_outside_day_mask(
     ).fillna(False)
 
 
-def _bullish_engulfing_mask(open_: pd.Series, close: pd.Series) -> pd.Series:
+def _bullish_engulfing_mask(open_: pd.Series, close: pd.Series, close_range: pd.Series) -> pd.Series:
     current_body_high = pd.concat([open_, close], axis=1).max(axis=1)
     current_body_low = pd.concat([open_, close], axis=1).min(axis=1)
     previous_body_high = pd.concat([open_.shift(1), close.shift(1)], axis=1).max(axis=1)
     previous_body_low = pd.concat([open_.shift(1), close.shift(1)], axis=1).min(axis=1)
     return (
-        (close > open_)
+        (close.shift(1) < open_.shift(1))
+        & (close > open_)
         & (current_body_high >= previous_body_high)
         & (current_body_low <= previous_body_low)
+        & (close_range >= 2 / 3)
     ).fillna(False)
 
 
@@ -1822,19 +1827,21 @@ def _support_week_signal(
         if volume_avg_10w is not None and float(last["Volume"]) > volume_avg_10w:
             volume_ok = True
 
-        low_vs_50w_ok = float(last["Low"]) >= weekly_sma50 * 1.005 or float(last["Low"]) < weekly_sma50
+        low_touched_50w = weekly_sma50 * 0.97 <= float(last["Low"]) <= weekly_sma50 * 1.005
+        close_reclaimed_50w = float(last["Close"]) > weekly_sma50
         week_down = float(last["Close"]) < float(last["Open"])
         if (
             week_down
             and close_range >= 0.5
             and volume_ok
-            and low_vs_50w_ok
+            and low_touched_50w
+            and close_reclaimed_50w
             and float(last["Close"]) > daily_sma50
         ):
             return ChartSignal(
                 "positive",
                 "Unterstützungswoche",
-                f"Wochen-Schluss obere Hälfte ({close_range:.0%}), Volumen bestätigt, Schluss über 50T",
+                f"50W berührt/zurückerobert, Wochen-Schluss obere Hälfte ({close_range:.0%}), Volumen bestätigt",
             )
     return None
 

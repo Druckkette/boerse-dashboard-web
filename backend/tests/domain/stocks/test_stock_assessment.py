@@ -609,6 +609,24 @@ def test_stock_assessment_detects_bullish_outside_day_and_bullish_engulfing() ->
     assert _signal(signals, "Bullish Engulfing").category == "positive"
 
 
+def test_stock_assessment_bullish_engulfing_requires_red_prior_day_and_upper_third_close() -> None:
+    frame = _flat_frame()
+    prior = frame.index[-3]
+    current = frame.index[-2]
+    frame.loc[prior, ["Open", "High", "Low", "Close"]] = [100.0, 102.0, 99.0, 101.0]
+    frame.loc[current, ["Open", "High", "Low", "Close"]] = [99.5, 103.0, 97.5, 102.5]
+
+    signals = evaluate_chart_signs(frame)
+
+    assert not any(signal.label == "Bullish Engulfing" for signal in signals)
+
+    frame.loc[prior, ["Open", "High", "Low", "Close"]] = [101.0, 102.0, 99.0, 100.0]
+    frame.loc[current, ["Open", "High", "Low", "Close"]] = [99.5, 103.0, 97.5, 100.5]
+    signals = evaluate_chart_signs(frame)
+
+    assert not any(signal.label == "Bullish Engulfing" for signal in signals)
+
+
 def test_stock_assessment_detects_support_week() -> None:
     frame = _flat_frame(days=300)
     last_week = frame.index[-8:-3]
@@ -624,6 +642,40 @@ def test_stock_assessment_detects_support_week() -> None:
     signal = _signal(signals, "Unterstützungswoche")
     assert signal.category == "positive"
     assert "Schluss obere Hälfte" in signal.detail
+
+
+def test_stock_assessment_support_week_requires_touch_and_reclaim_of_50_week_line() -> None:
+    frame = _flat_frame(days=300)
+    last_week = frame.index[-8:-3]
+    frame.loc[last_week, "Volume"] = 2_000_000.0
+    frame.loc[last_week[0], ["Open", "High", "Low", "Close"]] = [105.0, 105.5, 101.0, 104.0]
+    frame.loc[last_week[1], ["Open", "High", "Low", "Close"]] = [104.0, 106.0, 94.0, 103.0]
+    frame.loc[last_week[2], ["Open", "High", "Low", "Close"]] = [103.0, 105.0, 101.0, 102.0]
+    frame.loc[last_week[3], ["Open", "High", "Low", "Close"]] = [102.0, 104.0, 101.0, 103.0]
+    frame.loc[last_week[4], ["Open", "High", "Low", "Close"]] = [103.0, 105.0, 102.0, 104.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    assert not any(signal.label == "Unterstützungswoche" for signal in signals)
+
+
+def test_stock_assessment_natural_reaction_requires_below_average_volume() -> None:
+    frame = _flat_frame()
+    high_day = frame.index[-10]
+    latest = frame.index[-1]
+    frame.loc[high_day, ["Open", "High", "Low", "Close"]] = [118.0, 125.0, 117.0, 122.0]
+    frame.loc[latest, ["Open", "High", "Low", "Close", "Volume"]] = [113.0, 114.0, 111.0, 112.5, 500_000.0]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "Natürliche Reaktion")
+    assert signal.category == "neutral"
+    assert "Volumen unter Ø" in signal.detail
+
+    frame.loc[latest, "Volume"] = 2_000_000.0
+    signals = evaluate_chart_signs(frame)
+
+    assert not any(signal.label == "Natürliche Reaktion" for signal in signals)
 
 
 def test_stock_assessment_warns_when_rs_line_is_below_21_ema() -> None:
