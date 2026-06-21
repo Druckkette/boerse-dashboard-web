@@ -52,7 +52,53 @@ def fetch_daily_price_bars(
     if not clean_symbol:
         return []
 
-    download_kwargs = {
+    download_kwargs = _download_kwargs(period=period, start=start, timeout=timeout)
+    frame = yf.download(clean_symbol, **download_kwargs)
+    if frame.empty:
+        return []
+
+    normalized = _normalize_download_frame(frame, clean_symbol)
+    return _bars_from_frame(normalized)
+
+
+def fetch_daily_price_bars_batch(
+    symbols: list[str],
+    *,
+    period: str = "1y",
+    start: date | None = None,
+    timeout: int = 15,
+) -> dict[str, list[FetchedPriceBar]]:
+    """Fetch daily OHLC bars for several symbols with one yfinance request."""
+    import yfinance as yf
+
+    clean_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()))
+    if not clean_symbols:
+        return {}
+    if len(clean_symbols) == 1:
+        return {
+            clean_symbols[0]: fetch_daily_price_bars(
+                clean_symbols[0],
+                period=period,
+                start=start,
+                timeout=timeout,
+            )
+        }
+
+    download_kwargs = _download_kwargs(period=period, start=start, timeout=timeout)
+    download_kwargs["group_by"] = "column"
+    frame = yf.download(clean_symbols, **download_kwargs)
+    if frame.empty:
+        return {symbol: [] for symbol in clean_symbols}
+
+    result: dict[str, list[FetchedPriceBar]] = {}
+    for symbol in clean_symbols:
+        normalized = _normalize_download_frame(frame, symbol)
+        result[symbol] = _bars_from_frame(normalized)
+    return result
+
+
+def _download_kwargs(*, period: str, start: date | None, timeout: int) -> dict[str, Any]:
+    download_kwargs: dict[str, Any] = {
         "interval": "1d",
         "auto_adjust": False,
         "progress": False,
@@ -63,12 +109,10 @@ def fetch_daily_price_bars(
         download_kwargs["start"] = start.isoformat()
     else:
         download_kwargs["period"] = period
+    return download_kwargs
 
-    frame = yf.download(clean_symbol, **download_kwargs)
-    if frame.empty:
-        return []
 
-    normalized = _normalize_download_frame(frame, clean_symbol)
+def _bars_from_frame(normalized: pd.DataFrame) -> list[FetchedPriceBar]:
     if "Close" not in normalized.columns:
         return []
 
@@ -166,9 +210,7 @@ def _normalize_download_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
             if str(value).upper() == symbol:
                 return frame.xs(value, axis=1, level=0)
 
-    flat = frame.copy()
-    flat.columns = [str(column[0]) for column in flat.columns]
-    return flat
+    return pd.DataFrame(index=frame.index)
 
 
 def _safe_info(ticker: Any) -> dict:

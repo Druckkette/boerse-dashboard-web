@@ -4,7 +4,7 @@ from datetime import date
 
 import pandas as pd
 
-from app.data_sources.yfinance_client import fetch_daily_price_bars
+from app.data_sources.yfinance_client import fetch_daily_price_bars, fetch_daily_price_bars_batch
 
 
 def test_fetch_daily_price_bars_passes_explicit_timeout(monkeypatch) -> None:
@@ -37,3 +37,71 @@ def test_fetch_daily_price_bars_passes_explicit_timeout(monkeypatch) -> None:
     assert seen["symbol"] == "AAPL"
     assert seen["timeout"] == 7
     assert seen["threads"] is False
+
+
+def test_fetch_daily_price_bars_batch_splits_multi_ticker_frame(monkeypatch) -> None:
+    import yfinance as yf
+
+    seen: dict[str, object] = {}
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("Open", "AAPL"),
+            ("High", "AAPL"),
+            ("Low", "AAPL"),
+            ("Close", "AAPL"),
+            ("Adj Close", "AAPL"),
+            ("Volume", "AAPL"),
+            ("Open", "MSFT"),
+            ("High", "MSFT"),
+            ("Low", "MSFT"),
+            ("Close", "MSFT"),
+            ("Adj Close", "MSFT"),
+            ("Volume", "MSFT"),
+        ]
+    )
+    frame = pd.DataFrame(
+        [[100.0, 102.0, 99.0, 101.0, 101.0, 1_000_000, 200.0, 205.0, 198.0, 204.0, 204.0, 2_000_000]],
+        columns=columns,
+        index=[pd.Timestamp(date(2026, 6, 19))],
+    )
+
+    def fake_download(symbols: list[str], **kwargs):
+        seen["symbols"] = symbols
+        seen.update(kwargs)
+        return frame
+
+    monkeypatch.setattr(yf, "download", fake_download)
+
+    result = fetch_daily_price_bars_batch(["AAPL", "MSFT"], period="1mo", timeout=9)
+
+    assert seen["symbols"] == ["AAPL", "MSFT"]
+    assert seen["timeout"] == 9
+    assert result["AAPL"][0].close == 101.0
+    assert result["MSFT"][0].close == 204.0
+
+
+def test_fetch_daily_price_bars_batch_does_not_reuse_other_symbol_data(monkeypatch) -> None:
+    import yfinance as yf
+
+    columns = pd.MultiIndex.from_tuples(
+        [
+            ("Open", "AAPL"),
+            ("High", "AAPL"),
+            ("Low", "AAPL"),
+            ("Close", "AAPL"),
+            ("Adj Close", "AAPL"),
+            ("Volume", "AAPL"),
+        ]
+    )
+    frame = pd.DataFrame(
+        [[100.0, 102.0, 99.0, 101.0, 101.0, 1_000_000]],
+        columns=columns,
+        index=[pd.Timestamp(date(2026, 6, 19))],
+    )
+
+    monkeypatch.setattr(yf, "download", lambda symbols, **kwargs: frame)
+
+    result = fetch_daily_price_bars_batch(["AAPL", "MSFT"], period="1mo", timeout=9)
+
+    assert result["AAPL"][0].close == 101.0
+    assert result["MSFT"] == []

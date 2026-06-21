@@ -15,25 +15,29 @@ def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> No
     seen: list[str] = []
 
     def fake_refresh(
-        ticker: str,
+        symbols: list,
         *,
         range_key: str,
-        yahoo_symbol: str | None = None,
         incremental: bool = False,
         timeout: int = 15,
-    ) -> dict:
-        seen.append(ticker)
-        return {
-            "ticker": ticker,
-            "yahoo_symbol": yahoo_symbol or ticker,
-            "records_seen": 10,
-            "records_written": 10,
-            "first_date": "2025-01-01",
-            "last_date": "2025-01-10",
-            "source": "yfinance",
-        }
+        batch_size: int = 50,
+    ) -> list[dict]:
+        seen.extend(symbol.ticker for symbol in symbols)
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                "ok": True,
+                "records_seen": 10,
+                "records_written": 10,
+                "first_date": "2025-01-01",
+                "last_date": "2025-01-10",
+                "source": "yfinance",
+            }
+            for symbol in symbols
+        ]
 
-    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
     job = job_repository.create_job("refresh_prices", {"preset": "volatility", "range": "1y"})
 
     result = refresh_prices_module.refresh_prices.run(job.job_id, job.payload)
@@ -61,23 +65,27 @@ def test_refresh_prices_all_preset_includes_trend_benchmark_helpers(monkeypatch:
     )
 
     def fake_refresh(
-        ticker: str,
+        symbols: list,
         *,
         range_key: str,
-        yahoo_symbol: str | None = None,
         incremental: bool = False,
         timeout: int = 15,
-    ) -> dict:
-        seen.append(ticker)
-        return {
-            "ticker": ticker,
-            "yahoo_symbol": yahoo_symbol or ticker,
-            "records_seen": 1,
-            "records_written": 1,
-            "source": "yfinance",
-        }
+        batch_size: int = 50,
+    ) -> list[dict]:
+        seen.extend(symbol.ticker for symbol in symbols)
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                "ok": True,
+                "records_seen": 1,
+                "records_written": 1,
+                "source": "yfinance",
+            }
+            for symbol in symbols
+        ]
 
-    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
     job = job_repository.create_job("refresh_prices", {"preset": "all", "range": "6m"})
 
     result = refresh_prices_module.refresh_prices.run(job.job_id, job.payload)
@@ -93,23 +101,27 @@ def test_refresh_prices_passes_incremental_mode(monkeypatch: pytest.MonkeyPatch)
     seen: list[tuple[str, bool]] = []
 
     def fake_refresh(
-        ticker: str,
+        symbols: list,
         *,
         range_key: str,
-        yahoo_symbol: str | None = None,
         incremental: bool = False,
         timeout: int = 15,
-    ) -> dict:
-        seen.append((ticker, incremental))
-        return {
-            "ticker": ticker,
-            "yahoo_symbol": yahoo_symbol or ticker,
-            "records_seen": 1,
-            "records_written": 1,
-            "source": "yfinance",
-        }
+        batch_size: int = 50,
+    ) -> list[dict]:
+        seen.extend((symbol.ticker, incremental) for symbol in symbols)
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                "ok": True,
+                "records_seen": 1,
+                "records_written": 1,
+                "source": "yfinance",
+            }
+            for symbol in symbols
+        ]
 
-    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
     payload = {"tickers": ["AAA"], "range": "6m", "incremental": True}
     job = job_repository.create_job("refresh_prices", payload)
 
@@ -124,23 +136,27 @@ def test_refresh_prices_passes_provider_timeout(monkeypatch: pytest.MonkeyPatch)
     seen: list[int] = []
 
     def fake_refresh(
-        ticker: str,
+        symbols: list,
         *,
         range_key: str,
-        yahoo_symbol: str | None = None,
         incremental: bool = False,
         timeout: int = 15,
-    ) -> dict:
+        batch_size: int = 50,
+    ) -> list[dict]:
         seen.append(timeout)
-        return {
-            "ticker": ticker,
-            "yahoo_symbol": yahoo_symbol or ticker,
-            "records_seen": 1,
-            "records_written": 1,
-            "source": "yfinance",
-        }
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                "ok": True,
+                "records_seen": 1,
+                "records_written": 1,
+                "source": "yfinance",
+            }
+            for symbol in symbols
+        ]
 
-    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
     payload = {"tickers": ["AAA"], "range": "6m", "price_provider_timeout_seconds": 7}
     job = job_repository.create_job("refresh_prices", payload)
 
@@ -153,24 +169,41 @@ def test_refresh_prices_passes_provider_timeout(monkeypatch: pytest.MonkeyPatch)
 
 def test_refresh_prices_continues_after_single_ticker_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_refresh(
-        ticker: str,
+        symbols: list,
         *,
         range_key: str,
-        yahoo_symbol: str | None = None,
         incremental: bool = False,
         timeout: int = 15,
-    ) -> dict:
-        if ticker == "BAD":
-            raise RuntimeError("upstream rejected ticker")
-        return {
-            "ticker": ticker,
-            "yahoo_symbol": yahoo_symbol or ticker,
-            "records_seen": 5,
-            "records_written": 5,
-            "source": "yfinance",
-        }
+        batch_size: int = 50,
+    ) -> list[dict]:
+        items = []
+        for symbol in symbols:
+            if symbol.ticker == "BAD":
+                items.append(
+                    {
+                        "ticker": symbol.ticker,
+                        "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                        "ok": False,
+                        "records_seen": 0,
+                        "records_written": 0,
+                        "error_message": "RuntimeError: upstream rejected ticker",
+                        "source": "yfinance",
+                    }
+                )
+                continue
+            items.append(
+                {
+                    "ticker": symbol.ticker,
+                    "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                    "ok": True,
+                    "records_seen": 5,
+                    "records_written": 5,
+                    "source": "yfinance",
+                }
+            )
+        return items
 
-    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
     payload = {"tickers": ["AAA", "BAD", "CCC"], "range": "1y"}
     job = job_repository.create_job("refresh_prices", payload)
 
@@ -192,16 +225,27 @@ def test_refresh_prices_marks_job_failed_when_all_tickers_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_refresh(
-        ticker: str,
+        symbols: list,
         *,
         range_key: str,
         incremental: bool = False,
-        yahoo_symbol: str | None = None,
         timeout: int = 15,
-    ) -> dict:
-        raise RuntimeError(f"{ticker} unavailable")
+        batch_size: int = 50,
+    ) -> list[dict]:
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol or symbol.ticker,
+                "ok": False,
+                "records_seen": 0,
+                "records_written": 0,
+                "error_message": f"RuntimeError: {symbol.ticker} unavailable",
+                "source": "yfinance",
+            }
+            for symbol in symbols
+        ]
 
-    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(refresh_prices_module, "refresh_price_cache_for_symbols", fake_refresh)
     payload = {"tickers": ["AAA", "BBB"], "range": "1y"}
     job = job_repository.create_job("refresh_prices", payload)
 

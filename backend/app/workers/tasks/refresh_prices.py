@@ -5,7 +5,7 @@ from typing import Literal
 from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS, MARKET_INDEX_FALLBACK_TICKERS, MARKET_TREND_BENCHMARK, SECTOR_ETF_TICKERS
 from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.repositories import jobs as job_repository
-from app.services.prices import PriceRange, refresh_price_cache_for_ticker
+from app.services.prices import PriceRange, PriceRefreshSymbol, refresh_price_cache_for_symbols
 from app.services.universes import resolve_universe_price_symbols
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
@@ -50,6 +50,7 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         min_value=3,
         max_value=120,
     )
+    batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
     fail_fast = bool(payload.get("fail_fast") or False)
     result: dict = {
         "ok": False,
@@ -74,53 +75,68 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
         "records_seen": 0,
         "records_written": 0,
         "provider_timeout_seconds": provider_timeout_seconds,
+        "batch_size": batch_size,
+        "batch_count": 0,
         "items": [],
     }
 
     job_repository.mark_running(job.job_id, step="Price-Cache-Refresh startet")
     try:
         total = max(1, len(symbols))
-        for index, symbol in enumerate(symbols, start=1):
-            ticker = symbol.source_ticker
+        for offset in range(0, len(symbols), batch_size):
             raise_if_cancelled(job.job_id)
-            progress = min(90, 10 + int(index / total * 80))
+            batch = symbols[offset : offset + batch_size]
+            batch_end = offset + len(batch)
+            progress = min(90, 10 + int(batch_end / total * 80))
             job_repository.update_progress(
                 job.job_id,
                 progress=progress,
-                step=f"{ticker} von yfinance laden",
-                message=f"{ticker}: tägliche OHLC-Bars über {symbol.yahoo_symbol} werden aktualisiert.",
+                step=f"Price Batch {offset + 1}-{batch_end}/{total}",
+                message=f"{len(batch)} Yahoo-Symbol(e) werden gesammelt geladen.",
                 result=result,
             )
             try:
-                item = refresh_price_cache_for_ticker(
-                    ticker,
+                batch_items = refresh_price_cache_for_symbols(
+                    [
+                        PriceRefreshSymbol(ticker=symbol.source_ticker, yahoo_symbol=symbol.yahoo_symbol)
+                        for symbol in batch
+                    ],
                     range_key=range_key,
-                    yahoo_symbol=symbol.yahoo_symbol,
                     incremental=incremental,
                     timeout=provider_timeout_seconds,
+                    batch_size=batch_size,
                 )
             except Exception as exc:
-                item = {
-                    "ticker": ticker,
-                    "yahoo_symbol": symbol.yahoo_symbol,
-                    "ok": False,
-                    "records_seen": 0,
-                    "records_written": 0,
-                    "error_message": f"{type(exc).__name__}: {exc}",
-                    "source": "yfinance",
-                }
-                result["failure_count"] += 1
-                result["failed_tickers"].append(ticker)
-                result["items"].append(item)
-                if fail_fast:
-                    raise
-                continue
+                batch_items = [
+                    {
+                        "ticker": symbol.source_ticker,
+                        "yahoo_symbol": symbol.yahoo_symbol,
+                        "ok": False,
+                        "records_seen": 0,
+                        "records_written": 0,
+                        "error_message": f"{type(exc).__name__}: {exc}",
+                        "source": "yfinance",
+                    }
+                    for symbol in batch
+                ]
+            result["batch_count"] += 1
+            for item in batch_items:
+                if item.get("ok") is False:
+                    result["failure_count"] += 1
+                    result["failed_tickers"].append(str(item.get("ticker") or ""))
+                    result["items"].append(item)
+                    if fail_fast:
+                        raise RuntimeError(str(item.get("error_message") or "Price batch failed"))
+                    continue
 
-            item["ok"] = True
-            result["items"].append(item)
-            result["success_count"] += 1
-            result["records_seen"] += int(item.get("records_seen") or 0)
-            result["records_written"] += int(item.get("records_written") or 0)
+                item["ok"] = True
+                result["items"].append(item)
+                result["success_count"] += 1
+                result["records_seen"] += int(item.get("records_seen") or 0)
+                result["records_written"] += int(item.get("records_written") or 0)
+
+            if result["failure_count"] and fail_fast:
+                raise RuntimeError("Price-Cache-Batch fehlgeschlagen.")
 
         result["ok"] = result["failure_count"] == 0 and result["success_count"] > 0
         result["partial"] = result["success_count"] > 0 and result["failure_count"] > 0
@@ -191,6 +207,13 @@ def _normalize_seconds(value: object, *, default: int, min_value: int, max_value
         return max(min_value, min(max_value, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_batch_size(value: object) -> int:
+    try:
+        return max(1, min(250, int(value)))
+    except (TypeError, ValueError):
+        return 50
 
 
 def _should_include_market_helpers(payload: dict, *, preset: PriceRefreshPreset, explicit_tickers: object) -> bool:

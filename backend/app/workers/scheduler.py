@@ -11,6 +11,7 @@ SMART_REFRESH_PAYLOAD = {
     "incremental_prices": True,
     "price_provider_timeout_seconds": 15,
     "price_action_max_seconds": 7200,
+    "price_batch_size": 50,
     "universe": "us_common_stocks",
     "limit_universe": 5000,
     "breadth_lookback_days": 550,

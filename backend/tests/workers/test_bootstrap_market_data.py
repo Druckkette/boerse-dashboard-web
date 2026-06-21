@@ -37,7 +37,7 @@ def test_bootstrap_resumes_completed_steps_after_redelivery(monkeypatch: pytest.
     )
     monkeypatch.setattr(
         bootstrap_module,
-        "refresh_price_cache_for_ticker",
+        "refresh_price_cache_for_symbols",
         lambda *args, **kwargs: pytest.fail("completed price step should not run again"),
     )
 
@@ -110,16 +110,20 @@ def test_bootstrap_redelivery_of_completed_job_is_noop(monkeypatch: pytest.Monke
 def test_price_refresh_checkpoint_skips_completed_tickers(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str] = []
 
-    def fake_refresh(ticker: str, *, range_key: str, yahoo_symbol: str, incremental: bool) -> dict:
-        seen.append(ticker)
-        return {
-            "ticker": ticker,
-            "yahoo_symbol": yahoo_symbol,
-            "records_seen": 5,
-            "records_written": 5,
-        }
+    def fake_refresh(symbols: list, *, range_key: str, incremental: bool, batch_size: int = 50) -> list[dict]:
+        seen.extend(symbol.ticker for symbol in symbols)
+        return [
+            {
+                "ticker": symbol.ticker,
+                "yahoo_symbol": symbol.yahoo_symbol,
+                "ok": True,
+                "records_seen": 5,
+                "records_written": 5,
+            }
+            for symbol in symbols
+        ]
 
-    monkeypatch.setattr(bootstrap_module, "refresh_price_cache_for_ticker", fake_refresh)
+    monkeypatch.setattr(bootstrap_module, "refresh_price_cache_for_symbols", fake_refresh)
     job = job_repository.create_job("bootstrap_market_data", {"mode": "initial"})
     result = bootstrap_module._refresh_prices_for_symbols(
         job_id=job.job_id,

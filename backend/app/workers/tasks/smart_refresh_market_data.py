@@ -19,7 +19,7 @@ from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFresh
 from app.services.freshness import get_freshness
 from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.market import refresh_market_breadth
-from app.services.prices import PriceRange, refresh_price_cache_for_ticker
+from app.services.prices import PriceRange, PriceRefreshSymbol, refresh_price_cache_for_symbols
 from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
 from app.services.sec13f import refresh_institutional_13f_from_sec
 from app.services.settings import get_data_diagnostics, get_runtime_config_value
@@ -186,6 +186,7 @@ def build_smart_refresh_plan(
         min_value=60,
         max_value=12 * 60 * 60,
     )
+    price_batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
     include_position_monitor = bool(payload.get("include_position_monitor", True))
     include_fundamentals = bool(payload.get("include_fundamentals", True))
     include_sec13f = _normalize_bool(payload.get("include_sec13f"), default=True)
@@ -261,6 +262,7 @@ def build_smart_refresh_plan(
                     "incremental": incremental_prices,
                     "price_provider_timeout_seconds": price_provider_timeout_seconds,
                     "price_action_max_seconds": price_action_max_seconds,
+                    "price_batch_size": price_batch_size,
                 },
             )
         )
@@ -281,6 +283,7 @@ def build_smart_refresh_plan(
                         "tickers": missing_price_issue.tickers,
                         "price_provider_timeout_seconds": price_provider_timeout_seconds,
                         "price_action_max_seconds": price_action_max_seconds,
+                        "price_batch_size": price_batch_size,
                     },
                 )
             )
@@ -298,6 +301,7 @@ def build_smart_refresh_plan(
                         "tickers": stale_price_issue.tickers,
                         "price_provider_timeout_seconds": price_provider_timeout_seconds,
                         "price_action_max_seconds": price_action_max_seconds,
+                        "price_batch_size": price_batch_size,
                     },
                 )
             )
@@ -461,6 +465,7 @@ def _refresh_prices(
         min_value=60,
         max_value=12 * 60 * 60,
     )
+    batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
     symbols = resolve_universe_price_symbols(
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
@@ -482,15 +487,17 @@ def _refresh_prices(
         "records_written": 0,
         "provider_timeout_seconds": provider_timeout_seconds,
         "max_action_seconds": max_action_seconds,
+        "batch_size": batch_size,
+        "batch_count": 0,
     }
     total_symbols = max(1, len(symbols))
     base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
     next_progress = 8 + int(action_index / max(1, total_actions) * 82)
     started_at = monotonic()
-    for index, symbol in enumerate(symbols, start=1):
+    for offset in range(0, len(symbols), batch_size):
         raise_if_cancelled(job_id)
         if _elapsed_seconds(started_at) >= max_action_seconds:
-            skipped = total_symbols - index + 1
+            skipped = total_symbols - offset
             price_result["skipped_count"] = int(price_result.get("skipped_count") or 0) + skipped
             price_result["stopped_due_to_timeout"] = True
             price_result["partial"] = price_result["success_count"] > 0
@@ -501,7 +508,7 @@ def _refresh_prices(
             )
             job_repository.update_progress(
                 job_id,
-                progress=min(92, base_progress + int(index / total_symbols * max(1, next_progress - base_progress))),
+                progress=min(92, base_progress + int(offset / total_symbols * max(1, next_progress - base_progress))),
                 step="Smart Price Cache gestoppt",
                 message=str(price_result["timeout_message"]),
                 result={**result, "current_price_refresh": price_result},
@@ -509,39 +516,59 @@ def _refresh_prices(
             if price_result["success_count"] == 0:
                 raise RuntimeError(str(price_result["timeout_message"]))
             return price_result
-        ticker = symbol.source_ticker
-        yahoo_symbol = symbol.yahoo_symbol
-        if index == 1 or index == total_symbols or index % 10 == 0:
-            progress = min(92, base_progress + int(index / total_symbols * max(1, next_progress - base_progress)))
-            job_repository.update_progress(
-                job_id,
-                progress=progress,
-                step=f"Smart Price Cache {index}/{total_symbols}",
-                message=f"{ticker} über {yahoo_symbol} laden. Timeout je Symbol: {provider_timeout_seconds}s.",
-                result={**result, "current_price_refresh": price_result},
-            )
+        batch = symbols[offset : offset + batch_size]
+        batch_end = offset + len(batch)
+        progress = min(92, base_progress + int(batch_end / total_symbols * max(1, next_progress - base_progress)))
+        job_repository.update_progress(
+            job_id,
+            progress=progress,
+            step=f"Smart Price Batch {offset + 1}-{batch_end}/{total_symbols}",
+            message=(
+                f"{len(batch)} Yahoo-Symbol(e) gesammelt laden. "
+                f"Timeout je Batch: {provider_timeout_seconds}s."
+            ),
+            result={**result, "current_price_refresh": price_result},
+        )
         try:
-            item = refresh_price_cache_for_ticker(
-                ticker,
+            batch_items = refresh_price_cache_for_symbols(
+                [
+                    PriceRefreshSymbol(ticker=symbol.source_ticker, yahoo_symbol=symbol.yahoo_symbol)
+                    for symbol in batch
+                ],
                 range_key=range_key,
-                yahoo_symbol=yahoo_symbol,
                 incremental=_normalize_bool(payload.get("incremental"), default=True),
                 timeout=provider_timeout_seconds,
+                batch_size=batch_size,
             )
         except Exception as exc:
-            price_result["failure_count"] += 1
-            if len(price_result["failed_tickers"]) < 80:
-                price_result["failed_tickers"].append(
-                    {
-                        "ticker": ticker,
-                        "yahoo_symbol": yahoo_symbol,
-                        "error_message": f"{type(exc).__name__}: {exc}",
-                    }
-                )
-            continue
-        price_result["success_count"] += 1
-        price_result["records_seen"] += int(item.get("records_seen") or 0)
-        price_result["records_written"] += int(item.get("records_written") or 0)
+            batch_items = [
+                {
+                    "ticker": symbol.source_ticker,
+                    "yahoo_symbol": symbol.yahoo_symbol,
+                    "ok": False,
+                    "records_seen": 0,
+                    "records_written": 0,
+                    "error_message": f"{type(exc).__name__}: {exc}",
+                    "source": "yfinance",
+                }
+                for symbol in batch
+            ]
+        price_result["batch_count"] += 1
+        for item in batch_items:
+            if item.get("ok") is False:
+                price_result["failure_count"] += 1
+                if len(price_result["failed_tickers"]) < 80:
+                    price_result["failed_tickers"].append(
+                        {
+                            "ticker": item.get("ticker"),
+                            "yahoo_symbol": item.get("yahoo_symbol"),
+                            "error_message": item.get("error_message") or "Price batch failed",
+                        }
+                    )
+                continue
+            price_result["success_count"] += 1
+            price_result["records_seen"] += int(item.get("records_seen") or 0)
+            price_result["records_written"] += int(item.get("records_written") or 0)
 
     price_result["ok"] = price_result["success_count"] > 0 and price_result["failure_count"] == 0
     price_result["partial"] = price_result["success_count"] > 0 and price_result["failure_count"] > 0
@@ -796,6 +823,13 @@ def _normalize_seconds(value: object, *, default: int, min_value: int, max_value
         return max(min_value, min(max_value, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_batch_size(value: object) -> int:
+    try:
+        return max(1, min(250, int(value)))
+    except (TypeError, ValueError):
+        return 50
 
 
 def _elapsed_seconds(started_at: float) -> int:

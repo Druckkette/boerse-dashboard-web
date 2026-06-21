@@ -12,7 +12,7 @@ from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.domain.sell.service import monitor_open_positions
 from app.repositories import jobs as job_repository
 from app.services.market import refresh_market_breadth
-from app.services.prices import PriceRange, refresh_price_cache_for_ticker
+from app.services.prices import PriceRange, PriceRefreshSymbol, refresh_price_cache_for_symbols
 from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
 from app.services.universes import (
     refresh_us_common_stock_universe,
@@ -41,6 +41,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
     limit_universe = _normalize_limit(payload.get("limit_universe") or 5000)
     range_key = _normalize_range(payload.get("range") or ("2y" if is_initial else "6m"))
     incremental_prices = _normalize_bool(payload.get("incremental_prices"), default=not is_initial)
+    price_batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
     breadth_lookback_days = _normalize_days(payload.get("breadth_lookback_days") or payload.get("lookback_days") or 550)
     rs_lookback_days = _normalize_days(payload.get("rs_lookback_days") or 430)
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
@@ -53,6 +54,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
         "limit_universe": limit_universe,
         "range": range_key,
         "incremental_prices": incremental_prices,
+        "price_batch_size": price_batch_size,
         "breadth_lookback_days": breadth_lookback_days,
         "rs_lookback_days": rs_lookback_days,
         "benchmark_ticker": benchmark_ticker,
@@ -116,6 +118,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
                 symbols=price_symbols,
                 range_key=range_key,
                 incremental=incremental_prices,
+                batch_size=price_batch_size,
                 result=result,
                 existing_result=result.get("prices") if isinstance(result.get("prices"), dict) else None,
             )
@@ -219,6 +222,7 @@ def _refresh_prices_for_symbols(
     incremental: bool,
     result: dict[str, Any],
     existing_result: dict[str, Any] | None = None,
+    batch_size: int = 50,
 ) -> dict[str, Any]:
     completed_tickers = _normalize_ticker_list((existing_result or {}).get("completed_tickers"))
     price_result: dict[str, Any] = {
@@ -231,48 +235,68 @@ def _refresh_prices_for_symbols(
         "records_written": int((existing_result or {}).get("records_written") or 0),
         "incremental": incremental,
         "resumed": bool(completed_tickers),
+        "batch_size": batch_size,
+        "batch_count": 0,
     }
     completed_set = set(completed_tickers)
     total = max(1, len(symbols))
-    for index, symbol in enumerate(symbols, start=1):
+    pending_symbols = [symbol for symbol in symbols if symbol["source_ticker"] not in completed_set]
+    initial_completed_count = len(completed_set)
+    for offset in range(0, len(pending_symbols), batch_size):
         raise_if_cancelled(job_id)
-        ticker = symbol["source_ticker"]
-        yahoo_symbol = symbol["yahoo_symbol"]
-        if ticker in completed_set:
-            continue
-        progress = min(70, 8 + int(index / total * 60))
-        if index == 1 or index == total or index % 25 == 0:
-            job_repository.update_progress(
-                job_id,
-                progress=progress,
-                step=f"Price Cache {index}/{total}",
-                message=f"{ticker} über {yahoo_symbol} laden.",
-                result={**result, "prices": price_result},
-            )
+        batch = pending_symbols[offset : offset + batch_size]
+        batch_start = initial_completed_count + offset + 1
+        batch_end = min(len(symbols), initial_completed_count + offset + len(batch))
+        progress = min(70, 8 + int(batch_end / total * 60))
+        job_repository.update_progress(
+            job_id,
+            progress=progress,
+            step=f"Price Cache Batch {batch_start}-{batch_end}/{total}",
+            message=f"{len(batch)} Yahoo-Symbol(e) gesammelt laden.",
+            result={**result, "prices": price_result},
+        )
         try:
-            item = refresh_price_cache_for_ticker(
-                ticker,
+            batch_items = refresh_price_cache_for_symbols(
+                [
+                    PriceRefreshSymbol(ticker=symbol["source_ticker"], yahoo_symbol=symbol["yahoo_symbol"])
+                    for symbol in batch
+                ],
                 range_key=range_key,
-                yahoo_symbol=yahoo_symbol,
                 incremental=incremental,
+                batch_size=batch_size,
             )
         except Exception as exc:
-            price_result["failure_count"] += 1
-            if len(price_result["failed_tickers"]) < 80:
-                price_result["failed_tickers"].append(
-                    {
-                        "ticker": ticker,
-                        "yahoo_symbol": yahoo_symbol,
-                        "error_message": f"{type(exc).__name__}: {exc}",
-                    }
-                )
-            continue
+            batch_items = [
+                {
+                    "ticker": symbol["source_ticker"],
+                    "yahoo_symbol": symbol["yahoo_symbol"],
+                    "ok": False,
+                    "records_seen": 0,
+                    "records_written": 0,
+                    "error_message": f"{type(exc).__name__}: {exc}",
+                }
+                for symbol in batch
+            ]
+        price_result["batch_count"] += 1
+        for item in batch_items:
+            ticker = str(item.get("ticker") or "").strip().upper()
+            if item.get("ok") is False:
+                price_result["failure_count"] += 1
+                if len(price_result["failed_tickers"]) < 80:
+                    price_result["failed_tickers"].append(
+                        {
+                            "ticker": ticker,
+                            "yahoo_symbol": item.get("yahoo_symbol"),
+                            "error_message": item.get("error_message") or "Price batch failed",
+                        }
+                    )
+                continue
 
-        price_result["success_count"] += 1
-        price_result["completed_tickers"].append(ticker)
-        completed_set.add(ticker)
-        price_result["records_seen"] += int(item.get("records_seen") or 0)
-        price_result["records_written"] += int(item.get("records_written") or 0)
+            price_result["success_count"] += 1
+            price_result["completed_tickers"].append(ticker)
+            completed_set.add(ticker)
+            price_result["records_seen"] += int(item.get("records_seen") or 0)
+            price_result["records_written"] += int(item.get("records_written") or 0)
 
     price_result["ok"] = price_result["success_count"] > 0 and price_result["failure_count"] == 0
     price_result["partial"] = price_result["success_count"] > 0 and price_result["failure_count"] > 0
@@ -289,6 +313,7 @@ def _resume_result(existing: dict[str, Any] | None, fresh: dict[str, Any]) -> di
     resumed["limit_universe"] = fresh["limit_universe"]
     resumed["range"] = fresh["range"]
     resumed["incremental_prices"] = fresh["incremental_prices"]
+    resumed["price_batch_size"] = fresh["price_batch_size"]
     resumed["breadth_lookback_days"] = fresh["breadth_lookback_days"]
     resumed["rs_lookback_days"] = fresh["rs_lookback_days"]
     resumed["benchmark_ticker"] = fresh["benchmark_ticker"]
@@ -365,3 +390,10 @@ def _normalize_days(value: object) -> int:
         return max(90, min(2500, int(value)))
     except (TypeError, ValueError):
         return 550
+
+
+def _normalize_batch_size(value: object) -> int:
+    try:
+        return max(1, min(250, int(value)))
+    except (TypeError, ValueError):
+        return 50
