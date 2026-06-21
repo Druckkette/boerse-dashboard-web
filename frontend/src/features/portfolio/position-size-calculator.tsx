@@ -1,6 +1,6 @@
 "use client";
 
-import { Calculator, RefreshCw, ShieldCheck } from "lucide-react";
+import { Calculator, ChevronDown, RefreshCw, ShieldCheck } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -80,8 +80,8 @@ export function PositionSizeCalculator() {
   }[displayResult.limiting_factor];
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+    <details className="group rounded border border-[#2d333d] bg-[#171a20]">
+      <summary className="flex cursor-pointer list-none flex-col gap-3 p-5 marker:hidden md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-base font-semibold">Stückzahl- und Positionsgrößen-Rechner</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
@@ -89,12 +89,15 @@ export function PositionSizeCalculator() {
             gespeicherten Depot-Annahmen.
           </p>
         </div>
-        <StatusChip tone={serverCheck.isPending ? "warning" : serverCheck.data ? "good" : "neutral"}>
-          {serverCheck.isPending ? "prüft" : serverCheck.data ? "API geprüft" : "lokal"}
-        </StatusChip>
-      </div>
+        <div className="flex items-center gap-2">
+          <StatusChip tone={serverCheck.isPending ? "warning" : serverCheck.data ? "good" : "neutral"}>
+            {serverCheck.isPending ? "prüft" : serverCheck.data ? "API geprüft" : "lokal"}
+          </StatusChip>
+          <ChevronDown className="size-4 text-[#a0a7b4] transition group-open:rotate-180" />
+        </div>
+      </summary>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 border-t border-[#2d333d] p-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="Depotwert EUR">
@@ -198,7 +201,7 @@ export function PositionSizeCalculator() {
           )}
         </div>
       </div>
-    </section>
+    </details>
   );
 }
 

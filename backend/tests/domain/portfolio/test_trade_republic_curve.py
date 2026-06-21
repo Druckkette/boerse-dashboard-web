@@ -157,6 +157,22 @@ def test_trade_republic_curve_values_derivatives_from_trade_prices_without_ticke
     assert "DE000DERIV01" in curve.message
 
 
+def test_portfolio_curve_falls_back_to_missing_response_when_tr_curve_fails(monkeypatch) -> None:
+    def broken_transactions():
+        raise RuntimeError("malformed stored TR transaction")
+
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", broken_transactions)
+    monkeypatch.setattr(portfolio_repository, "list_open_positions", lambda: [])
+    monkeypatch.setattr(portfolio_repository, "get_cash_balance", lambda: 0.0)
+
+    curve = portfolio_service.get_portfolio_curve(days=370)
+
+    assert curve.source == "missing"
+    assert curve.data_status == "missing"
+    assert curve.points == []
+    assert "TR-Kurve" in curve.message
+
+
 def _tr_row(
     day: date,
     transaction_type: str,

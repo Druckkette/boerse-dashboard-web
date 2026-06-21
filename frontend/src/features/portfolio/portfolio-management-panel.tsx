@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, CircleDollarSign, Save, Trash2 } from "lucide-react";
+import { Banknote, ChevronDown, CircleDollarSign, Save, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -12,15 +12,48 @@ export function PortfolioManagementPanel({ positions }: { positions: PortfolioPo
   return (
     <div className="space-y-4">
       <PositionSizeCalculator />
-      <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
-        <PositionEditor positions={positions} />
-        <div className="space-y-4">
-          <SellBooking positions={positions} />
-          <CashFlowPanel />
+      <CollapsibleSection
+        title="Positionen, Verkäufe und Cashflows"
+        description="Manuelle Depotpflege nur bei Bedarf öffnen."
+        badge={`${positions.length} Positionen`}
+      >
+        <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+          <PositionEditor positions={positions} />
+          <div className="space-y-4">
+            <SellBooking positions={positions} />
+            <CashFlowPanel />
+          </div>
         </div>
-        <PortfolioActivity />
-      </div>
+      </CollapsibleSection>
     </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  description,
+  badge,
+  children
+}: {
+  title: string;
+  description: string;
+  badge: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group rounded border border-[#2d333d] bg-[#171a20]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden">
+        <div>
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-[#a0a7b4]">{description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusChip tone="neutral">{badge}</StatusChip>
+          <ChevronDown className="size-4 text-[#a0a7b4] transition group-open:rotate-180" />
+        </div>
+      </summary>
+      <div className="border-t border-[#2d333d] p-5">{children}</div>
+    </details>
   );
 }
 
@@ -298,82 +331,6 @@ function CashFlowPanel() {
         <Banknote size={16} />
         {mutation.isPending ? "Bucht" : "Cashflow buchen"}
       </button>
-    </section>
-  );
-}
-
-function PortfolioActivity() {
-  const transactions = useQuery({ queryKey: ["portfolio-transactions"], queryFn: () => api.portfolioTransactions(12), staleTime: 30_000 });
-  const imports = useQuery({ queryKey: ["portfolio-import-history"], queryFn: () => api.portfolioImportHistory(8), staleTime: 30_000 });
-  return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 xl:col-span-2">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Aktivität</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">Letzte Transaktionen und gespeicherte Importe.</p>
-        </div>
-        <StatusChip tone="neutral">History</StatusChip>
-      </div>
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="overflow-hidden rounded border border-[#242a33]">
-          <table className="w-full text-sm">
-            <thead className="bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
-              <tr>
-                <th className="px-3 py-2">Datum</th>
-                <th className="px-3 py-2">Ticker</th>
-                <th className="px-3 py-2">Typ</th>
-                <th className="px-3 py-2 text-right">Netto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(transactions.data ?? []).map((row) => (
-                <tr key={row.id} className="border-t border-[#242a33]">
-                  <td className="px-3 py-2 text-[#a0a7b4]">{row.date}</td>
-                  <td className="px-3 py-2 font-medium">{row.ticker}</td>
-                  <td className="px-3 py-2">{row.transaction_type}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{money(row.net_amount ?? 0)}</td>
-                </tr>
-              ))}
-              {!transactions.data?.length && (
-                <tr>
-                  <td className="px-3 py-6 text-center text-[#7f8794]" colSpan={4}>
-                    Keine Transaktionen.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="overflow-hidden rounded border border-[#242a33]">
-          <table className="w-full text-sm">
-            <thead className="bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
-              <tr>
-                <th className="px-3 py-2">Zeit</th>
-                <th className="px-3 py-2">Datei</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2 text-right">Zeilen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(imports.data ?? []).map((row) => (
-                <tr key={row.id} className="border-t border-[#242a33]">
-                  <td className="px-3 py-2 text-[#a0a7b4]">{new Date(row.created_at).toLocaleDateString("de-DE")}</td>
-                  <td className="px-3 py-2">{row.file_name || row.source}</td>
-                  <td className="px-3 py-2">{row.status}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{row.rows_imported}/{row.rows_total}</td>
-                </tr>
-              ))}
-              {!imports.data?.length && (
-                <tr>
-                  <td className="px-3 py-6 text-center text-[#7f8794]" colSpan={4}>
-                    Keine Importe.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </section>
   );
 }

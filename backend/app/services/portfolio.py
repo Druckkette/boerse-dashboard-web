@@ -210,24 +210,22 @@ def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
 
 
 def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
-    tr_curve = _get_trade_republic_curve(days=days)
+    tr_error: str | None = None
+    try:
+        tr_curve = _get_trade_republic_curve(days=days)
+    except Exception as exc:
+        tr_curve = None
+        tr_error = f" TR-Kurve: {exc}"
     if tr_curve is not None:
         return tr_curve
 
     try:
         rows = portfolio_repository.list_open_positions()
         cash = portfolio_repository.get_cash_balance()
-    except PortfolioRepositoryUnavailable:
-        rows = []
-        cash = 0.0
+    except PortfolioRepositoryUnavailable as exc:
+        return _missing_portfolio_curve(f"Portfolio-Datenbank ist nicht erreichbar: {exc}.{tr_error or ''}")
     if not rows:
-        return PortfolioCurveResponse(
-            as_of=datetime.now(UTC).date().isoformat(),
-            source="missing",
-            data_status="missing",
-            message="Keine offenen Positionen für die Depotkurve.",
-            points=[],
-        )
+        return _missing_portfolio_curve(f"Keine offenen Positionen für die Depotkurve.{tr_error or ''}")
 
     start_date = date.today() - timedelta(days=max(30, min(2500, days)))
     series_map: dict[str, pd.Series] = {}
@@ -250,13 +248,7 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
             series_map[row.ticker] = series[~series.index.duplicated(keep="last")]
 
     if not series_map:
-        return PortfolioCurveResponse(
-            as_of=datetime.now(UTC).date().isoformat(),
-            source="missing",
-            data_status="missing",
-            message="Für die offenen Positionen fehlen Price-Bars im Cache.",
-            points=[],
-        )
+        return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars im Cache.{tr_error or ''}")
 
     all_dates = sorted(set().union(*(series.index for series in series_map.values())))
     frame = pd.DataFrame(index=pd.DatetimeIndex(all_dates))
@@ -273,14 +265,16 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
         positions_value = 0.0
         for row in rows:
             close = values.get(row.ticker)
-            if pd.notna(close):
+            if _is_finite_number(close):
                 positions_value += float(close) * row.shares
         depot_value = positions_value + cash
-        if depot_value <= 0:
+        if not math.isfinite(depot_value) or depot_value <= 0:
             continue
         if not index_values:
             base = depot_value
         portfolio_index = depot_value / base * 100
+        if not math.isfinite(portfolio_index):
+            continue
         index_values.append(portfolio_index)
         sma10 = float(pd.Series(index_values).rolling(10, min_periods=10).mean().iloc[-1]) if len(index_values) >= 10 else None
         sma21 = float(pd.Series(index_values).rolling(21, min_periods=21).mean().iloc[-1]) if len(index_values) >= 21 else None
@@ -297,12 +291,25 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
             )
         )
 
+    if not points:
+        return _missing_portfolio_curve(f"Depotkurve konnte aus vorhandenen Positionen nicht berechnet werden.{tr_error or ''}")
+
     return PortfolioCurveResponse(
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="database",
         data_status="fresh",
         message="Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand.",
         points=points,
+    )
+
+
+def _missing_portfolio_curve(message: str) -> PortfolioCurveResponse:
+    return PortfolioCurveResponse(
+        as_of=datetime.now(UTC).date().isoformat(),
+        source="missing",
+        data_status="missing",
+        message=message.strip(),
+        points=[],
     )
 
 
@@ -395,31 +402,37 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         previous = float(depot_values[idx - 1])
         current = float(depot_values[idx])
         external = float(external_values[idx])
-        daily_return = (current - previous - external) / previous if previous > 0 else 0.0
-        index_values.append(index_values[-1] * (1.0 + daily_return))
+        daily_return = (current - previous - external) / previous if previous > 0 and math.isfinite(previous) else 0.0
+        next_index = index_values[-1] * (1.0 + daily_return)
+        index_values.append(next_index if math.isfinite(next_index) else index_values[-1])
     curve["portfolio_index"] = index_values
     curve["portfolio_index_sma10"] = curve["portfolio_index"].rolling(10, min_periods=10).mean()
     curve["portfolio_index_sma21"] = curve["portfolio_index"].rolling(21, min_periods=21).mean()
     benchmark_index = _benchmark_index_series(pd.DatetimeIndex(curve["date"]))
     curve["sp500_index"] = benchmark_index.reindex(pd.DatetimeIndex(curve["date"])).values
 
-    points = [
-        PortfolioCurvePoint(
-            date=pd.Timestamp(row.date).date().isoformat(),
-            depot_value=round(float(row.depot_value), 2),
-            positions_value=round(float(row.positions_value), 2),
-            cash=round(float(row.cash), 2),
-            portfolio_index=round(float(row.portfolio_index), 2),
-            portfolio_index_sma10=round(float(row.portfolio_index_sma10), 2)
-            if pd.notna(row.portfolio_index_sma10)
-            else None,
-            portfolio_index_sma21=round(float(row.portfolio_index_sma21), 2)
-            if pd.notna(row.portfolio_index_sma21)
-            else None,
-            sp500_index=round(float(row.sp500_index), 2) if pd.notna(row.sp500_index) else None,
+    points: list[PortfolioCurvePoint] = []
+    for row in curve.itertuples():
+        depot_value = _finite_float(row.depot_value)
+        positions_value_row = _finite_float(row.positions_value)
+        cash_value = _finite_float(row.cash)
+        portfolio_index = _finite_float(row.portfolio_index)
+        if depot_value is None or positions_value_row is None or cash_value is None or portfolio_index is None:
+            continue
+        points.append(
+            PortfolioCurvePoint(
+                date=pd.Timestamp(row.date).date().isoformat(),
+                depot_value=round(depot_value, 2),
+                positions_value=round(positions_value_row, 2),
+                cash=round(cash_value, 2),
+                portfolio_index=round(portfolio_index, 2),
+                portfolio_index_sma10=_round_optional(row.portfolio_index_sma10, 2),
+                portfolio_index_sma21=_round_optional(row.portfolio_index_sma21, 2),
+                sp500_index=_round_optional(row.sp500_index, 2),
+            )
         )
-        for row in curve.itertuples()
-    ]
+    if not points:
+        return None
     details = []
     if trade_price_fallbacks:
         details.append("Trade-Price-Fallback: " + ", ".join(trade_price_fallbacks))
@@ -471,7 +484,24 @@ def _rounded_series_value(series: pd.Series, timestamp: pd.Timestamp) -> float |
     if series.empty or timestamp not in series.index:
         return None
     value = series.loc[timestamp]
-    return round(float(value), 2) if pd.notna(value) else None
+    return _round_optional(value, 2)
+
+
+def _round_optional(value: object, digits: int) -> float | None:
+    parsed = _finite_float(value)
+    return round(parsed, digits) if parsed is not None else None
+
+
+def _finite_float(value: object) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _is_finite_number(value: object) -> bool:
+    return _finite_float(value) is not None
 
 
 def _trade_price_fallback_series(
