@@ -1504,9 +1504,15 @@ function buildSmartRefreshPayload(config: MarketDataBootstrapConfig): Record<str
     rs_lookback_days: config.rsLookbackDays,
     benchmark_ticker: normalizeTicker(config.rsBenchmarkTicker) || "SPY",
     include_position_monitor: true,
+    include_fundamentals: true,
+    force_fundamentals: true,
+    fundamental_universe: "all",
+    fundamental_limit: config.storedUniverseLimit,
+    incremental_fundamentals: true,
     include_sec13f: true,
-    sec13f_universe: "open_positions",
-    sec13f_limit_universe: 500
+    force_sec13f: true,
+    sec13f_universe: "us_common_stocks",
+    sec13f_limit_universe: config.storedUniverseLimit
   };
 }
 
@@ -1525,9 +1531,15 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
       rs_lookback_days: 430,
       benchmark_ticker: "SPY",
       include_position_monitor: true,
+      include_fundamentals: true,
+      force_fundamentals: true,
+      fundamental_universe: "all",
+      fundamental_limit: 5000,
+      incremental_fundamentals: true,
       include_sec13f: true,
-      sec13f_universe: "open_positions",
-      sec13f_limit_universe: 500
+      force_sec13f: true,
+      sec13f_universe: "us_common_stocks",
+      sec13f_limit_universe: 5000
     };
   }
   if (type === "bootstrap_market_data") {

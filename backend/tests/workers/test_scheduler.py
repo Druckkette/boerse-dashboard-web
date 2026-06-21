@@ -21,7 +21,8 @@ def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     assert afternoon["args"][1]["mode"] == "scheduled"
     assert afternoon["args"][1]["source"] == "scheduler"
     assert afternoon["args"][1]["include_sec13f"] is True
-    assert afternoon["args"][1]["sec13f_universe"] == "open_positions"
+    assert afternoon["args"][1]["sec13f_universe"] == "us_common_stocks"
+    assert afternoon["args"][1]["sec13f_limit_universe"] == 5000
 
     assert evening["task"] == "smart_refresh_market_data"
     assert evening["schedule"]._orig_hour == 22

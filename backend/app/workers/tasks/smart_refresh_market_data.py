@@ -192,6 +192,7 @@ def build_smart_refresh_plan(
     price_overlap_days = _normalize_overlap_days(payload.get("price_overlap_days") or payload.get("overlap_days") or 1)
     include_position_monitor = bool(payload.get("include_position_monitor", True))
     include_fundamentals = bool(payload.get("include_fundamentals", True))
+    force_fundamentals = _normalize_bool(payload.get("force_fundamentals"), default=False)
     include_sec13f = _normalize_bool(payload.get("include_sec13f"), default=True)
     force_sec13f = _normalize_bool(payload.get("force_sec13f"), default=False)
     force_market_refresh = _scheduled_or_forced(payload)
@@ -232,7 +233,10 @@ def build_smart_refresh_plan(
     }
     incomplete_fundamental_tickers: list[str] = []
     if include_fundamentals and not (
-        force_market_refresh or _is_missing(fundamentals_freshness) or _is_stale(fundamentals_freshness)
+        force_market_refresh
+        or force_fundamentals
+        or _is_missing(fundamentals_freshness)
+        or _is_stale(fundamentals_freshness)
     ):
         incomplete_fundamental_tickers = _incomplete_fundamental_tickers(fundamental_action_payload)
     universe_needs_refresh = _universe_needs_refresh(universe_status)
@@ -364,6 +368,7 @@ def build_smart_refresh_plan(
 
     if include_fundamentals and (
         force_market_refresh
+        or force_fundamentals
         or _is_missing(fundamentals_freshness)
         or _is_stale(fundamentals_freshness)
         or bool(incomplete_fundamental_tickers)
@@ -372,6 +377,8 @@ def build_smart_refresh_plan(
         action_payload = dict(fundamental_action_payload)
         if force_market_refresh:
             reason = "Geplanter Smart-Refresh: Fundamental-Historien werden geprüft und inkrementell aktualisiert."
+        elif force_fundamentals:
+            reason = "Manueller Smart-Refresh: Fundamental-Historien werden fuer das gewaehlte Universe inkrementell geprueft."
         elif incomplete_fundamental_tickers:
             sample = ", ".join(incomplete_fundamental_tickers[:8])
             suffix = "..." if len(incomplete_fundamental_tickers) > 8 else ""
@@ -402,7 +409,7 @@ def build_smart_refresh_plan(
                 payload={
                     "mode": "incremental",
                     "source": "smart_refresh",
-                    "universe": str(payload.get("sec13f_universe") or "open_positions"),
+                    "universe": str(payload.get("sec13f_universe") or ("us_common_stocks" if force_market_refresh else "tracked")),
                     "limit_universe": _normalize_13f_limit(
                         payload.get("sec13f_limit_universe") or payload.get("sec13f_limit") or 500
                     ),
@@ -888,7 +895,7 @@ def _normalize_fundamental_limit(value: object) -> int:
 
 def _normalize_13f_limit(value: object) -> int:
     try:
-        return max(1, min(500, int(value)))
+        return max(1, min(5000, int(value)))
     except (TypeError, ValueError):
         return 120
 

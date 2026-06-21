@@ -14,7 +14,7 @@ from app.data_sources.sec13f_client import (
     list_sec_13f_datasets,
     sec_headers,
 )
-from app.services.sec13f import _ticker_breakdown
+from app.services.sec13f import _resolve_universe, _ticker_breakdown
 
 
 def test_sec13f_cusip_mapping_uses_sec_company_names() -> None:
@@ -98,6 +98,15 @@ def test_sec13f_default_overrides_include_current_sandisk_cusip() -> None:
     overrides = load_default_overrides({"SNDK"})
 
     assert overrides["80004C200"] == "SNDK"
+
+
+def test_sec13f_universe_can_resolve_stored_us_common_stocks(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.sec13f.resolve_universe_tickers",
+        lambda **kwargs: ["AAPL", "INTC", "NVDA"][: int(kwargs["limit"])],
+    )
+
+    assert _resolve_universe({"universe": "us_common_stocks", "limit_universe": 5000}) == ["AAPL", "INTC", "NVDA"]
 
 
 def test_sec13f_override_meta_rows_allow_mapping_when_sec_meta_is_missing() -> None:

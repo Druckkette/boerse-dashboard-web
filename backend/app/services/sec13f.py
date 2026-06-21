@@ -31,6 +31,8 @@ from app.schemas import (
     Sec13FUnmatchedCusipItem,
 )
 from app.services.settings import get_runtime_config_value
+from app.services.universes import resolve_universe_tickers
+from app.services.workspace import get_workspace_state
 
 ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]
 
@@ -384,7 +386,7 @@ def _join_unique(values: Any) -> str:
 
 def _resolve_universe(payload: dict[str, Any]) -> list[str]:
     explicit = _normalize_tickers(payload.get("tickers"))
-    limit = max(1, min(500, _int_or_default(payload.get("limit_universe") or payload.get("limit"), 120)))
+    limit = max(1, min(5000, _int_or_default(payload.get("limit_universe") or payload.get("limit"), 120)))
     if explicit:
         return explicit[:limit]
 
@@ -395,8 +397,29 @@ def _resolve_universe(payload: dict[str, Any]) -> list[str]:
             tickers = [row.ticker for row in portfolio_repository.list_open_positions()]
         except portfolio_repository.PortfolioRepositoryUnavailable:
             tickers = []
+    elif universe_key in {"tracked", "workspace", "recent", "watchlist"}:
+        tickers = _tracked_tickers_for_13f(limit=limit)
+    elif universe_key in {"us_common_stocks", "all", "stored", "live", "universe"}:
+        tickers = resolve_universe_tickers(
+            explicit_tickers=None,
+            universe_key="us_common_stocks",
+            fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
+            limit=limit,
+        )
     if not tickers:
         tickers = list(DEFAULT_MARKET_UNIVERSE_TICKERS)
+    return _normalize_tickers(tickers)[:limit]
+
+
+def _tracked_tickers_for_13f(*, limit: int) -> list[str]:
+    tickers: list[str] = []
+    try:
+        tickers.extend(row.ticker for row in portfolio_repository.list_open_positions())
+    except portfolio_repository.PortfolioRepositoryUnavailable:
+        pass
+    workspace = get_workspace_state()
+    tickers.extend(workspace.watchlist)
+    tickers.extend(workspace.recent_tickers)
     return _normalize_tickers(tickers)[:limit]
 
 

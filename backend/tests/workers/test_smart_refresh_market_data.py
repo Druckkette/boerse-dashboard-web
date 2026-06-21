@@ -120,6 +120,31 @@ def test_smart_plan_refreshes_stale_tracked_fundamentals() -> None:
     assert plan[0].payload["incremental"] is True
 
 
+def test_smart_plan_can_force_incremental_all_fundamentals() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            fundamentals="fresh",
+        ),
+        universe_status=_universe(),
+        payload={
+            "universe": "us_common_stocks",
+            "force_fundamentals": True,
+            "fundamental_universe": "all",
+            "fundamental_limit": 5000,
+        },
+    )
+
+    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert plan[0].payload["fundamental_universe"] == "all"
+    assert plan[0].payload["fundamental_limit"] == 5000
+    assert plan[0].payload["incremental"] is True
+
+
 def test_smart_plan_repairs_incomplete_current_fundamentals(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(smart_module, "_incomplete_fundamental_tickers", lambda payload: ["BE"])
 
@@ -157,7 +182,7 @@ def test_smart_plan_refreshes_missing_13f_trends() -> None:
     )
 
     assert [action.key for action in plan] == ["refresh_sec13f"]
-    assert plan[0].payload["universe"] == "open_positions"
+    assert plan[0].payload["universe"] == "tracked"
     assert plan[0].payload["limit_universe"] == 500
 
 
@@ -258,7 +283,7 @@ def test_smart_refresh_task_runs_13f_when_missing(monkeypatch: pytest.MonkeyPatc
     updated = job_repository.get_job(job.job_id)
 
     assert result["ok"] is True
-    assert calls == ["13f:open_positions:500"]
+    assert calls == ["13f:tracked:500"]
     assert result["results"]["refresh_sec13f"]["records_written"] == 1
     assert updated is not None
     assert updated.status == "done"

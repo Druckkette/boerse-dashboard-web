@@ -46,7 +46,7 @@ def test_refresh_stock_detail_runs_targeted_stock_pipeline(monkeypatch: pytest.M
         lambda payload: calls.append(f"13f:{payload['tickers'][0]}") or {"ok": True, "records_written": 1},
     )
 
-    payload = {"ticker": "SNDK", "range": "2y", "benchmark_ticker": "SPY", "source": "test"}
+    payload = {"ticker": "SNDK", "range": "2y", "benchmark_ticker": "SPY", "source": "test", "include_13f": True}
     job = job_repository.create_job("refresh_stock_detail", payload)
     result = stock_detail_module.refresh_stock_detail.run(job.job_id, payload)
     updated = job_repository.get_job(job.job_id)
@@ -87,13 +87,44 @@ def test_refresh_stock_detail_skips_13f_without_user_agent(monkeypatch: pytest.M
         lambda *args, **kwargs: pytest.fail("13F should not start without SEC_USER_AGENT"),
     )
 
-    job = job_repository.create_job("refresh_stock_detail", {"ticker": "SNDK"})
+    job = job_repository.create_job("refresh_stock_detail", {"ticker": "SNDK", "include_13f": True})
     result = stock_detail_module.refresh_stock_detail.run(job.job_id, job.payload)
     item = result["items"][0]
 
     assert result["ok"] is True
     assert item["steps"]["sec13f"]["skipped"] is True
     assert "SEC_USER_AGENT" in item["steps"]["sec13f"]["reason"]
+
+
+def test_refresh_stock_detail_skips_13f_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_price_cache_for_ticker",
+        lambda *args, **kwargs: {"ok": True, "records_written": 1},
+    )
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_relative_strength_ratings",
+        lambda *args, **kwargs: {"ok": True, "records_written": 1},
+    )
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_fundamentals_for_ticker",
+        lambda *args, **kwargs: {"ok": True, "records_written": 1},
+    )
+    monkeypatch.setattr(
+        stock_detail_module,
+        "refresh_institutional_13f_from_sec",
+        lambda *args, **kwargs: calls.append("13f") or {"ok": True, "records_written": 1},
+    )
+
+    job = job_repository.create_job("refresh_stock_detail", {"ticker": "INTC"})
+    result = stock_detail_module.refresh_stock_detail.run(job.job_id, job.payload)
+
+    assert result["ok"] is True
+    assert "sec13f" not in result["items"][0]["steps"]
+    assert calls == []
 
 
 def test_refresh_stock_detail_can_skip_price_refresh(monkeypatch: pytest.MonkeyPatch) -> None:

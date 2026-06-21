@@ -25,8 +25,8 @@ SMART_REFRESH_PAYLOAD = {
     "fundamental_limit": 5000,
     "incremental_fundamentals": True,
     "fundamental_action_max_seconds": 2700,
-    "sec13f_universe": "open_positions",
-    "sec13f_limit_universe": 500,
+    "sec13f_universe": "us_common_stocks",
+    "sec13f_limit_universe": 5000,
     "sec13f_dataset_count": 2,
 }
 

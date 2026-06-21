@@ -118,7 +118,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     }
   });
   const refreshStockMutation = useMutation({
-    mutationFn: (options?: { includePrices?: boolean }) =>
+    mutationFn: (options?: { includePrices?: boolean; include13f?: boolean }) =>
       api.startJob({
         type: "refresh_stock_detail",
         payload: {
@@ -128,7 +128,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           include_prices: options?.includePrices ?? true,
           include_fundamentals: true,
           include_rs: true,
-          include_13f: true,
+          include_13f: options?.include13f ?? true,
           incremental: true,
           source: "stock_detail"
         }
@@ -183,17 +183,21 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     !fundamentalsQuery.data?.item ||
     !rsQuery.data?.found ||
     !institutionalQuery.data?.item;
+  const blockingDetailDataMissing =
+    priceQuery.data?.source !== "database" ||
+    !fundamentalsQuery.data?.item ||
+    !rsQuery.data?.found;
 
   useEffect(() => {
-    if (!clean || detailDataLoading || !detailDataMissing || refreshRunning || refreshStockMutation.isPending || refreshJobId) return;
+    if (!clean || detailDataLoading || !blockingDetailDataMissing || refreshRunning || refreshStockMutation.isPending || refreshJobId) return;
     const storageKey = `stock-detail-refresh:${clean}:${today()}`;
     if (typeof window !== "undefined" && window.sessionStorage.getItem(storageKey)) return;
     if (typeof window !== "undefined") window.sessionStorage.setItem(storageKey, "1");
-    refreshStockMutation.mutate({ includePrices: false });
+    refreshStockMutation.mutate({ includePrices: false, include13f: false });
   }, [
+    blockingDetailDataMissing,
     clean,
     detailDataLoading,
-    detailDataMissing,
     refreshJobId,
     refreshRunning,
     refreshStockMutation
@@ -302,7 +306,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
             <div>
               <div className="font-medium">{refreshJob.current_step || "Aktien-Datenrefresh"}</div>
               <div className="mt-1 text-xs leading-5 text-[#8e97a6]">
-                {refreshJob.message || "Kurse, RS, Fundamentals und 13F werden für diese Aktie aktualisiert."}
+                {refreshJob.message || "Kurse, RS und Fundamentals werden für diese Aktie aktualisiert. 13F läuft über Smart Refresh."}
               </div>
             </div>
             <StatusChip tone={refreshJob.status === "done" ? "good" : refreshJob.status === "failed" ? "bad" : "warning"}>

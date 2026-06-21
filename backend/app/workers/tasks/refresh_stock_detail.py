@@ -26,7 +26,7 @@ def refresh_stock_detail(self, job_id: str | None = None, payload: dict | None =
     tickers = _normalize_tickers(payload.get("tickers") or [payload.get("ticker")])
     range_key = _normalize_range(payload.get("range") or "2y")
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
-    include_13f = _normalize_bool(payload.get("include_13f"), default=True)
+    include_13f = _normalize_bool(payload.get("include_13f"), default=False)
     include_fundamentals = _normalize_bool(payload.get("include_fundamentals"), default=True)
     include_rs = _normalize_bool(payload.get("include_rs"), default=True)
     include_prices = _normalize_bool(payload.get("include_prices"), default=True)
