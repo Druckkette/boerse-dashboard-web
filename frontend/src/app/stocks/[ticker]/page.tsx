@@ -24,10 +24,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
       <StockAssessmentPanel ticker={clean} />
       <StockFundamentalsPanel ticker={clean} />
       <Institutional13FPanel ticker={clean} />
-      <div className="grid gap-4 xl:grid-cols-2">
-        <StockPricePanel ticker={clean} title="Price" />
-        <StockPricePanel ticker="SPY" title="Benchmark" />
-      </div>
+      <StockPricePanel ticker={clean} title="Kurs" />
       <StockRsPanel ticker={clean} />
     </div>
   );

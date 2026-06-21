@@ -32,22 +32,30 @@ export function StockPricePanel({
     staleTime: 60_000,
     enabled: clean !== "SPY"
   });
+  const rsQuery = useQuery({
+    queryKey: ["stock-rs", clean],
+    queryFn: () => api.stockRs(clean),
+    staleTime: 60_000,
+    enabled: clean !== "SPY"
+  });
   const history = query.data;
+  const rsHistory = useMemo(() => rsQuery.data?.item?.rs_history ?? [], [rsQuery.data?.item?.rs_history]);
   const chartPoints = useMemo(
-    () => buildTechnicalOverlayPoints(history?.points ?? [], benchmarkQuery.data?.points ?? []),
-    [benchmarkQuery.data?.points, history?.points]
+    () => buildTechnicalOverlayPoints(history?.points ?? [], benchmarkQuery.data?.points ?? [], rsHistory),
+    [benchmarkQuery.data?.points, history?.points, rsHistory]
   );
   const autoMarkers = useMemo(() => buildAutoMarkers(chartPoints), [chartPoints]);
   const statusTone = history?.source === "database" ? "good" : "warning";
   const statusLabel = history?.source === "database" ? "Price Cache" : "Fallback";
   const hasBenchmark = clean !== "SPY" && Boolean(benchmarkQuery.data?.points.length);
+  const hasRsHistory = clean !== "SPY" && rsHistory.length > 0;
 
   return (
     <LineChartCard
       caption={
         history
           ? `${history.points.length} Tagesbars, Stand ${history.as_of}, ${formatPct(history.change_pct)} im Zeitraum${
-              hasBenchmark ? ", RS vs SPY aktiv" : ""
+              hasRsHistory ? ", RS-Linie aktiv" : hasBenchmark ? ", RS vs SPY aktiv" : ""
             }`
           : "Historische OHLC-Daten aus dem Backend"
       }
@@ -78,18 +86,45 @@ export function StockPricePanel({
       levels={levels}
       markers={[...markers, ...autoMarkers]}
       subSeries={
-        hasBenchmark
+        hasRsHistory
           ? [
               {
-                key: "rsVsSpy",
+                key: "rs",
                 label: "RS vs SPY",
                 color: "#f472b6",
-                formatter: (value) => value.toFixed(1)
+                formatter: (value) => value.toFixed(2)
+              },
+              {
+                key: "rsEma21",
+                label: "RS 21-EMA",
+                color: "#38bdf8",
+                formatter: (value) => value.toFixed(2)
+              },
+              {
+                key: "rsEma50",
+                label: "RS 50-EMA",
+                color: "#fbbf24",
+                formatter: (value) => value.toFixed(2)
               }
             ]
-          : []
+          : hasBenchmark
+            ? [
+                {
+                  key: "rs",
+                  label: "RS vs SPY",
+                  color: "#f472b6",
+                  formatter: (value) => value.toFixed(1)
+                }
+              ]
+            : []
       }
-      subTitle={hasBenchmark ? "Relative Stärke vs SPY, Start = 100" : ""}
+      subTitle={
+        hasRsHistory
+          ? "Relative Stärke vs SPY mit eigenem 21-EMA und 50-EMA"
+          : hasBenchmark
+            ? "Relative Stärke vs SPY, Start = 100"
+            : ""
+      }
       volumeKey="volume"
       statusLabel={history ? statusLabel : "lädt"}
       statusTone={history ? statusTone : "neutral"}
@@ -98,17 +133,27 @@ export function StockPricePanel({
   );
 }
 
-function buildTechnicalOverlayPoints(points: PriceBarPoint[], benchmarkPoints: PriceBarPoint[]) {
+function buildTechnicalOverlayPoints(
+  points: PriceBarPoint[],
+  benchmarkPoints: PriceBarPoint[],
+  rsHistory: Array<{ date: string; rs: number; rs_ema21?: number | null; rs_ema50?: number | null }>
+) {
   const closes = points.map((point) => point.close);
   const ema21 = ema(closes, 21);
   const rsVsSpy = buildRelativeStrength(points, benchmarkPoints);
-  return points.map((point, index) => ({
-    ...point,
-    ema21: ema21[index],
-    sma50: sma(closes, index, 50),
-    sma200: sma(closes, index, 200),
-    rsVsSpy: rsVsSpy[index]
-  }));
+  const rsByDate = new Map(rsHistory.map((point) => [point.date, point]));
+  return points.map((point, index) => {
+    const rsPoint = rsByDate.get(point.date);
+    return {
+      ...point,
+      ema21: ema21[index],
+      sma50: sma(closes, index, 50),
+      sma200: sma(closes, index, 200),
+      rs: rsPoint?.rs ?? rsVsSpy[index],
+      rsEma21: rsPoint?.rs_ema21 ?? null,
+      rsEma50: rsPoint?.rs_ema50 ?? null
+    };
+  });
 }
 
 function buildRelativeStrength(points: PriceBarPoint[], benchmarkPoints: PriceBarPoint[]) {

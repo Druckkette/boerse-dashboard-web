@@ -678,6 +678,29 @@ def test_stock_assessment_natural_reaction_requires_below_average_volume() -> No
     assert not any(signal.label == "Natürliche Reaktion" for signal in signals)
 
 
+def test_stock_assessment_two_and_half_day_correction_requires_exact_two_red_days() -> None:
+    frame = _flat_frame()
+    fourth = frame.index[-4]
+    third = frame.index[-3]
+    second = frame.index[-2]
+    latest = frame.index[-1]
+    frame.loc[fourth, ["Open", "High", "Low", "Close"]] = [100.0, 102.0, 99.0, 101.0]
+    frame.loc[third, ["Open", "High", "Low", "Close"]] = [101.0, 102.0, 98.0, 99.0]
+    frame.loc[second, ["Open", "High", "Low", "Close"]] = [99.0, 100.0, 96.0, 97.0]
+    frame.loc[latest, ["Open", "High", "Low", "Close"]] = [97.0, 99.0, 95.0, 97.5]
+
+    signals = evaluate_chart_signs(frame)
+
+    signal = _signal(signals, "2,5-Tage-Korrektur")
+    assert signal.category == "neutral"
+    assert "genau 2 rote Tage" in signal.detail
+
+    frame.loc[fourth, ["Open", "High", "Low", "Close"]] = [102.0, 103.0, 99.0, 100.0]
+    signals = evaluate_chart_signs(frame)
+
+    assert not any(signal.label == "2,5-Tage-Korrektur" for signal in signals)
+
+
 def test_stock_assessment_warns_when_rs_line_is_below_21_ema() -> None:
     result = compute_stock_assessment(
         "RSWARN",

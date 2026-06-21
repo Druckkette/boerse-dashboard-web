@@ -1709,12 +1709,13 @@ def _recent_reaction_signals(
         volume_ok = volume_avg_50_last is not None and volume.iloc[-1] < volume_avg_50_last
         if drawdown is not None and -12.0 <= drawdown <= -8.0 and close.iloc[-1] > sma50_last and volume_ok:
             signals.append(ChartSignal("neutral", "Natürliche Reaktion", f"{drawdown:+.1f}% vom 20T-Hoch, Volumen unter Ø"))
-    if len(close) >= 3:
+    if len(close) >= 4:
+        day_before_sequence_red = close.iloc[-4] < open_.iloc[-4]
         red_2 = close.iloc[-3] < open_.iloc[-3] and close.iloc[-2] < open_.iloc[-2]
         daily_range = high.iloc[-1] - low.iloc[-1]
         close_range = (close.iloc[-1] - low.iloc[-1]) / daily_range if daily_range > 0 else 0.5
-        if red_2 and close_range >= 0.5:
-            signals.append(ChartSignal("neutral", "2,5-Tage-Korrektur", "2 rote Tage, Tag 3 Schluss obere Hälfte"))
+        if red_2 and not day_before_sequence_red and close_range >= 0.5:
+            signals.append(ChartSignal("neutral", "2,5-Tage-Korrektur", "genau 2 rote Tage, Tag 3 Schluss obere Hälfte"))
     if len(close) >= 21:
         prior_low = low.iloc[-21:-1].min()
         volume_like = True

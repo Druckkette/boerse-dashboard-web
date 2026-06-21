@@ -491,6 +491,20 @@ export function LineChartCard({
             <span className="tabular-nums">{level.value.toFixed(2)}</span>
           </div>
         ))}
+        {chartMode === "candlestick" && (
+          <>
+            <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
+              <span className="h-3 w-2 rounded-[2px] border border-rose-400 bg-white" />
+              <span className="text-[#a0a7b4]">rote Kontur: Abwärtskerze</span>
+            </div>
+            {volumeKey && (
+              <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
+                <span className="h-3 w-2 rounded-[2px] bg-rose-400" />
+                <span className="text-[#a0a7b4]">voll rot: Volumen fallender Tag</span>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </section>
   );

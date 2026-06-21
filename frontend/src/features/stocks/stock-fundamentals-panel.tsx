@@ -130,15 +130,9 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <MetricTile label="Stichtag" value={item?.as_of || "n/a"} detail={item?.fiscal_period || "Keine Periode"} />
-            <MetricTile label="ROE" value={formatPct(item?.roe_pct)} detail={roeHistoryDetail(item)} tone={roeHistoryTone(item?.roe_history ?? [], item?.roe_pct)} />
-            <MetricTile label="Gewinnmarge" value={formatPct(item?.profit_margin_pct)} detail="Positiv ist Pflicht" tone={thresholdTone(item?.profit_margin_pct, 0, true)} />
-            <MetricTile label="Summe EPS 4Q" value={formatNumber(item?.trailing_eps)} detail="Muss über 0 liegen" tone={(item?.trailing_eps ?? -Infinity) > 0 ? "good" : "warning"} />
-            <MetricTile label="13F-Halter" value={formatInteger(item?.institutional_13f_holders)} detail={institutionDetail(item)} />
-            <MetricTile label="Beta" value={formatNumber(item?.beta)} detail="Risikokontext" />
             {hasEarningsDate && (
               <MetricTile label="Nächste Earnings" value={item?.next_earnings_date || "n/a"} detail={earningsHint(item?.next_earnings_date)} tone={earningsTone} />
             )}
-            <MetricTile label="Kurzfelder" value={formatPct(item?.quarterly_eps_growth_pct)} detail={`EPS Q · Umsatz Q ${formatPct(item?.quarterly_revenue_growth_pct)}`} />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
@@ -665,39 +659,6 @@ function roeHistoryScore(history: StockFundamentalsRoeYear[], currentRoe?: numbe
   return (currentRoe ?? -Infinity) >= 17 ? 1 / 3 : 0;
 }
 
-function roeHistoryTone(history: StockFundamentalsRoeYear[], currentRoe?: number | null): Tone {
-  const score = roeHistoryScore(history, currentRoe);
-  if (score >= 1) return "good";
-  if (score > 0) return "warning";
-  return "neutral";
-}
-
-function roeHistoryDetail(item: StockFundamentalsItem | null) {
-  if (!item) return "3 Jahre jeweils >=17%";
-  const rows = (item.roe_history ?? []).slice(0, 3).filter((entry) => typeof entry.roe_pct === "number");
-  if (rows.length > 0) {
-    const passed = rows.filter((entry) => typeof entry.roe_pct === "number" && entry.roe_pct >= 17).length;
-    return `${passed}/3 Jahre >=17%${rows.length < 3 ? ` · ${rows.length}/3 verfügbar` : ""}`;
-  }
-  if (typeof item.roe_pct === "number") return `nur aktueller ROE · Ziel 3 Jahre >=17%`;
-  return "3 Jahre jeweils >=17%";
-}
-
-function institutionDetail(item: StockFundamentalsItem | null) {
-  if (!item) return "SEC-13F Reports";
-  const parts = ["SEC-13F Reports"];
-  if (typeof item.institutional_holders_delta === "number") {
-    parts.push(`Halter ${signedInteger(item.institutional_holders_delta)}`);
-  }
-  if (typeof item.institutional_large_holders === "number") {
-    parts.push(`große 13F ${formatInteger(item.institutional_large_holders)}`);
-  }
-  if (item.institutional_report_period) {
-    parts.push(item.institutional_report_period);
-  }
-  return parts.filter((part) => part && part !== "n/a").join(" · ") || "SEC-13F Reports";
-}
-
 function annualRevenueHistoryScore(history: StockFundamentalsAnnualRevenue[]) {
   const values = padAnnualRevenueHistory(history).map(computeAnnualRevenueGrowth);
   if (values.some((value) => value === null)) return 0;
@@ -808,23 +769,9 @@ function hasHistoryData(values: Array<string | number | null | undefined>) {
   return values.some((value) => value !== null && value !== undefined && value !== "");
 }
 
-function formatPct(value?: number | null, suffix = "") {
-  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
-  return `${value.toFixed(1)}%${suffix ? ` ${suffix}` : ""}`;
-}
-
 function formatNumber(value?: number | null) {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
   return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
-}
-
-function formatInteger(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
-  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value);
-}
-
-function signedInteger(value: number) {
-  return `${value >= 0 ? "+" : ""}${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value)}`;
 }
 
 function formatLargeNumber(value?: number | null) {
@@ -833,11 +780,6 @@ function formatLargeNumber(value?: number | null) {
   if (abs >= 1_000_000_000) return `${formatNumber(value / 1_000_000_000)} Mrd.`;
   if (abs >= 1_000_000) return `${formatNumber(value / 1_000_000)} Mio.`;
   return formatNumber(value);
-}
-
-function thresholdTone(value: number | null | undefined, threshold: number, strict = false): Tone {
-  if (value === null || value === undefined) return "neutral";
-  return strict ? (value > threshold ? "good" : "warning") : value >= threshold ? "good" : "warning";
 }
 
 function toneForScore(value: number): Tone {

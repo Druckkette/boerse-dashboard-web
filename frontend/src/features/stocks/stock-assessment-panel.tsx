@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, CheckCircle2, CircleDot, Gauge, TrendingUp } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Gauge, TrendingUp, XCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -83,17 +83,11 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
         <ScoreCard label="Chart" value={assessment.scores.chart_behavior} detail="Positiv-/Negativsignale" />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Letzter Schluss" value={money(assessment.metrics.last_close)} detail={pct(assessment.metrics.change_pct)} />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <PriceMetric percent={assessment.metrics.change_pct} price={assessment.metrics.last_close} />
         <Metric label="ATR" value={pct(assessment.metrics.atr_pct)} detail={atrRegime(assessment.metrics.atr_pct)} />
-        <Metric label="Dollar-Volumen" value={mio(assessment.metrics.dollar_volume_mio)} detail="20 Tage Ø" />
-        <Metric label="RS-Rating" value={numberOrDash(assessment.metrics.rs_rating)} detail={pct(assessment.metrics.rs_percentile)} />
+        <Metric label="RS-Rating" value={numberOrDash(assessment.metrics.rs_rating)} detail="Bewertungszahl" />
         <Metric label="Beta" value={numberOrDash(assessment.metrics.beta)} detail={betaRegime(assessment.metrics.beta)} />
-        <Metric
-          label="13F-Halter"
-          value={numberOrDash(assessment.fundamentals?.institutional_13f_holders)}
-          detail={institutionMetricDetail(assessment)}
-        />
         {assessment.earnings && (
           <Metric
             label="Earnings"
@@ -127,7 +121,7 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
           <div className="grid gap-3 lg:grid-cols-2">
             <CheckGroup title="Technisch" checks={checksByCategory.technical} />
             <CheckGroup title="Trend" checks={checksByCategory.trend} />
-            <CheckGroup title="Risiko" checks={checksByCategory.risk} />
+            <CheckGroup title="Überdehnung" checks={checksByCategory.risk} />
             <CheckGroup title="Fundamental" checks={checksByCategory.fundamental} />
           </div>
         </div>
@@ -189,6 +183,19 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
+function PriceMetric({ percent, price }: { percent?: number | null; price?: number | null }) {
+  return (
+    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+      <div className="mb-2 flex items-center gap-2 text-xs uppercase text-[#a0a7b4]">
+        <TrendingUp className="size-3.5" />
+        Letzter Schluss
+      </div>
+      <div className={priceMoveClass(percent)}>{pct(percent)}</div>
+      <div className="mt-1 text-xs text-[#7f8794]">{money(price)}</div>
+    </div>
+  );
+}
+
 function ReasonList({
   title,
   tone,
@@ -227,23 +234,26 @@ function ReasonList({
 }
 
 function CheckGroup({ title, checks }: { title: string; checks: StockAssessmentCheck[] }) {
+  const visibleChecks = title === "Fundamental" ? checks.filter((check) => check.label !== "Fundamental-Datenquelle") : checks;
   return (
     <div className="rounded border border-[#242a33] bg-[#111419] p-4">
       <div className="mb-3 text-sm font-medium">{title}</div>
-      {checks.length === 0 ? (
+      {visibleChecks.length === 0 ? (
         <div className="text-sm text-[#7f8794]">Noch keine Regeln.</div>
       ) : (
         <div className="space-y-2">
-          {checks.map((check) => (
+          {visibleChecks.map((check) => (
             <div key={check.label} className="flex gap-2 text-sm">
               {check.passed ? (
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" />
               ) : (
-                <CircleDot className="mt-0.5 size-4 shrink-0 text-[#7f8794]" />
+                <XCircle className="mt-0.5 size-4 shrink-0 text-rose-300" />
               )}
               <div>
-                <div className={check.passed ? "text-[#dbe4ef]" : "text-[#a0a7b4]"}>{check.label}</div>
-                <div className="text-xs leading-5 text-[#7f8794]">{check.detail}</div>
+                <div className={check.passed ? "text-emerald-100" : "text-rose-100"}>{check.label}</div>
+                <div className={check.passed ? "text-xs leading-5 text-emerald-200/70" : "text-xs leading-5 text-rose-200/75"}>
+                  {check.detail}
+                </div>
               </div>
             </div>
           ))}
@@ -302,25 +312,6 @@ function groupSignals(signals: StockAssessmentSignal[]) {
   };
 }
 
-function institutionMetricDetail(assessment: StockAssessment) {
-  const parts = ["SEC-13F Reports"];
-  const fundamentals = assessment.fundamentals;
-  if (typeof fundamentals?.institutional_holders_delta === "number") {
-    parts.push(`Halter ${signedInteger(fundamentals.institutional_holders_delta)}`);
-  }
-  if (typeof fundamentals?.institutional_large_holders === "number") {
-    parts.push(`große 13F ${fundamentals.institutional_large_holders}`);
-  }
-  if (fundamentals?.institutional_report_period) {
-    parts.push(fundamentals.institutional_report_period);
-  }
-  return parts.join(" · ");
-}
-
-function signedInteger(value: number) {
-  return `${value >= 0 ? "+" : ""}${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 }).format(value)}`;
-}
-
 function toneForScore(value: number): Tone {
   if (value >= 75) return "good";
   if (value >= 55) return "warning";
@@ -349,6 +340,14 @@ function pct(value?: number | null) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function priceMoveClass(value?: number | null) {
+  const base = "text-3xl font-semibold tabular-nums";
+  if (typeof value !== "number" || Number.isNaN(value)) return `${base} text-[#dbe4ef]`;
+  if (value > 0) return `${base} text-emerald-200`;
+  if (value < 0) return `${base} text-rose-200`;
+  return `${base} text-[#dbe4ef]`;
+}
+
 function atrRegime(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "21 Tage";
   if (value < 2.5) return "Ruhig (<2,5%)";
@@ -363,11 +362,6 @@ function betaRegime(value?: number | null) {
   if (value <= 1.02) return "Marktnah (0,98-1,02)";
   if (value <= 2) return "Wachstumsorientiert (>1,03-2)";
   return "Hochdynamisch (>2)";
-}
-
-function mio(value?: number | null) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "-";
-  return `$${value.toFixed(0)} Mio.`;
 }
 
 function numberOrDash(value?: number | null) {

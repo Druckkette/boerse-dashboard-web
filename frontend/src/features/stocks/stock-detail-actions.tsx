@@ -1,8 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Clock3, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
-import type { ReactNode } from "react";
+import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -219,7 +218,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
             {positionSaved ? <StatusChip tone="good">Position vorgemerkt</StatusChip> : null}
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-            Schnellaktionen aus der alten Aktienbewertung: Watchlist, zuletzt angesehen und Depot-Vormerkung laufen ohne Seitenreload.
+            Schnellaktionen aus der alten Aktienbewertung: Watchlist, Kursrefresh und Depot-Vormerkung laufen ohne Seitenreload.
           </p>
         </div>
 
@@ -266,22 +265,6 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <ActionMetric icon={<Clock3 size={16} />} label="Recent" value={clean} detail="Beim Öffnen gespeichert" />
-        <ActionMetric label="Einstand" value={positionDefaults.price ? money(positionDefaults.price) : "-"} detail={positionDefaults.date ?? "Price Cache fehlt"} />
-        <ActionMetric
-          label="Währung"
-          value={positionDefaults.currency}
-          detail={
-            priceQuery.data?.cache_updated_at
-              ? `Cache ${formatDateTime(priceQuery.data.cache_updated_at)}`
-              : priceQuery.data?.source === "database"
-                ? "Price Cache"
-                : "Fallback"
-          }
-        />
-      </div>
-
       {(addWatchlistMutation.error || savePositionMutation.error) && (
         <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
@@ -319,29 +302,6 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
         </div>
       ) : null}
     </section>
-  );
-}
-
-function ActionMetric({
-  icon,
-  label,
-  value,
-  detail
-}: {
-  icon?: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
-      <div className="mb-2 flex items-center gap-2 text-xs uppercase text-[#a0a7b4]">
-        {icon}
-        {label}
-      </div>
-      <div className="text-xl font-semibold tabular-nums">{value}</div>
-      <div className="mt-1 text-xs text-[#7f8794]">{detail}</div>
-    </div>
   );
 }
 
@@ -421,10 +381,6 @@ function formatDateTime(value: string | null | undefined) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(value);
 }
 
 function errorText(error: unknown) {
