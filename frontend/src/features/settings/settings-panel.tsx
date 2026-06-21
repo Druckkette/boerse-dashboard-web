@@ -1,7 +1,18 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, DatabaseZap, Play, RefreshCw, ServerCog, SlidersHorizontal } from "lucide-react";
+import {
+  ArrowRight,
+  BellRing,
+  DatabaseZap,
+  Play,
+  RefreshCw,
+  Rocket,
+  ServerCog,
+  SlidersHorizontal,
+  Upload
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -114,6 +125,8 @@ export function SettingsPanel() {
           </div>
         </div>
       </section>
+
+      <SettingsWorkflowLinks />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">
@@ -325,6 +338,59 @@ export function SettingsPanel() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function SettingsWorkflowLinks() {
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold">Setup und Import</h2>
+        <p className="mt-1 text-sm text-[#a0a7b4]">
+          Einmalige Einrichtung und Portfolio-Imports sind aus der Hauptnavigation hierher verschoben.
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <SettingsWorkflowLink
+          description="Erststart, Runtime-Secrets, Datenbank-Ziel, Datenjobs und Systemprüfung."
+          href="/setup"
+          icon={<Rocket size={18} />}
+          title="Setup öffnen"
+        />
+        <SettingsWorkflowLink
+          description="Positions-CSV und Trade-Republic-Import als vollständige Importseite."
+          href="/portfolio/imports"
+          icon={<Upload size={18} />}
+          title="Import öffnen"
+        />
+      </div>
+    </section>
+  );
+}
+
+function SettingsWorkflowLink({
+  href,
+  icon,
+  title,
+  description
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link
+      className="group rounded border border-[#2d333d] bg-[#111419] p-4 transition hover:border-emerald-300/60 hover:bg-[#151a20]"
+      href={href}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-emerald-300">{icon}</div>
+        <ArrowRight className="text-[#a0a7b4] transition group-hover:translate-x-0.5 group-hover:text-emerald-200" size={16} />
+      </div>
+      <div className="mt-3 font-semibold">{title}</div>
+      <p className="mt-1 text-sm leading-5 text-[#a0a7b4]">{description}</p>
+    </Link>
   );
 }
 

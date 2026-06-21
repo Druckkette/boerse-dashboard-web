@@ -7,6 +7,10 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { PortfolioPosition } from "@/lib/types/api";
 import { PositionSizeCalculator } from "./position-size-calculator";
+import {
+  IsinMappingMaintenancePanel,
+  TradeRepublicTransactionImportPanel
+} from "./trade-republic-import-panel";
 
 export function PortfolioManagementPanel({ positions }: { positions: PortfolioPosition[] }) {
   return (
@@ -23,6 +27,16 @@ export function PortfolioManagementPanel({ positions }: { positions: PortfolioPo
             <SellBooking positions={positions} />
             <CashFlowPanel />
           </div>
+        </div>
+      </CollapsibleSection>
+      <CollapsibleSection
+        title="Trade-Republic-Import und ISIN-Zuordnungen"
+        description="TR-CSV direkt im Portfolio hochladen. Gespeicherte ISIN-Zuordnungen bleiben dauerhaft nutzbar."
+        badge="eingeklappt"
+      >
+        <div className="space-y-4">
+          <TradeRepublicTransactionImportPanel />
+          <IsinMappingMaintenancePanel />
         </div>
       </CollapsibleSection>
     </div>

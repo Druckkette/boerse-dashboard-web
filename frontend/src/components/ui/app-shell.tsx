@@ -10,11 +10,10 @@ import {
   LineChart,
   ListChecks,
   NotebookTabs,
-  Rocket,
   Search,
   Settings,
   Shield,
-  Upload
+  TrendingUp
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -22,20 +21,20 @@ import { ReactNode } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/setup", label: "Setup", icon: Rocket },
   { href: "/market", label: "Market", icon: Gauge },
   { href: "/sectors", label: "Sectors", icon: Shield },
   { href: "/stocks", label: "Stocks", icon: Search },
-  { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness },
-  { href: "/portfolio/imports", label: "Imports", icon: Upload },
+  { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness, exact: true },
+  { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/sell-monitor", label: "Sell Monitor", icon: ChartCandlestick },
   { href: "/workspace", label: "Workspace", icon: NotebookTabs },
   { href: "/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
-function isActive(pathname: string, href: string) {
+function isActive(pathname: string, href: string, exact = false) {
   if (href === "/") return pathname === "/";
+  if (exact) return pathname === href;
   return pathname.startsWith(href);
 }
 
@@ -57,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = isActive(pathname, item.href);
+            const active = isActive(pathname, item.href, item.exact);
             return (
               <Link
                 key={item.href}
