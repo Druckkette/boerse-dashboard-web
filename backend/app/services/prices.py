@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
-from app.data_sources.yfinance_client import fetch_daily_price_bars, fetch_daily_price_bars_batch
+from app.data_sources.yfinance_client import FetchedPriceBar, fetch_daily_price_bars, fetch_daily_price_bars_batch
 from app.repositories.prices import (
     PriceBarWrite,
     PriceRepositoryUnavailable,
@@ -146,25 +146,66 @@ def _refresh_price_cache_chunk(
         ticker = _normalize_ticker(symbol.ticker)
         latest_by_ticker[ticker] = _latest_cached_date(ticker) if incremental else None
 
-    start_by_ticker = {
-        ticker: _incremental_start_date(latest_cached_date)
-        for ticker, latest_cached_date in latest_by_ticker.items()
-        if latest_cached_date is not None
-    }
-    batch_start = min(start_by_ticker.values()) if len(start_by_ticker) == len(symbols) and start_by_ticker else None
+    if not incremental:
+        return _fetch_and_write_price_symbol_group(
+            symbols,
+            period=period,
+            range_key=range_key,
+            start=None,
+            latest_by_ticker=latest_by_ticker,
+            timeout=timeout,
+        )
+
+    grouped_by_start: dict[date | None, list[PriceRefreshSymbol]] = {}
+    for symbol in symbols:
+        ticker = _normalize_ticker(symbol.ticker)
+        latest_cached_date = latest_by_ticker.get(ticker)
+        start = _incremental_start_date(latest_cached_date) if latest_cached_date else None
+        grouped_by_start.setdefault(start, []).append(symbol)
+
+    result_by_ticker: dict[str, dict] = {}
+    for start, group in grouped_by_start.items():
+        for item in _fetch_and_write_price_symbol_group(
+            group,
+            period=period,
+            range_key=range_key,
+            start=start,
+            latest_by_ticker=latest_by_ticker,
+            timeout=timeout,
+        ):
+            result_by_ticker[str(item.get("ticker") or "").upper()] = item
+
+    ordered_results: list[dict] = []
+    for symbol in symbols:
+        ticker = _normalize_ticker(symbol.ticker)
+        item = result_by_ticker.get(ticker)
+        if item is not None:
+            ordered_results.append(item)
+    return ordered_results
+
+
+def _fetch_and_write_price_symbol_group(
+    symbols: list[PriceRefreshSymbol],
+    *,
+    period: str,
+    range_key: PriceRange,
+    start: date | None,
+    latest_by_ticker: dict[str, date | None],
+    timeout: int,
+) -> list[dict]:
     fetch_symbols = list(dict.fromkeys(_fetch_symbol(symbol) for symbol in symbols))
     try:
         fetched_by_symbol = fetch_daily_price_bars_batch(
             fetch_symbols,
             period=period,
-            start=batch_start,
+            start=start,
             timeout=timeout,
         )
     except Exception as exc:
         return _refresh_price_cache_chunk_fallback(
             symbols,
             range_key=range_key,
-            incremental=incremental,
+            incremental=start is not None,
             timeout=timeout,
             batch_error=exc,
         )
@@ -173,21 +214,20 @@ def _refresh_price_cache_chunk(
     for symbol in symbols:
         ticker = _normalize_ticker(symbol.ticker)
         fetch_symbol = _fetch_symbol(symbol)
-        ticker_start = start_by_ticker.get(ticker) if batch_start is not None else None
         fetched = fetched_by_symbol.get(fetch_symbol, [])
-        if ticker_start is not None:
-            fetched = [bar for bar in fetched if bar.date >= ticker_start]
+        if start is not None:
+            fetched = [bar for bar in fetched if bar.date >= start]
         results.append(
             _write_price_cache_result(
                 ticker=ticker,
                 yahoo_symbol=fetch_symbol,
                 fetched=fetched,
                 latest_cached_date=latest_by_ticker.get(ticker),
-                start_date=ticker_start,
+                start_date=start,
                 timeout=timeout,
                 batch=True,
                 batch_size=len(symbols),
-                batch_start_date=batch_start,
+                batch_start_date=start,
             )
         )
     return results
@@ -236,7 +276,7 @@ def _write_price_cache_result(
     *,
     ticker: str,
     yahoo_symbol: str,
-    fetched: list,
+    fetched: list[FetchedPriceBar],
     latest_cached_date: date | None,
     start_date: date | None,
     timeout: int,
