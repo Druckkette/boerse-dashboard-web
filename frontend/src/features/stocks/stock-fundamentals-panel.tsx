@@ -311,9 +311,9 @@ function HistoryPanel({
 }
 
 function EpsQuarterTable({ history }: { history: StockFundamentalsEpsQuarter[] }) {
-  const rows = comparableEpsHistory(history);
+  const rows = visibleEpsHistory(history);
   if (rows.length === 0) {
-    return <EmptyHistoryTable message="Keine vollständigen EPS-Quartalsvergleiche gespeichert." />;
+    return <EmptyHistoryTable message="Keine EPS-Quartalshistorie gespeichert." />;
   }
   return (
     <HistoryTable
@@ -325,7 +325,7 @@ function EpsQuarterTable({ history }: { history: StockFundamentalsEpsQuarter[] }
           formatNumber(item.eps_current_quarter),
           formatNumber(item.eps_same_quarter_last_year),
           formatSignedPct(growth),
-          growthStatus(growth)
+          growthStatus(growth, item.flag)
         ];
       })}
     />
@@ -333,9 +333,9 @@ function EpsQuarterTable({ history }: { history: StockFundamentalsEpsQuarter[] }
 }
 
 function AnnualEpsTable({ history }: { history: StockFundamentalsAnnualEps[] }) {
-  const rows = comparableAnnualEpsHistory(history);
+  const rows = visibleAnnualEpsHistory(history);
   if (rows.length === 0) {
-    return <EmptyHistoryTable message="Keine vollständigen EPS-Jahresvergleiche gespeichert." />;
+    return <EmptyHistoryTable message="Keine EPS-Jahreshistorie gespeichert." />;
   }
   return (
     <HistoryTable
@@ -347,7 +347,7 @@ function AnnualEpsTable({ history }: { history: StockFundamentalsAnnualEps[] }) 
           formatNumber(item.eps_current_year),
           formatNumber(item.eps_previous_year),
           formatSignedPct(growth),
-          growthStatus(growth)
+          growthStatus(growth, item.flag)
         ];
       })}
     />
@@ -355,9 +355,9 @@ function AnnualEpsTable({ history }: { history: StockFundamentalsAnnualEps[] }) 
 }
 
 function RevenueQuarterTable({ history }: { history: StockFundamentalsRevenueQuarter[] }) {
-  const rows = comparableRevenueHistory(history);
+  const rows = visibleRevenueHistory(history);
   if (rows.length === 0) {
-    return <EmptyHistoryTable message="Keine vollständigen Umsatz-Quartalsvergleiche gespeichert." />;
+    return <EmptyHistoryTable message="Keine Umsatz-Quartalshistorie gespeichert." />;
   }
   return (
     <HistoryTable
@@ -369,7 +369,7 @@ function RevenueQuarterTable({ history }: { history: StockFundamentalsRevenueQua
           formatLargeNumber(item.revenue_current_quarter),
           formatLargeNumber(item.revenue_same_quarter_last_year),
           formatSignedPct(growth),
-          growthStatus(growth)
+          growthStatus(growth, item.flag)
         ];
       })}
     />
@@ -377,9 +377,9 @@ function RevenueQuarterTable({ history }: { history: StockFundamentalsRevenueQua
 }
 
 function AnnualRevenueTable({ history }: { history: StockFundamentalsAnnualRevenue[] }) {
-  const rows = comparableAnnualRevenueHistory(history);
+  const rows = visibleAnnualRevenueHistory(history);
   if (rows.length === 0) {
-    return <EmptyHistoryTable message="Keine vollständigen Umsatz-Jahresvergleiche gespeichert." />;
+    return <EmptyHistoryTable message="Keine Umsatz-Jahreshistorie gespeichert." />;
   }
   return (
     <HistoryTable
@@ -391,7 +391,7 @@ function AnnualRevenueTable({ history }: { history: StockFundamentalsAnnualReven
           formatLargeNumber(item.revenue_current_year),
           formatLargeNumber(item.revenue_previous_year),
           formatSignedPct(growth),
-          growthStatus(growth)
+          growthStatus(growth, item.flag)
         ];
       })}
     />
@@ -438,6 +438,10 @@ function cellClass(cell: string, index: number, length: number) {
   if (index === length - 1) {
     if (cell === "bestanden") return "font-medium text-emerald-200";
     if (cell === "unter 20%") return "font-medium text-amber-200";
+    if (cell === "Turnaround") return "font-medium text-sky-200";
+    if (cell === "Vorjahr fehlt") return "font-medium text-[#a0a7b4]";
+    if (cell === "weiter negativ" || cell === "Gewinn zu Verlust") return "font-medium text-rose-200";
+    if (cell === "Vorjahr <= 0" || cell === "Vorjahr 0") return "font-medium text-amber-200";
     return "text-[#7f8794]";
   }
   if (cell.startsWith("+") && index === length - 2) return "font-medium text-emerald-200";
@@ -461,8 +465,16 @@ function previewFundamentalScore(item: StockFundamentalsItem | null) {
   return (checks.reduce((sum, value) => sum + value, 0) / checks.length) * 100;
 }
 
-function comparableEpsHistory(history: StockFundamentalsEpsQuarter[]) {
-  return history.slice(0, 3).filter((item) => computeEpsGrowth(item) !== null);
+function visibleEpsHistory(history: StockFundamentalsEpsQuarter[]) {
+  return history.slice(0, 3).filter((item) =>
+    hasHistoryData([
+      item.fiscal_period,
+      item.eps_current_quarter,
+      item.eps_same_quarter_last_year,
+      item.eps_growth_yoy_pct,
+      item.flag
+    ])
+  );
 }
 
 function padEpsHistory(history: StockFundamentalsEpsQuarter[]) {
@@ -502,12 +514,20 @@ function epsHistorySummary(history: StockFundamentalsEpsQuarter[]) {
   const values = padEpsHistory(history).map(computeEpsGrowth);
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
-  if (valid.length < 3) return `${valid.length}/3 verfügbar`;
+  if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
   return `${passed}/3 >=20%`;
 }
 
-function comparableAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
-  return history.slice(0, 3).filter((item) => computeAnnualEpsGrowth(item) !== null);
+function visibleAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
+  return history.slice(0, 3).filter((item) =>
+    hasHistoryData([
+      item.fiscal_year,
+      item.eps_current_year,
+      item.eps_previous_year,
+      item.eps_growth_yoy_pct,
+      item.flag
+    ])
+  );
 }
 
 function padAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
@@ -547,12 +567,20 @@ function annualEpsHistorySummary(history: StockFundamentalsAnnualEps[]) {
   const values = padAnnualEpsHistory(history).map(computeAnnualEpsGrowth);
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
-  if (valid.length < 3) return `${valid.length}/3 verfügbar`;
+  if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
   return `${passed}/3 >=20%`;
 }
 
-function comparableRevenueHistory(history: StockFundamentalsRevenueQuarter[]) {
-  return history.slice(0, 3).filter((item) => computeRevenueGrowth(item) !== null);
+function visibleRevenueHistory(history: StockFundamentalsRevenueQuarter[]) {
+  return history.slice(0, 3).filter((item) =>
+    hasHistoryData([
+      item.fiscal_period,
+      item.revenue_current_quarter,
+      item.revenue_same_quarter_last_year,
+      item.revenue_growth_yoy_pct,
+      item.flag
+    ])
+  );
 }
 
 function padRevenueHistory(history: StockFundamentalsRevenueQuarter[]) {
@@ -592,12 +620,20 @@ function revenueHistorySummary(history: StockFundamentalsRevenueQuarter[]) {
   const values = padRevenueHistory(history).map(computeRevenueGrowth);
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
-  if (valid.length < 3) return `${valid.length}/3 verfügbar`;
+  if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
   return `${passed}/3 >=20%`;
 }
 
-function comparableAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
-  return history.slice(0, 3).filter((item) => computeAnnualRevenueGrowth(item) !== null);
+function visibleAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
+  return history.slice(0, 3).filter((item) =>
+    hasHistoryData([
+      item.fiscal_year,
+      item.revenue_current_year,
+      item.revenue_previous_year,
+      item.revenue_growth_yoy_pct,
+      item.flag
+    ])
+  );
 }
 
 function padAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
@@ -679,7 +715,7 @@ function annualRevenueHistorySummary(history: StockFundamentalsAnnualRevenue[]) 
   const values = padAnnualRevenueHistory(history).map(computeAnnualRevenueGrowth);
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
-  if (valid.length < 3) return `${valid.length}/3 verfügbar`;
+  if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
   return `${passed}/3 >=20%`;
 }
 
@@ -747,14 +783,29 @@ function accelerationLabel(value: boolean | null) {
   return "n/a";
 }
 
-function growthStatus(value: number | null) {
-  if (value === null) return "nicht verfügbar";
+function growthStatus(value: number | null, flag?: string | null) {
+  if (value === null) return historyFlagLabel(flag);
   return value >= 20 ? "bestanden" : "unter 20%";
 }
 
 function formatSignedPct(value: number | null) {
   if (value === null || Number.isNaN(value)) return "n/a";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function historyFlagLabel(flag?: string | null) {
+  const normalized = String(flag || "").trim().toLowerCase();
+  if (normalized === "turnaround") return "Turnaround";
+  if (normalized === "missing_prior" || normalized === "missing_previous") return "Vorjahr fehlt";
+  if (normalized === "still_neg" || normalized === "still_negative") return "weiter negativ";
+  if (normalized === "profit_to_loss") return "Gewinn zu Verlust";
+  if (normalized === "zero_prior") return "Vorjahr 0";
+  if (normalized === "negative_prior") return "Vorjahr <= 0";
+  return "nicht verfügbar";
+}
+
+function hasHistoryData(values: Array<string | number | null | undefined>) {
+  return values.some((value) => value !== null && value !== undefined && value !== "");
 }
 
 function formatPct(value?: number | null, suffix = "") {

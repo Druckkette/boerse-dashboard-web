@@ -15,6 +15,7 @@ from app.domain.market.volatility import VOLATILITY_TICKERS
 from app.domain.sell.service import monitor_open_positions
 from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import jobs as job_repository
+from app.repositories import portfolio as portfolio_repository
 from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFreshness, UniverseStatusResponse
 from app.services.freshness import get_freshness
 from app.services.fundamentals import refresh_fundamentals_for_ticker
@@ -29,6 +30,7 @@ from app.services.universes import (
     resolve_universe_price_symbols,
     resolve_universe_tickers,
 )
+from app.services.workspace import get_workspace_state
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 from app.workers.tasks.refresh_fundamentals import resolve_fundamental_tickers
@@ -218,6 +220,21 @@ def build_smart_refresh_plan(
     issue_by_key = {issue.key: issue for issue in diagnostics.issues}
 
     actions: list[SmartRefreshAction] = []
+    fundamental_action_payload: dict[str, Any] = {
+        "mode": "tracked",
+        "source": "smart_refresh",
+        "fundamental_universe": fundamental_universe,
+        "universe": universe_key if fundamental_universe in {"all", "universe"} else None,
+        "fundamental_limit": fundamental_limit,
+        "include_holders": True,
+        "incremental": incremental_fundamentals,
+        "fundamental_action_max_seconds": fundamental_action_max_seconds,
+    }
+    incomplete_fundamental_tickers: list[str] = []
+    if include_fundamentals and not (
+        force_market_refresh or _is_missing(fundamentals_freshness) or _is_stale(fundamentals_freshness)
+    ):
+        incomplete_fundamental_tickers = _incomplete_fundamental_tickers(fundamental_action_payload)
     universe_needs_refresh = _universe_needs_refresh(universe_status)
     market_prices_need_refresh = (
         force_market_refresh
@@ -346,24 +363,32 @@ def build_smart_refresh_plan(
         )
 
     if include_fundamentals and (
-        force_market_refresh or _is_missing(fundamentals_freshness) or _is_stale(fundamentals_freshness)
+        force_market_refresh
+        or _is_missing(fundamentals_freshness)
+        or _is_stale(fundamentals_freshness)
+        or bool(incomplete_fundamental_tickers)
     ):
+        reason = "Fundamental-Cache für offene Positionen, Watchlist und zuletzt geöffnete Aktien fehlt oder ist veraltet."
+        action_payload = dict(fundamental_action_payload)
+        if force_market_refresh:
+            reason = "Geplanter Smart-Refresh: Fundamental-Historien werden geprüft und inkrementell aktualisiert."
+        elif incomplete_fundamental_tickers:
+            sample = ", ".join(incomplete_fundamental_tickers[:8])
+            suffix = "..." if len(incomplete_fundamental_tickers) > 8 else ""
+            reason = (
+                "Fundamental-Snapshots sind zeitlich frisch, aber EPS-/Umsatz-Historien sind unvollständig "
+                f"({sample}{suffix})."
+            )
+            action_payload["tickers"] = incomplete_fundamental_tickers
+            action_payload["repair_incomplete_histories"] = True
+            action_payload["incomplete_tickers"] = incomplete_fundamental_tickers
         actions.append(
             SmartRefreshAction(
                 key="refresh_fundamentals",
                 job_type="refresh_fundamentals",
                 label="Fundamentals aktualisieren",
-                reason="Fundamental-Cache für offene Positionen, Watchlist und zuletzt geöffnete Aktien fehlt oder ist veraltet.",
-                payload={
-                    "mode": "tracked",
-                    "source": "smart_refresh",
-                    "fundamental_universe": fundamental_universe,
-                    "universe": universe_key if fundamental_universe in {"all", "universe"} else None,
-                    "fundamental_limit": fundamental_limit,
-                    "include_holders": True,
-                    "incremental": incremental_fundamentals,
-                    "fundamental_action_max_seconds": fundamental_action_max_seconds,
-                },
+                reason=reason,
+                payload=action_payload,
             )
         )
 
@@ -707,6 +732,60 @@ def _latest_fundamental_states(tickers: list[str]) -> dict[str, Any]:
         return fundamentals_repository.latest_fundamental_refresh_states(tickers)
     except fundamentals_repository.FundamentalsRepositoryUnavailable:
         return {}
+
+
+def _incomplete_fundamental_tickers(payload: dict[str, Any]) -> list[str]:
+    tickers = _resolve_fundamental_quality_tickers(payload)
+    if not tickers:
+        return []
+    latest_states = _latest_fundamental_states(tickers)
+    incomplete: list[str] = []
+    for ticker in tickers:
+        latest_state = latest_states.get(ticker)
+        if latest_state is None or latest_state.latest_date is None or not latest_state.complete:
+            incomplete.append(ticker)
+    return incomplete[:80]
+
+
+def _resolve_fundamental_quality_tickers(payload: dict[str, Any]) -> list[str]:
+    limit = _normalize_fundamental_limit(payload.get("fundamental_limit") or payload.get("limit_universe") or 80)
+    explicit = resolve_universe_tickers(
+        explicit_tickers=payload.get("tickers"),
+        universe_key=None,
+        fallback=[],
+        limit=limit,
+    )
+    if explicit:
+        return explicit
+
+    universe_key = str(payload.get("fundamental_universe") or payload.get("universe") or "").strip().lower()
+    mode = str(payload.get("mode") or "").strip().lower()
+    if universe_key in {"tracked", "workspace", "open_positions", "recent"} or (mode == "tracked" and not universe_key):
+        return _tracked_fundamental_quality_tickers(limit=limit)
+
+    return resolve_fundamental_tickers(payload)
+
+
+def _tracked_fundamental_quality_tickers(*, limit: int) -> list[str]:
+    tickers: list[str] = []
+    try:
+        tickers.extend(row.ticker for row in portfolio_repository.list_open_positions())
+    except portfolio_repository.PortfolioRepositoryUnavailable:
+        pass
+
+    workspace = get_workspace_state()
+    tickers.extend(workspace.watchlist)
+    tickers.extend(workspace.recent_tickers)
+    return _dedupe_tickers(tickers)[:limit]
+
+
+def _dedupe_tickers(values: list[str]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        clean = str(value or "").strip().upper()
+        if clean and clean not in out:
+            out.append(clean)
+    return out
 
 
 def _refresh_sec13f(

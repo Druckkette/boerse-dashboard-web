@@ -120,6 +120,28 @@ def test_smart_plan_refreshes_stale_tracked_fundamentals() -> None:
     assert plan[0].payload["incremental"] is True
 
 
+def test_smart_plan_repairs_incomplete_current_fundamentals(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smart_module, "_incomplete_fundamental_tickers", lambda payload: ["BE"])
+
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            fundamentals="fresh",
+        ),
+        universe_status=_universe(),
+        payload={"universe": "us_common_stocks"},
+    )
+
+    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert plan[0].payload["tickers"] == ["BE"]
+    assert plan[0].payload["repair_incomplete_histories"] is True
+    assert "unvollständig" in plan[0].reason
+
+
 def test_smart_plan_refreshes_missing_13f_trends() -> None:
     plan = smart_module.build_smart_refresh_plan(
         diagnostics=_diagnostics(),
