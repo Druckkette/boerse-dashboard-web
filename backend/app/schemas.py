@@ -360,12 +360,15 @@ class VolatilityPoint(BaseModel):
     spx_close: float | None = None
     spx_ret_5d: float | None = None
     vix_close: float | None = None
+    vix_sma10: float | None = None
+    vix_ema21: float | None = None
     vix_ret_5d: float | None = None
     vix_pct_rank_252: float | None = None
     vix_pct_above_sma10: float | None = None
     vix_panic_overextension: bool = False
     vix_regime: str
     vxx_close: float | None = None
+    vxx_ema21: float | None = None
     vxx_ret_5d: float | None = None
     vxx_state: str
     vxx_stress_confirmation: bool

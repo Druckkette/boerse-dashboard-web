@@ -62,7 +62,7 @@ def patch_institutional_13f_mapping(request: Sec13FMappingUpdateRequest) -> Sec1
 
 
 @router.get("/assessment/ranking", response_model=StockAssessmentRankingResponse)
-def stock_assessment_ranking(limit: int = Query(default=50, ge=1, le=120)) -> StockAssessmentRankingResponse:
+def stock_assessment_ranking(limit: int = Query(default=50, ge=1, le=500)) -> StockAssessmentRankingResponse:
     return get_stock_assessment_ranking(limit=limit)
 
 

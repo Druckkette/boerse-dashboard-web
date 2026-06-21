@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, Minus, Plus, RotateCcw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -93,6 +93,7 @@ export function LineChartCard({
     end: Math.max(0, points.length - 1),
     total: points.length
   }));
+  const [hiddenSeries, setHiddenSeries] = useState<Record<string, boolean>>({});
   const normalizedRange = useMemo(
     () =>
       visibleRange.total === points.length
@@ -104,12 +105,27 @@ export function LineChartCard({
     () => points.slice(normalizedRange.start, normalizedRange.end + 1),
     [normalizedRange.end, normalizedRange.start, points]
   );
+  const visibleSeries = useMemo(
+    () => series.filter((item) => !hiddenSeries[item.key]),
+    [hiddenSeries, series]
+  );
+  const visibleSubSeries = useMemo(
+    () => subSeries.filter((item) => !hiddenSeries[item.key]),
+    [hiddenSeries, subSeries]
+  );
+  const toggleSeries = useMemo(
+    () => [
+      ...series.map((item) => ({ ...item, panel: "main" as const })),
+      ...subSeries.map((item) => ({ ...item, panel: "sub" as const }))
+    ],
+    [series, subSeries]
+  );
   const isZoomed = points.length > 0 && (normalizedRange.start > 0 || normalizedRange.end < points.length - 1);
   const hasSubChart = subSeries.length > 0;
   const subTop = hasSubChart ? HEIGHT - PAD_BOTTOM - 64 : HEIGHT - PAD_BOTTOM;
   const priceBottom = hasSubChart ? subTop - 14 : HEIGHT - PAD_BOTTOM;
   const numericValues = visiblePoints.flatMap((point) =>
-    series
+    visibleSeries
       .map((item) => toNumber(point[item.key]))
       .filter((value): value is number => value !== null)
   );
@@ -129,7 +145,7 @@ export function LineChartCard({
   const yMin = min - span * 0.08;
   const yMax = max + span * 0.08;
   const subValues = visiblePoints.flatMap((point) =>
-    subSeries
+    visibleSubSeries
       .map((item) => toNumber(point[item.key]))
       .filter((value): value is number => value !== null)
   );
@@ -144,7 +160,7 @@ export function LineChartCard({
   const maxVolume = volumeValues.length ? Math.max(...volumeValues) : 0;
   const latest = visiblePoints.at(-1);
   const hasError = Boolean(error);
-  const empty = !isLoading && (!visiblePoints.length || !numericValues.length);
+  const empty = !isLoading && (!visiblePoints.length || (!numericValues.length && !candleValues.length && !subValues.length));
   const currentWindow = normalizedRange.end - normalizedRange.start + 1;
   const minWindow = Math.min(MIN_VISIBLE_POINTS, points.length);
   const canZoomIn = points.length > 1 && currentWindow > minWindow;
@@ -179,6 +195,10 @@ export function LineChartCard({
     const center = current.start + Math.max(1, windowSize - 1) / 2;
     const nextStart = Math.round(center - Math.max(1, nextWindow - 1) / 2);
     setVisibleRange(clampVisibleRange({ start: nextStart, end: nextStart + nextWindow - 1 }, points.length));
+  }
+
+  function toggleLine(key: string) {
+    setHiddenSeries((current) => ({ ...current, [key]: !current[key] }));
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -355,7 +375,7 @@ export function LineChartCard({
                 })}
               </g>
             )}
-            {series.map((item) => {
+            {visibleSeries.map((item) => {
               const path = buildPath(visiblePoints, item.key, yMin, yMax, PAD_TOP, priceBottom);
               if (!path) return null;
               return (
@@ -428,7 +448,7 @@ export function LineChartCard({
                     {subTitle}
                   </text>
                 )}
-                {subSeries.map((item) => {
+                {visibleSubSeries.map((item) => {
                   const path = buildPath(visiblePoints, item.key, subYMin, subYMax, subTop + 18, HEIGHT - PAD_BOTTOM);
                   if (!path) return null;
                   return (
@@ -456,6 +476,31 @@ export function LineChartCard({
         )}
       </div>
 
+      {toggleSeries.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {toggleSeries.map((item) => {
+            const hidden = Boolean(hiddenSeries[item.key]);
+            return (
+              <button
+                className={[
+                  "inline-flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs transition",
+                  hidden
+                    ? "border-[#2d333d] bg-[#111419] text-[#77808f] hover:border-[#4a5362]"
+                    : "border-[#d9dee8] bg-white text-[#20252e] hover:border-[#aab2c0]"
+                ].join(" ")}
+                key={`${item.panel}-${item.key}`}
+                type="button"
+                onClick={() => toggleLine(item.key)}
+              >
+                {hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="mt-3 flex flex-wrap gap-3">
         {volumeKey && (
           <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
@@ -464,7 +509,7 @@ export function LineChartCard({
             <span className="tabular-nums">{formatCompact(toNumber(latest?.[volumeKey]))}</span>
           </div>
         )}
-        {series.map((item) => {
+        {visibleSeries.map((item) => {
           const value = latest ? toNumber(latest[item.key]) : null;
           return (
             <div key={item.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">
@@ -474,7 +519,7 @@ export function LineChartCard({
             </div>
           );
         })}
-        {subSeries.map((item) => {
+        {visibleSubSeries.map((item) => {
           const value = latest ? toNumber(latest[item.key]) : null;
           return (
             <div key={item.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">

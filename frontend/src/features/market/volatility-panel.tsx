@@ -20,7 +20,10 @@ export function VolatilityPanel() {
     volatility?.points.map((point) => ({
       date: point.date,
       vix_close: point.vix_close,
-      vxx_close: point.vxx_close
+      vix_sma10: point.vix_sma10,
+      vix_ema21: point.vix_ema21,
+      vxx_close: point.vxx_close,
+      vxx_ema21: point.vxx_ema21
     })) ?? [];
 
   return (
@@ -42,9 +45,27 @@ export function VolatilityPanel() {
             formatter: (value) => value.toFixed(1)
           },
           {
+            key: "vix_sma10",
+            label: "VIX 10-SMA",
+            color: "#7dd3fc",
+            formatter: (value) => value.toFixed(1)
+          },
+          {
+            key: "vix_ema21",
+            label: "VIX 21-EMA",
+            color: "#c084fc",
+            formatter: (value) => value.toFixed(1)
+          },
+          {
             key: "vxx_close",
             label: "VXX",
             color: "#fbbf24",
+            formatter: (value) => value.toFixed(1)
+          },
+          {
+            key: "vxx_ema21",
+            label: "VXX 21-EMA",
+            color: "#22c55e",
             formatter: (value) => value.toFixed(1)
           }
         ]}

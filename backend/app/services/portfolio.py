@@ -65,11 +65,24 @@ from app.schemas import (
 
 REQUIRED_IMPORT_FIELDS = {"ticker", "shares", "entry_price"}
 TR_EXTERNAL_FLOW_TYPES = {
+    "cash_deposit",
+    "cash_withdrawal",
+    "customer_deposit",
     "customer_inbound",
     "customer_outbound_request",
+    "customer_outbound",
     "customer_inpayment",
+    "customer_outpayment",
+    "customer_withdrawal",
+    "deposit",
+    "inbound_payment",
+    "outbound_payment",
+    "pay_in",
+    "pay_out",
     "transfer_inbound",
     "transfer_instant_inbound",
+    "transfer_outbound",
+    "withdrawal",
     "gift",
     "tax_optimization",
 }
@@ -959,8 +972,11 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
                 continue
             day = next_days[0]
         cash_daily.loc[day] += _money_to_usd(row.net_amount, row.currency, fx_rate)
-        if normalize_transaction_type(row.transaction_type) in TR_EXTERNAL_FLOW_TYPES:
+        transaction_type = normalize_transaction_type(row.transaction_type)
+        if transaction_type in TR_EXTERNAL_FLOW_TYPES:
             external_daily.loc[day] += _money_to_usd(row.net_amount, row.currency, fx_rate)
+        elif transaction_type in {"transfer_in", "transfer_out"}:
+            external_daily.loc[day] += _transfer_external_value(row, fx_rate)
 
     curve = pd.DataFrame(
         {
@@ -1609,6 +1625,16 @@ def _money_to_usd(value: float, currency: str, fx_rate: FxRate) -> float:
     if str(currency or "").upper() == "EUR":
         return float(eur_to_usd(value, rate=fx_rate) or 0.0)
     return float(value or 0.0)
+
+
+def _transfer_external_value(row: portfolio_repository.TradeRepublicStoredTransactionRow, fx_rate: FxRate) -> float:
+    transaction_type = normalize_transaction_type(row.transaction_type)
+    shares = abs(float(row.shares or 0.0))
+    price = float(row.price or 0.0)
+    if shares <= 0 or price <= 0:
+        return 0.0
+    value = _money_to_usd(shares * price, row.currency, fx_rate)
+    return -value if transaction_type == "transfer_out" else value
 
 
 def _portfolio_display_currency(positions: list[PortfolioPosition]) -> str:

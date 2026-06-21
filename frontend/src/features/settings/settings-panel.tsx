@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
+import { Sec13FMappingPanel } from "@/features/stocks/sec13f-mapping-panel";
 import { api } from "@/lib/api/client";
 import type {
   AppSettings,
@@ -127,6 +128,23 @@ export function SettingsPanel() {
       </section>
 
       <SettingsWorkflowLinks />
+
+      <details className="group rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <summary className="cursor-pointer list-none">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-base font-semibold">13F CUSIP-Mapping</h2>
+              <p className="mt-1 text-sm leading-5 text-[#a0a7b4]">
+                SEC-CUSIPs auf Ticker mappen, damit institutionelle 13F-Trends korrekt Aktien zugeordnet werden.
+              </p>
+            </div>
+            <StatusChip tone="neutral">einklappbar</StatusChip>
+          </div>
+        </summary>
+        <div className="mt-4">
+          <Sec13FMappingPanel />
+        </div>
+      </details>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">

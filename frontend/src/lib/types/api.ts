@@ -321,12 +321,15 @@ export type VolatilityPoint = {
   spx_close?: number | null;
   spx_ret_5d?: number | null;
   vix_close?: number | null;
+  vix_sma10?: number | null;
+  vix_ema21?: number | null;
   vix_ret_5d?: number | null;
   vix_pct_rank_252?: number | null;
   vix_pct_above_sma10?: number | null;
   vix_panic_overextension: boolean;
   vix_regime: string;
   vxx_close?: number | null;
+  vxx_ema21?: number | null;
   vxx_ret_5d?: number | null;
   vxx_state: string;
   vxx_stress_confirmation: boolean;

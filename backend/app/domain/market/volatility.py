@@ -19,12 +19,15 @@ class VolatilityDashboardPoint:
     spx_close: float | None
     spx_ret_5d: float | None
     vix_close: float | None
+    vix_sma10: float | None
+    vix_ema21: float | None
     vix_ret_5d: float | None
     vix_pct_rank_252: float | None
     vix_pct_above_sma10: float | None
     vix_panic_overextension: bool
     vix_regime: str
     vxx_close: float | None
+    vxx_ema21: float | None
     vxx_ret_5d: float | None
     vxx_state: str
     vxx_stress_confirmation: bool
@@ -164,6 +167,8 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: 
     if vix_df is not None and not vix_df.empty:
         vix = vix_df.reindex(out.index).ffill()
         out["VIX_Close"] = vix["Close"]
+        out["VIX_SMA10"] = vix.get("SMA10")
+        out["VIX_EMA21"] = vix.get("EMA21")
         out["VIX_Ret_5d"] = vix.get("Ret_5d")
         out["VIX_PctRank252"] = vix.get("PctRank252")
         out["VIX_Pct_Above_SMA10"] = vix.get("Pct_Above_SMA10")
@@ -173,6 +178,8 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: 
         out["VIX_Regime"] = vix.get("VIX_Regime", "Neutral")
     else:
         out["VIX_Close"] = np.nan
+        out["VIX_SMA10"] = np.nan
+        out["VIX_EMA21"] = np.nan
         out["VIX_Ret_5d"] = np.nan
         out["VIX_PctRank252"] = np.nan
         out["VIX_Pct_Above_SMA10"] = np.nan
@@ -184,12 +191,14 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: 
     if vxx_df is not None and not vxx_df.empty:
         vxx = vxx_df.reindex(out.index).ffill()
         out["VXX_Close"] = vxx["Close"]
+        out["VXX_EMA21"] = vxx.get("EMA21")
         out["VXX_Ret_5d"] = vxx.get("Ret_5d")
         out["VXX_Stress_Confirmation"] = vxx.get("Stress_Confirmation", False).fillna(False)
         out["VXX_Carry_Decay"] = vxx.get("Carry_Decay", False).fillna(False)
         out["VXX_State"] = vxx.get("VXX_State", "Gemischt")
     else:
         out["VXX_Close"] = np.nan
+        out["VXX_EMA21"] = np.nan
         out["VXX_Ret_5d"] = np.nan
         out["VXX_Stress_Confirmation"] = False
         out["VXX_Carry_Decay"] = False
@@ -226,12 +235,15 @@ def _dashboard_point(index: Any, row: pd.Series) -> VolatilityDashboardPoint:
         spx_close=_safe_float(row.get("SPX_Close")),
         spx_ret_5d=_safe_float(row.get("SPX_Ret_5d")),
         vix_close=_safe_float(row.get("VIX_Close")),
+        vix_sma10=_safe_float(row.get("VIX_SMA10")),
+        vix_ema21=_safe_float(row.get("VIX_EMA21")),
         vix_ret_5d=_safe_float(row.get("VIX_Ret_5d")),
         vix_pct_rank_252=_safe_float(row.get("VIX_PctRank252")),
         vix_pct_above_sma10=_safe_float(row.get("VIX_Pct_Above_SMA10")),
         vix_panic_overextension=bool(row.get("VIX_Panic_Overextension", False)),
         vix_regime=str(row.get("VIX_Regime") or "n/a"),
         vxx_close=_safe_float(row.get("VXX_Close")),
+        vxx_ema21=_safe_float(row.get("VXX_EMA21")),
         vxx_ret_5d=_safe_float(row.get("VXX_Ret_5d")),
         vxx_state=str(row.get("VXX_State") or "n/a"),
         vxx_stress_confirmation=bool(row.get("VXX_Stress_Confirmation", False)),

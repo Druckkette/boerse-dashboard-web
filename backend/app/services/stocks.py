@@ -83,7 +83,7 @@ def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAsses
 
 def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingResponse:
     try:
-        rs_rows = rs_repository.list_latest_rs_ratings(limit=max(1, min(120, limit)), source="computed")
+        rs_rows = rs_repository.list_latest_rs_ratings(limit=max(1, min(500, limit)), source="computed")
     except RelativeStrengthRepositoryUnavailable:
         rs_rows = []
     if not rs_rows:

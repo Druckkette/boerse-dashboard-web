@@ -110,6 +110,36 @@ def test_trade_republic_curve_keeps_dividends_as_performance_and_neutralizes_dep
     assert by_date["2025-01-06"].portfolio_index == pytest.approx(100.6)
 
 
+def test_trade_republic_curve_neutralizes_security_transfers(monkeypatch) -> None:
+    transactions = [
+        _tr_row(date(2025, 1, 2), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2025, 1, 2), "buy", 10, 100, -1000, ticker="NVDA", isin="US67066G1040"),
+        _tr_row(date(2025, 1, 3), "transfer_in", 10, 100, 0, ticker="NVDA", isin="US67066G1040"),
+    ]
+
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: transactions)
+    monkeypatch.setattr(
+        portfolio_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, start_date=None: {
+            "NVDA": [
+                PriceRow(date=date(2025, 1, 2), close=100),
+                PriceRow(date=date(2025, 1, 3), close=100),
+            ],
+            "^GSPC": [
+                PriceRow(date=date(2025, 1, 2), close=5000),
+                PriceRow(date=date(2025, 1, 3), close=5000),
+            ],
+        }.get(ticker, []),
+    )
+
+    curve = portfolio_service.get_portfolio_curve(days=2500)
+    by_date = {point.date: point for point in curve.points}
+
+    assert by_date["2025-01-03"].depot_value == 2000
+    assert by_date["2025-01-03"].portfolio_index == pytest.approx(100)
+
+
 def test_trade_republic_curve_values_derivatives_from_trade_prices_without_ticker(monkeypatch) -> None:
     transactions = [
         _tr_row(date(2025, 2, 3), "customer_inbound", 0, None, 100),

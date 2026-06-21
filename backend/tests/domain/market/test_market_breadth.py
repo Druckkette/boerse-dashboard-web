@@ -207,6 +207,9 @@ def test_volatility_dashboard_detects_confirmed_risk_off() -> None:
     summary = summarize_volatility_points(points)
 
     assert points
+    assert points[-1].vix_sma10 is not None
+    assert points[-1].vix_ema21 is not None
+    assert points[-1].vxx_ema21 is not None
     assert points[-1].vix_regime == "Stress"
     assert points[-1].vxx_stress_confirmation is True
     assert points[-1].vol_regime == "Risk Off bestätigt"
