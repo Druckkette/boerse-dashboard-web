@@ -1844,6 +1844,73 @@ def _support_week_signal(
                 "Unterstützungswoche",
                 f"50W berührt/zurückerobert, Wochen-Schluss obere Hälfte ({close_range:.0%}), Volumen bestätigt",
             )
+    rolling_signal = _rolling_support_week_signal(open_, high, low, close, volume, sma50, weekly, weekly_sma50_series, volume_avg_10w_series)
+    if rolling_signal is not None:
+        return rolling_signal
+    return None
+
+
+def _rolling_support_week_signal(
+    open_: pd.Series,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    volume: pd.Series,
+    sma50: pd.Series,
+    weekly: pd.DataFrame,
+    weekly_sma50_series: pd.Series,
+    volume_avg_10w_series: pd.Series,
+) -> ChartSignal | None:
+    """Detect support weeks in rolling five-trading-day windows.
+
+    Calendar resampling can split a valid five-session support pattern across two
+    weeks. The rule is still a weekly candle concept, so we check the last recent
+    five-session windows with the same touch/reclaim requirements.
+    """
+    if len(close.dropna()) < 50 or len(weekly) < 50:
+        return None
+    aligned = pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close, "Volume": volume}).dropna()
+    if len(aligned) < 5:
+        return None
+    recent_starts = range(max(0, len(aligned) - 12), max(0, len(aligned) - 4))
+    for start in reversed(list(recent_starts)):
+        window = aligned.iloc[start : start + 5]
+        if len(window) < 5:
+            continue
+        week_open = float(window["Open"].iloc[0])
+        week_high = float(window["High"].max())
+        week_low = float(window["Low"].min())
+        week_close = float(window["Close"].iloc[-1])
+        week_volume = float(window["Volume"].sum())
+        weekly_range = week_high - week_low
+        if weekly_range <= 0:
+            continue
+        close_range = (week_close - week_low) / weekly_range
+        end_date = window.index[-1]
+        weekly_sma50 = _safe_float(weekly_sma50_series.asof(end_date))
+        daily_sma50 = _safe_float(sma50.loc[:end_date].dropna().iloc[-1]) if not sma50.loc[:end_date].dropna().empty else None
+        if weekly_sma50 is None or daily_sma50 is None:
+            continue
+        previous_window = aligned.iloc[max(0, start - 5) : start]
+        prev_volume = float(previous_window["Volume"].sum()) if len(previous_window) == 5 else None
+        volume_avg_10w = _safe_float(volume_avg_10w_series.asof(end_date))
+        volume_ok = bool((prev_volume is not None and week_volume > prev_volume) or (volume_avg_10w is not None and week_volume > volume_avg_10w))
+        low_touched_50w = weekly_sma50 * 0.97 <= week_low <= weekly_sma50 * 1.005
+        close_reclaimed_50w = week_close > weekly_sma50
+        week_down = week_close < week_open
+        if (
+            week_down
+            and close_range >= 0.5
+            and volume_ok
+            and low_touched_50w
+            and close_reclaimed_50w
+            and week_close > daily_sma50
+        ):
+            return ChartSignal(
+                "positive",
+                "Unterstützungswoche",
+                f"50W berührt/zurückerobert, Wochen-Schluss obere Hälfte ({close_range:.0%}), Volumen bestätigt",
+            )
     return None
 
 

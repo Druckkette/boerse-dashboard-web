@@ -36,7 +36,6 @@ from app.domain.sell.schemas import (
     TrancheLogResponse,
     default_snoozed_until,
 )
-from app.domain.sell.strategies import STRATEGIE_INFO, STRATEGY_THEMES
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.repositories import sell_state as sell_state_repository
@@ -475,7 +474,7 @@ def _strategy_hub(signals: list[SellSignal]) -> list[SellStrategyDiagnostic]:
         diagnostics.append(
             SellStrategyDiagnostic(
                 strategy_key=key,
-                theme=STRATEGY_THEMES.get(key, "sonstige"),
+                theme=_strategy_theme(key),
                 label=_strategy_label(key),
                 status="active" if active else "watch" if watch else "clear",
                 tone=_strategy_tone(items),
@@ -605,6 +604,10 @@ def _evaluate_position_sell_decision(
         tranche_signals=_signals_from_raw(raw.get("tranche_signals"), "tranche"),
         warning_signals=_signals_from_raw(raw.get("warning_signals"), "warning"),
         watch_signals=_signals_from_raw(raw.get("watch_signals"), "watch"),
+        emergency_features=raw.get("emergency_features") if isinstance(raw.get("emergency_features"), list) else [],
+        offensive_features=raw.get("offensive_features") if isinstance(raw.get("offensive_features"), list) else [],
+        defensive_features=raw.get("defensive_features") if isinstance(raw.get("defensive_features"), list) else [],
+        strategy=raw.get("strategy") if isinstance(raw.get("strategy"), dict) else {},
         book_references=_json_safe(raw.get("book_references") or {}),
         next_recommendation_state=next_state,
         health=health,
@@ -1124,15 +1127,47 @@ def _strategy_tone(signals: list[SellSignal]) -> str:
 
 
 def _strategy_label(strategy_key: str) -> str:
+    labels = {
+        "custom": "Benutzerdefinierte Verkaufsstrategie",
+        "rs_line": "RS-Linie mit 21/50-Durchschnitt",
+        "ema21_risk_averse": "21-EMA-Bruch risikoavers",
+        "ema21_offensive": "21-EMA-Bruch offensiv",
+        "peak_drawdown": "Starker Rückgang vom 20-Tage-Hoch",
+        "buy_day_low": "Unterschreitung des Kauftags",
+        "ma_breaks": "Bruch gleitender Durchschnitte",
+        "nothalt": "Nothalt",
+    }
+    if strategy_key in labels:
+        return labels[strategy_key]
     clean = strategy_key.replace("lm_", "Live ").replace("_", " ").strip()
     return clean[:1].upper() + clean[1:] if clean else "Sonstige Strategie"
 
 
+def _strategy_theme(strategy_key: str) -> str:
+    if strategy_key in {"nothalt", "emergency_loss_limit"}:
+        return "Nothalt"
+    if strategy_key.startswith("defensive") or strategy_key in {"buy_day_low", "ma_breaks"}:
+        return "Defensives Verkaufen"
+    if strategy_key.startswith("offensive") or strategy_key in {"ema21_risk_averse", "ema21_offensive", "peak_drawdown"}:
+        return "Offensives Verkaufen"
+    if strategy_key == "rs_line":
+        return "Relative Stärke"
+    if strategy_key == "custom":
+        return "Benutzerdefiniert"
+    return "sonstige"
+
+
 def _strategy_description(strategy_key: str) -> str:
-    info = STRATEGIE_INFO.get(strategy_key, "")
-    if not info:
-        return "Live-Monitor- oder Watch-Signal aus der Sell-Engine."
-    return info.strip()[:220].rstrip()
+    descriptions = {
+        "custom": "Nutzt die pro Aktie konfigurierten Merkmale und Tranche-Prozente. Ohne Setup gelten robuste Defaults.",
+        "rs_line": "Teilverkauf in drei Stufen, wenn die Relative-Stärke-Linie ihre 21- und 50-Tage-Linien verliert.",
+        "ema21_risk_averse": "Frühe Tranchen bei erstem Bruch der 21-EMA, schwachem Folgetag und fortgesetztem Bruch.",
+        "ema21_offensive": "Geduldiger: erste Tranche erst nach drei Schlüssen unter der 21-EMA.",
+        "peak_drawdown": "Sichert Gewinner über Rückgangsstufen vom 20-Tage-Hoch und Trendbrüche.",
+        "buy_day_low": "Überwacht das Tief des Kauftags und das Tief des Vortags vor dem Kauf.",
+        "ma_breaks": "Erste Tranche nach bestätigtem 50-SMA-Bruch, finale Tranche beim 200-SMA-Bruch.",
+    }
+    return descriptions.get(strategy_key, "Live-Monitor- oder Watch-Signal aus der Sell-Engine.")
 
 
 def _first_non_empty(values: Any) -> str:

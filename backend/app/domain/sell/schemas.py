@@ -98,6 +98,39 @@ class SellSignal(BaseModel):
     book_reference: str = ""
 
 
+class SellRuleFeature(BaseModel):
+    id: str
+    category: Literal["emergency", "offensive", "defensive"]
+    label: str
+    active: bool = False
+    severity: Literal["inactive", "watch", "warning", "tranche", "killer"] = "inactive"
+    value: str = ""
+    threshold: str = ""
+    detail: str = ""
+    signal_date: str = ""
+    contribution_percent: int = 0
+    strategy_key: str = ""
+    setup: dict[str, Any] = Field(default_factory=dict)
+
+
+class SellStrategyRecommendation(BaseModel):
+    id: str
+    label: str
+    active: bool = False
+    tranche_percent: int = 0
+    detail: str = ""
+    trigger: str = ""
+    feature_ids: list[str] = Field(default_factory=list)
+
+
+class SellStrategyResult(BaseModel):
+    strategy_key: str = "custom"
+    label: str = "Benutzerdefiniert"
+    description: str = ""
+    recommendation_percent: int = 0
+    recommendations: list[SellStrategyRecommendation] = Field(default_factory=list)
+
+
 class SellHealthScore(BaseModel):
     health_score: float
     status: SellStatus
@@ -133,6 +166,10 @@ class SellEvaluationResponse(BaseModel):
     tranche_signals: list[SellSignal] = Field(default_factory=list)
     warning_signals: list[SellSignal] = Field(default_factory=list)
     watch_signals: list[SellSignal] = Field(default_factory=list)
+    emergency_features: list[SellRuleFeature] = Field(default_factory=list)
+    offensive_features: list[SellRuleFeature] = Field(default_factory=list)
+    defensive_features: list[SellRuleFeature] = Field(default_factory=list)
+    strategy: SellStrategyResult = Field(default_factory=SellStrategyResult)
     book_references: dict[str, str] = Field(default_factory=dict)
     next_recommendation_state: SellRecommendationState
     health: SellHealthScore

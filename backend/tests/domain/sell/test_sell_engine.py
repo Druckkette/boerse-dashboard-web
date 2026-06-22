@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from app.domain.sell import service as sell_service
-from app.domain.sell.schemas import SnoozeRequest, TrancheLogEntry
+from app.domain.sell.schemas import SellEvaluationRequest, SellManualInput, SnoozeRequest, TrancheLogEntry
 from app.domain.sell.service import (
     clear_sell_engine_state,
     create_tranche_log_entry,
@@ -99,6 +99,51 @@ def test_tranche_log_reduces_follow_up_sale() -> None:
     assert after.already_sold_percent == 25
     assert after.sell_now_percent < before.sell_now_percent
     assert after.tranche_log[0].reason == "Golden-master partial sale"
+
+
+def test_sell_rule_categories_and_strategy_are_exposed() -> None:
+    evaluation = evaluate_position_sell_decision("PLTR")
+
+    assert evaluation.emergency_features
+    assert evaluation.offensive_features
+    assert evaluation.defensive_features
+    assert any(feature.id == "emergency_loss_limit" and feature.active for feature in evaluation.emergency_features)
+    assert evaluation.strategy.strategy_key == "custom"
+    assert evaluation.strategy.recommendations
+
+
+def test_per_stock_sell_setup_overrides_defaults() -> None:
+    request = SellEvaluationRequest(
+        manual=SellManualInput(
+            ticker="NVDA",
+            sell_setup={
+                "profit_target_value": 80,
+                "custom_strategy_steps": [{"feature_id": "offensive_profit_target", "tranche_percent": 33}],
+            },
+        )
+    )
+
+    evaluation = evaluate_position_sell_decision("NVDA", request)
+    profit_feature = next(feature for feature in evaluation.offensive_features if feature.id == "offensive_profit_target")
+
+    assert profit_feature.active is False
+    assert evaluation.sell_now_percent == 0
+
+
+def test_custom_strategy_uses_configured_tranche_percent() -> None:
+    request = SellEvaluationRequest(
+        manual=SellManualInput(
+            ticker="NVDA",
+            sell_setup={
+                "custom_strategy_steps": [{"feature_id": "offensive_profit_target", "tranche_percent": 33}],
+            },
+        )
+    )
+
+    evaluation = evaluate_position_sell_decision("NVDA", request)
+
+    assert evaluation.strategy.recommendation_percent == 33
+    assert evaluation.sell_now_percent == 33
 
 
 def test_snooze_state_changes_pending_status() -> None:

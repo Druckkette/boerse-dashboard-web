@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, BellOff, ClipboardCheck, Minus, Plus, Save, ShieldAlert } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
@@ -17,7 +17,9 @@ import type {
   SellPostMortemCheck,
   SellPostMortemNote,
   SellPostMortemNoteRequest,
+  SellRuleFeature,
   SellSignal,
+  SellStrategyResult,
   Tone
 } from "@/lib/types/api";
 
@@ -32,6 +34,43 @@ const toneByPending: Record<PendingStatus, "good" | "neutral" | "warning" | "bad
   in_bestaetigung: "warning",
   snoozed: "neutral",
   scharf: "bad"
+};
+
+const STRATEGY_OPTIONS = [
+  { value: "custom", label: "Benutzerdefiniert" },
+  { value: "rs_line", label: "RS-Linie 21/50" },
+  { value: "ema21_risk_averse", label: "21-EMA risikoavers" },
+  { value: "ema21_offensive", label: "21-EMA offensiv" },
+  { value: "peak_drawdown", label: "Peak-Rückgang" },
+  { value: "buy_day_low", label: "Kauftag-Tief" },
+  { value: "ma_breaks", label: "MA-Brüche" }
+] as const;
+
+const CUSTOM_FEATURE_OPTIONS = [
+  { value: "offensive_profit_target", label: "Gewinnschwelle" },
+  { value: "offensive_ema21_break", label: "21-EMA-Bruch" },
+  { value: "offensive_peak_drop", label: "20T-Peak-Rückgang" },
+  { value: "offensive_ma_extension_sma10", label: "10-SMA Überdehnung" },
+  { value: "offensive_ma_extension_ema21", label: "21-EMA Überdehnung" },
+  { value: "offensive_ma_extension_sma50", label: "50-SMA Überdehnung" },
+  { value: "offensive_ma_extension_sma200", label: "200-SMA Überdehnung" },
+  { value: "offensive_biggest_gain", label: "Größter Gewinn-Tag" },
+  { value: "offensive_stall_days", label: "Stautage" },
+  { value: "defensive_buy_day_low", label: "Kauftag-Tief" },
+  { value: "defensive_previous_day_low", label: "Vortagestief vor Kauf" },
+  { value: "defensive_ma_break_10", label: "10-SMA-Bruch" },
+  { value: "defensive_ma_break_21", label: "21-EMA-Bruch defensiv" },
+  { value: "defensive_ma_break_50", label: "50-SMA-Bruch" },
+  { value: "defensive_ma_break_200", label: "200-SMA-Bruch" },
+  { value: "defensive_loss_weeks", label: "Verlustwochen" },
+  { value: "defensive_worst_daily_drop", label: "größter Tageseinbruch" },
+  { value: "defensive_worst_weekly_drop", label: "größter Wocheneinbruch" },
+  { value: "emergency_loss_limit", label: "Nothalt" }
+] as const;
+
+type CustomStrategyStep = {
+  feature_id: string;
+  tranche_percent: number;
 };
 
 export default function SellMonitorTickerPage() {
@@ -122,6 +161,57 @@ export default function SellMonitorTickerPage() {
     const clamped = Math.max(0.5, Math.min(4, Math.round(nextValue * 10) / 10));
     const sellSetup = { ...(currentManual?.sell_setup ?? {}), atr_multiple: clamped };
     updateManual({ sell_setup: sellSetup });
+  }
+
+  function updateSellSetup(patch: Record<string, unknown>) {
+    updateManual({ sell_setup: { ...(currentManual?.sell_setup ?? {}), ...patch } });
+  }
+
+  function setupNumber(key: string, fallback: number) {
+    const raw = currentManual?.sell_setup?.[key];
+    const parsed = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : fallback;
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function setupString(key: string, fallback: string) {
+    const raw = currentManual?.sell_setup?.[key];
+    return typeof raw === "string" && raw ? raw : fallback;
+  }
+
+  function setupBoolean(key: string, fallback: boolean) {
+    const raw = currentManual?.sell_setup?.[key];
+    return typeof raw === "boolean" ? raw : fallback;
+  }
+
+  function customStrategySteps(): CustomStrategyStep[] {
+    const raw = currentManual?.sell_setup?.custom_strategy_steps;
+    if (!Array.isArray(raw)) return [
+      { feature_id: "offensive_profit_target", tranche_percent: 25 },
+      { feature_id: "offensive_ema21_break", tranche_percent: 50 },
+      { feature_id: "offensive_peak_drop", tranche_percent: 25 },
+      { feature_id: "emergency_loss_limit", tranche_percent: 100 }
+    ];
+    return raw
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => ({
+        feature_id: typeof item.feature_id === "string" ? item.feature_id : "offensive_profit_target",
+        tranche_percent: typeof item.tranche_percent === "number" ? item.tranche_percent : Number(item.tranche_percent ?? 25)
+      }));
+  }
+
+  function updateCustomStrategyStep(index: number, patch: Partial<CustomStrategyStep>) {
+    const steps = customStrategySteps().map((step, itemIndex) => itemIndex === index ? { ...step, ...patch } : step);
+    updateSellSetup({ custom_strategy_steps: steps });
+  }
+
+  function addCustomStrategyStep() {
+    updateSellSetup({
+      custom_strategy_steps: [...customStrategySteps(), { feature_id: "offensive_profit_target", tranche_percent: 25 }]
+    });
+  }
+
+  function removeCustomStrategyStep(index: number) {
+    updateSellSetup({ custom_strategy_steps: customStrategySteps().filter((_, itemIndex) => itemIndex !== index) });
   }
 
   function updateNullableNumber(key: "pivot" | "low_day_1" | "low_day_0", value: string) {
@@ -272,15 +362,25 @@ export default function SellMonitorTickerPage() {
             onSave={savePostMortemDraft}
           />
 
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-            <h2 className="mb-4 text-base font-semibold">Hauptgründe</h2>
-            <SignalList signals={mainSignals} empty="Keine aktiven Hauptsignale." />
-          </section>
+          <SellStrategyPanel strategy={evaluation.data?.strategy} />
 
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-            <h2 className="mb-4 text-base font-semibold">Warnungen</h2>
-            <SignalList signals={warningSignals} empty="Keine Warnungen im aktuellen Dummy-Szenario." />
-          </section>
+          <SellFeatureSection
+            description="Harter Schutz gegen definierte Verlusthöhe. Dieses Merkmal übersteuert alle anderen Strategien."
+            features={evaluation.data?.emergency_features ?? []}
+            title="Nothalt"
+          />
+
+          <SellFeatureSection
+            description="Gewinnsicherung, Überdehnung, Rückfall vom Peak und Auffälligkeiten im Tagesverhalten."
+            features={evaluation.data?.offensive_features ?? []}
+            title="Offensives Verkaufen"
+          />
+
+          <SellFeatureSection
+            description="Schutz nach Kauf, Trendbrüche, Verlustwochen und neue Worst-Loss-Benchmarks."
+            features={evaluation.data?.defensive_features ?? []}
+            title="Defensives Verkaufen"
+          />
         </div>
 
         <aside className="space-y-5">
@@ -340,6 +440,142 @@ export default function SellMonitorTickerPage() {
               </div>
             )}
           </section>
+
+          {currentManual && (
+            <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Verkaufsregeln Setup</h2>
+                <div className="mt-1 text-sm text-[#a0a7b4]">
+                  Pro Aktie gespeichert. Ohne Eingabe gelten die Defaults aus der Engine.
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[#a0a7b4]">Aktive Verkaufsstrategie</span>
+                  <select
+                    className="w-full rounded border border-[#2d333d] bg-[#111419] px-3 py-2"
+                    value={setupString("strategy_key", "custom")}
+                    onChange={(event) => updateSellSetup({ strategy_key: event.target.value })}
+                  >
+                    {STRATEGY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <RuleSetupGroup title="Nothalt">
+                  <UnitValueRow
+                    label="Verlusthöhe"
+                    unit={setupString("emergency_stop_unit", "pct")}
+                    value={setupNumber("emergency_stop_value", 7)}
+                    onUnitChange={(value) => updateSellSetup({ emergency_stop_unit: value })}
+                    onValueChange={(value) => updateSellSetup({ emergency_stop_value: value })}
+                  />
+                </RuleSetupGroup>
+
+                <RuleSetupGroup title="Offensives Verkaufen">
+                  <UnitValueRow
+                    label="Gewinnschwelle"
+                    unit={setupString("profit_target_unit", "pct")}
+                    value={setupNumber("profit_target_value", 20)}
+                    onUnitChange={(value) => updateSellSetup({ profit_target_unit: value })}
+                    onValueChange={(value) => updateSellSetup({ profit_target_value: value })}
+                  />
+                  <UnitValueRow
+                    label="21-EMA-Bruch"
+                    unit={setupString("ema21_break_unit", "pct")}
+                    value={setupNumber("ema21_break_value", 2)}
+                    onUnitChange={(value) => updateSellSetup({ ema21_break_unit: value })}
+                    onValueChange={(value) => updateSellSetup({ ema21_break_value: value })}
+                  />
+                  <UnitValueRow
+                    label="20T-Peak-Rückgang"
+                    unit={setupString("peak_drop_unit", "pct")}
+                    value={setupNumber("peak_drop_value", 8)}
+                    onUnitChange={(value) => updateSellSetup({ peak_drop_unit: value })}
+                    onValueChange={(value) => updateSellSetup({ peak_drop_value: value })}
+                  />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <SetupNumber label="10-SMA Abstand %" value={setupNumber("ma_extension_sma10_pct", 10)} onChange={(value) => updateSellSetup({ ma_extension_sma10_pct: value })} />
+                    <SetupNumber label="21-EMA Abstand %" value={setupNumber("ma_extension_ema21_pct", 15)} onChange={(value) => updateSellSetup({ ma_extension_ema21_pct: value })} />
+                    <SetupNumber label="50-SMA Abstand %" value={setupNumber("ma_extension_sma50_pct", 25)} onChange={(value) => updateSellSetup({ ma_extension_sma50_pct: value })} />
+                    <SetupNumber label="200-SMA Abstand %" value={setupNumber("ma_extension_sma200_pct", 70)} onChange={(value) => updateSellSetup({ ma_extension_sma200_pct: value })} />
+                    <SetupNumber label="unteres Drittel Anzahl" value={setupNumber("low_closes_count", 4)} onChange={(value) => updateSellSetup({ low_closes_count: value })} />
+                    <SetupNumber label="unteres Drittel Fenster" value={setupNumber("low_closes_window", 10)} onChange={(value) => updateSellSetup({ low_closes_window: value })} />
+                    <SetupNumber label="scharfer Einbruch %" value={setupNumber("sharp_drop_value", 6)} onChange={(value) => updateSellSetup({ sharp_drop_value: value })} />
+                    <SetupNumber label="Reclaim Tage" value={setupNumber("sharp_drop_reclaim_days", 4)} onChange={(value) => updateSellSetup({ sharp_drop_reclaim_days: value })} />
+                    <SetupNumber label="Verlusttage Fenster" value={setupNumber("loss_days_window", 10)} onChange={(value) => updateSellSetup({ loss_days_window: value })} />
+                    <SetupNumber label="Stautage Anzahl" value={setupNumber("stall_days_count", 3)} onChange={(value) => updateSellSetup({ stall_days_count: value })} />
+                    <SetupNumber label="Stautage Fenster" value={setupNumber("stall_days_window", 10)} onChange={(value) => updateSellSetup({ stall_days_window: value })} />
+                    <SetupNumber label="größter Anstieg %" value={setupNumber("biggest_gain_value", 10)} onChange={(value) => updateSellSetup({ biggest_gain_value: value })} />
+                  </div>
+                </RuleSetupGroup>
+
+                <RuleSetupGroup title="Defensives Verkaufen">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <SetupNumber label="Kauftag-Reclaim Tage" value={setupNumber("buy_day_reclaim_days", 3)} onChange={(value) => updateSellSetup({ buy_day_reclaim_days: value })} />
+                    <SetupNumber label="MA-Reclaim Tage" value={setupNumber("ma_break_reclaim_days", 3)} onChange={(value) => updateSellSetup({ ma_break_reclaim_days: value })} />
+                    <SetupNumber label="Verlustwochen" value={setupNumber("loss_weeks_count", 3)} onChange={(value) => updateSellSetup({ loss_weeks_count: value })} />
+                    <SetupNumber label="Worst-Loss Tage" value={setupNumber("worst_drop_warmup_days", 20)} onChange={(value) => updateSellSetup({ worst_drop_warmup_days: value })} />
+                    <SetupNumber label="Worst-Loss Wochen" value={setupNumber("worst_drop_warmup_weeks", 4)} onChange={(value) => updateSellSetup({ worst_drop_warmup_weeks: value })} />
+                    <label className="flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm sm:col-span-2">
+                      <span>Verlustwochen nur bei steigendem Volumen</span>
+                      <input
+                        checked={setupBoolean("loss_weeks_require_rising_volume", false)}
+                        className="size-4 accent-emerald-300"
+                        type="checkbox"
+                        onChange={(event) => updateSellSetup({ loss_weeks_require_rising_volume: event.target.checked })}
+                      />
+                    </label>
+                  </div>
+                </RuleSetupGroup>
+
+                <RuleSetupGroup title="Benutzerdefinierte Strategie">
+                  <div className="space-y-2">
+                    {customStrategySteps().map((step, index) => (
+                      <div key={`${step.feature_id}-${index}`} className="grid gap-2 rounded border border-[#2d333d] bg-[#111419] p-2 sm:grid-cols-[1fr_80px_38px]">
+                        <select
+                          className="rounded border border-[#2d333d] bg-[#171a20] px-2 py-2 text-sm"
+                          value={step.feature_id}
+                          onChange={(event) => updateCustomStrategyStep(index, { feature_id: event.target.value })}
+                        >
+                          {CUSTOM_FEATURE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <input
+                          aria-label="Tranche Prozent"
+                          className="rounded border border-[#2d333d] bg-[#171a20] px-2 py-2 text-sm tabular-nums"
+                          max={100}
+                          min={0}
+                          type="number"
+                          value={step.tranche_percent}
+                          onChange={(event) => updateCustomStrategyStep(index, { tranche_percent: Number(event.target.value) })}
+                        />
+                        <button
+                          aria-label="Strategiezeile entfernen"
+                          className="flex items-center justify-center rounded border border-[#2d333d] bg-[#171a20] text-[#a0a7b4] transition hover:border-rose-300/60 hover:text-rose-100"
+                          type="button"
+                          onClick={() => removeCustomStrategyStep(index)}
+                        >
+                          <Minus size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      className="inline-flex w-full items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+                      type="button"
+                      onClick={addCustomStrategyStep}
+                    >
+                      <Plus size={15} />
+                      Merkmal hinzufügen
+                    </button>
+                  </div>
+                </RuleSetupGroup>
+              </div>
+            </section>
+          )}
 
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -531,6 +767,183 @@ function SellDiagnosticsPanel({
   );
 }
 
+function SellStrategyPanel({ strategy }: { strategy?: SellStrategyResult }) {
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Verkaufsstrategien</h2>
+          <div className="mt-1 text-sm text-[#a0a7b4]">
+            {strategy?.description ?? "Strategie wird geladen."}
+          </div>
+        </div>
+        <StatusChip tone={(strategy?.recommendation_percent ?? 0) > 0 ? "warning" : "good"}>
+          {strategy?.label ?? "lädt"}
+        </StatusChip>
+      </div>
+      <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <MetricTile label="Aktive Strategie" value={strategy?.label ?? "-"} detail={strategy?.strategy_key ?? "strategy_key"} />
+        <MetricTile label="Strategie-Ziel" value={`${strategy?.recommendation_percent ?? 0}%`} detail="vor Abzug bereits verkaufter Tranchen" />
+        <MetricTile
+          label="Aktive Empfehlungen"
+          value={`${strategy?.recommendations.filter((item) => item.active).length ?? 0}`}
+          detail={`${strategy?.recommendations.length ?? 0} definierte Strategiebedingungen`}
+        />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {(strategy?.recommendations ?? []).length === 0 && (
+          <div className="rounded border border-[#242a33] bg-[#111419] p-4 text-sm text-[#a0a7b4]">
+            Keine Strategieempfehlungen vorhanden.
+          </div>
+        )}
+        {(strategy?.recommendations ?? []).map((recommendation) => (
+          <div
+            key={recommendation.id}
+            className={`rounded border p-3 ${recommendation.active ? "border-amber-300/45 bg-amber-300/10" : "border-[#242a33] bg-[#111419]"}`}
+          >
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="font-medium">{recommendation.label}</div>
+              <StatusChip tone={recommendation.active ? "warning" : "neutral"}>
+                {recommendation.active ? `${recommendation.tranche_percent}%` : "inaktiv"}
+              </StatusChip>
+            </div>
+            <div className="text-sm text-[#a0a7b4]">{recommendation.detail || recommendation.trigger}</div>
+            {recommendation.trigger && (
+              <div className="mt-2 text-xs text-[#77808f]">Trigger: {recommendation.trigger}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SellFeatureSection({
+  title,
+  description,
+  features
+}: {
+  title: string;
+  description: string;
+  features: SellRuleFeature[];
+}) {
+  const activeCount = features.filter((feature) => feature.active).length;
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold">{title}</h2>
+          <div className="mt-1 text-sm text-[#a0a7b4]">{description}</div>
+        </div>
+        <StatusChip tone={activeCount > 0 ? "warning" : "good"}>{activeCount} aktiv</StatusChip>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {features.map((feature) => (
+          <SellFeatureCard key={feature.id} feature={feature} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SellFeatureCard({ feature }: { feature: SellRuleFeature }) {
+  const tone = toneForFeature(feature);
+  const border =
+    feature.active && feature.severity === "killer"
+      ? "border-rose-300/50 bg-rose-400/10"
+      : feature.active
+        ? "border-amber-300/45 bg-amber-300/10"
+        : "border-[#242a33] bg-[#111419]";
+  return (
+    <div className={`rounded border p-3 ${border}`}>
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">{feature.label}</div>
+          <div className="mt-1 text-xs text-[#77808f]">{feature.threshold}</div>
+        </div>
+        <StatusChip tone={tone}>{feature.active ? "aktiv" : "inaktiv"}</StatusChip>
+      </div>
+      <div className="text-sm text-[#d8dde6]">{feature.value || "-"}</div>
+      <div className="mt-2 text-xs leading-5 text-[#a0a7b4]">{feature.detail}</div>
+    </div>
+  );
+}
+
+function toneForFeature(feature: SellRuleFeature): Tone {
+  if (!feature.active) return "neutral";
+  if (feature.severity === "killer") return "bad";
+  if (feature.severity === "tranche" || feature.severity === "warning") return "warning";
+  return "neutral";
+}
+
+function RuleSetupGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+      <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function UnitValueRow({
+  label,
+  unit,
+  value,
+  onUnitChange,
+  onValueChange
+}: {
+  label: string;
+  unit: string;
+  value: number;
+  onUnitChange: (value: string) => void;
+  onValueChange: (value: number) => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[1fr_86px_92px]">
+      <div className="rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm text-[#a0a7b4]">{label}</div>
+      <select
+        className="rounded border border-[#2d333d] bg-[#171a20] px-2 py-2 text-sm"
+        value={unit}
+        onChange={(event) => onUnitChange(event.target.value)}
+      >
+        <option value="pct">%</option>
+        <option value="atr">ATR</option>
+      </select>
+      <input
+        aria-label={label}
+        className="rounded border border-[#2d333d] bg-[#171a20] px-2 py-2 text-sm tabular-nums"
+        step="0.1"
+        type="number"
+        value={value}
+        onChange={(event) => onValueChange(Number(event.target.value))}
+      />
+    </div>
+  );
+}
+
+function SetupNumber({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-xs text-[#a0a7b4]">
+      {label}
+      <input
+        className="mt-1 w-full rounded border border-[#2d333d] bg-[#171a20] px-2 py-2 text-sm text-[#d8dde6]"
+        step="0.1"
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
 function PostMortemCard({
   check,
   draft,
@@ -614,27 +1027,6 @@ function DiagnosticMetric({ item }: { item: SellDiagnostics["price_context"][num
       </div>
       <div className="text-xl font-semibold tabular-nums">{item.value}</div>
       <div className="mt-1 text-xs leading-5 text-[#77808f]">{item.detail}</div>
-    </div>
-  );
-}
-
-function SignalList({ signals, empty }: { signals: SellSignal[]; empty: string }) {
-  if (signals.length === 0) {
-    return <div className="text-sm text-[#a0a7b4]">{empty}</div>;
-  }
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {signals.map((signal) => (
-        <div key={`${signal.severity}-${signal.id}`} className="rounded border border-[#2d333d] bg-[#111419] p-3">
-          <div className="mb-2 flex items-start justify-between gap-3">
-            <div className="font-medium">{signal.label}</div>
-            <StatusChip tone={signal.severity === "killer" ? "bad" : signal.severity === "tranche" ? "warning" : "neutral"}>
-              {signal.contribution_percent}%
-            </StatusChip>
-          </div>
-          <div className="text-sm text-[#a0a7b4]">{signal.event_note || signal.strategy_key}</div>
-        </div>
-      ))}
     </div>
   );
 }

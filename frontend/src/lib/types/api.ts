@@ -1190,6 +1190,39 @@ export type SellSignal = {
   book_reference: string;
 };
 
+export type SellRuleFeature = {
+  id: string;
+  category: "emergency" | "offensive" | "defensive";
+  label: string;
+  active: boolean;
+  severity: "inactive" | "watch" | "warning" | "tranche" | "killer";
+  value: string;
+  threshold: string;
+  detail: string;
+  signal_date: string;
+  contribution_percent: number;
+  strategy_key: string;
+  setup: Record<string, unknown>;
+};
+
+export type SellStrategyRecommendation = {
+  id: string;
+  label: string;
+  active: boolean;
+  tranche_percent: number;
+  detail: string;
+  trigger: string;
+  feature_ids: string[];
+};
+
+export type SellStrategyResult = {
+  strategy_key: string;
+  label: string;
+  description: string;
+  recommendation_percent: number;
+  recommendations: SellStrategyRecommendation[];
+};
+
 export type SellHealthScore = {
   health_score: number;
   status: "Halten" | "Beobachten" | "Verkaufen";
@@ -1242,6 +1275,10 @@ export type SellEvaluation = {
   tranche_signals: SellSignal[];
   warning_signals: SellSignal[];
   watch_signals: SellSignal[];
+  emergency_features: SellRuleFeature[];
+  offensive_features: SellRuleFeature[];
+  defensive_features: SellRuleFeature[];
+  strategy: SellStrategyResult;
   book_references: Record<string, string>;
   next_recommendation_state: SellRecommendationState;
   health: SellHealthScore;

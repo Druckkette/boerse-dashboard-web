@@ -59,6 +59,11 @@ def test_sell_evaluate_endpoint_returns_signals_and_state() -> None:
     assert payload["sell_now_percent"] >= 75
     assert payload["next_recommendation_state"]["last_pct"] == payload["sell_now_percent"]
     assert payload["killer_signals"] or payload["tranche_signals"]
+    assert payload["emergency_features"]
+    assert payload["offensive_features"]
+    assert payload["defensive_features"]
+    assert payload["strategy"]["strategy_key"]
+    assert isinstance(payload["strategy"]["recommendations"], list)
 
 
 def test_sell_diagnostics_endpoint_returns_strategy_context() -> None:
