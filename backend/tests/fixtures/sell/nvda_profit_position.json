@@ -1,10 +1,10 @@
 {
   "ticker": "NVDA",
   "scenario": "profit",
-  "description": "Synthetic profitable position with trend intact and a partial profit-taking signal.",
+  "description": "Synthetic profitable position with trend intact under the default RS 21/50 strategy.",
   "expected": {
     "status": "Halten",
-    "recommendation_label": "TEILVERKAUF",
+    "recommendation_label": "HALTEN",
     "minimum_health_score": 65
   }
 }

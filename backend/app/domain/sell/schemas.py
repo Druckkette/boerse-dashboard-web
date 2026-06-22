@@ -124,9 +124,9 @@ class SellStrategyRecommendation(BaseModel):
 
 
 class SellStrategyResult(BaseModel):
-    strategy_key: str = "custom"
-    label: str = "Benutzerdefiniert"
-    description: str = ""
+    strategy_key: str = "rs_line"
+    label: str = "RS-Linie mit 21/50-Durchschnitt"
+    description: str = "Teilverkauf in drei Stufen, wenn die Relative-Stärke-Linie ihre 21- und 50-Tage-Linien verliert."
     recommendation_percent: int = 0
     recommendations: list[SellStrategyRecommendation] = Field(default_factory=list)
 

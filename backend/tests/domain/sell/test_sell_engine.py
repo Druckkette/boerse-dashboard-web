@@ -88,14 +88,14 @@ def test_health_score_is_reproducible() -> None:
 
 
 def test_tranche_log_reduces_follow_up_sale() -> None:
-    before = evaluate_position_sell_decision("NVDA")
+    before = evaluate_position_sell_decision("PLTR")
     assert before.sell_now_percent > 0
 
     create_tranche_log_entry(
-        "NVDA",
-        TrancheLogEntry(ticker="NVDA", pct=25, reason="Golden-master partial sale"),
+        "PLTR",
+        TrancheLogEntry(ticker="PLTR", pct=25, reason="Golden-master partial sale"),
     )
-    after = evaluate_position_sell_decision("NVDA")
+    after = evaluate_position_sell_decision("PLTR")
 
     assert after.already_sold_percent == 25
     assert after.sell_now_percent < before.sell_now_percent
@@ -109,7 +109,7 @@ def test_sell_rule_categories_and_strategy_are_exposed() -> None:
     assert evaluation.offensive_features
     assert evaluation.defensive_features
     assert any(feature.id == "emergency_loss_limit" and feature.active for feature in evaluation.emergency_features)
-    assert evaluation.strategy.strategy_key == "custom"
+    assert evaluation.strategy.strategy_key == "rs_line"
     assert evaluation.strategy.recommendations
 
 
@@ -118,6 +118,7 @@ def test_per_stock_sell_setup_overrides_defaults() -> None:
         manual=SellManualInput(
             ticker="NVDA",
             sell_setup={
+                "strategy_key": "custom",
                 "profit_target_value": 80,
                 "custom_strategy_steps": [{"feature_id": "offensive_profit_target", "tranche_percent": 33}],
             },
@@ -136,6 +137,7 @@ def test_custom_strategy_uses_configured_tranche_percent() -> None:
         manual=SellManualInput(
             ticker="NVDA",
             sell_setup={
+                "strategy_key": "custom",
                 "custom_strategy_steps": [{"feature_id": "offensive_profit_target", "tranche_percent": 33}],
             },
         )
@@ -147,47 +149,57 @@ def test_custom_strategy_uses_configured_tranche_percent() -> None:
     assert evaluation.sell_now_percent == 33
 
 
-def test_legacy_custom_strategy_default_steps_are_compacted() -> None:
+def test_old_default_custom_strategy_steps_switch_to_rs_default() -> None:
     request = SellEvaluationRequest(
         manual=SellManualInput(
             ticker="NVDA",
-            sell_setup={"custom_strategy_steps": LEGACY_CUSTOM_STRATEGY_STEPS},
+            sell_setup={"strategy_key": "custom", "custom_strategy_steps": LEGACY_CUSTOM_STRATEGY_STEPS},
+        )
+    )
+
+    evaluation = evaluate_position_sell_decision("NVDA", request)
+
+    assert evaluation.strategy.strategy_key == "rs_line"
+    assert len(evaluation.manual.sell_setup["custom_strategy_steps"]) == 1
+    assert evaluation.manual.sell_setup["custom_strategy_steps"][0]["feature_id"] == "emergency_loss_limit"
+
+
+def test_custom_strategy_default_starts_with_nothalt_only() -> None:
+    request = SellEvaluationRequest(
+        manual=SellManualInput(
+            ticker="NVDA",
+            sell_setup={"strategy_key": "custom"},
         )
     )
 
     evaluation = evaluate_position_sell_decision("NVDA", request)
 
     assert evaluation.strategy.strategy_key == "custom"
-    assert len(evaluation.strategy.recommendations) == 4
-    assert [item.feature_ids[0] for item in evaluation.strategy.recommendations] == [
-        "offensive_profit_target",
-        "offensive_ema21_break",
-        "offensive_peak_drop",
-        "emergency_loss_limit",
-    ]
+    assert len(evaluation.strategy.recommendations) == 1
+    assert evaluation.strategy.recommendations[0].feature_ids == ["emergency_loss_limit"]
 
 
 def test_snooze_state_changes_pending_status() -> None:
-    before = evaluate_position_sell_decision("NVDA")
+    before = evaluate_position_sell_decision("EMAB")
     assert before.sell_now_percent > 0
 
-    snooze_sell_signal("NVDA", SnoozeRequest(snoozed_pct=100, days=5))
-    after = evaluate_position_sell_decision("NVDA")
+    snooze_sell_signal("EMAB", SnoozeRequest(snoozed_pct=100, days=5))
+    after = evaluate_position_sell_decision("EMAB")
 
     assert after.pending_status == "snoozed"
     assert after.next_recommendation_state.snoozed_pct == 100
 
 
 def test_sell_ranking_exposes_persisted_recommendation_state() -> None:
-    snooze_sell_signal("NVDA", SnoozeRequest(snoozed_pct=100, days=5))
+    snooze_sell_signal("EMAB", SnoozeRequest(snoozed_pct=100, days=5))
 
     ranking = get_sell_position_ranking()
-    nvda = next(row for row in ranking.rows if row.ticker == "NVDA")
+    emab = next(row for row in ranking.rows if row.ticker == "EMAB")
 
-    assert nvda.pending_status == "snoozed"
-    assert nvda.snoozed_pct == 100
-    assert nvda.snoozed_until
-    assert nvda.consecutive_days >= 0
+    assert emab.pending_status == "snoozed"
+    assert emab.snoozed_pct == 100
+    assert emab.snoozed_until
+    assert emab.consecutive_days >= 0
 
 
 def test_sell_ranking_prefers_imported_portfolio_positions(monkeypatch: pytest.MonkeyPatch) -> None:

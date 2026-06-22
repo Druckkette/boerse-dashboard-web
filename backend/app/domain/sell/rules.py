@@ -53,9 +53,9 @@ LM_HUB_WARNUNGEN = [
     "offensive_stall_days",
 ]
 LM_HUB_STRATEGIEN = [key for key in LM_HUB_STRATEGIES_ALL if key not in LM_HUB_WARNUNGEN]
-LM_HUB_STRATEGIEN_DEFAULT = ["custom"]
+LM_HUB_STRATEGIEN_DEFAULT = ["rs_line"]
 LM_HUB_WARNUNGEN_DEFAULT = []
-LM_HUB_PROFILE_DEFAULT = "custom"
+LM_HUB_PROFILE_DEFAULT = "rs_line"
 LM_HUB_PROFILES: dict[str, dict[str, object]] = {
     key: {
         "label": label,
@@ -69,6 +69,10 @@ LM_HUB_STRATEGIES_DEFAULT = LM_HUB_STRATEGIEN_DEFAULT + LM_HUB_WARNUNGEN_DEFAULT
 LM_HUB_STRATEGIES = LM_HUB_STRATEGIES_DEFAULT
 
 DEFAULT_CUSTOM_STRATEGY_STEPS = [
+    {"feature_id": "emergency_loss_limit", "tranche_percent": 100},
+]
+
+PREVIOUS_DEFAULT_CUSTOM_STRATEGY_STEPS = [
     {"feature_id": "offensive_profit_target", "tranche_percent": 25},
     {"feature_id": "offensive_ema21_break", "tranche_percent": 50},
     {"feature_id": "offensive_peak_drop", "tranche_percent": 25},
@@ -93,7 +97,7 @@ LEGACY_CUSTOM_STRATEGY_STEPS = [
 ]
 
 DEFAULT_SELL_RULE_SETUP: dict[str, Any] = {
-    "strategy_key": "custom",
+    "strategy_key": "rs_line",
     "emergency_stop_unit": "pct",
     "emergency_stop_value": 7.0,
     "profit_target_unit": "pct",
@@ -275,8 +279,17 @@ def normalize_sell_setup_payload(raw_setup: dict[str, Any] | None) -> dict[str, 
     if not isinstance(raw_setup, dict):
         return {}
     setup = dict(raw_setup)
-    if _strategy_steps_equal(setup.get("custom_strategy_steps"), LEGACY_CUSTOM_STRATEGY_STEPS):
+    has_old_default_custom_steps = _strategy_steps_equal(
+        setup.get("custom_strategy_steps"),
+        LEGACY_CUSTOM_STRATEGY_STEPS,
+    ) or _strategy_steps_equal(
+        setup.get("custom_strategy_steps"),
+        PREVIOUS_DEFAULT_CUSTOM_STRATEGY_STEPS,
+    )
+    if has_old_default_custom_steps:
         setup["custom_strategy_steps"] = [dict(item) for item in DEFAULT_CUSTOM_STRATEGY_STEPS]
+        if str(setup.get("strategy_key") or "custom").strip() == "custom":
+            setup["strategy_key"] = "rs_line"
     return setup
 
 
@@ -316,9 +329,9 @@ def _resolve_setup(metrics_payload: dict, manual_data: dict | None) -> dict:
     if isinstance(payload_setup, dict):
         setup.update(normalize_sell_setup_payload(payload_setup))
     setup = normalize_sell_setup_payload(setup)
-    strategy_key = str(setup.get("strategy_key") or setup.get("active_strategy") or setup.get("profile") or "custom").strip()
+    strategy_key = str(setup.get("strategy_key") or setup.get("active_strategy") or setup.get("profile") or "rs_line").strip()
     if strategy_key not in SELL_STRATEGY_LABELS:
-        strategy_key = "custom"
+        strategy_key = "rs_line"
     setup["strategy_key"] = strategy_key
     return setup
 

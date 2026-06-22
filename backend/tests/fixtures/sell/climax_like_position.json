@@ -1,9 +1,8 @@
 {
   "ticker": "CLMX",
   "scenario": "climax",
-  "description": "Synthetic extended winner with late-stage volume and overextension characteristics.",
+  "description": "Synthetic extended winner that stays in hold mode under the default RS 21/50 strategy unless RS breaks.",
   "expected": {
-    "recommendation_label": "KOMPLETTVERKAUF",
-    "minimum_recommendation_percent": 75
+    "recommendation_label": "HALTEN"
   }
 }

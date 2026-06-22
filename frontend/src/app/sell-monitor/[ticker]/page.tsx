@@ -8,10 +8,9 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { api } from "@/lib/api/client";
-import type { ChartLevel, ChartMarker } from "@/components/ui/line-chart-card";
+import type { ChartMarker } from "@/components/ui/line-chart-card";
 import type {
   PendingStatus,
-  SellEvaluation,
   SellManualInput,
   SellRuleFeature,
   SellSignal,
@@ -33,8 +32,8 @@ const toneByPending: Record<PendingStatus, "good" | "neutral" | "warning" | "bad
 };
 
 const STRATEGY_OPTIONS = [
-  { value: "custom", label: "Benutzerdefiniert" },
   { value: "rs_line", label: "RS-Linie 21/50" },
+  { value: "custom", label: "Benutzerdefiniert" },
   { value: "ema21_risk_averse", label: "21-EMA risikoavers" },
   { value: "ema21_offensive", label: "21-EMA offensiv" },
   { value: "peak_drawdown", label: "Peak-Rückgang" },
@@ -131,9 +130,6 @@ export default function SellMonitorTickerPage() {
   function customStrategySteps(): CustomStrategyStep[] {
     const raw = currentManual?.sell_setup?.custom_strategy_steps;
     if (!Array.isArray(raw)) return [
-      { feature_id: "offensive_profit_target", tranche_percent: 25 },
-      { feature_id: "offensive_ema21_break", tranche_percent: 50 },
-      { feature_id: "offensive_peak_drop", tranche_percent: 25 },
       { feature_id: "emergency_loss_limit", tranche_percent: 100 }
     ];
     return raw
@@ -174,14 +170,13 @@ export default function SellMonitorTickerPage() {
       : (evaluation.data?.recommendation_percent ?? 0) > 0
         ? "warning"
         : "good";
-  const priceDataSource = dataSourceFromMetrics(metrics.data?.raw_payload.metrics, "price_data_source");
-  const benchmarkDataSource = dataSourceFromMetrics(metrics.data?.raw_payload.metrics, "benchmark_data_source");
-  const sellChartLevels = buildSellChartLevels(evaluation.data);
   const sellChartMarkers = buildSellChartMarkers(
     [...mainSignals, ...warningSignals],
     metrics.data?.current_price
   );
-  const selectedStrategy = setupString("strategy_key", "custom");
+  const selectedStrategy = setupString("strategy_key", "rs_line");
+  const distributionDays = metrics.data?.distribution_days_25;
+  const rsTrend = metrics.data?.rs_trend ?? health?.rs_trend;
 
   return (
     <div className="space-y-5">
@@ -201,25 +196,23 @@ export default function SellMonitorTickerPage() {
             <StatusChip tone={evaluation.data ? toneByPending[evaluation.data.pending_status] : "neutral"}>
               {evaluation.data?.display_label ?? "loading"}
             </StatusChip>
-            <StatusChip tone={toneForDataSource(priceDataSource)}>
-              {labelForDataSource(priceDataSource)}
-            </StatusChip>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <KpiCard item={{ label: "Health Score", value: health ? health.health_score.toFixed(1) : "-", detail: health?.rs_trend ?? "RS Trend", tone: health ? toneByStatus[health.status] : "neutral" }} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <KpiCard item={{ label: "Health Score", value: health ? health.health_score.toFixed(1) : "-", detail: health?.status ?? "Status", tone: health ? toneByStatus[health.status] : "neutral" }} />
         <KpiCard item={{ label: "Empfehlung", value: `${evaluation.data?.sell_now_percent ?? 0}%`, detail: evaluation.data?.regime ?? "Regime", tone: recommendationTone }} />
         <KpiCard item={{ label: "P&L", value: formatPct(metrics.data?.pnl_pct), detail: "seit Kauf", tone: (metrics.data?.pnl_pct ?? 0) >= 0 ? "good" : "bad" }} />
+        <KpiCard item={{ label: "RS Trend", value: labelForRsTrend(rsTrend), detail: "Relative-Stärke-Linie", tone: toneForRsTrend(rsTrend) }} />
+        <KpiCard item={{ label: "Distribution", value: distributionDays == null ? "-" : String(distributionDays), detail: "Tage in 25 Sessions", tone: distributionDays == null ? "neutral" : distributionDays >= 4 ? "warning" : "good" }} />
         <KpiCard item={{ label: "ATR14", value: formatNumber(metrics.data?.atr14), detail: "für ATR-basierte Regeln", tone: "neutral" }} />
-        <KpiCard item={{ label: "Datenquelle", value: labelForDataSource(priceDataSource), detail: `Benchmark: ${labelForDataSource(benchmarkDataSource)}`, tone: toneForDataSource(priceDataSource) }} />
       </div>
 
       <SellStrategyPanel strategy={evaluation.data?.strategy} />
 
       <StockPricePanel
-        levels={sellChartLevels}
+        levels={[]}
         markers={sellChartMarkers}
         ticker={ticker}
         title="Sell Context"
@@ -400,17 +393,26 @@ function SellStrategyPanel({ strategy }: { strategy?: SellStrategyResult }) {
             <div className="mb-2 flex items-start justify-between gap-3">
               <div className="font-medium">{recommendation.label}</div>
               <StatusChip tone={recommendation.active ? "warning" : "neutral"}>
-                {recommendation.active ? `${recommendation.tranche_percent}%` : "inaktiv"}
+                {recommendation.active ? `aktiv · ${recommendation.tranche_percent}%` : "inaktiv"}
               </StatusChip>
             </div>
-            <div className="text-sm text-[#a0a7b4]">{recommendation.detail || recommendation.trigger}</div>
-            {recommendation.trigger && (
-              <div className="mt-2 text-xs text-[#77808f]">Trigger: {recommendation.trigger}</div>
-            )}
+            <div className="grid gap-2 text-sm">
+              <StrategyStatusRow label="Aktueller Stand" value={recommendation.detail || "Noch kein Messwert für diese Bedingung."} />
+              <StrategyStatusRow label="Kriterium" value={recommendation.trigger || "Regel ohne separate Schwelle."} />
+            </div>
           </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function StrategyStatusRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-[#2d333d] bg-[#171a20] px-3 py-2">
+      <div className="text-xs uppercase text-[#77808f]">{label}</div>
+      <div className="mt-1 text-[#d8dde6]">{value}</div>
+    </div>
   );
 }
 
@@ -759,32 +761,18 @@ function formatPct(value?: number | null) {
   return value == null ? "-" : `${value.toFixed(1)}%`;
 }
 
-function dataSourceFromMetrics(metrics?: Record<string, unknown>, key?: string) {
-  const value = key ? metrics?.[key] : undefined;
-  return typeof value === "string" ? value : "";
+function labelForRsTrend(value?: string | null) {
+  if (value === "hoch") return "hoch";
+  if (value === "runter") return "runter";
+  if (value === "seitwärts" || value === "seitwaerts") return "seitwärts";
+  return "-";
 }
 
-function labelForDataSource(value: string) {
-  if (value === "database") return "Price Cache";
-  if (value === "synthetic_fallback") return "Fallback";
-  if (value === "synthetic_fixture") return "Fixture";
-  return "unbekannt";
-}
-
-function toneForDataSource(value: string): "good" | "neutral" | "warning" | "bad" {
-  if (value === "database") return "good";
-  if (value === "synthetic_fixture") return "neutral";
-  if (value === "synthetic_fallback") return "warning";
+function toneForRsTrend(value?: string | null): Tone {
+  if (value === "hoch") return "good";
+  if (value === "runter") return "bad";
+  if (value === "seitwärts" || value === "seitwaerts") return "neutral";
   return "neutral";
-}
-
-function buildSellChartLevels(evaluation?: SellEvaluation): ChartLevel[] {
-  if (!evaluation) return [];
-  return [
-    { key: "stop", label: "Stop", value: evaluation.stop_price, color: "#fb7185" },
-    { key: "next-tranche", label: "Nächste Tranche", value: evaluation.next_tranche_trigger_price, color: "#fbbf24" },
-    { key: "full-exit", label: "Full Exit", value: evaluation.full_exit_price, color: "#c084fc" }
-  ].filter((item): item is ChartLevel => typeof item.value === "number" && Number.isFinite(item.value));
 }
 
 function buildSellChartMarkers(signals: SellSignal[], currentPrice?: number | null): ChartMarker[] {
