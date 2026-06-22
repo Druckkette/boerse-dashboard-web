@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from app.domain.sell.metrics import build_sell_decision_metrics_payload
-from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision
+from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision, normalize_sell_setup_payload
 from app.domain.sell.schemas import (
     ManualInputResponse,
     SellDiagnosticsResponse,
@@ -216,7 +216,7 @@ def get_sell_diagnostics_for_position(ticker: str) -> SellDiagnosticsResponse:
 
 def update_manual_sell_inputs(ticker: str, manual: SellManualInput) -> ManualInputResponse:
     clean_ticker = _clean_ticker(ticker)
-    stored = manual.model_copy(update={"ticker": clean_ticker})
+    stored = manual.model_copy(update={"ticker": clean_ticker, "sell_setup": normalize_sell_setup_payload(manual.sell_setup)})
     stored = sell_state_repository.upsert_manual_input(stored)
     return ManualInputResponse(manual=stored)
 
@@ -906,10 +906,12 @@ def _resolve_manual(
 ) -> SellManualInput:
     clean_ticker = _clean_ticker(ticker)
     if request_manual is not None:
-        return request_manual.model_copy(update={"ticker": clean_ticker})
+        return request_manual.model_copy(
+            update={"ticker": clean_ticker, "sell_setup": normalize_sell_setup_payload(request_manual.sell_setup)}
+        )
     stored_manual = sell_state_repository.get_manual_input(clean_ticker)
     if stored_manual is not None:
-        return stored_manual
+        return stored_manual.model_copy(update={"sell_setup": normalize_sell_setup_payload(stored_manual.sell_setup)})
     context = _position_context(clean_ticker)
     defaults = payload.get("manual_defaults") if isinstance(payload, dict) else {}
     auto = payload.get("auto_checkboxes") if isinstance(payload, dict) else {}

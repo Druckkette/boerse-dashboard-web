@@ -5,6 +5,7 @@ import {
   Activity,
   BriefcaseBusiness,
   ChartCandlestick,
+  ClipboardCheck,
   Gauge,
   Home,
   LineChart,
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness, exact: true },
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/sell-monitor", label: "Sell Monitor", icon: ChartCandlestick },
+  { href: "/ex-post-analyse", label: "Ex Post Analyse", icon: ClipboardCheck },
   { href: "/workspace", label: "Workspace", icon: NotebookTabs },
   { href: "/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings", label: "Settings", icon: Settings }

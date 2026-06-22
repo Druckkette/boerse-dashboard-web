@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from app.domain.sell import service as sell_service
+from app.domain.sell.rules import LEGACY_CUSTOM_STRATEGY_STEPS
 from app.domain.sell.schemas import SellEvaluationRequest, SellManualInput, SnoozeRequest, TrancheLogEntry
 from app.domain.sell.service import (
     clear_sell_engine_state,
@@ -144,6 +145,26 @@ def test_custom_strategy_uses_configured_tranche_percent() -> None:
 
     assert evaluation.strategy.recommendation_percent == 33
     assert evaluation.sell_now_percent == 33
+
+
+def test_legacy_custom_strategy_default_steps_are_compacted() -> None:
+    request = SellEvaluationRequest(
+        manual=SellManualInput(
+            ticker="NVDA",
+            sell_setup={"custom_strategy_steps": LEGACY_CUSTOM_STRATEGY_STEPS},
+        )
+    )
+
+    evaluation = evaluate_position_sell_decision("NVDA", request)
+
+    assert evaluation.strategy.strategy_key == "custom"
+    assert len(evaluation.strategy.recommendations) == 4
+    assert [item.feature_ids[0] for item in evaluation.strategy.recommendations] == [
+        "offensive_profit_target",
+        "offensive_ema21_break",
+        "offensive_peak_drop",
+        "emergency_loss_limit",
+    ]
 
 
 def test_snooze_state_changes_pending_status() -> None:

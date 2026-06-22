@@ -72,6 +72,13 @@ DEFAULT_CUSTOM_STRATEGY_STEPS = [
     {"feature_id": "offensive_profit_target", "tranche_percent": 25},
     {"feature_id": "offensive_ema21_break", "tranche_percent": 50},
     {"feature_id": "offensive_peak_drop", "tranche_percent": 25},
+    {"feature_id": "emergency_loss_limit", "tranche_percent": 100},
+]
+
+LEGACY_CUSTOM_STRATEGY_STEPS = [
+    {"feature_id": "offensive_profit_target", "tranche_percent": 25},
+    {"feature_id": "offensive_ema21_break", "tranche_percent": 50},
+    {"feature_id": "offensive_peak_drop", "tranche_percent": 25},
     {"feature_id": "offensive_ma_extension_sma10", "tranche_percent": 20},
     {"feature_id": "offensive_ma_extension_ema21", "tranche_percent": 25},
     {"feature_id": "offensive_ma_extension_sma50", "tranche_percent": 33},
@@ -264,6 +271,31 @@ def _extract_inputs(metrics_payload: dict) -> tuple[dict, str, float, float]:
     return metrics, ticker, buy_price, shares
 
 
+def normalize_sell_setup_payload(raw_setup: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(raw_setup, dict):
+        return {}
+    setup = dict(raw_setup)
+    if _strategy_steps_equal(setup.get("custom_strategy_steps"), LEGACY_CUSTOM_STRATEGY_STEPS):
+        setup["custom_strategy_steps"] = [dict(item) for item in DEFAULT_CUSTOM_STRATEGY_STEPS]
+    return setup
+
+
+def _strategy_steps_equal(raw_steps: Any, expected_steps: list[dict[str, Any]]) -> bool:
+    if not isinstance(raw_steps, list) or len(raw_steps) != len(expected_steps):
+        return False
+    for raw_step, expected_step in zip(raw_steps, expected_steps, strict=True):
+        if not isinstance(raw_step, dict):
+            return False
+        feature_id = str(raw_step.get("feature_id") or "").strip()
+        try:
+            tranche_percent = int(float(raw_step.get("tranche_percent", -1)))
+        except (TypeError, ValueError):
+            return False
+        if feature_id != expected_step["feature_id"] or tranche_percent != int(expected_step["tranche_percent"]):
+            return False
+    return True
+
+
 def _manual_value(manual_data: dict, metrics_payload: dict, key: str):
     if isinstance(manual_data, dict) and manual_data.get(key) not in (None, ""):
         return manual_data.get(key)
@@ -279,10 +311,11 @@ def _resolve_setup(metrics_payload: dict, manual_data: dict | None) -> dict:
     setup["custom_strategy_steps"] = [dict(item) for item in DEFAULT_CUSTOM_STRATEGY_STEPS]
     manual_setup = (manual_data or {}).get("sell_setup") if isinstance(manual_data, dict) else None
     if isinstance(manual_setup, dict):
-        setup.update(manual_setup)
+        setup.update(normalize_sell_setup_payload(manual_setup))
     payload_setup = (metrics_payload or {}).get("lm_setup") if isinstance(metrics_payload, dict) else None
     if isinstance(payload_setup, dict):
-        setup.update(payload_setup)
+        setup.update(normalize_sell_setup_payload(payload_setup))
+    setup = normalize_sell_setup_payload(setup)
     strategy_key = str(setup.get("strategy_key") or setup.get("active_strategy") or setup.get("profile") or "custom").strip()
     if strategy_key not in SELL_STRATEGY_LABELS:
         strategy_key = "custom"
