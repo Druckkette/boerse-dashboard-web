@@ -1231,6 +1231,7 @@ class TradeJournalEntryRequest(BaseModel):
     status: Literal["open", "closed", "draft"] | None = None
     basis_text: str = ""
     alternative_entry: bool = False
+    alternative_entry_text: str = ""
     primary_reasons: str = ""
     sell_reason: str = ""
     close_with_related_buy: bool = False
@@ -1261,6 +1262,7 @@ class TradeJournalEntryDetail(TradeJournalEntrySummary):
     stop_deviation_pct: float | None = None
     basis_text: str = ""
     alternative_entry: bool = False
+    alternative_entry_text: str = ""
     primary_reasons: str = ""
     sell_reason: str = ""
     questionnaire: dict = Field(default_factory=dict)

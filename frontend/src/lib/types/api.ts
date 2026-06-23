@@ -634,6 +634,7 @@ export type TradeJournalEntryRequest = {
   status?: TradeJournalEntryStatus | null;
   basis_text?: string;
   alternative_entry?: boolean;
+  alternative_entry_text?: string;
   primary_reasons?: string;
   sell_reason?: string;
   close_with_related_buy?: boolean;
@@ -664,6 +665,7 @@ export type TradeJournalEntryDetail = TradeJournalEntrySummary & {
   stop_deviation_pct?: number | null;
   basis_text: string;
   alternative_entry: boolean;
+  alternative_entry_text: string;
   primary_reasons: string;
   sell_reason: string;
   questionnaire: Record<string, unknown>;

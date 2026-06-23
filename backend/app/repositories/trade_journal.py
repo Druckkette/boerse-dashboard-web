@@ -53,6 +53,41 @@ def latest_open_buy_entry(ticker: str) -> TradeJournalEntry | None:
         raise TradeJournalRepositoryUnavailable(str(exc)) from exc
 
 
+def latest_closed_buy_entry(ticker: str) -> TradeJournalEntry | None:
+    try:
+        with SessionLocal() as db:
+            statement = (
+                select(TradeJournalEntry)
+                .where(
+                    TradeJournalEntry.ticker == ticker.upper(),
+                    TradeJournalEntry.entry_type == "buy",
+                    TradeJournalEntry.status == "closed",
+                )
+                .order_by(desc(TradeJournalEntry.trade_date), desc(TradeJournalEntry.created_at))
+                .limit(1)
+            )
+            return db.scalars(statement).first()
+    except SQLAlchemyError as exc:
+        raise TradeJournalRepositoryUnavailable(str(exc)) from exc
+
+
+def latest_sell_for_buy_entry(buy_entry_id: str) -> TradeJournalEntry | None:
+    try:
+        with SessionLocal() as db:
+            statement = (
+                select(TradeJournalEntry)
+                .where(
+                    TradeJournalEntry.entry_type == "sell",
+                    TradeJournalEntry.linked_entry_id == buy_entry_id,
+                )
+                .order_by(desc(TradeJournalEntry.trade_date), desc(TradeJournalEntry.created_at))
+                .limit(1)
+            )
+            return db.scalars(statement).first()
+    except SQLAlchemyError as exc:
+        raise TradeJournalRepositoryUnavailable(str(exc)) from exc
+
+
 def create_entry(values: dict) -> TradeJournalEntry:
     try:
         with SessionLocal() as db:

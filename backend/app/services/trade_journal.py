@@ -17,7 +17,10 @@ from app.schemas import (
 from app.services.fx import get_eur_usd_rate
 from app.services.market import get_market_ampel, get_market_overview
 from app.services.portfolio import get_portfolio_positions, get_portfolio_snapshot
-from app.services.stocks import get_stock_assessment
+from app.services.prices import get_price_history
+from app.services.relative_strength import get_relative_strength_for_ticker
+from app.services.sec13f import get_institutional_13f_for_ticker
+from app.services.stocks import get_stock_assessment, get_stock_fundamentals
 
 
 IMAGE_DATA_URL_LIMIT = 2_500_000
@@ -42,7 +45,12 @@ def get_trade_journal_defaults(ticker: str, entry_type: str) -> TradeJournalDefa
     price = _current_price(clean)
     portfolio_snapshot = _portfolio_context(clean, price=price, shares=None)
     market_snapshot = _market_snapshot()
-    open_buy = journal_repository.latest_open_buy_entry(clean) if clean_type in {"sell", "ex_post"} else None
+    if clean_type == "sell":
+        open_buy = journal_repository.latest_open_buy_entry(clean)
+    elif clean_type == "ex_post":
+        open_buy = journal_repository.latest_closed_buy_entry(clean)
+    else:
+        open_buy = None
     stop_price = float(open_buy.stop_price) if open_buy is not None and open_buy.stop_price is not None else None
     return TradeJournalDefaultsResponse(
         ticker=clean,
@@ -89,6 +97,7 @@ def create_trade_journal_entry(payload: TradeJournalEntryRequest) -> TradeJourna
         "stop_deviation_pct": stop_deviation_pct,
         "basis_text": payload.basis_text.strip(),
         "alternative_entry": payload.alternative_entry,
+        "alternative_entry_text": payload.alternative_entry_text.strip(),
         "primary_reasons": payload.primary_reasons.strip(),
         "sell_reason": payload.sell_reason.strip(),
         "questionnaire_json": payload.questionnaire,
@@ -133,6 +142,7 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
         "stop_deviation_pct": stop_deviation_pct,
         "basis_text": payload.basis_text.strip(),
         "alternative_entry": payload.alternative_entry,
+        "alternative_entry_text": payload.alternative_entry_text.strip(),
         "primary_reasons": payload.primary_reasons.strip(),
         "sell_reason": payload.sell_reason.strip(),
         "questionnaire_json": payload.questionnaire,
@@ -178,10 +188,37 @@ def _current_price(ticker: str) -> float | None:
 
 
 def _stock_snapshot(ticker: str) -> dict:
+    snapshot: dict[str, Any] = {"ticker": ticker, "snapshot_schema": "stock_detail_v2"}
     try:
-        return get_stock_assessment(ticker).model_dump(mode="json")
+        assessment = get_stock_assessment(ticker).model_dump(mode="json")
+        snapshot["assessment"] = assessment
+        # Keep the original flat shape for older UI/tests that read stock_snapshot.checks directly.
+        snapshot.update({key: value for key, value in assessment.items() if key not in snapshot})
     except Exception as exc:
-        return {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
+        snapshot["assessment"] = {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        snapshot["fundamentals"] = get_stock_fundamentals(ticker).model_dump(mode="json")
+    except Exception as exc:
+        snapshot["fundamentals"] = {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        snapshot["institutional_13f"] = get_institutional_13f_for_ticker(ticker).model_dump(mode="json")
+    except Exception as exc:
+        snapshot["institutional_13f"] = {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        price_history = get_price_history(ticker, range_key="1y").model_dump(mode="json")
+        points = price_history.get("points") if isinstance(price_history.get("points"), list) else []
+        snapshot["price_history"] = {**price_history, "points": points[-260:]}
+    except Exception as exc:
+        snapshot["price_history"] = {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        snapshot["relative_strength"] = get_relative_strength_for_ticker(ticker).model_dump(mode="json")
+    except Exception as exc:
+        snapshot["relative_strength"] = {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
+    return snapshot
 
 
 def _market_snapshot() -> dict:
@@ -283,11 +320,12 @@ def _portfolio_context(ticker: str, *, price: float | None, shares: float | None
         context["weight_pct"] = round(context["position_size_usd"] / snapshot.total_value * 100, 2)
 
     if context["atr_pct"] is None or context["beta"] is None:
-        stock = _stock_snapshot(ticker)
-        metrics = stock.get("metrics") if isinstance(stock, dict) else {}
-        if isinstance(metrics, dict):
-            context["atr_pct"] = context["atr_pct"] if context["atr_pct"] is not None else metrics.get("atr_pct")
-            context["beta"] = context["beta"] if context["beta"] is not None else metrics.get("beta")
+        try:
+            metrics = get_stock_assessment(ticker).metrics
+            context["atr_pct"] = context["atr_pct"] if context["atr_pct"] is not None else metrics.atr_pct
+            context["beta"] = context["beta"] if context["beta"] is not None else metrics.beta
+        except Exception:
+            pass
     return context
 
 
@@ -383,6 +421,7 @@ def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
         stop_deviation_pct=row.stop_deviation_pct,
         basis_text=row.basis_text or "",
         alternative_entry=bool(row.alternative_entry),
+        alternative_entry_text=row.alternative_entry_text or "",
         primary_reasons=row.primary_reasons or "",
         sell_reason=row.sell_reason or "",
         questionnaire=row.questionnaire_json or {},

@@ -402,6 +402,7 @@ class TradeJournalEntry(Base):
     stop_deviation_pct: Mapped[float | None] = mapped_column(Float)
     basis_text: Mapped[str] = mapped_column(Text, default="")
     alternative_entry: Mapped[bool] = mapped_column(Boolean, default=False)
+    alternative_entry_text: Mapped[str] = mapped_column(Text, default="")
     primary_reasons: Mapped[str] = mapped_column(Text, default="")
     sell_reason: Mapped[str] = mapped_column(Text, default="")
     questionnaire_json: Mapped[dict] = mapped_column(JSONB, default=dict)
