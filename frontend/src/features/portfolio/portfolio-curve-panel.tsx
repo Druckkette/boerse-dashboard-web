@@ -36,7 +36,7 @@ export function PortfolioCurvePanel() {
       <LineChartCard
         caption={
           curve?.points.length
-            ? `${curve.points.length} Punkte, Basis ${curve.base_date ?? startDate}, Stand ${curve.as_of}. ${curve.message}`
+            ? `Basis ${curve.base_date ?? startDate} · Stand ${curve.as_of}`
             : (curve?.message || "Depotindex aus offenen Positionen und Price Cache.")
         }
         dateTickMode="weekly"

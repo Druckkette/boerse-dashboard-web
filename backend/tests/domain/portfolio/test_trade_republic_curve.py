@@ -184,7 +184,7 @@ def test_trade_republic_curve_values_derivatives_from_trade_prices_without_ticke
     assert by_date["2025-02-04"].positions_value == 0
     assert by_date["2025-02-04"].cash == 110
     assert by_date["2025-02-04"].portfolio_index == pytest.approx(110)
-    assert "DE000DERIV01" in curve.message
+    assert "Trade-Price-Fallback für 1 Instrumente" in curve.message
 
 
 def test_trade_republic_curve_deduplicates_cached_price_dates(monkeypatch) -> None:
@@ -260,7 +260,7 @@ def test_trade_republic_curve_deduplicates_trade_price_fallback_dates(monkeypatc
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
-    assert "DE000DERIV02" in curve.message
+    assert "Trade-Price-Fallback für 1 Instrumente" in curve.message
 
 
 def test_portfolio_curve_falls_back_to_missing_response_when_tr_curve_fails(monkeypatch) -> None:

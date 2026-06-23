@@ -1109,9 +1109,9 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         return None
     details = []
     if trade_price_fallbacks:
-        details.append("Trade-Price-Fallback: " + ", ".join(trade_price_fallbacks))
+        details.append(f"Trade-Price-Fallback für {len(trade_price_fallbacks)} Instrumente")
     if missing_price_instruments:
-        details.append("Kursdaten fehlen: " + ", ".join(missing_price_instruments))
+        details.append(f"Kursdaten fehlen für {len(missing_price_instruments)} Instrumente")
     message = f"Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, TR-EUR-Werte mit EUR/USD {fx_rate.rate:.4f} in USD umgerechnet."
     if details:
         message += " " + " · ".join(details)
