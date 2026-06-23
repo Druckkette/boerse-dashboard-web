@@ -38,24 +38,45 @@ export function SectorRankingPanel() {
             </p>
             {data?.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[#77808f]">{data.message}</p>}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
-              {(["daily", "weekly"] as const).map((item) => (
-                <button
-                  key={item}
-                  className={[
-                    "rounded px-3 py-2 text-sm transition",
-                    mode === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
-                  ].join(" ")}
-                  type="button"
-                  onClick={() => setMode(item)}
-                >
-                  {item === "daily" ? "Tagesansicht" : "Wochenansicht"}
-                </button>
-              ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs uppercase tracking-wide text-[#77808f]">Zeitraum</span>
+              <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
+                {(["daily", "weekly"] as const).map((item) => (
+                  <button
+                    key={item}
+                    className={[
+                      "rounded px-3 py-2 text-sm transition",
+                      mode === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
+                    ].join(" ")}
+                    type="button"
+                    onClick={() => setMode(item)}
+                  >
+                    {item === "daily" ? "Tagesansicht" : "Wochenansicht"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs uppercase tracking-wide text-[#77808f]">Anzeige</span>
+              <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
+                {(["return", "rank"] as const).map((item) => (
+                  <button
+                    key={item}
+                    className={[
+                      "rounded px-3 py-2 text-sm transition",
+                      performanceView === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
+                    ].join(" ")}
+                    type="button"
+                    onClick={() => setPerformanceView(item)}
+                  >
+                    {item === "return" ? "% Gewinn" : "Platz Ranking"}
+                  </button>
+                ))}
+              </div>
             </div>
             <button
-              className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+              className="mt-5 inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
               type="button"
               onClick={() => query.refetch()}
             >
@@ -88,38 +109,14 @@ export function SectorRankingPanel() {
             <SectorSummary title="Bottom 3 Sektoren" rows={data.bottom} direction="down" />
           </div>
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-base font-semibold">Ranking-Tabelle</h2>
-                <p className="text-sm text-[#a0a7b4]">Stand {data.as_of}</p>
-              </div>
-              <StatusChip tone="neutral">{data.mode === "daily" ? "% Tagesgewinn" : "% Wochenschnitt"}</StatusChip>
-            </div>
-            <SectorTable rows={data.rows} />
-          </section>
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h2 className="text-base font-semibold">Performance-Tabelle</h2>
                 <p className="text-sm text-[#a0a7b4]">
-                  Neueste Periode links. Sortierung nach aktueller Ansicht: bester Rang oder größter Tagesgewinn.
+                  Stand {data.as_of}. Neueste Periode links. Sortierung nach aktueller Ansicht: bester Rang oder größter % Gewinn.
                 </p>
               </div>
-              <div className="inline-flex w-fit rounded border border-[#2d333d] bg-[#111419] p-1">
-                {(["return", "rank"] as const).map((item) => (
-                  <button
-                    key={item}
-                    className={[
-                      "rounded px-3 py-2 text-sm transition",
-                      performanceView === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
-                    ].join(" ")}
-                    type="button"
-                    onClick={() => setPerformanceView(item)}
-                  >
-                    {item === "return" ? "% Tagesgewinn" : "Platz Ranking"}
-                  </button>
-                ))}
-              </div>
+              <StatusChip tone="neutral">{performanceView === "return" ? "% Gewinn" : "Platz Ranking"}</StatusChip>
             </div>
             <SectorPerformanceTable points={data.history} view={performanceView} />
           </section>
@@ -160,41 +157,6 @@ function SectorSummary({
         ))}
       </div>
     </section>
-  );
-}
-
-function SectorTable({ rows }: { rows: SectorRankingRow[] }) {
-  const sortedRows = [...rows].sort((left, right) => left.rank - right.rank);
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-[#2d333d] text-left text-xs uppercase text-[#77808f]">
-            <th className="py-3 pr-3">Rang</th>
-            <th className="px-3 py-3">Sektor</th>
-            <th className="px-3 py-3 text-right">Aktuell</th>
-            <th className="px-3 py-3 text-right">1D</th>
-            <th className="px-3 py-3 text-right">5D</th>
-            <th className="px-3 py-3 text-right">20D</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sortedRows.map((row) => (
-            <tr key={row.ticker} className="border-b border-[#242a33] last:border-0">
-              <td className="py-3 pr-3 tabular-nums text-[#d8dde6]">#{row.rank}</td>
-              <td className="px-3 py-3">
-                <div className="font-medium">{row.name}</div>
-                <div className="text-xs text-[#77808f]">{row.ticker}</div>
-              </td>
-              <PctCell value={row.return_pct} />
-              <PctCell value={row.return_1d_pct} />
-              <PctCell value={row.return_5d_pct} />
-              <PctCell value={row.return_20d_pct} />
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -253,14 +215,6 @@ function SectorPerformanceTable({ points, view }: { points: SectorRankingPoint[]
         </tbody>
       </table>
     </div>
-  );
-}
-
-function PctCell({ value }: { value?: number | null }) {
-  return (
-    <td className={["px-3 py-3 text-right tabular-nums", pctClass(value)].join(" ")}>
-      {value === null || value === undefined ? "-" : formatPct(value)}
-    </td>
   );
 }
 
