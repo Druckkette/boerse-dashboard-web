@@ -1,12 +1,17 @@
 import { StatusChip } from "@/components/ui/status-chip";
 import { BuyStrengthDetail } from "@/features/portfolio/buy-strength-detail";
+import { normalizeBuyStrengthWeeks } from "@/features/portfolio/buy-strength-window";
 
 export default async function PortfolioBuyStrengthPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ ticker: string }>;
+  searchParams?: Promise<{ weeks?: string | string[] }>;
 }) {
   const { ticker } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const initialWeeks = normalizeBuyStrengthWeeks(resolvedSearchParams.weeks);
 
   return (
     <div className="space-y-5">
@@ -19,7 +24,7 @@ export default async function PortfolioBuyStrengthPage({
         </div>
         <StatusChip tone="neutral">Portfolio</StatusChip>
       </div>
-      <BuyStrengthDetail ticker={ticker.toUpperCase()} />
+      <BuyStrengthDetail ticker={ticker.toUpperCase()} initialWeeks={initialWeeks} />
     </div>
   );
 }

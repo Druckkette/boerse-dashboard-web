@@ -665,10 +665,13 @@ def test_portfolio_curve_contract() -> None:
 def test_portfolio_buy_strength_contract(monkeypatch) -> None:
     from app.api.v1 import portfolio as portfolio_api
 
-    def fake_overview() -> BuyStrengthOverviewResponse:
+    called: dict[str, int] = {}
+
+    def fake_overview(weeks: int = 3) -> BuyStrengthOverviewResponse:
+        called["weeks"] = weeks
         return BuyStrengthOverviewResponse(
             as_of="2026-06-21T10:00:00+00:00",
-            window_days=21,
+            window_days=weeks * 7,
             items=[
                 BuyStrengthSummaryItem(
                     ticker="NVDA",
@@ -691,10 +694,11 @@ def test_portfolio_buy_strength_contract(monkeypatch) -> None:
 
     monkeypatch.setattr(portfolio_api, "get_buy_strength_overview", fake_overview)
 
-    response = client.get("/api/v1/portfolio/buy-strength")
+    response = client.get("/api/v1/portfolio/buy-strength?weeks=6")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["window_days"] == 21
+    assert called["weeks"] == 6
+    assert payload["window_days"] == 42
     assert payload["items"][0]["ticker"] == "NVDA"
     assert payload["items"][0]["warnings_total"] == 11
 
@@ -702,12 +706,16 @@ def test_portfolio_buy_strength_contract(monkeypatch) -> None:
 def test_portfolio_buy_strength_detail_contract(monkeypatch) -> None:
     from app.api.v1 import portfolio as portfolio_api
 
-    def fake_detail(ticker: str) -> BuyStrengthAssessmentResponse:
+    called: dict[str, int] = {}
+
+    def fake_detail(ticker: str, weeks: int = 3) -> BuyStrengthAssessmentResponse:
+        called["weeks"] = weeks
         return BuyStrengthAssessmentResponse(
             ticker=ticker.upper(),
             name=ticker.upper(),
             buy_date="2026-06-14",
             age_days=7,
+            window_days=weeks * 7,
             source="database",
             data_status="fresh",
             status="watch",
@@ -744,10 +752,12 @@ def test_portfolio_buy_strength_detail_contract(monkeypatch) -> None:
 
     monkeypatch.setattr(portfolio_api, "get_buy_strength_assessment", fake_detail)
 
-    response = client.get("/api/v1/portfolio/buy-strength/nvda")
+    response = client.get("/api/v1/portfolio/buy-strength/nvda?weeks=1")
     assert response.status_code == 200
     payload = response.json()
+    assert called["weeks"] == 1
     assert payload["ticker"] == "NVDA"
+    assert payload["window_days"] == 7
     assert payload["checks"][0]["category"] == "positive"
     assert payload["warnings"][0]["passed"] is False
 

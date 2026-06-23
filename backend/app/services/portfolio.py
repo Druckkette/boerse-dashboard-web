@@ -102,7 +102,7 @@ HEADER_ALIASES = {
     "account": {"account", "depot", "portfolio"},
     "note": {"note", "notiz", "comment", "kommentar"},
 }
-BUY_STRENGTH_WINDOW_DAYS = 21
+DEFAULT_BUY_STRENGTH_WEEKS = 3
 DEFAULT_PORTFOLIO_CURVE_DAYS = 370
 
 
@@ -240,16 +240,17 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
     )
 
 
-def get_buy_strength_overview() -> BuyStrengthOverviewResponse:
+def get_buy_strength_overview(weeks: int = DEFAULT_BUY_STRENGTH_WEEKS) -> BuyStrengthOverviewResponse:
+    window_days = _buy_strength_window_days(weeks)
     items: list[BuyStrengthSummaryItem] = []
     for position in get_portfolio_positions():
         buy_date = _parse_date(position.buy_date)
         if buy_date is None:
             continue
         age_days = (date.today() - buy_date).days
-        if age_days < 0 or age_days > BUY_STRENGTH_WINDOW_DAYS:
+        if age_days < 0 or age_days > window_days:
             continue
-        assessment = get_buy_strength_assessment(position.ticker)
+        assessment = get_buy_strength_assessment(position.ticker, weeks=weeks)
         items.append(
             BuyStrengthSummaryItem(
                 ticker=assessment.ticker,
@@ -272,19 +273,20 @@ def get_buy_strength_overview() -> BuyStrengthOverviewResponse:
     items.sort(key=lambda item: (item.status in {"risk", "watch"}, item.age_days), reverse=True)
     return BuyStrengthOverviewResponse(
         as_of=datetime.now(UTC).isoformat(),
-        window_days=BUY_STRENGTH_WINDOW_DAYS,
+        window_days=window_days,
         items=items,
     )
 
 
-def get_buy_strength_assessment(ticker: str) -> BuyStrengthAssessmentResponse:
+def get_buy_strength_assessment(ticker: str, weeks: int = DEFAULT_BUY_STRENGTH_WEEKS) -> BuyStrengthAssessmentResponse:
+    window_days = _buy_strength_window_days(weeks)
     clean = ticker.strip().upper()
     if not clean:
-        return _missing_buy_strength_assessment("", "", "Ticker fehlt.")
+        return _missing_buy_strength_assessment("", "", "Ticker fehlt.", window_days=window_days)
 
     row = _find_open_position_row(clean)
     if row is None:
-        return _missing_buy_strength_assessment(clean, clean, "Keine offene Portfolio-Position gefunden.")
+        return _missing_buy_strength_assessment(clean, clean, "Keine offene Portfolio-Position gefunden.", window_days=window_days)
 
     row = _normalize_trade_republic_row_to_usd(row)
     if row.buy_date is None:
@@ -294,6 +296,7 @@ def get_buy_strength_assessment(ticker: str) -> BuyStrengthAssessmentResponse:
             "Kein Kaufdatum gespeichert. Trage ein Kaufdatum ein oder importiere ein Depot mit Kaufdatum.",
             entry_price=row.entry_price,
             current_price=row.current_price,
+            window_days=window_days,
         )
 
     start_date = row.buy_date - timedelta(days=90)
@@ -310,17 +313,20 @@ def get_buy_strength_assessment(ticker: str) -> BuyStrengthAssessmentResponse:
             buy_date=row.buy_date,
             entry_price=row.entry_price,
             current_price=row.current_price,
+            window_days=window_days,
         )
 
-    after_buy = frame[frame.index.date >= row.buy_date]
+    analysis_end = row.buy_date + timedelta(days=window_days)
+    after_buy = frame[(frame.index.date >= row.buy_date) & (frame.index.date <= analysis_end)]
     if after_buy.empty:
         return _missing_buy_strength_assessment(
             row.ticker,
             row.name,
-            "Kursdaten liegen vor, aber noch nicht ab Kaufdatum.",
+            f"Kursdaten liegen vor, aber nicht im gewählten Fenster von {weeks} Woche(n) ab Kaufdatum.",
             buy_date=row.buy_date,
             entry_price=row.entry_price,
             current_price=row.current_price,
+            window_days=window_days,
         )
 
     try:
@@ -329,7 +335,7 @@ def get_buy_strength_assessment(ticker: str) -> BuyStrengthAssessmentResponse:
         rs_row = None
     rs_frame = _rs_frame_from_metadata(rs_row.metadata_json if rs_row else {})
 
-    return _evaluate_buy_strength(row, frame, rs_frame)
+    return _evaluate_buy_strength(row, frame, rs_frame, window_days=window_days)
 
 
 def _find_open_position_row(ticker: str) -> portfolio_repository.PortfolioPositionRow | None:
@@ -344,36 +350,52 @@ def _find_open_position_row(ticker: str) -> portfolio_repository.PortfolioPositi
     return None
 
 
+def _buy_strength_window_days(weeks: int) -> int:
+    try:
+        parsed = int(weeks)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_BUY_STRENGTH_WEEKS
+    parsed = max(1, min(6, parsed))
+    return parsed * 7
+
+
 def _evaluate_buy_strength(
     row: portfolio_repository.PortfolioPositionRow,
     frame: pd.DataFrame,
     rs_frame: pd.DataFrame,
+    *,
+    window_days: int,
 ) -> BuyStrengthAssessmentResponse:
     frame = frame.sort_index()
-    after_buy = frame[frame.index.date >= row.buy_date]
+    analysis_end = row.buy_date + timedelta(days=window_days)
+    analysis_frame = frame[frame.index.date <= analysis_end]
+    if analysis_frame.empty:
+        analysis_frame = frame
+    after_buy = analysis_frame[(analysis_frame.index.date >= row.buy_date) & (analysis_frame.index.date <= analysis_end)]
     post_buy = after_buy.iloc[1:] if len(after_buy) > 1 else after_buy.iloc[0:0]
-    latest = frame.iloc[-1]
-    latest_date = pd.Timestamp(frame.index[-1]).date()
+    latest = analysis_frame.iloc[-1]
+    latest_date = pd.Timestamp(analysis_frame.index[-1]).date()
     buy_day = after_buy.iloc[0]
-    before_buy = frame[frame.index < after_buy.index[0]]
+    before_buy = analysis_frame[analysis_frame.index < after_buy.index[0]]
     previous_day_low = _finite_float(before_buy["low"].iloc[-1]) if not before_buy.empty else None
     buy_day_low = _finite_float(buy_day["low"])
     latest_close = _finite_float(latest["close"])
     current_price = latest_close if latest_close is not None else row.current_price
     pnl_pct = (current_price / row.entry_price - 1) * 100 if row.entry_price and current_price else None
 
-    close = frame["close"]
-    volume = frame["volume"].fillna(0.0)
+    close = analysis_frame["close"]
+    volume = analysis_frame["volume"].fillna(0.0)
     ema21 = close.ewm(span=21, adjust=False, min_periods=5).mean()
     sma50 = close.rolling(50, min_periods=20).mean()
     close_range = _close_range(frame)
     pct = close.pct_change()
 
+    analysis_rs_frame = _analysis_rs_frame(rs_frame, analysis_end)
     checks = [
         _check_immediate_strength(after_buy, row.entry_price, pnl_pct),
         _check_upper_candle_closes(after_buy),
-        _check_rs_strength(rs_frame, row.buy_date),
-        _check_rs_above_averages(rs_frame),
+        _check_rs_strength(analysis_rs_frame, row.buy_date),
+        _check_rs_above_averages(analysis_rs_frame),
         _check_buy_low_not_undercut(after_buy, buy_day_low),
         _check_green_red_distribution(after_buy),
         _check_nearest_average_held(close, ema21, sma50),
@@ -387,9 +409,9 @@ def _evaluate_buy_strength(
         _warning_stall_days(post_buy, close_range, pct, volume),
         _warning_lower_range_closes(post_buy, close_range),
         _warning_down_volume_cluster(post_buy, pct, volume),
-        _warning_rs_declines(rs_frame, row.buy_date),
-        _warning_rs_breaks_averages(rs_frame),
-        _warning_up_down_volume_deteriorates(frame, after_buy, row.buy_date),
+        _warning_rs_declines(analysis_rs_frame, row.buy_date),
+        _warning_rs_breaks_averages(analysis_rs_frame),
+        _warning_up_down_volume_deteriorates(analysis_frame, after_buy, row.buy_date),
     ]
 
     passed = sum(1 for check in checks if check.passed)
@@ -411,6 +433,7 @@ def _evaluate_buy_strength(
         name=row.name,
         buy_date=row.buy_date.isoformat(),
         age_days=(date.today() - row.buy_date).days,
+        window_days=window_days,
         source="database",
         data_status=data_status,
         status=status,
@@ -436,12 +459,14 @@ def _missing_buy_strength_assessment(
     buy_date: date | None = None,
     entry_price: float | None = None,
     current_price: float | None = None,
+    window_days: int = DEFAULT_BUY_STRENGTH_WEEKS * 7,
 ) -> BuyStrengthAssessmentResponse:
     return BuyStrengthAssessmentResponse(
         ticker=ticker,
         name=name or ticker,
         buy_date=buy_date.isoformat() if buy_date else None,
         age_days=(date.today() - buy_date).days if buy_date else None,
+        window_days=window_days,
         source="missing",
         data_status="missing",
         status="missing",
@@ -451,6 +476,12 @@ def _missing_buy_strength_assessment(
         current_price=current_price,
         pnl_pct=(current_price / entry_price - 1) * 100 if entry_price and current_price else None,
     )
+
+
+def _analysis_rs_frame(rs_frame: pd.DataFrame, analysis_end: date) -> pd.DataFrame:
+    if rs_frame.empty:
+        return rs_frame
+    return rs_frame[rs_frame.index.date <= analysis_end]
 
 
 def _price_frame_from_rows(rows: list[object]) -> pd.DataFrame:

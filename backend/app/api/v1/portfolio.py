@@ -126,13 +126,13 @@ def curve(
 
 
 @router.get("/buy-strength", response_model=BuyStrengthOverviewResponse)
-def buy_strength_overview() -> BuyStrengthOverviewResponse:
-    return get_buy_strength_overview()
+def buy_strength_overview(weeks: int = Query(default=3, ge=1, le=6)) -> BuyStrengthOverviewResponse:
+    return get_buy_strength_overview(weeks=weeks)
 
 
 @router.get("/buy-strength/{ticker}", response_model=BuyStrengthAssessmentResponse)
-def buy_strength_detail(ticker: str) -> BuyStrengthAssessmentResponse:
-    return get_buy_strength_assessment(ticker)
+def buy_strength_detail(ticker: str, weeks: int = Query(default=3, ge=1, le=6)) -> BuyStrengthAssessmentResponse:
+    return get_buy_strength_assessment(ticker, weeks=weeks)
 
 
 @router.post("/position-size", response_model=PortfolioPositionSizeResponse)

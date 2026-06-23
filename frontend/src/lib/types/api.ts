@@ -552,6 +552,7 @@ export type BuyStrengthAssessment = {
   name: string;
   buy_date?: string | null;
   age_days?: number | null;
+  window_days: number;
   source: "database" | "missing";
   data_status: "fresh" | "stale" | "missing";
   status: "stark" | "ok" | "watch" | "risk" | "missing";

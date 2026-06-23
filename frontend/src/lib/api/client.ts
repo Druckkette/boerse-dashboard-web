@@ -198,9 +198,18 @@ export const api = {
     const query = params.toString();
     return getJson<PortfolioCurve>(`/portfolio/curve${query ? `?${query}` : ""}`);
   },
-  portfolioBuyStrength: () => getJson<BuyStrengthOverview>("/portfolio/buy-strength"),
-  portfolioBuyStrengthDetail: (ticker: string) =>
-    getJson<BuyStrengthAssessment>(`/portfolio/buy-strength/${encodeURIComponent(ticker)}`),
+  portfolioBuyStrength: (options?: { weeks?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.weeks) params.set("weeks", String(options.weeks));
+    const query = params.toString();
+    return getJson<BuyStrengthOverview>(`/portfolio/buy-strength${query ? `?${query}` : ""}`);
+  },
+  portfolioBuyStrengthDetail: (ticker: string, options?: { weeks?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.weeks) params.set("weeks", String(options.weeks));
+    const query = params.toString();
+    return getJson<BuyStrengthAssessment>(`/portfolio/buy-strength/${encodeURIComponent(ticker)}${query ? `?${query}` : ""}`);
+  },
   portfolioPositionSize: (body: PortfolioPositionSizeRequest) =>
     postJson<PortfolioPositionSizeResult>("/portfolio/position-size", body),
   upsertPortfolioPosition: async (body: PortfolioPositionWriteRequest) => {

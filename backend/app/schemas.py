@@ -1147,6 +1147,7 @@ class BuyStrengthAssessmentResponse(BaseModel):
     name: str
     buy_date: str | None = None
     age_days: int | None = None
+    window_days: int = 21
     source: Literal["database", "missing"]
     data_status: Literal["fresh", "stale", "missing"]
     status: Literal["stark", "ok", "watch", "risk", "missing"]

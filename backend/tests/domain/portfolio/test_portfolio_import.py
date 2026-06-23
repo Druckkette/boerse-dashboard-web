@@ -149,6 +149,17 @@ def test_buy_strength_overview_detects_recent_manual_and_imported_positions(monk
             broker="CSV",
             account="Main",
         ),
+        PortfolioPositionRow(
+            ticker="AMD",
+            name="Advanced Micro Devices",
+            shares=3,
+            entry_price=100,
+            current_price=103,
+            currency="USD",
+            buy_date=date.fromordinal(today.toordinal() - 35),
+            broker="CSV",
+            account="Main",
+        ),
     ]
 
     monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
@@ -158,9 +169,15 @@ def test_buy_strength_overview_detects_recent_manual_and_imported_positions(monk
     overview = portfolio_service.get_buy_strength_overview()
 
     assert [item.ticker for item in overview.items] == ["NVDA"]
+    assert overview.window_days == 21
     assert overview.items[0].checks_total == 7
     assert overview.items[0].warnings_total == 11
     assert overview.items[0].warnings_active >= 0
+
+    six_week_overview = portfolio_service.get_buy_strength_overview(weeks=6)
+
+    assert six_week_overview.window_days == 42
+    assert {item.ticker for item in six_week_overview.items} == {"AMD", "NVDA"}
 
 
 def test_buy_strength_assessment_flags_positive_purchase_behavior(monkeypatch: pytest.MonkeyPatch) -> None:

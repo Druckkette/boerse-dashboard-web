@@ -3,9 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { BuyStrengthSummaryItem } from "@/lib/types/api";
+import { BUY_STRENGTH_WEEK_OPTIONS, buyStrengthWindowLabel, normalizeBuyStrengthWeeks } from "./buy-strength-window";
 
 const statusTone: Record<BuyStrengthSummaryItem["status"], "good" | "neutral" | "warning" | "bad"> = {
   stark: "good",
@@ -15,13 +17,15 @@ const statusTone: Record<BuyStrengthSummaryItem["status"], "good" | "neutral" | 
   missing: "neutral"
 };
 
-export function BuyStrengthPanel() {
+export function BuyStrengthPanel({ initialWeeks = 3 }: { initialWeeks?: number }) {
+  const [weeks, setWeeks] = useState(() => normalizeBuyStrengthWeeks(initialWeeks));
   const query = useQuery({
-    queryKey: ["portfolio-buy-strength"],
-    queryFn: api.portfolioBuyStrength,
+    queryKey: ["portfolio-buy-strength", weeks],
+    queryFn: () => api.portfolioBuyStrength({ weeks }),
     staleTime: 60_000
   });
   const items = query.data?.items ?? [];
+  const windowLabel = buyStrengthWindowLabel(weeks);
 
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
@@ -29,17 +33,33 @@ export function BuyStrengthPanel() {
         <div>
           <h2 className="text-base font-semibold">Stärke nach Kauf Check</h2>
           <p className="mt-1 text-sm text-[#a0a7b4]">
-            Frische Käufe unter drei Wochen werden aus Kaufdatum, CSV-Import oder Trade-Republic-Import automatisch erkannt.
+            Frische Käufe innerhalb von {windowLabel} ab Kaufdatum werden aus manueller Pflege, CSV-Import oder Trade-Republic-Import erkannt.
           </p>
         </div>
-        <StatusChip tone={items.length ? "warning" : "neutral"}>
-          {query.isLoading ? "lädt" : `${items.length} frisch`}
-        </StatusChip>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs uppercase text-[#a0a7b4]">Zeitraum</span>
+            <select
+              className="input-dark h-9 min-w-[8rem]"
+              value={weeks}
+              onChange={(event) => setWeeks(normalizeBuyStrengthWeeks(event.target.value))}
+            >
+              {BUY_STRENGTH_WEEK_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {buyStrengthWindowLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <StatusChip tone={items.length ? "warning" : "neutral"}>
+            {query.isLoading ? "lädt" : `${items.length} frisch`}
+          </StatusChip>
+        </div>
       </div>
 
       {items.length === 0 ? (
         <div className="rounded border border-[#2d333d] bg-[#111419] p-4 text-sm text-[#a0a7b4]">
-          Keine frischen Käufe im Depot. Manuell erfasste Positionen erscheinen hier, sobald ein Kaufdatum innerhalb der letzten drei Wochen gespeichert ist.
+          Keine frischen Käufe im Depot. Manuell erfasste Positionen erscheinen hier, sobald ein Kaufdatum innerhalb der letzten {windowLabel} gespeichert ist.
         </div>
       ) : (
         <div className="grid gap-3 xl:grid-cols-3">
@@ -47,7 +67,7 @@ export function BuyStrengthPanel() {
             <Link
               key={item.ticker}
               className="group rounded border border-[#2d333d] bg-[#111419] p-4 transition hover:border-emerald-300/50 hover:bg-[#151a20]"
-              href={`/portfolio/buy-strength/${item.ticker}`}
+              href={`/portfolio/buy-strength/${item.ticker}?weeks=${weeks}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>

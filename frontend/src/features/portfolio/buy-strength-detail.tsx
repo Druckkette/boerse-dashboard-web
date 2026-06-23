@@ -3,9 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, CalendarDays, LineChart, ShieldAlert, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { BuyStrengthAssessment, BuyStrengthCheck } from "@/lib/types/api";
+import { BUY_STRENGTH_WEEK_OPTIONS, buyStrengthWindowLabel, normalizeBuyStrengthWeeks } from "./buy-strength-window";
 
 const statusTone: Record<BuyStrengthAssessment["status"], "good" | "neutral" | "warning" | "bad"> = {
   stark: "good",
@@ -15,16 +17,22 @@ const statusTone: Record<BuyStrengthAssessment["status"], "good" | "neutral" | "
   missing: "neutral"
 };
 
-export function BuyStrengthDetail({ ticker }: { ticker: string }) {
+export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string; initialWeeks?: number }) {
+  const [weeks, setWeeks] = useState(() => normalizeBuyStrengthWeeks(initialWeeks));
   const query = useQuery({
-    queryKey: ["portfolio-buy-strength-detail", ticker],
-    queryFn: () => api.portfolioBuyStrengthDetail(ticker),
+    queryKey: ["portfolio-buy-strength-detail", ticker, weeks],
+    queryFn: () => api.portfolioBuyStrengthDetail(ticker, { weeks }),
     staleTime: 60_000
   });
   const data = query.data;
+  const windowLabel = buyStrengthWindowLabel(weeks);
 
   if (query.isLoading) {
-    return <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">Bewertung lädt...</div>;
+    return (
+      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        Bewertung für {windowLabel} lädt...
+      </div>
+    );
   }
 
   if (!data) {
@@ -41,11 +49,25 @@ export function BuyStrengthDetail({ ticker }: { ticker: string }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link className="inline-flex items-center gap-2 text-sm text-[#a0a7b4] hover:text-white" href="/portfolio">
+        <Link className="inline-flex items-center gap-2 text-sm text-[#a0a7b4] hover:text-white" href={`/portfolio/buy-strength?weeks=${weeks}`}>
           <ArrowLeft size={16} />
-          Zurück zum Portfolio
+          Zurück zur Stärke-Übersicht
         </Link>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs uppercase text-[#a0a7b4]">Zeitraum</span>
+            <select
+              className="input-dark h-9 min-w-[8rem]"
+              value={weeks}
+              onChange={(event) => setWeeks(normalizeBuyStrengthWeeks(event.target.value))}
+            >
+              {BUY_STRENGTH_WEEK_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {buyStrengthWindowLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
           <StatusChip tone={statusTone[data.status]}>{data.status_label}</StatusChip>
           <StatusChip tone={data.data_status === "fresh" ? "good" : data.data_status === "stale" ? "warning" : "neutral"}>
             Kurse {data.data_status}
@@ -58,11 +80,14 @@ export function BuyStrengthDetail({ ticker }: { ticker: string }) {
           <div>
             <div className="text-sm text-[#a0a7b4]">Stärke nach Kauf Bewertung</div>
             <h1 className="mt-1 text-2xl font-semibold">{data.ticker}</h1>
-            <p className="mt-2 max-w-3xl text-sm text-[#c7ccd6]">{data.message}</p>
+            <p className="mt-2 max-w-3xl text-sm text-[#c7ccd6]">
+              {data.message} Auswertungsfenster: {windowLabel} ab Kaufdatum.
+            </p>
           </div>
           <div className="grid min-w-[280px] grid-cols-2 gap-2">
             <Metric label="Kaufdatum" value={data.buy_date ?? "-"} />
             <Metric label="Alter" value={data.age_days !== null && data.age_days !== undefined ? `${data.age_days} Tage` : "-"} />
+            <Metric label="Fenster" value={`${data.window_days} Tage`} />
             <Metric label="P&L" value={formatPercent(data.pnl_pct)} tone={(data.pnl_pct ?? 0) >= 0 ? "good" : "bad"} />
             <Metric label="Stand Kurse" value={data.latest_price_date ?? "-"} />
           </div>
