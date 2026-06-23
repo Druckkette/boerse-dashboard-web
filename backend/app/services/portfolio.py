@@ -9,6 +9,7 @@ import pandas as pd
 
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
+from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import relative_strength as relative_strength_repository
 from app.domain.portfolio.trade_republic import (
     TradeRepublicPosition as DomainTradeRepublicPosition,
@@ -24,6 +25,7 @@ from app.domain.portfolio.trade_republic import (
 )
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
+from app.repositories.fundamentals import FundamentalsRepositoryUnavailable
 from app.repositories.relative_strength import RelativeStrengthRepositoryUnavailable
 from app.services.fx import FxRate, eur_to_usd, get_eur_usd_rate
 from app.schemas import (
@@ -100,6 +102,7 @@ HEADER_ALIASES = {
     "note": {"note", "notiz", "comment", "kommentar"},
 }
 BUY_STRENGTH_WINDOW_DAYS = 21
+DEFAULT_PORTFOLIO_CURVE_DAYS = 370
 
 
 def get_portfolio_positions() -> list[PortfolioPosition]:
@@ -112,12 +115,18 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
 
     rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
     invested = sum(row.current_price * row.shares for row in rows)
+    market_atr_pct = _market_atr_pct()
     positions: list[PortfolioPosition] = []
     for row in rows:
         market_value = row.current_price * row.shares
         pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
         pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
         atr_pct = _atr_pct_for_ticker(row.ticker)
+        beta = _beta_for_ticker(row.ticker)
+        weight_pct = market_value / invested * 100 if invested else 0
+        beta_balancer_score = _beta_balancer_score(beta=beta, atr_pct=atr_pct, market_atr_pct=market_atr_pct)
+        risk_contribution = _risk_contribution(weight_pct=weight_pct, beta_balancer_score=beta_balancer_score)
+        position_loss_risk = _position_loss_risk(row)
         positions.append(
             PortfolioPosition(
                 ticker=row.ticker,
@@ -127,9 +136,13 @@ def get_portfolio_positions() -> list[PortfolioPosition]:
                 current_price=row.current_price,
                 market_value=market_value,
                 pnl_pct=pnl_pct,
-                weight_pct=market_value / invested * 100 if invested else 0,
+                weight_pct=weight_pct,
                 atr_pct=atr_pct,
-                beta=1,
+                beta=beta,
+                beta_balancer_score=beta_balancer_score,
+                risk_contribution=risk_contribution,
+                position_loss_risk=position_loss_risk,
+                position_loss_risk_pct=position_loss_risk / invested * 100 if invested and position_loss_risk is not None else None,
                 status=_status_for_position(pnl_pct, atr_pct),
                 pnl_abs=pnl_abs,
                 currency=row.currency,
@@ -165,9 +178,50 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         cash = round(float(eur_to_usd(cash, rate=fx_rate) or 0.0), 2)
     total = invested + cash
     portfolio_atr_pct = sum(position.weight_pct * position.atr_pct for position in positions) / 100 if positions else 0
+    portfolio_beta_balancer = sum(
+        position.risk_contribution or 0.0
+        for position in positions
+    )
+    position_loss_values = [position.position_loss_risk for position in positions]
+    max_depot_loss_available = bool(positions) and all(value is not None for value in position_loss_values)
+    max_depot_loss_abs = sum(float(value or 0.0) for value in position_loss_values) if max_depot_loss_available else None
+    max_depot_loss_pct = max_depot_loss_abs / total * 100 if total and max_depot_loss_abs is not None else 0.0
+    market_atr_pct = _market_atr_pct()
     total_pnl_abs = sum(position.pnl_abs for position in positions)
     cost_basis = sum(position.entry_price * position.shares for position in positions)
     total_pnl_pct = total_pnl_abs / cost_basis * 100 if cost_basis else 0.0
+    kpis = [
+        KpiCard(label="Depotwert", value=f"{total:,.0f} {display_currency}", detail="aus Import", tone="neutral"),
+        KpiCard(label="Positionen", value=str(len(positions)), detail="offen", tone="good"),
+        KpiCard(
+            label="Unrealisiert",
+            value=f"{total_pnl_abs:+,.0f} {display_currency}",
+            detail=f"{total_pnl_pct:+.1f}% ggü. Einstand",
+            tone="good" if total_pnl_abs >= 0 else "bad",
+        ),
+        KpiCard(label="Cashquote", value=f"{cash / total * 100:.1f}%" if total else "0.0%", detail=f"{cash:,.0f} {display_currency}", tone="neutral"),
+        KpiCard(
+            label="Portfolio ATR",
+            value=f"{portfolio_atr_pct:.2f}%",
+            detail=_portfolio_atr_detail(portfolio_atr_pct),
+            tone=_tone_for_portfolio_atr(portfolio_atr_pct),
+        ),
+        KpiCard(
+            label="Portfolio Beta Balancer",
+            value=f"{portfolio_beta_balancer:.2f}",
+            detail="Summe Positionsanteil x Beta-Balancer-Score",
+            tone=_tone_for_portfolio_beta_balancer(portfolio_beta_balancer),
+        ),
+    ]
+    if max_depot_loss_available and max_depot_loss_abs is not None:
+        kpis.append(
+            KpiCard(
+                label="Maximaler Depotverlust",
+                value=f"{max_depot_loss_abs:,.0f} {display_currency}",
+                detail=f"{max_depot_loss_pct:.1f}% des Depots inkl. Cash",
+                tone=_tone_for_max_depot_loss(max_depot_loss_pct),
+            )
+        )
     return PortfolioSnapshotResponse(
         as_of=datetime.now(UTC).isoformat(),
         total_value=total,
@@ -175,25 +229,12 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         cash_balance=cash,
         cash_ratio_pct=cash / total * 100 if total else 0,
         portfolio_atr_pct=portfolio_atr_pct,
-        beta_balancer=1,
-        max_depot_loss_pct=sum(position.weight_pct * 0.08 for position in positions) / 100,
-        kpis=[
-            KpiCard(label="Depotwert", value=f"{total:,.0f} {display_currency}", detail="aus Import", tone="neutral"),
-            KpiCard(label="Positionen", value=str(len(positions)), detail="offen", tone="good"),
-            KpiCard(
-                label="Unrealisiert",
-                value=f"{total_pnl_abs:+,.0f} {display_currency}",
-                detail=f"{total_pnl_pct:+.1f}% ggü. Einstand",
-                tone="good" if total_pnl_abs >= 0 else "bad",
-            ),
-            KpiCard(label="Cashquote", value=f"{cash / total * 100:.1f}%" if total else "0.0%", detail=f"{cash:,.0f} {display_currency}", tone="neutral"),
-            KpiCard(
-                label="Portfolio ATR",
-                value=f"{portfolio_atr_pct:.2f}%",
-                detail="gewichtet aus Price Cache" if portfolio_atr_pct else "Price Cache fehlt",
-                tone=_tone_for_portfolio_atr(portfolio_atr_pct),
-            ),
-        ],
+        market_atr_pct=market_atr_pct,
+        beta_balancer=portfolio_beta_balancer,
+        max_depot_loss_abs=max_depot_loss_abs,
+        max_depot_loss_available=max_depot_loss_available,
+        max_depot_loss_pct=max_depot_loss_pct,
+        kpis=kpis,
         positions=positions,
     )
 
@@ -792,7 +833,10 @@ def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
         cash_balance=cash,
         cash_ratio_pct=cash_ratio,
         portfolio_atr_pct=0.0,
+        market_atr_pct=_market_atr_pct(),
         beta_balancer=1.0,
+        max_depot_loss_abs=None,
+        max_depot_loss_available=False,
         max_depot_loss_pct=0.0,
         kpis=[
             KpiCard(
@@ -810,10 +854,11 @@ def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
     )
 
 
-def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
+def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: date | None = None) -> PortfolioCurveResponse:
+    curve_start = _portfolio_curve_start_date(days=days, start_date=start_date)
     tr_error: str | None = None
     try:
-        tr_curve = _get_trade_republic_curve(days=days)
+        tr_curve = _get_trade_republic_curve(days=days, start_date=curve_start)
     except Exception as exc:
         tr_curve = None
         tr_error = f" TR-Kurve: {exc}"
@@ -827,12 +872,16 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
         return _missing_portfolio_curve(f"Portfolio-Datenbank ist nicht erreichbar: {exc}.{tr_error or ''}")
     if not rows:
         return _missing_portfolio_curve(f"Keine offenen Positionen für die Depotkurve.{tr_error or ''}")
+    rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
+    if rows and all(row.currency == "USD" for row in rows):
+        fx_rate = get_eur_usd_rate()
+        cash = round(float(eur_to_usd(cash, rate=fx_rate) or 0.0), 2)
 
-    start_date = date.today() - timedelta(days=max(30, min(2500, days)))
+    price_start_date = curve_start - timedelta(days=10)
     series_map: dict[str, pd.Series] = {}
     for row in rows:
         try:
-            price_rows = prices_repository.list_price_bars(row.ticker, start_date=start_date)
+            price_rows = prices_repository.list_price_bars(row.ticker, start_date=price_start_date)
         except PriceRepositoryUnavailable:
             price_rows = []
         points = [
@@ -851,8 +900,10 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
     if not series_map:
         return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars im Cache.{tr_error or ''}")
 
-    all_dates = sorted(set().union(*(series.index for series in series_map.values())))
+    all_dates = sorted(date_value for date_value in set().union(*(series.index for series in series_map.values())) if date_value.date() >= curve_start)
     frame = pd.DataFrame(index=pd.DatetimeIndex(all_dates))
+    if frame.empty:
+        return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars ab {curve_start.isoformat()} im Cache.{tr_error or ''}")
     for row in rows:
         series = series_map.get(row.ticker)
         if series is None:
@@ -899,6 +950,7 @@ def get_portfolio_curve(days: int = 370) -> PortfolioCurveResponse:
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="database",
         data_status="fresh",
+        base_date=points[0].date if points else curve_start.isoformat(),
         message="Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand.",
         points=points,
     )
@@ -909,12 +961,13 @@ def _missing_portfolio_curve(message: str) -> PortfolioCurveResponse:
         as_of=datetime.now(UTC).date().isoformat(),
         source="missing",
         data_status="missing",
+        base_date=None,
         message=message.strip(),
         points=[],
     )
 
 
-def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
+def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResponse | None:
     try:
         transactions = portfolio_repository.list_trade_republic_transactions()
     except PortfolioRepositoryUnavailable:
@@ -994,7 +1047,7 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         return None
     curve = curve.loc[first_active.idxmax() :].reset_index(drop=True)
 
-    window_start = pd.Timestamp(date.today() - timedelta(days=max(30, min(2500, days))))
+    window_start = pd.Timestamp(start_date)
     curve = curve[curve["date"] >= window_start].reset_index(drop=True)
     if curve.empty:
         return None
@@ -1010,6 +1063,9 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         next_index = index_values[-1] * (1.0 + daily_return)
         index_values.append(next_index if math.isfinite(next_index) else index_values[-1])
     curve["portfolio_index"] = index_values
+    first_index = _finite_float(curve["portfolio_index"].iloc[0])
+    if first_index and first_index > 0:
+        curve["portfolio_index"] = curve["portfolio_index"] / first_index * 100
     curve["portfolio_index_sma10"] = curve["portfolio_index"].rolling(10, min_periods=10).mean()
     curve["portfolio_index_sma21"] = curve["portfolio_index"].rolling(21, min_periods=21).mean()
     benchmark_index = _benchmark_index_series(pd.DatetimeIndex(curve["date"]))
@@ -1050,9 +1106,19 @@ def _get_trade_republic_curve(days: int) -> PortfolioCurveResponse | None:
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="trade_republic_transactions",
         data_status="fresh" if points else "missing",
+        base_date=points[0].date if points else start_date.isoformat(),
         message=message,
         points=points,
     )
+
+
+def _portfolio_curve_start_date(days: int, start_date: date | None) -> date:
+    if start_date is not None:
+        return start_date
+    if days != DEFAULT_PORTFOLIO_CURVE_DAYS:
+        return date.today() - timedelta(days=max(30, min(2500, days)))
+    today = date.today()
+    return date(today.year, 1, 1)
 
 
 def _cached_price_series(ticker: str, start_date: date) -> pd.Series:
@@ -1171,8 +1237,12 @@ def _stored_transaction_sort_key(row: portfolio_repository.TradeRepublicStoredTr
 
 def calculate_position_size(payload: PortfolioPositionSizeRequest) -> PortfolioPositionSizeResponse:
     risk_budget = payload.depot_value * (payload.risk_per_position_pct / 100)
-    risk_per_share = payload.buy_price * (payload.stop_pct / 100)
-    stop_price = payload.buy_price * (1 - payload.stop_pct / 100)
+    if payload.stop_unit == "usd" and payload.stop_amount:
+        risk_per_share = payload.stop_amount
+        stop_price = max(payload.buy_price - payload.stop_amount, 0.0)
+    else:
+        risk_per_share = payload.buy_price * (payload.stop_pct / 100)
+        stop_price = payload.buy_price * (1 - payload.stop_pct / 100)
     max_shares_by_loss = math.floor(risk_budget / risk_per_share) if risk_budget > 0 and risk_per_share > 0 else 0
     max_position_value_by_loss = max_shares_by_loss * payload.buy_price
 
@@ -1183,17 +1253,20 @@ def calculate_position_size(payload: PortfolioPositionSizeRequest) -> PortfolioP
     max_shares_by_balancer: int | None = None
     current_price = payload.current_price or payload.buy_price
 
-    if payload.beta is not None and payload.atr_pct is not None and payload.market_atr_pct:
-        balancer_score = 0.60 * payload.beta + 0.40 * (payload.atr_pct / payload.market_atr_pct)
-        if balancer_score > 0:
-            max_weight = payload.target_risk_contribution / balancer_score
-            max_weight_pct_by_balancer = max_weight * 100
-            max_position_value_by_balancer = payload.depot_value * max_weight
-            max_shares_by_balancer = (
-                math.floor(max_position_value_by_balancer / current_price)
-                if current_price > 0 and max_position_value_by_balancer > 0
-                else 0
-            )
+    balancer_score = _beta_balancer_score(
+        beta=payload.beta,
+        atr_pct=payload.atr_pct,
+        market_atr_pct=payload.market_atr_pct,
+    )
+    if balancer_score is not None and balancer_score > 0:
+        max_weight = payload.target_risk_contribution / balancer_score
+        max_weight_pct_by_balancer = max_weight * 100
+        max_position_value_by_balancer = payload.depot_value * max_weight
+        max_shares_by_balancer = (
+            math.floor(max_position_value_by_balancer / current_price)
+            if current_price > 0 and max_position_value_by_balancer > 0
+            else 0
+        )
     else:
         warnings.append("Beta-Balancer nicht berechnet: ATR%, Beta oder Markt-ATR fehlen.")
 
@@ -1535,6 +1608,11 @@ def _position_from_row(row: portfolio_repository.PortfolioPositionRow, *, invest
     pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
     pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
     atr_pct = _atr_pct_for_ticker(row.ticker)
+    beta = _beta_for_ticker(row.ticker)
+    weight_pct = market_value / invested * 100 if invested else 100
+    market_atr_pct = _market_atr_pct()
+    beta_balancer_score = _beta_balancer_score(beta=beta, atr_pct=atr_pct, market_atr_pct=market_atr_pct)
+    position_loss_risk = _position_loss_risk(row)
     return PortfolioPosition(
         ticker=row.ticker,
         name=row.name,
@@ -1543,9 +1621,13 @@ def _position_from_row(row: portfolio_repository.PortfolioPositionRow, *, invest
         current_price=row.current_price,
         market_value=market_value,
         pnl_pct=pnl_pct,
-        weight_pct=market_value / invested * 100 if invested else 100,
+        weight_pct=weight_pct,
         atr_pct=atr_pct,
-        beta=1,
+        beta=beta,
+        beta_balancer_score=beta_balancer_score,
+        risk_contribution=_risk_contribution(weight_pct=weight_pct, beta_balancer_score=beta_balancer_score),
+        position_loss_risk=position_loss_risk,
+        position_loss_risk_pct=position_loss_risk / invested * 100 if invested and position_loss_risk is not None else None,
         status=_status_for_position(pnl_pct, atr_pct),
         pnl_abs=pnl_abs,
         currency=row.currency,
@@ -1809,6 +1891,49 @@ def _atr_pct_for_ticker(ticker: str) -> float:
     return float(round(float(atr14.iloc[-1]) / float(last_close) * 100, 2))
 
 
+def _market_atr_pct() -> float | None:
+    for ticker in ("^GSPC", "SPY"):
+        atr_pct = _atr_pct_for_ticker(ticker)
+        if atr_pct > 0:
+            return atr_pct
+    return None
+
+
+def _beta_for_ticker(ticker: str) -> float:
+    try:
+        snapshot = fundamentals_repository.get_latest_fundamentals(ticker)
+    except FundamentalsRepositoryUnavailable:
+        snapshot = None
+    beta = _finite_float(snapshot.beta) if snapshot is not None else None
+    return round(beta, 4) if beta is not None and beta > 0 else 1.0
+
+
+def _beta_balancer_score(*, beta: float | None, atr_pct: float | None, market_atr_pct: float | None) -> float | None:
+    beta_value = _finite_float(beta)
+    atr_value = _finite_float(atr_pct)
+    market_atr_value = _finite_float(market_atr_pct)
+    if beta_value is None or atr_value is None or market_atr_value is None or market_atr_value <= 0:
+        return None
+    return round(0.60 * beta_value + 0.40 * (atr_value / market_atr_value), 4)
+
+
+def _risk_contribution(*, weight_pct: float, beta_balancer_score: float | None) -> float | None:
+    score = _finite_float(beta_balancer_score)
+    if score is None:
+        return None
+    return round((weight_pct / 100) * score, 4)
+
+
+def _position_loss_risk(row: portfolio_repository.PortfolioPositionRow) -> float | None:
+    stop_price = _finite_float(row.stop_price)
+    current_price = _finite_float(row.current_price)
+    shares = _finite_float(row.shares)
+    if stop_price is None or current_price is None or shares is None:
+        return None
+    loss_per_share = max(current_price - stop_price, 0.0)
+    return round(loss_per_share * shares, 2)
+
+
 def _tone_for_portfolio_atr(value: float) -> str:
     if value <= 0:
         return "neutral"
@@ -1816,9 +1941,34 @@ def _tone_for_portfolio_atr(value: float) -> str:
         return "good"
     if value <= 4:
         return "neutral"
-    if value <= 6:
+    if value <= 8:
         return "warning"
     return "bad"
+
+
+def _portfolio_atr_detail(value: float) -> str:
+    if value <= 0:
+        return "ATR-Cache fehlt oder ist noch nicht berechnet"
+    return "<=2,5 ruhig · 2,5-4 lebhaft · 4-8 stürmisch · >8 explosiv"
+
+
+def _tone_for_portfolio_beta_balancer(value: float) -> str:
+    if value <= 0:
+        return "neutral"
+    if value <= 1.0:
+        return "good"
+    if value <= 1.5:
+        return "warning"
+    return "bad"
+
+
+def _tone_for_max_depot_loss(value: float) -> str:
+    if value <= 8:
+        return "good"
+    if value <= 12:
+        return "warning"
+    return "bad"
+
 
 
 def _sniff_dialect(content: str) -> csv.Dialect:

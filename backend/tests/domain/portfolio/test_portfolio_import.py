@@ -101,8 +101,12 @@ def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch)
     snapshot = portfolio_service.get_portfolio_snapshot()
 
     assert positions[0].atr_pct > 0
+    assert positions[0].beta == 1.0
+    assert positions[0].beta_balancer_score is not None
+    assert positions[0].risk_contribution is not None
     assert snapshot.portfolio_atr_pct == pytest.approx(positions[0].atr_pct)
-    assert snapshot.kpis[-1].label == "Portfolio ATR"
+    assert "Portfolio ATR" in {item.label for item in snapshot.kpis}
+    assert "Portfolio Beta Balancer" in {item.label for item in snapshot.kpis}
 
 
 def test_empty_portfolio_returns_empty_state_not_demo_positions(monkeypatch: pytest.MonkeyPatch) -> None:

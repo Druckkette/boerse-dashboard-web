@@ -463,6 +463,10 @@ export type PortfolioPosition = {
   weight_pct: number;
   atr_pct: number;
   beta: number;
+  beta_balancer_score?: number | null;
+  risk_contribution?: number | null;
+  position_loss_risk?: number | null;
+  position_loss_risk_pct?: number | null;
   status: "ok" | "watch" | "risk" | "sell";
   pnl_abs: number;
   currency: string;
@@ -482,7 +486,10 @@ export type PortfolioSnapshot = {
   cash_balance: number;
   cash_ratio_pct: number;
   portfolio_atr_pct: number;
+  market_atr_pct?: number | null;
   beta_balancer: number;
+  max_depot_loss_abs?: number | null;
+  max_depot_loss_available?: boolean;
   max_depot_loss_pct: number;
   kpis: KpiCard[];
   positions: PortfolioPosition[];
@@ -503,6 +510,7 @@ export type PortfolioCurve = {
   as_of: string;
   source: "database" | "trade_republic_transactions" | "missing";
   data_status: "fresh" | "missing";
+  base_date?: string | null;
   message: string;
   points: PortfolioCurvePoint[];
 };
@@ -565,6 +573,8 @@ export type PortfolioPositionSizeRequest = {
   risk_per_position_pct: number;
   target_risk_contribution: number;
   buy_price: number;
+  stop_unit?: "pct" | "usd";
+  stop_amount?: number | null;
   stop_pct: number;
   current_price?: number | null;
   atr_pct?: number | null;

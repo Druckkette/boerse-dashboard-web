@@ -857,6 +857,10 @@ class PortfolioPosition(BaseModel):
     weight_pct: float
     atr_pct: float
     beta: float
+    beta_balancer_score: float | None = None
+    risk_contribution: float | None = None
+    position_loss_risk: float | None = None
+    position_loss_risk_pct: float | None = None
     status: Literal["ok", "watch", "risk", "sell"]
     pnl_abs: float = 0
     currency: str = "EUR"
@@ -1072,7 +1076,10 @@ class PortfolioSnapshotResponse(BaseModel):
     cash_balance: float
     cash_ratio_pct: float
     portfolio_atr_pct: float
+    market_atr_pct: float | None = None
     beta_balancer: float
+    max_depot_loss_abs: float | None = None
+    max_depot_loss_available: bool = False
     max_depot_loss_pct: float
     kpis: list[KpiCard]
     positions: list[PortfolioPosition]
@@ -1093,6 +1100,7 @@ class PortfolioCurveResponse(BaseModel):
     as_of: str
     source: Literal["database", "trade_republic_transactions", "missing"]
     data_status: Literal["fresh", "missing"]
+    base_date: str | None = None
     message: str = ""
     points: list[PortfolioCurvePoint]
 
@@ -1155,6 +1163,8 @@ class PortfolioPositionSizeRequest(BaseModel):
     risk_per_position_pct: float = Field(default=1.0, ge=0.1, le=5)
     target_risk_contribution: float = Field(default=0.20, ge=0.05, le=0.50)
     buy_price: float = Field(default=1.0, gt=0)
+    stop_unit: Literal["pct", "usd"] = "pct"
+    stop_amount: float | None = Field(default=None, gt=0)
     stop_pct: float = Field(default=7.0, ge=0.1, le=50)
     current_price: float | None = Field(default=None, gt=0)
     atr_pct: float | None = Field(default=None, ge=0)

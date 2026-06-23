@@ -46,6 +46,7 @@ type LineChartCardProps = {
   volumeLabel?: string;
   statusLabel?: string;
   statusTone?: "good" | "neutral" | "warning" | "bad";
+  dateTickMode?: "ends" | "weekly";
   isLoading?: boolean;
   error?: unknown;
 };
@@ -83,6 +84,7 @@ export function LineChartCard({
   volumeLabel = "Volumen",
   statusLabel,
   statusTone = "neutral",
+  dateTickMode = "ends",
   isLoading,
   error
 }: LineChartCardProps) {
@@ -440,6 +442,31 @@ export function LineChartCard({
                 </g>
               );
             })}
+            {dateTickMode === "weekly" && (
+              <g>
+                {visiblePoints.map((point, index) => {
+                  const x = xForIndex(index, visiblePoints.length);
+                  const monday = isMonday(point.date);
+                  return (
+                    <g key={`${point.date}-x-tick`}>
+                      <line
+                        stroke="#aab2c0"
+                        strokeWidth={monday ? "1.2" : "0.8"}
+                        x1={x}
+                        x2={x}
+                        y1={HEIGHT - PAD_BOTTOM + 4}
+                        y2={HEIGHT - PAD_BOTTOM + (monday ? 14 : 9)}
+                      />
+                      {monday && (
+                        <text fill="#4a5362" fontSize="10" textAnchor="middle" x={x} y={HEIGHT - 14}>
+                          {formatShortDate(point.date)}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            )}
             {hasSubChart && (
               <g>
                 <line stroke="#d9dee8" strokeWidth="1" x1={PAD_X} x2={WIDTH - PAD_X} y1={subTop} y2={subTop} />
@@ -466,12 +493,16 @@ export function LineChartCard({
                 })}
               </g>
             )}
-            <text fill="#4a5362" fontSize="12" x={PAD_X} y={HEIGHT - 16}>
-              {visiblePoints[0]?.date}
-            </text>
-            <text fill="#4a5362" fontSize="12" textAnchor="end" x={WIDTH - PAD_X} y={HEIGHT - 16}>
-              {latest?.date}
-            </text>
+            {dateTickMode === "ends" && (
+              <>
+                <text fill="#4a5362" fontSize="12" x={PAD_X} y={HEIGHT - 16}>
+                  {visiblePoints[0]?.date}
+                </text>
+                <text fill="#4a5362" fontSize="12" textAnchor="end" x={WIDTH - PAD_X} y={HEIGHT - 16}>
+                  {latest?.date}
+                </text>
+              </>
+            )}
           </svg>
         )}
       </div>
@@ -637,6 +668,17 @@ function toNumber(value: string | number | null | undefined) {
 
 function truncateLabel(label: string) {
   return label.length > 18 ? `${label.slice(0, 17)}...` : label;
+}
+
+function isMonday(date: string) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.getUTCDay() === 1;
+}
+
+function formatShortDate(date: string) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" }).format(parsed);
 }
 
 function formatCompact(value: number | null) {

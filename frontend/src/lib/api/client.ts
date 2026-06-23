@@ -191,7 +191,13 @@ export const api = {
     return payload.positions;
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
-  portfolioCurve: (days = 370) => getJson<PortfolioCurve>(`/portfolio/curve?days=${days}`),
+  portfolioCurve: (options?: { days?: number; startDate?: string }) => {
+    const params = new URLSearchParams();
+    if (options?.days) params.set("days", String(options.days));
+    if (options?.startDate) params.set("start_date", options.startDate);
+    const query = params.toString();
+    return getJson<PortfolioCurve>(`/portfolio/curve${query ? `?${query}` : ""}`);
+  },
   portfolioBuyStrength: () => getJson<BuyStrengthOverview>("/portfolio/buy-strength"),
   portfolioBuyStrengthDetail: (ticker: string) =>
     getJson<BuyStrengthAssessment>(`/portfolio/buy-strength/${encodeURIComponent(ticker)}`),

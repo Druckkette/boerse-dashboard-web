@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
@@ -103,8 +105,11 @@ def snapshot() -> PortfolioSnapshotResponse:
 
 
 @router.get("/curve", response_model=PortfolioCurveResponse)
-def curve(days: int = Query(default=370, ge=30, le=2500)) -> PortfolioCurveResponse:
-    return get_portfolio_curve(days=days)
+def curve(
+    days: int = Query(default=370, ge=30, le=2500),
+    start_date: date | None = Query(default=None),
+) -> PortfolioCurveResponse:
+    return get_portfolio_curve(days=days, start_date=start_date)
 
 
 @router.get("/buy-strength", response_model=BuyStrengthOverviewResponse)

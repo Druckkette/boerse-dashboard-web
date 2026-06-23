@@ -1,32 +1,42 @@
 "use client";
 
-import { Calculator, ChevronDown, RefreshCw, ShieldCheck } from "lucide-react";
+import { Calculator, ChevronDown, RefreshCw } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { PortfolioPositionSizeRequest, PortfolioPositionSizeResult } from "@/lib/types/api";
 
-const money = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0, style: "currency", currency: "EUR" });
+type CalculatorMode = "loss_budget" | "risk_contribution";
+type StopUnit = "pct" | "usd";
+
+const money = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
+const preciseMoney = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2, style: "currency", currency: "USD" });
 const number = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
 export function PositionSizeCalculator() {
   const { data: snapshot } = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const [mode, setMode] = useState<CalculatorMode>("loss_budget");
+  const [stopUnit, setStopUnit] = useState<StopUnit>("pct");
   const [depotValue, setDepotValue] = useState("");
   const [riskPct, setRiskPct] = useState("");
   const [targetRiskContribution, setTargetRiskContribution] = useState("");
   const [ticker, setTicker] = useState("");
   const [buyPrice, setBuyPrice] = useState("100");
   const [stopPct, setStopPct] = useState("7");
+  const [stopUsd, setStopUsd] = useState("7");
   const [currentPrice, setCurrentPrice] = useState("");
   const [atrPct, setAtrPct] = useState("");
-  const [beta, setBeta] = useState("1");
-  const [marketAtrPct, setMarketAtrPct] = useState("2");
+  const [beta, setBeta] = useState("");
+  const [marketAtrPct, setMarketAtrPct] = useState("");
+
   const effectiveDepotValue = depotValue || String(snapshot?.total_value ?? 0);
   const effectiveRiskPct = riskPct || String(settings?.risk_per_position_pct ?? 1);
   const effectiveTargetRiskContribution =
     targetRiskContribution || String(settings?.target_risk_contribution ?? 0.2);
+  const effectiveMarketAtrPct = marketAtrPct || (snapshot?.market_atr_pct ? String(snapshot.market_atr_pct) : "");
 
   const request = useMemo<PortfolioPositionSizeRequest>(
     () => ({
@@ -34,11 +44,13 @@ export function PositionSizeCalculator() {
       risk_per_position_pct: clamp(positiveNumber(effectiveRiskPct) || 1, 0.1, 5),
       target_risk_contribution: clamp(positiveNumber(effectiveTargetRiskContribution) || 0.2, 0.05, 0.5),
       buy_price: Math.max(positiveNumber(buyPrice), 0.01),
+      stop_unit: stopUnit,
+      stop_amount: stopUnit === "usd" ? Math.max(positiveNumber(stopUsd), 0.01) : null,
       stop_pct: clamp(positiveNumber(stopPct) || 7, 0.1, 50),
       current_price: optionalNumber(currentPrice),
       atr_pct: optionalNumber(atrPct),
       beta: optionalNumber(beta),
-      market_atr_pct: optionalNumber(marketAtrPct)
+      market_atr_pct: optionalNumber(effectiveMarketAtrPct)
     }),
     [
       atrPct,
@@ -46,18 +58,16 @@ export function PositionSizeCalculator() {
       buyPrice,
       currentPrice,
       effectiveDepotValue,
+      effectiveMarketAtrPct,
       effectiveRiskPct,
       effectiveTargetRiskContribution,
-      marketAtrPct,
-      stopPct
+      stopPct,
+      stopUnit,
+      stopUsd
     ]
   );
 
-  const localResult = useMemo(() => calculatePositionSize(request), [request]);
-
-  const serverCheck = useMutation({
-    mutationFn: () => api.portfolioPositionSize(request)
-  });
+  const localResult = useMemo(() => calculatePositionSize(request, mode), [mode, request]);
 
   const assessment = useMutation({
     mutationFn: () => api.stockAssessment(ticker.trim().toUpperCase()),
@@ -69,15 +79,12 @@ export function PositionSizeCalculator() {
       if (data.metrics.atr_pct) {
         setAtrPct(String(Number(data.metrics.atr_pct.toFixed(2))));
       }
+      const tickerBeta = data.metrics.beta ?? data.fundamentals?.beta;
+      if (tickerBeta) {
+        setBeta(String(Number(tickerBeta.toFixed(2))));
+      }
     }
   });
-
-  const displayResult = localResult;
-  const limitingLabel = {
-    loss_budget: "Verlustbudget",
-    beta_balancer: "Beta-Balancer",
-    insufficient_data: "Verlustbudget, BB-Daten fehlen"
-  }[displayResult.limiting_factor];
 
   return (
     <details className="group rounded border border-[#2d333d] bg-[#171a20]">
@@ -85,13 +92,13 @@ export function PositionSizeCalculator() {
         <div>
           <h2 className="text-base font-semibold">Stückzahl- und Positionsgrößen-Rechner</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-            Verlustbudget und Beta-Balancer aus der Streamlit-App, aber ohne Seitenreload. Defaults kommen aus den
-            gespeicherten Depot-Annahmen.
+            Berechnet die Stückzahl entweder aus einem festen Verlustbudget oder aus dem gewünschten Risikobeitrag der Aktie.
+            Ticker-Metriken kommen aus dem gespeicherten Price- und Fundamental-Cache.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <StatusChip tone={serverCheck.isPending ? "warning" : serverCheck.data ? "good" : "neutral"}>
-            {serverCheck.isPending ? "prüft" : serverCheck.data ? "API geprüft" : "lokal"}
+          <StatusChip tone={assessment.isPending ? "warning" : assessment.data ? "good" : "neutral"}>
+            {assessment.isPending ? "lädt" : assessment.data ? "Ticker geladen" : "lokal"}
           </StatusChip>
           <ChevronDown className="size-4 text-[#a0a7b4] transition group-open:rotate-180" />
         </div>
@@ -99,52 +106,95 @@ export function PositionSizeCalculator() {
 
       <div className="grid gap-4 border-t border-[#2d333d] p-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <Field label="Depotwert EUR">
-              <input className="input-dark" min="0" step="500" type="number" value={effectiveDepotValue} onChange={(event) => setDepotValue(event.target.value)} />
-            </Field>
-            <Field label="Max. Verlust je Idee %">
-              <input className="input-dark" max="5" min="0.1" step="0.1" type="number" value={effectiveRiskPct} onChange={(event) => setRiskPct(event.target.value)} />
-            </Field>
-            <Field label="Ziel Risikobeitrag">
-              <input
-                className="input-dark"
-                max="0.5"
-                min="0.05"
-                step="0.01"
-                type="number"
-                value={effectiveTargetRiskContribution}
-                onChange={(event) => setTargetRiskContribution(event.target.value)}
-              />
-            </Field>
+          <div className="grid gap-2 rounded border border-[#2d333d] bg-[#111419] p-2 sm:grid-cols-2">
+            <ModeButton
+              active={mode === "loss_budget"}
+              description="Maximaler Verlustbetrag bestimmt die Stückzahl."
+              label="Maximaler Verlust"
+              onClick={() => setMode("loss_budget")}
+            />
+            <ModeButton
+              active={mode === "risk_contribution"}
+              description="Gewünschter Risikobeitrag geteilt durch Beta-Balancer."
+              label="Risikobeitrag"
+              onClick={() => setMode("risk_contribution")}
+            />
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Depotwert USD">
+              <input className="input-dark" min="0" step="500" type="number" value={effectiveDepotValue} onChange={(event) => setDepotValue(event.target.value)} />
+            </Field>
             <Field label="Ticker optional">
               <input className="input-dark" placeholder="NVDA" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} />
             </Field>
-            <Field label="Einstand">
+            <Field label="Einstiegspreis">
               <input className="input-dark" min="0.01" step="0.01" type="number" value={buyPrice} onChange={(event) => setBuyPrice(event.target.value)} />
-            </Field>
-            <Field label="Aktueller Kurs">
-              <input className="input-dark" min="0.01" step="0.01" type="number" value={currentPrice} onChange={(event) => setCurrentPrice(event.target.value)} />
-            </Field>
-            <Field label="Stoppabstand %">
-              <input className="input-dark" max="50" min="0.1" step="0.5" type="number" value={stopPct} onChange={(event) => setStopPct(event.target.value)} />
             </Field>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <Field label="ATR % Aktie">
-              <input className="input-dark" min="0" step="0.1" type="number" value={atrPct} onChange={(event) => setAtrPct(event.target.value)} />
-            </Field>
-            <Field label="Beta">
-              <input className="input-dark" min="0" step="0.1" type="number" value={beta} onChange={(event) => setBeta(event.target.value)} />
-            </Field>
-            <Field label="S&P 500 ATR %">
-              <input className="input-dark" min="0.01" step="0.1" type="number" value={marketAtrPct} onChange={(event) => setMarketAtrPct(event.target.value)} />
-            </Field>
-          </div>
+          {mode === "loss_budget" ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              <Field label="Max. Depotverlust %">
+                <input className="input-dark" max="5" min="0.1" step="0.1" type="number" value={effectiveRiskPct} onChange={(event) => setRiskPct(event.target.value)} />
+              </Field>
+              <Field label="Stoppabstand">
+                <div className="grid grid-cols-[1fr_92px] gap-2">
+                  <input
+                    className="input-dark"
+                    max={stopUnit === "pct" ? 50 : undefined}
+                    min="0.01"
+                    step={stopUnit === "pct" ? 0.5 : 0.01}
+                    type="number"
+                    value={stopUnit === "pct" ? stopPct : stopUsd}
+                    onChange={(event) => (stopUnit === "pct" ? setStopPct(event.target.value) : setStopUsd(event.target.value))}
+                  />
+                  <select className="input-dark" value={stopUnit} onChange={(event) => setStopUnit(event.target.value as StopUnit)}>
+                    <option value="pct">%</option>
+                    <option value="usd">USD</option>
+                  </select>
+                </div>
+              </Field>
+              <div className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm leading-5 text-[#a0a7b4]">
+                Max. Verlust pro Aktie = Einstiegspreis x Stoppabstand. Die Stückzahl wird aus dem Verlustbudget geteilt durch diesen Betrag berechnet.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-4">
+                <Field label="Risikobeitrag">
+                  <input
+                    className="input-dark"
+                    max="0.5"
+                    min="0.05"
+                    step="0.01"
+                    type="number"
+                    value={effectiveTargetRiskContribution}
+                    onChange={(event) => setTargetRiskContribution(event.target.value)}
+                  />
+                </Field>
+                <Field label="ATR % Aktie">
+                  <input className="input-dark" min="0" step="0.1" type="number" value={atrPct} onChange={(event) => setAtrPct(event.target.value)} />
+                </Field>
+                <Field label="Beta Aktie">
+                  <input className="input-dark" min="0" step="0.1" type="number" value={beta} onChange={(event) => setBeta(event.target.value)} />
+                </Field>
+                <Field label="S&P 500 ATR %">
+                  <input
+                    className="input-dark"
+                    min="0.01"
+                    step="0.1"
+                    type="number"
+                    value={effectiveMarketAtrPct}
+                    onChange={(event) => setMarketAtrPct(event.target.value)}
+                  />
+                </Field>
+              </div>
+              <div className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm leading-6 text-[#a0a7b4]">
+                <span className="font-medium text-[#d8dde6]">Risikobeitrag:</span> 0,15 defensiver oder sehr diversifiziert · 0,20 Standard für 8-12 Positionen · 0,30 konzentrierter Stil mit mehr Einzeltitel-Risiko.
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-3">
             <button
@@ -156,59 +206,64 @@ export function PositionSizeCalculator() {
               <RefreshCw size={16} />
               {assessment.isPending ? "lädt" : "Ticker-Metriken laden"}
             </button>
-            <button
-              className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={serverCheck.isPending}
-              type="button"
-              onClick={() => serverCheck.mutate()}
-            >
-              <ShieldCheck size={16} />
-              API-Check
-            </button>
           </div>
 
-          {(assessment.error || serverCheck.error) && (
+          {assessment.error && (
             <div className="rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
-              {(assessment.error ?? serverCheck.error) instanceof Error
-                ? (assessment.error ?? serverCheck.error)?.message
-                : "Aktion fehlgeschlagen."}
+              {assessment.error instanceof Error ? assessment.error.message : "Ticker-Metriken konnten nicht geladen werden."}
             </div>
           )}
         </div>
 
-        <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-[#a0a7b4]">Empfehlung</p>
-              <p className="text-3xl font-semibold tabular-nums">{displayResult.recommended_max_shares}</p>
-            </div>
-            <Calculator className="text-emerald-300" size={28} />
-          </div>
-          <div className="space-y-3 text-sm">
-            <Metric label="Limitierender Faktor" value={limitingLabel} />
-            <Metric label="Risikobudget / Idee" value={money.format(displayResult.risk_budget)} />
-            <Metric label="Risiko pro Aktie" value={money.format(displayResult.risk_per_share)} />
-            <Metric label="Stopkurs" value={money.format(displayResult.stop_price)} />
-            <Metric label="Max. Wert Verlustbudget" value={money.format(displayResult.max_position_value_by_loss_budget)} />
-            <Metric label="Max. Gewicht BB" value={formatPct(displayResult.max_weight_pct_by_balancer)} />
-            <Metric label="Max. Stück BB" value={displayResult.max_shares_by_balancer == null ? "-" : String(displayResult.max_shares_by_balancer)} />
-            <Metric label="Empfohlener Wert" value={money.format(displayResult.recommended_position_value)} />
-          </div>
-          {displayResult.warnings.length > 0 && (
-            <div className="mt-4 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
-              {displayResult.warnings[0]}
-            </div>
-          )}
-        </div>
+        <ResultCard mode={mode} result={localResult} />
       </div>
     </details>
   );
 }
 
-function calculatePositionSize(payload: PortfolioPositionSizeRequest): PortfolioPositionSizeResult {
+function ResultCard({ mode, result }: { mode: CalculatorMode; result: PortfolioPositionSizeResult }) {
+  return (
+    <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-[#a0a7b4]">Stückzahl</p>
+          <p className="text-3xl font-semibold tabular-nums">{result.recommended_max_shares}</p>
+        </div>
+        <Calculator className="text-emerald-300" size={28} />
+      </div>
+      {mode === "loss_budget" ? (
+        <div className="space-y-3 text-sm">
+          <Metric label="Max. Verlust Depot" value={money.format(result.risk_budget)} />
+          <Metric label="Max. Verlust pro Aktie" value={preciseMoney.format(result.risk_per_share)} />
+          <Metric label="Stopkurs" value={preciseMoney.format(result.stop_price)} />
+          <Metric label="Anzahl Aktien" value={String(result.max_shares_by_loss_budget)} />
+          <Metric label="Größe der Position" value={money.format(result.max_position_value_by_loss_budget)} />
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <Metric label="Beta-Balancer Score" value={result.balancer_score == null ? "-" : number.format(result.balancer_score)} />
+          <Metric label="Max. Positionsgewicht" value={formatPct(result.max_weight_pct_by_balancer)} />
+          <Metric label="Max. Positionsgröße" value={result.max_position_value_by_balancer == null ? "-" : money.format(result.max_position_value_by_balancer)} />
+          <Metric label="Max. Stück" value={result.max_shares_by_balancer == null ? "-" : String(result.max_shares_by_balancer)} />
+          <Metric label="Risikobeitrag-Limit" value={result.limiting_factor === "insufficient_data" ? "Daten fehlen" : "berechnet"} />
+        </div>
+      )}
+      {result.warnings.length > 0 && (
+        <div className="mt-4 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+          {result.warnings[0]}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function calculatePositionSize(payload: PortfolioPositionSizeRequest, mode: CalculatorMode): PortfolioPositionSizeResult {
   const riskBudget = payload.depot_value * (payload.risk_per_position_pct / 100);
-  const riskPerShare = payload.buy_price * (payload.stop_pct / 100);
-  const stopPrice = payload.buy_price * (1 - payload.stop_pct / 100);
+  const riskPerShare =
+    payload.stop_unit === "usd" && payload.stop_amount
+      ? payload.stop_amount
+      : payload.buy_price * (payload.stop_pct / 100);
+  const stopPrice = Math.max(payload.buy_price - riskPerShare, 0);
   const maxSharesByLoss = riskBudget > 0 && riskPerShare > 0 ? Math.floor(riskBudget / riskPerShare) : 0;
   const maxPositionValueByLoss = maxSharesByLoss * payload.buy_price;
   const currentPrice = payload.current_price || payload.buy_price;
@@ -226,17 +281,20 @@ function calculatePositionSize(payload: PortfolioPositionSizeRequest): Portfolio
       maxPositionValueByBalancer = payload.depot_value * maxWeight;
       maxSharesByBalancer = currentPrice > 0 ? Math.floor(maxPositionValueByBalancer / currentPrice) : 0;
     }
-  } else {
+  } else if (mode === "risk_contribution") {
     warnings.push("Beta-Balancer nicht berechnet: ATR%, Beta oder Markt-ATR fehlen.");
   }
 
+  const recommended =
+    mode === "risk_contribution"
+      ? maxSharesByBalancer ?? 0
+      : maxSharesByLoss;
   const limitingFactor =
-    maxSharesByBalancer == null
-      ? "insufficient_data"
-      : maxSharesByLoss <= maxSharesByBalancer
-        ? "loss_budget"
-        : "beta_balancer";
-  const recommended = maxSharesByBalancer == null ? maxSharesByLoss : Math.min(maxSharesByLoss, maxSharesByBalancer);
+    mode === "risk_contribution"
+      ? maxSharesByBalancer == null
+        ? "insufficient_data"
+        : "beta_balancer"
+      : "loss_budget";
 
   return {
     risk_budget: round(riskBudget, 2),
@@ -253,6 +311,34 @@ function calculatePositionSize(payload: PortfolioPositionSizeRequest): Portfolio
     limiting_factor: limitingFactor,
     warnings
   };
+}
+
+function ModeButton({
+  active,
+  description,
+  label,
+  onClick
+}: {
+  active: boolean;
+  description: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={[
+        "rounded border p-3 text-left transition",
+        active
+          ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-100"
+          : "border-[#2d333d] bg-[#171a20] text-[#d8dde6] hover:border-[#4a5362]"
+      ].join(" ")}
+      type="button"
+      onClick={onClick}
+    >
+      <span className="block text-sm font-semibold">{label}</span>
+      <span className="mt-1 block text-xs leading-5 text-[#a0a7b4]">{description}</span>
+    </button>
+  );
 }
 
 function positiveNumber(value: string) {
@@ -281,7 +367,7 @@ function formatPct(value?: number | null) {
   return value == null ? "-" : `${number.format(value)}%`;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-[#a0a7b4]">{label}</span>

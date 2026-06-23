@@ -41,7 +41,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
       {
         accessorKey: "market_value",
         header: "Wert",
-        cell: ({ getValue }) => `${Number(getValue()).toLocaleString("de-DE")} EUR`
+        cell: ({ row, getValue }) => `${Number(getValue()).toLocaleString("de-DE")} ${row.original.currency}`
       },
       {
         accessorKey: "pnl_pct",
@@ -57,12 +57,12 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
       },
       {
         accessorKey: "pnl_abs",
-        header: "P&L EUR",
-        cell: ({ getValue }) => {
+        header: "P&L",
+        cell: ({ row, getValue }) => {
           const value = Number(getValue());
           return (
             <span className={value >= 0 ? "text-emerald-300" : "text-rose-300"}>
-              {value.toLocaleString("de-DE", { maximumFractionDigits: 0 })} EUR
+              {value.toLocaleString("de-DE", { maximumFractionDigits: 0 })} {row.original.currency}
             </span>
           );
         }
@@ -78,11 +78,37 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         cell: ({ getValue }) => `${Number(getValue()).toFixed(1)}%`
       },
       {
+        accessorKey: "beta_balancer_score",
+        header: "Beta-Balancer",
+        cell: ({ getValue }) => {
+          const value = getValue();
+          return typeof value === "number" ? value.toFixed(2) : "-";
+        }
+      },
+      {
+        accessorKey: "risk_contribution",
+        header: "Risikobeitrag",
+        cell: ({ getValue }) => {
+          const value = getValue();
+          return typeof value === "number" ? value.toFixed(2) : "-";
+        }
+      },
+      {
         accessorKey: "stop_pct",
         header: "Stopp",
         cell: ({ getValue }) => {
           const value = getValue();
           return typeof value === "number" ? `${value.toFixed(1)}%` : "-";
+        }
+      },
+      {
+        accessorKey: "position_loss_risk",
+        header: "Positionsverlustrisiko",
+        cell: ({ row, getValue }) => {
+          const value = getValue();
+          return typeof value === "number"
+            ? `${value.toLocaleString("de-DE", { maximumFractionDigits: 0 })} ${row.original.currency}`
+            : "-";
         }
       },
       {
@@ -146,7 +172,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
   return (
     <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
       <div ref={scrollParentRef} className="max-h-[460px] overflow-auto">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+        <table className="w-full min-w-[1120px] border-collapse text-sm">
           <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
