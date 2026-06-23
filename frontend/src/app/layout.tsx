@@ -4,8 +4,8 @@ import { QueryProvider } from "@/components/query-provider";
 import { AppShell } from "@/components/ui/app-shell";
 
 export const metadata: Metadata = {
-  title: "Boerse Dashboard Web",
-  description: "API-first trading and portfolio dashboard"
+  title: "Börse ohne Bauchgefühl",
+  description: "Regelbasierte Trading- und Portfolio-Web-App"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -19,4 +19,3 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     </html>
   );
 }
-

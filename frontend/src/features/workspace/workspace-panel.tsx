@@ -118,7 +118,7 @@ export function WorkspacePanel() {
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold">Watchlist</h2>
-              <p className="mt-1 text-sm text-[#a0a7b4]">Ticker direkt im Dashboard pflegen, ohne Dateiablage.</p>
+              <p className="mt-1 text-sm text-[#a0a7b4]">Ticker direkt im Workspace pflegen, ohne Dateiablage.</p>
             </div>
             <BookmarkPlus className="text-emerald-300" size={20} />
           </div>

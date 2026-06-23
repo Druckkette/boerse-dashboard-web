@@ -180,7 +180,7 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
         <div className="min-w-0">
           <div className="mb-4">
             <h2 className="text-lg font-semibold tracking-normal">Trendwende-Ampel</h2>
-            <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">Rot, Gelb, Grün und Aufwärtstrend wie im Streamlit-Dashboard.</p>
+            <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">Rot, Gelb, Grün und Aufwärtstrend nach den migrierten Marktampel-Regeln.</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-1">
             {data.lights.map((light) => (

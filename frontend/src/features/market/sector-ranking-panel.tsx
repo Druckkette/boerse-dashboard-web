@@ -9,9 +9,11 @@ import type { SectorRankingPoint, SectorRankingRow } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForStatus } from "./data-status";
 
 type Mode = "daily" | "weekly";
+type PerformanceView = "return" | "rank";
 
 export function SectorRankingPanel() {
   const [mode, setMode] = useState<Mode>("daily");
+  const [performanceView, setPerformanceView] = useState<PerformanceView>("return");
   const query = useQuery({
     queryKey: ["market-sectors", mode],
     queryFn: () => api.marketSectors(mode, 15),
@@ -96,11 +98,30 @@ export function SectorRankingPanel() {
             <SectorTable rows={data.rows} />
           </section>
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="mb-4">
-              <h2 className="text-base font-semibold">Ranking-Verlauf</h2>
-              <p className="text-sm text-[#a0a7b4]">Letzte Perioden, Platz 1 ist der stärkste Sektor.</p>
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-base font-semibold">Performance-Tabelle</h2>
+                <p className="text-sm text-[#a0a7b4]">
+                  Neueste Periode links. Sortierung nach aktueller Ansicht: bester Rang oder größter Tagesgewinn.
+                </p>
+              </div>
+              <div className="inline-flex w-fit rounded border border-[#2d333d] bg-[#111419] p-1">
+                {(["return", "rank"] as const).map((item) => (
+                  <button
+                    key={item}
+                    className={[
+                      "rounded px-3 py-2 text-sm transition",
+                      performanceView === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
+                    ].join(" ")}
+                    type="button"
+                    onClick={() => setPerformanceView(item)}
+                  >
+                    {item === "return" ? "% Tagesgewinn" : "Platz Ranking"}
+                  </button>
+                ))}
+              </div>
             </div>
-            <RankingHistory points={data.history} />
+            <SectorPerformanceTable points={data.history} view={performanceView} />
           </section>
         </>
       )}
@@ -143,6 +164,7 @@ function SectorSummary({
 }
 
 function SectorTable({ rows }: { rows: SectorRankingRow[] }) {
+  const sortedRows = [...rows].sort((left, right) => left.rank - right.rank);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] border-collapse text-sm">
@@ -157,7 +179,7 @@ function SectorTable({ rows }: { rows: SectorRankingRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {sortedRows.map((row) => (
             <tr key={row.ticker} className="border-b border-[#242a33] last:border-0">
               <td className="py-3 pr-3 tabular-nums text-[#d8dde6]">#{row.rank}</td>
               <td className="px-3 py-3">
@@ -176,10 +198,20 @@ function SectorTable({ rows }: { rows: SectorRankingRow[] }) {
   );
 }
 
-function RankingHistory({ points }: { points: SectorRankingPoint[] }) {
-  const dates = Array.from(new Set(points.map((point) => point.date))).slice(-15);
-  const sectors = Array.from(new Set(points.map((point) => point.ticker))).sort();
+function SectorPerformanceTable({ points, view }: { points: SectorRankingPoint[]; view: PerformanceView }) {
+  const dates = Array.from(new Set(points.map((point) => point.date)))
+    .sort((left, right) => right.localeCompare(left))
+    .slice(0, 15);
   const lookup = new Map(points.map((point) => [`${point.date}:${point.ticker}`, point]));
+  const latestDate = dates[0];
+  const sectors = Array.from(new Set(points.map((point) => point.ticker))).sort((left, right) => {
+    const leftLatest = lookup.get(`${latestDate}:${left}`);
+    const rightLatest = lookup.get(`${latestDate}:${right}`);
+    if (view === "rank") {
+      return (leftLatest?.rank ?? Number.MAX_SAFE_INTEGER) - (rightLatest?.rank ?? Number.MAX_SAFE_INTEGER);
+    }
+    return (rightLatest?.return_pct ?? Number.NEGATIVE_INFINITY) - (leftLatest?.return_pct ?? Number.NEGATIVE_INFINITY);
+  });
 
   return (
     <div className="overflow-x-auto">
@@ -207,7 +239,11 @@ function RankingHistory({ points }: { points: SectorRankingPoint[] }) {
                   const item = lookup.get(`${date}:${ticker}`);
                   return (
                     <td key={date} className="px-2 py-3 text-center">
-                      <span className={rankClass(item?.rank)}>{item ? `#${item.rank}` : "-"}</span>
+                      {view === "rank" ? (
+                        <span className={rankClass(item?.rank)}>{item ? `#${item.rank}` : "-"}</span>
+                      ) : (
+                        <span className={pctClass(item?.return_pct)}>{item ? formatPct(item.return_pct) : "-"}</span>
+                      )}
                     </td>
                   );
                 })}

@@ -55,7 +55,7 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
           {trendDateMismatch ? (
             <div className="rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm leading-6 text-amber-100">
               Trend-Ampel und Market Snapshot haben unterschiedliche Datenstände:
-              {" "}Snapshot {data.as_of}, Trend-Ampel {data.trend_ampel.as_of}. Prüfe im Dashboard die Freshness-Zeile
+              {" "}Snapshot {data.as_of}, Trend-Ampel {data.trend_ampel.as_of}. Prüfe im Setup den Bereich Job Freshness
               „Trend-Ampel Benchmark“ oder aktualisiere die Marktdaten.
             </div>
           ) : null}

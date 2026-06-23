@@ -1,6 +1,5 @@
-import { DashboardPage } from "@/features/dashboard-page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <DashboardPage />;
+  redirect("/market");
 }
-

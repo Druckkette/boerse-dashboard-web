@@ -2,12 +2,9 @@
 
 import clsx from "clsx";
 import {
-  Activity,
   BriefcaseBusiness,
   ChartCandlestick,
-  ClipboardCheck,
   Gauge,
-  Home,
   LineChart,
   ListChecks,
   NotebookPen,
@@ -22,7 +19,6 @@ import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: Home },
   { href: "/market", label: "Market", icon: Gauge },
   { href: "/sectors", label: "Sectors", icon: Shield },
   { href: "/stocks", label: "Stocks", icon: Search },
@@ -30,10 +26,14 @@ const navItems = [
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/trade-journal", label: "Handelstagebuch", icon: NotebookPen },
   { href: "/sell-monitor", label: "Sell Monitor", icon: ChartCandlestick },
-  { href: "/ex-post-analyse", label: "Ex Post Analyse", icon: ClipboardCheck },
   { href: "/workspace", label: "Workspace", icon: NotebookTabs },
   { href: "/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings", label: "Settings", icon: Settings }
+];
+
+const hiddenPageLabels = [
+  { href: "/setup", label: "Setup" },
+  { href: "/portfolio/imports", label: "Import" }
 ];
 
 function isActive(pathname: string, href: string, exact = false) {
@@ -44,6 +44,7 @@ function isActive(pathname: string, href: string, exact = false) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const currentPageLabel = pageLabel(pathname);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
@@ -53,8 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <LineChart size={20} strokeWidth={2.2} />
           </div>
           <div>
-            <div className="text-sm font-semibold tracking-wide">Boerse Web</div>
-            <div className="text-xs text-[#a0a7b4]">API-first Dashboard</div>
+            <div className="text-sm font-semibold tracking-wide">Börse ohne Bauchgefühl</div>
           </div>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
@@ -80,18 +80,26 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </aside>
       <main className="min-w-0">
-        <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between border-b border-[#2d333d] bg-[#0f1115]/90 px-4 backdrop-blur md:px-7">
+        <header className="sticky top-0 z-10 flex min-h-16 items-center border-b border-[#2d333d] bg-[#0f1115]/90 px-4 backdrop-blur md:px-7">
           <div>
-            <div className="text-xs uppercase text-[#a0a7b4]">Migration Phase 4/5</div>
-            <div className="text-base font-semibold">Trading Workspace</div>
-          </div>
-          <div className="flex items-center gap-2 rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-xs text-[#a0a7b4]">
-            <Activity size={15} className="text-emerald-300" />
-            Worker-ready scaffold
+            <div className="text-base font-semibold">{currentPageLabel}</div>
           </div>
         </header>
         <div className="px-4 py-5 md:px-7">{children}</div>
       </main>
     </div>
   );
+}
+
+function pageLabel(pathname: string) {
+  const hiddenMatch = [...hiddenPageLabels]
+    .sort((left, right) => right.href.length - left.href.length)
+    .find((item) => pathname.startsWith(item.href));
+  if (hiddenMatch) return hiddenMatch.label;
+  const match = [...navItems]
+    .sort((left, right) => right.href.length - left.href.length)
+    .find((item) => isActive(pathname, item.href, item.exact));
+  if (match) return match.label;
+  if (pathname === "/") return "Market";
+  return "Workspace";
 }

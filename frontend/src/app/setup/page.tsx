@@ -16,18 +16,27 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { RuntimeConfigPanel } from "@/features/setup/runtime-config-panel";
 import { api } from "@/lib/api/client";
-import type { Job, SetupStep } from "@/lib/types/api";
+import type { Job, ServiceFreshness, SetupStep } from "@/lib/types/api";
 
 export default function SetupPage() {
   const queryClient = useQueryClient();
+  const [freshnessOpen, setFreshnessOpen] = useState(false);
   const setup = useQuery({
     queryKey: ["setup-status"],
     queryFn: api.setupStatus,
     refetchInterval: 5000,
     staleTime: 3000
+  });
+  const freshness = useQuery({
+    queryKey: ["freshness"],
+    queryFn: api.freshness,
+    enabled: freshnessOpen,
+    refetchInterval: freshnessOpen ? 15000 : false,
+    staleTime: 5000
   });
   const activeJob = setup.data?.steps
     .map((step) => step.latest_job)
@@ -200,6 +209,15 @@ export default function SetupPage() {
               <QuickLink href="/settings" icon={<ServerCog size={16} />} label="Systemstatus prüfen" />
             </div>
           </section>
+
+          <JobFreshnessPanel
+            isFetching={freshness.isFetching}
+            isLoading={freshness.isLoading}
+            isOpen={freshnessOpen}
+            onRefresh={() => freshness.refetch()}
+            onToggle={() => setFreshnessOpen((value) => !value)}
+            services={freshness.data?.services ?? []}
+          />
         </aside>
       </div>
     </div>
@@ -391,6 +409,100 @@ function InfoRow({
       <StatusChip tone={tone}>{value}</StatusChip>
     </div>
   );
+}
+
+function JobFreshnessPanel({
+  isFetching,
+  isLoading,
+  isOpen,
+  onRefresh,
+  onToggle,
+  services
+}: {
+  isFetching: boolean;
+  isLoading: boolean;
+  isOpen: boolean;
+  onRefresh: () => void;
+  onToggle: () => void;
+  services: ServiceFreshness[];
+}) {
+  const staleCount = services.filter((service) => service.status !== "fresh").length;
+  return (
+    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">Job Freshness</h2>
+          <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">
+            Datenstand von Price Cache, Marktanalyse, RS, 13F und Positionsmonitor.
+          </p>
+        </div>
+        {isOpen && services.length > 0 ? (
+          <StatusChip tone={staleCount === 0 ? "good" : "warning"}>
+            {staleCount === 0 ? "aktuell" : `${staleCount} prüfen`}
+          </StatusChip>
+        ) : null}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+          type="button"
+          onClick={onToggle}
+        >
+          <DatabaseZap size={15} className="text-emerald-300" />
+          {isOpen ? "Job Freshness schließen" : "Job Freshness öffnen"}
+        </button>
+        {isOpen ? (
+          <button
+            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            type="button"
+            onClick={onRefresh}
+          >
+            <RefreshCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            Aktualisieren
+          </button>
+        ) : null}
+      </div>
+      {isOpen ? (
+        <div className="mt-4 space-y-3">
+          {isLoading ? (
+            <div className="text-sm text-[#a0a7b4]">Freshness lädt...</div>
+          ) : services.length === 0 ? (
+            <div className="text-sm text-[#a0a7b4]">Noch keine Freshness-Daten verfügbar.</div>
+          ) : (
+            services.map((service) => (
+              <div key={service.name} className="flex items-center justify-between gap-4 border-b border-[#242a33] pb-3 last:border-0 last:pb-0">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{freshnessLabel(service.name)}</div>
+                  <div className="text-xs text-[#a0a7b4]">Stand {service.as_of || "n/a"}</div>
+                  {service.detail ? <div className="mt-1 text-xs leading-5 text-[#77808f]">{service.detail}</div> : null}
+                </div>
+                <StatusChip tone={freshnessTone(service.status)}>{service.status}</StatusChip>
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function freshnessLabel(name: string) {
+  const labels: Record<string, string> = {
+    prices: "Price-Cache allgemein",
+    market_snapshot: "Market Snapshot",
+    trend_benchmark: "Trend-Ampel Benchmark",
+    market_breadth: "Marktbreite",
+    relative_strength: "Relative Stärke",
+    institutional_13f: "13F/SEC Trends",
+    sell_ranking: "Positionsmonitor"
+  };
+  return labels[name] ?? name;
+}
+
+function freshnessTone(status: ServiceFreshness["status"]) {
+  if (status === "fresh") return "good";
+  if (status === "missing") return "bad";
+  return "warning";
 }
 
 function renderStepIcon(step: SetupStep) {
