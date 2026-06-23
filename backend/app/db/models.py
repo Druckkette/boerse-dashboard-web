@@ -379,6 +379,42 @@ class SellPostMortemNote(Base):
     )
 
 
+class TradeJournalEntry(Base):
+    __tablename__ = "trade_journal_entries"
+    __table_args__ = (
+        Index("ix_trade_journal_ticker_type_status", "ticker", "entry_type", "status"),
+        Index("ix_trade_journal_trade_date", "trade_date"),
+        Index("ix_trade_journal_linked_entry", "linked_entry_id"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    entry_type: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    trade_date: Mapped[date] = mapped_column(Date, index=True)
+    price: Mapped[float | None] = mapped_column(Float)
+    shares: Mapped[float | None] = mapped_column(Float)
+    stop_price: Mapped[float | None] = mapped_column(Float)
+    stop_distance_pct: Mapped[float | None] = mapped_column(Float)
+    linked_entry_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    realized_pnl_eur: Mapped[float | None] = mapped_column(Float)
+    realized_pnl_pct: Mapped[float | None] = mapped_column(Float)
+    stop_deviation_pct: Mapped[float | None] = mapped_column(Float)
+    basis_text: Mapped[str] = mapped_column(Text, default="")
+    alternative_entry: Mapped[bool] = mapped_column(Boolean, default=False)
+    primary_reasons: Mapped[str] = mapped_column(Text, default="")
+    sell_reason: Mapped[str] = mapped_column(Text, default="")
+    questionnaire_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    stock_snapshot_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    market_snapshot_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    portfolio_snapshot_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    chart_images_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Institutional13FTrend(Base):
     __tablename__ = "institutional_13f_trends"
     __table_args__ = (

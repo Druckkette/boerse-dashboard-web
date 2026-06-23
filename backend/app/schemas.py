@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -1198,6 +1198,85 @@ class PortfolioPositionSizeResponse(BaseModel):
     recommended_position_value: float
     limiting_factor: Literal["loss_budget", "beta_balancer", "insufficient_data"]
     warnings: list[str] = Field(default_factory=list)
+
+
+class TradeJournalImageSet(BaseModel):
+    daily_chart: str = ""
+    weekly_chart: str = ""
+
+
+class TradeJournalDefaultsResponse(BaseModel):
+    ticker: str
+    entry_type: Literal["buy", "sell", "ex_post"]
+    trade_date: str
+    price: float | None = None
+    shares: float | None = None
+    open_buy_entry_id: str | None = None
+    open_buy_price: float | None = None
+    open_buy_date: str | None = None
+    stop_price: float | None = None
+    stop_distance_pct: float | None = None
+    portfolio_snapshot: dict = Field(default_factory=dict)
+    market_snapshot: dict = Field(default_factory=dict)
+
+
+class TradeJournalEntryRequest(BaseModel):
+    ticker: str = Field(min_length=1, max_length=32)
+    entry_type: Literal["buy", "sell", "ex_post"]
+    trade_date: date | None = None
+    price: float | None = Field(default=None, gt=0)
+    shares: float | None = Field(default=None, gt=0)
+    stop_price: float | None = Field(default=None, gt=0)
+    linked_entry_id: str | None = None
+    status: Literal["open", "closed", "draft"] | None = None
+    basis_text: str = ""
+    alternative_entry: bool = False
+    primary_reasons: str = ""
+    sell_reason: str = ""
+    close_with_related_buy: bool = False
+    questionnaire: dict = Field(default_factory=dict)
+    chart_images: TradeJournalImageSet = Field(default_factory=TradeJournalImageSet)
+
+
+class TradeJournalEntrySummary(BaseModel):
+    id: str
+    ticker: str
+    entry_type: Literal["buy", "sell", "ex_post"]
+    status: Literal["open", "closed", "draft"]
+    trade_date: str
+    price: float | None = None
+    shares: float | None = None
+    realized_pnl_eur: float | None = None
+    realized_pnl_pct: float | None = None
+    linked_entry_id: str | None = None
+    title: str
+    summary: str
+    created_at: str
+    updated_at: str
+
+
+class TradeJournalEntryDetail(TradeJournalEntrySummary):
+    stop_price: float | None = None
+    stop_distance_pct: float | None = None
+    stop_deviation_pct: float | None = None
+    basis_text: str = ""
+    alternative_entry: bool = False
+    primary_reasons: str = ""
+    sell_reason: str = ""
+    questionnaire: dict = Field(default_factory=dict)
+    stock_snapshot: dict = Field(default_factory=dict)
+    market_snapshot: dict = Field(default_factory=dict)
+    portfolio_snapshot: dict = Field(default_factory=dict)
+    chart_images: TradeJournalImageSet = Field(default_factory=TradeJournalImageSet)
+
+
+class TradeJournalEntriesResponse(BaseModel):
+    ticker: str | None = None
+    entries: list[TradeJournalEntrySummary]
+
+
+class TradeJournalEntryResponse(BaseModel):
+    entry: TradeJournalEntryDetail
 
 
 class SellRankingRow(BaseModel):

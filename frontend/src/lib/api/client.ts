@@ -60,6 +60,11 @@ import type {
   TrancheLogEntry,
   TradeRepublicTransactionImportRequest,
   TradeRepublicTransactionImportResponse,
+  TradeJournalDefaults,
+  TradeJournalEntriesResponse,
+  TradeJournalEntryRequest,
+  TradeJournalEntryResponse,
+  TradeJournalEntryType,
   UniverseStatus,
   UniverseSymbolMappingReview,
   UniverseSymbolMappingUpdate,
@@ -318,5 +323,21 @@ export const api = {
   patchWorkspace: (body: WorkspacePatch) => patchJson<WorkspaceState>("/workspace", body),
   addWorkspaceTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/watchlist", { ticker }),
   removeWorkspaceTicker: (ticker: string) => deleteJson<WorkspaceState>(`/workspace/watchlist/${encodeURIComponent(ticker)}`),
-  addRecentTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/recent-tickers", { ticker })
+  addRecentTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/recent-tickers", { ticker }),
+  tradeJournalEntries: (ticker?: string) => {
+    const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+    return getJson<TradeJournalEntriesResponse>(`/trade-journal${query}`);
+  },
+  tradeJournalDefaults: (ticker: string, entryType: TradeJournalEntryType) =>
+    getJson<TradeJournalDefaults>(
+      `/trade-journal/defaults?ticker=${encodeURIComponent(ticker)}&entry_type=${entryType}`
+    ),
+  tradeJournalEntry: (entryId: string) =>
+    getJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}`),
+  createTradeJournalEntry: (body: TradeJournalEntryRequest) =>
+    postJson<TradeJournalEntryResponse>("/trade-journal", body),
+  updateTradeJournalEntry: (entryId: string, body: TradeJournalEntryRequest) =>
+    patchJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}`, body),
+  closeTradeJournalEntry: (entryId: string) =>
+    postJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}/close`)
 };

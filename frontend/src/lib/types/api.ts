@@ -600,6 +600,88 @@ export type PortfolioPositionSizeResult = {
   warnings: string[];
 };
 
+export type TradeJournalEntryType = "buy" | "sell" | "ex_post";
+export type TradeJournalEntryStatus = "open" | "closed" | "draft";
+
+export type TradeJournalImageSet = {
+  daily_chart: string;
+  weekly_chart: string;
+};
+
+export type TradeJournalDefaults = {
+  ticker: string;
+  entry_type: TradeJournalEntryType;
+  trade_date: string;
+  price?: number | null;
+  shares?: number | null;
+  open_buy_entry_id?: string | null;
+  open_buy_price?: number | null;
+  open_buy_date?: string | null;
+  stop_price?: number | null;
+  stop_distance_pct?: number | null;
+  portfolio_snapshot: Record<string, unknown>;
+  market_snapshot: Record<string, unknown>;
+};
+
+export type TradeJournalEntryRequest = {
+  ticker: string;
+  entry_type: TradeJournalEntryType;
+  trade_date?: string | null;
+  price?: number | null;
+  shares?: number | null;
+  stop_price?: number | null;
+  linked_entry_id?: string | null;
+  status?: TradeJournalEntryStatus | null;
+  basis_text?: string;
+  alternative_entry?: boolean;
+  primary_reasons?: string;
+  sell_reason?: string;
+  close_with_related_buy?: boolean;
+  questionnaire?: Record<string, unknown>;
+  chart_images?: TradeJournalImageSet;
+};
+
+export type TradeJournalEntrySummary = {
+  id: string;
+  ticker: string;
+  entry_type: TradeJournalEntryType;
+  status: TradeJournalEntryStatus;
+  trade_date: string;
+  price?: number | null;
+  shares?: number | null;
+  realized_pnl_eur?: number | null;
+  realized_pnl_pct?: number | null;
+  linked_entry_id?: string | null;
+  title: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TradeJournalEntryDetail = TradeJournalEntrySummary & {
+  stop_price?: number | null;
+  stop_distance_pct?: number | null;
+  stop_deviation_pct?: number | null;
+  basis_text: string;
+  alternative_entry: boolean;
+  primary_reasons: string;
+  sell_reason: string;
+  questionnaire: Record<string, unknown>;
+  stock_snapshot: Record<string, unknown>;
+  market_snapshot: Record<string, unknown>;
+  portfolio_snapshot: Record<string, unknown>;
+  chart_images: TradeJournalImageSet;
+};
+
+export type TradeJournalEntriesResponse = {
+  ticker?: string | null;
+  entries: TradeJournalEntrySummary[];
+};
+
+export type TradeJournalEntryResponse = {
+  entry: TradeJournalEntryDetail;
+};
+
 export type PortfolioPositionWriteRequest = {
   ticker: string;
   name?: string;
