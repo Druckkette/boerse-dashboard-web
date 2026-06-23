@@ -12,6 +12,7 @@ import { ArrowUpDown, Play, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { RsRatingItem } from "@/lib/types/api";
@@ -19,14 +20,18 @@ import type { RsRatingItem } from "@/lib/types/api";
 export function RsRankingPanel() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([{ id: "rating", desc: true }]);
+  const limit = 120;
   const query = useQuery({
-    queryKey: ["stocks-rs-ranking"],
-    queryFn: () => api.rsRanking(120),
+    queryKey: ["stocks-rs-ranking", limit],
+    queryFn: () => api.rsRanking(limit),
+    enabled: open,
     staleTime: 60_000
   });
   const ranking = query.data;
   const rows = ranking?.rows ?? [];
+  const totalCount = ranking?.total_count ?? 0;
   const startMutation = useMutation({
     mutationFn: () =>
       api.startJob({
@@ -100,19 +105,31 @@ export function RsRankingPanel() {
   });
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20]">
+    <CollapsiblePanel
+      title="Relative Stärke Ranking"
+      subtitle="Vorberechnete RS-Ratings aus dem Worker. Die Tabelle zeigt nur die obersten Werte bis zum Limit."
+      open={open}
+      onOpenChange={setOpen}
+      summary={
+        <>
+          <StatusChip tone={!query.isFetched ? "neutral" : ranking?.source === "database" ? "good" : "warning"}>
+            {!query.isFetched ? "nicht geladen" : ranking?.source === "database" ? "Price Cache" : "Cache fehlt"}
+          </StatusChip>
+          <StatusChip tone="neutral">
+            {ranking?.source === "database" ? `${rows.length}/${totalCount || rows.length}` : `${limit} Limit`}
+          </StatusChip>
+        </>
+      }
+    >
       <div className="flex flex-col gap-3 border-b border-[#2d333d] p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold">Relative Stärke Ranking</h2>
-            <StatusChip tone={ranking?.source === "database" ? "good" : "warning"}>
-              {ranking?.source === "database" ? "Price Cache" : "Cache fehlt"}
-            </StatusChip>
-          </div>
           <div className="mt-1 text-sm text-[#a0a7b4]">
             {ranking?.source === "database"
-              ? `${rows.length} Ratings, Stand ${ranking.as_of}`
+              ? `${rows.length} angezeigt von ${totalCount || rows.length} aktuellen RS-Ratings · Stand ${ranking.as_of}`
               : "Noch keine gespeicherten RS-Ratings. Erst Prices aktualisieren, dann RS Ratings starten."}
+            <div className="mt-1 text-xs text-[#77808f]">
+              Das Limit ist {limit}; die Datenbank kann mehr Ratings enthalten.
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -147,7 +164,9 @@ export function RsRankingPanel() {
         </div>
       )}
 
-      {rows.length === 0 ? (
+      {query.isLoading ? (
+        <div className="p-5 text-sm text-[#a0a7b4]">Relative-Stärke-Ranking lädt...</div>
+      ) : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">
           Die Tabelle wird gefüllt, sobald Prices und danach RS Ratings erfolgreich gelaufen sind.
         </div>
@@ -193,7 +212,7 @@ export function RsRankingPanel() {
       <div className="border-t border-[#2d333d] px-5 py-2 text-xs text-[#a0a7b4]">
         TanStack Table mit Sortierung; Virtualisierung kann bei großem Universe ergänzt werden.
       </div>
-    </section>
+    </CollapsiblePanel>
   );
 }
 

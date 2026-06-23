@@ -134,6 +134,7 @@ def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOvervi
     phase = trend_ampel.phase if trend_ampel else _normalize_phase(snapshot.ampel_phase)
     return MarketOverviewResponse(
         as_of=trend_ampel.as_of if trend_ampel else snapshot.date.isoformat(),
+        as_of_time=snapshot.generated_at.isoformat() if snapshot.generated_at else "",
         source="database",
         data_status=_data_status_for_date(date.fromisoformat(trend_ampel.as_of) if trend_ampel else snapshot.date),
         message=_market_snapshot_message(snapshot.date, metrics, index_ticker=clean_ticker),

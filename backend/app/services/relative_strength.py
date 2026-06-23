@@ -77,17 +77,28 @@ def refresh_relative_strength_ratings(
 
 
 def get_relative_strength_ranking(*, limit: int = 100) -> RsRatingRankingResponse:
+    clean_limit = max(1, min(500, limit))
     try:
-        rows = rs_repository.list_latest_rs_ratings(limit=limit, source=DEFAULT_RS_SOURCE)
+        total_count = rs_repository.count_latest_rs_ratings(source=DEFAULT_RS_SOURCE)
+        rows = rs_repository.list_latest_rs_ratings(limit=clean_limit, source=DEFAULT_RS_SOURCE)
     except RelativeStrengthRepositoryUnavailable:
+        total_count = 0
         rows = []
 
     if not rows:
-        return RsRatingRankingResponse(as_of=date.today().isoformat(), source="missing", rows=[])
+        return RsRatingRankingResponse(
+            as_of=date.today().isoformat(),
+            source="missing",
+            total_count=total_count,
+            limit=clean_limit,
+            rows=[],
+        )
 
     return RsRatingRankingResponse(
         as_of=rows[0].date.isoformat(),
         source="database",
+        total_count=total_count,
+        limit=clean_limit,
         rows=[_row_to_schema(row, include_history=False) for row in rows],
     )
 

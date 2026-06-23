@@ -180,6 +180,7 @@ class MarketAmpelResponse(BaseModel):
 
 class MarketOverviewResponse(BaseModel):
     as_of: str
+    as_of_time: str = ""
     source: Literal["database", "synthetic_fixture", "missing"]
     data_status: Literal["fresh", "stale", "missing", "fallback"]
     message: str = ""
@@ -530,6 +531,8 @@ class RsRatingItem(BaseModel):
 class RsRatingRankingResponse(BaseModel):
     as_of: str
     source: Literal["database", "missing"]
+    total_count: int = 0
+    limit: int = 100
     rows: list[RsRatingItem]
 
 
@@ -726,6 +729,8 @@ class StockAssessmentRankingItem(BaseModel):
 class StockAssessmentRankingResponse(BaseModel):
     as_of: str
     source: Literal["database", "missing"]
+    total_count: int = 0
+    limit: int = 50
     rows: list[StockAssessmentRankingItem]
 
 

@@ -12,19 +12,24 @@ import { ArrowUpDown, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { StockAssessmentRankingItem } from "@/lib/types/api";
 
 export function StockAssessmentRankingPanel() {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([{ id: "overall_score", desc: true }]);
+  const limit = 60;
   const query = useQuery({
-    queryKey: ["stock-assessment-ranking"],
-    queryFn: () => api.stockAssessmentRanking(60),
+    queryKey: ["stock-assessment-ranking", limit],
+    queryFn: () => api.stockAssessmentRanking(limit),
+    enabled: open,
     staleTime: 60_000
   });
   const rows = query.data?.rows ?? [];
+  const totalCount = query.data?.total_count ?? 0;
 
   const columns = useMemo<ColumnDef<StockAssessmentRankingItem>[]>(
     () => [
@@ -93,19 +98,29 @@ export function StockAssessmentRankingPanel() {
   });
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20]">
+    <CollapsiblePanel
+      title="Aktienbewertung Ranking"
+      subtitle="Bewertung der stärksten RS-Kandidaten auf Basis Price Cache, RS, Fundamentals und 13F. Lädt erst beim Öffnen."
+      open={open}
+      onOpenChange={setOpen}
+      summary={
+        <>
+          <StatusChip tone={!query.isFetched ? "neutral" : query.data?.source === "database" ? "good" : "warning"}>
+            {!query.isFetched ? "nicht geladen" : query.data?.source === "database" ? "Assessment Cache" : "Cache fehlt"}
+          </StatusChip>
+          <StatusChip tone="neutral">
+            {query.data?.source === "database" ? `${rows.length}/${totalCount || rows.length}` : `${limit} Limit`}
+          </StatusChip>
+        </>
+      }
+    >
       <div className="flex flex-col gap-3 border-b border-[#2d333d] p-5 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold">Aktienbewertung Ranking</h2>
-            <StatusChip tone={query.data?.source === "database" ? "good" : "warning"}>
-              {query.data?.source === "database" ? "Assessment Cache" : "Cache fehlt"}
-            </StatusChip>
-          </div>
-          <div className="mt-1 text-sm text-[#a0a7b4]">
-            {query.data?.source === "database"
-              ? `${rows.length} Aktien, Stand ${query.data.as_of}`
-              : "Noch keine ausreichenden RS- und Price-Cache-Daten für ein Ranking."}
+        <div className="text-sm text-[#a0a7b4]">
+          {query.data?.source === "database"
+            ? `${rows.length} angezeigt von ${totalCount || rows.length} aktuellen RS-Kandidaten · Stand ${query.data.as_of}`
+            : "Noch keine ausreichenden RS- und Price-Cache-Daten für ein Ranking."}
+          <div className="mt-1 text-xs text-[#77808f]">
+            Das API-Limit ist {limit}; die Bewertung wird hier nicht live für das komplette Universe neu gerechnet.
           </div>
         </div>
         <button
@@ -124,7 +139,9 @@ export function StockAssessmentRankingPanel() {
         </div>
       )}
 
-      {rows.length === 0 ? (
+      {query.isLoading ? (
+        <div className="p-5 text-sm text-[#a0a7b4]">Aktienbewertung-Ranking lädt...</div>
+      ) : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">
           Die Tabelle wird gefüllt, sobald Price Cache und RS Ratings vorhanden sind.
         </div>
@@ -167,7 +184,7 @@ export function StockAssessmentRankingPanel() {
           </table>
         </div>
       )}
-    </section>
+    </CollapsiblePanel>
   );
 }
 

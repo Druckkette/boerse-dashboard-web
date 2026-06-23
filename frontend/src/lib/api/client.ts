@@ -76,7 +76,7 @@ function getApiBaseUrl() {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await safeFetch(path, {
     headers: { "Content-Type": "application/json" },
     cache: "no-store"
   });
@@ -87,7 +87,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function patchJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await safeFetch(path, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -99,7 +99,7 @@ async function patchJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function deleteJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await safeFetch(path, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" }
   });
@@ -110,7 +110,7 @@ async function deleteJson<T>(path: string): Promise<T> {
 }
 
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await safeFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body)
@@ -119,6 +119,18 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
     throw new Error(await errorMessage(response));
   }
   return response.json() as Promise<T>;
+}
+
+async function safeFetch(path: string, init: RequestInit): Promise<Response> {
+  const url = `${getApiBaseUrl()}${path}`;
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `API-Netzwerkfehler: ${detail}. Prüfe, ob Frontend-Proxy und FastAPI-Backend erreichbar sind. Pfad: ${path}`
+    );
+  }
 }
 
 async function errorMessage(response: Response) {

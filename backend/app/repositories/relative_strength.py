@@ -119,6 +119,24 @@ def list_latest_rs_ratings(*, limit: int = 100, source: str | None = None) -> li
         raise RelativeStrengthRepositoryUnavailable(str(exc)) from exc
 
 
+def count_latest_rs_ratings(*, source: str | None = None) -> int:
+    try:
+        with SessionLocal() as db:
+            latest_query = select(func.max(RsRating.date))
+            if source:
+                latest_query = latest_query.where(RsRating.source == source)
+            latest_date = db.scalar(latest_query)
+            if latest_date is None:
+                return 0
+
+            count_query = select(func.count()).select_from(RsRating).where(RsRating.date == latest_date)
+            if source:
+                count_query = count_query.where(RsRating.source == source)
+            return int(db.scalar(count_query) or 0)
+    except SQLAlchemyError as exc:
+        raise RelativeStrengthRepositoryUnavailable(str(exc)) from exc
+
+
 def get_latest_rs_rating(ticker: str, *, source: str | None = None) -> RsRatingRow | None:
     clean = ticker.strip().upper()
     if not clean:

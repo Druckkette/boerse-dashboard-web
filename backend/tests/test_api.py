@@ -143,6 +143,7 @@ def test_market_overview_contract() -> None:
     payload = response.json()
     assert payload["source"] in {"database", "synthetic_fixture", "missing"}
     assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
+    assert "as_of_time" in payload
     assert payload["phase_label"]
     assert payload["trend_ampel"] is None or {"ticker", "phase", "phase_label", "as_of"}.issubset(
         payload["trend_ampel"]
@@ -359,6 +360,8 @@ def test_rs_ranking_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["source"] in {"database", "missing"}
+    assert payload["limit"] == 100
+    assert isinstance(payload["total_count"], int)
     assert isinstance(payload["rows"], list)
     if payload["rows"]:
         assert {"ticker", "rating", "percentile", "date"}.issubset(payload["rows"][0])
@@ -499,6 +502,8 @@ def test_stock_assessment_ranking_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["source"] in {"database", "missing"}
+    assert payload["limit"] == 10
+    assert isinstance(payload["total_count"], int)
     assert isinstance(payload["rows"], list)
     if payload["rows"]:
         assert {"ticker", "overall_score", "technical_score", "verdict_label"}.issubset(payload["rows"][0])

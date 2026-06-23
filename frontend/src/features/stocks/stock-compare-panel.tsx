@@ -5,6 +5,7 @@ import { BarChart3, Plus, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { StockAssessmentCompareItem, WorkspaceState } from "@/lib/types/api";
@@ -21,14 +22,20 @@ const categories = [
 type CompareCategory = (typeof categories)[number];
 
 export function StockComparePanel() {
+  const [open, setOpen] = useState(false);
   const [tickers, setTickers] = useState<string[]>(defaultTickers);
   const [manualInput, setManualInput] = useState("");
   const [category, setCategory] = useState<CompareCategory>("Gesamtscore");
-  const workspaceQuery = useQuery<WorkspaceState>({ queryKey: ["workspace"], queryFn: api.workspace, staleTime: 30_000 });
+  const workspaceQuery = useQuery<WorkspaceState>({
+    queryKey: ["workspace"],
+    queryFn: api.workspace,
+    enabled: open,
+    staleTime: 30_000
+  });
   const compareQuery = useQuery({
     queryKey: ["stock-assessment-compare", tickers],
     queryFn: () => api.stockAssessmentCompare(tickers),
-    enabled: tickers.length >= 2,
+    enabled: open && tickers.length >= 2,
     staleTime: 60_000
   });
   const rows = useMemo(() => sortRows(compareQuery.data?.rows ?? [], category), [compareQuery.data?.rows, category]);
@@ -47,21 +54,22 @@ export function StockComparePanel() {
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20]">
+    <CollapsiblePanel
+      title="Aktienvergleich"
+      subtitle="Ticker auswählen, Kategorien lokal wechseln und direkt in die Detailanalyse springen. Lädt erst beim Öffnen."
+      open={open}
+      onOpenChange={setOpen}
+      summary={
+        <>
+          <StatusChip tone={compareQuery.data?.source === "database" ? "good" : compareQuery.data?.source === "partial" ? "warning" : "neutral"}>
+            {!compareQuery.isFetched ? "nicht geladen" : compareQuery.data?.source === "database" ? "Vollständig" : compareQuery.data?.source === "partial" ? "Teilweise" : "Assessment Cache"}
+          </StatusChip>
+          <StatusChip tone="neutral">{tickers.length}/12 Ticker</StatusChip>
+        </>
+      }
+    >
       <div className="border-b border-[#2d333d] p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold">Aktienvergleich</h2>
-              <StatusChip tone={compareQuery.data?.source === "database" ? "good" : compareQuery.data?.source === "partial" ? "warning" : "neutral"}>
-                {compareQuery.data?.source === "database" ? "Vollständig" : compareQuery.data?.source === "partial" ? "Teilweise" : "Assessment Cache"}
-              </StatusChip>
-              <StatusChip tone="neutral">{tickers.length}/12 Ticker</StatusChip>
-            </div>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-              Streamlit-Vergleich ohne Rerun: Ticker auswählen, Kategorien lokal wechseln und direkt in die Detailanalyse springen.
-            </p>
-          </div>
+        <div className="flex justify-end">
           <button
             className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
@@ -160,7 +168,9 @@ export function StockComparePanel() {
         </div>
       ) : null}
 
-      {tickers.length < 2 ? (
+      {compareQuery.isLoading ? (
+        <div className="p-5 text-sm text-[#a0a7b4]">Aktienvergleich lädt...</div>
+      ) : tickers.length < 2 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Bitte mindestens zwei Ticker auswählen.</div>
       ) : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Noch keine Vergleichsdaten. Lade zuerst Prices und RS Ratings.</div>
@@ -175,7 +185,7 @@ export function StockComparePanel() {
           </details>
         </>
       )}
-    </section>
+    </CollapsiblePanel>
   );
 }
 

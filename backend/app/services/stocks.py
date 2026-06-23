@@ -82,12 +82,21 @@ def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAsses
 
 
 def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingResponse:
+    clean_limit = max(1, min(500, limit))
     try:
-        rs_rows = rs_repository.list_latest_rs_ratings(limit=max(1, min(500, limit)), source="computed")
+        total_count = rs_repository.count_latest_rs_ratings(source="computed")
+        rs_rows = rs_repository.list_latest_rs_ratings(limit=clean_limit, source="computed")
     except RelativeStrengthRepositoryUnavailable:
+        total_count = 0
         rs_rows = []
     if not rs_rows:
-        return StockAssessmentRankingResponse(as_of=date.today().isoformat(), source="missing", rows=[])
+        return StockAssessmentRankingResponse(
+            as_of=date.today().isoformat(),
+            source="missing",
+            total_count=total_count,
+            limit=clean_limit,
+            rows=[],
+        )
 
     rows: list[StockAssessmentRankingItem] = []
     for rs_row in rs_rows:
@@ -112,6 +121,8 @@ def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingRe
     return StockAssessmentRankingResponse(
         as_of=rows[0].as_of if rows else rs_rows[0].date.isoformat(),
         source="database" if rows else "missing",
+        total_count=total_count,
+        limit=clean_limit,
         rows=rows,
     )
 

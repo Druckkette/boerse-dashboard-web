@@ -23,6 +23,7 @@ export type MarketTrendAmpel = {
 
 export type MarketOverview = {
   as_of: string;
+  as_of_time: string;
   source: "database" | "synthetic_fixture" | "missing";
   data_status: "fresh" | "stale" | "missing" | "fallback";
   message: string;
@@ -821,6 +822,8 @@ export type RsRatingItem = {
 export type RsRatingRanking = {
   as_of: string;
   source: "database" | "missing";
+  total_count: number;
+  limit: number;
   rows: RsRatingItem[];
 };
 
@@ -1017,6 +1020,8 @@ export type StockAssessmentRankingItem = {
 export type StockAssessmentRanking = {
   as_of: string;
   source: "database" | "missing";
+  total_count: number;
+  limit: number;
   rows: StockAssessmentRankingItem[];
 };
 

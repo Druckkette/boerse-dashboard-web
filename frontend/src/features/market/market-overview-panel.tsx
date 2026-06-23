@@ -41,8 +41,11 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
             {data.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[#77808f]">{data.message}</p>}
           </div>
           <div className="rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-left md:text-right">
-            <div className="text-xs uppercase text-[#a0a7b4]">Datenstand</div>
-            <div className="mt-1 text-2xl font-semibold tracking-normal">{data.as_of}</div>
+            <div className="text-xs uppercase text-[#a0a7b4]">Index Stand</div>
+            <div className="mt-1 flex flex-wrap items-baseline gap-2 md:justify-end">
+              <span className="text-2xl font-semibold tracking-normal">{formatDate(data.as_of)}</span>
+              <span className="text-sm text-[#a0a7b4]">{formatTime(data.as_of_time)}</span>
+            </div>
             <div className="mt-1 text-xs text-[#77808f]">{labelForStatus(data.data_status)}</div>
           </div>
         </div>
@@ -122,4 +125,25 @@ function isBreadthKpi(label: string) {
 function formatNumber(value?: number | null) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatDate(value: string) {
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(parsed);
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "Uhrzeit nicht gespeichert";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Berlin"
+  }).format(parsed);
 }
