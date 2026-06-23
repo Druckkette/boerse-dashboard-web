@@ -49,6 +49,11 @@ export function StockAssessmentRankingPanel() {
         cell: ({ row }) => <StatusChip tone={row.original.verdict_tone}>{row.original.overall_score}</StatusChip>
       },
       {
+        accessorKey: "last_close",
+        header: "Preis",
+        cell: ({ getValue }) => money(getValue<number | null>())
+      },
+      {
         accessorKey: "technical_score",
         header: "Technisch",
         cell: ({ getValue }) => number(getValue<number>())
@@ -196,4 +201,13 @@ function number(value?: number | null) {
 function mio(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return `$${value.toFixed(0)} Mio.`;
+}
+
+function money(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2
+  }).format(value);
 }

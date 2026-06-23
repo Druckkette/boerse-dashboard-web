@@ -188,10 +188,10 @@ function PriceMetric({ percent, price }: { percent?: number | null; price?: numb
     <div className="rounded border border-[#242a33] bg-[#111419] p-4">
       <div className="mb-2 flex items-center gap-2 text-xs uppercase text-[#a0a7b4]">
         <TrendingUp className="size-3.5" />
-        Letzter Schluss
+        Aktueller Preis
       </div>
-      <div className={priceMoveClass(percent)}>{pct(percent)}</div>
-      <div className="mt-1 text-xs text-[#7f8794]">{money(price)}</div>
+      <div className="text-xl font-semibold tabular-nums">{money(price)}</div>
+      <div className={`mt-1 text-xs ${priceMoveToneClass(percent)}`}>Veränderung {pct(percent)}</div>
     </div>
   );
 }
@@ -340,12 +340,11 @@ function pct(value?: number | null) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function priceMoveClass(value?: number | null) {
-  const base = "text-3xl font-semibold tabular-nums";
-  if (typeof value !== "number" || Number.isNaN(value)) return `${base} text-[#dbe4ef]`;
-  if (value > 0) return `${base} text-emerald-200`;
-  if (value < 0) return `${base} text-rose-200`;
-  return `${base} text-[#dbe4ef]`;
+function priceMoveToneClass(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "text-[#7f8794]";
+  if (value > 0) return "text-emerald-300";
+  if (value < 0) return "text-rose-300";
+  return "text-[#7f8794]";
 }
 
 function atrRegime(value?: number | null) {

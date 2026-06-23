@@ -711,6 +711,7 @@ class StockAssessmentRankingItem(BaseModel):
     ticker: str
     name: str
     as_of: str
+    last_close: float | None = None
     verdict_label: str
     verdict_tone: Literal["good", "neutral", "warning", "bad"]
     overall_score: int

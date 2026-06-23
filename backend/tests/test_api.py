@@ -506,7 +506,7 @@ def test_stock_assessment_ranking_contract() -> None:
     assert isinstance(payload["total_count"], int)
     assert isinstance(payload["rows"], list)
     if payload["rows"]:
-        assert {"ticker", "overall_score", "technical_score", "verdict_label"}.issubset(payload["rows"][0])
+        assert {"ticker", "last_close", "overall_score", "technical_score", "verdict_label"}.issubset(payload["rows"][0])
 
 
 def test_stock_assessment_compare_contract() -> None:

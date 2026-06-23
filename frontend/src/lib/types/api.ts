@@ -1002,6 +1002,7 @@ export type StockAssessmentRankingItem = {
   ticker: string;
   name: string;
   as_of: string;
+  last_close?: number | null;
   verdict_label: string;
   verdict_tone: Tone;
   overall_score: number;

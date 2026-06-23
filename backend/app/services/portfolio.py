@@ -1753,7 +1753,6 @@ def _normalize_trade_republic_row_to_usd(
     current_price = row.current_price
     if row.current_price_source != "price_cache":
         current_price = float(eur_to_usd(row.current_price, rate=rate) or row.current_price)
-    stop_price = float(eur_to_usd(row.stop_price, rate=rate)) if row.stop_price is not None else None
     return portfolio_repository.PortfolioPositionRow(
         ticker=row.ticker,
         name=row.name,
@@ -1764,7 +1763,7 @@ def _normalize_trade_republic_row_to_usd(
         buy_date=row.buy_date,
         pivot_tag=row.pivot_tag,
         stop_pct=row.stop_pct,
-        stop_price=round(stop_price, 6) if stop_price is not None else None,
+        stop_price=row.stop_price,
         broker=row.broker,
         account=row.account,
         note=row.note,

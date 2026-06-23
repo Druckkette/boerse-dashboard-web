@@ -233,6 +233,35 @@ def test_buy_strength_assessment_flags_post_buy_weakness(monkeypatch: pytest.Mon
     assert assessment.status in {"watch", "risk"}
 
 
+def test_trade_republic_stop_price_override_stays_usd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_eur_usd_rate",
+        lambda: FxRate(pair="EUR/USD", rate=1.1, as_of=date(2026, 1, 1), source="test"),
+    )
+    row = PortfolioPositionRow(
+        ticker="NVDA",
+        name="Nvidia",
+        shares=2,
+        entry_price=100,
+        current_price=120,
+        currency="EUR",
+        buy_date=date(2026, 1, 1),
+        stop_pct=7,
+        stop_price=200,
+        broker="Trade Republic",
+        account="Main",
+        current_price_source="position_entry",
+    )
+
+    normalized = portfolio_service._normalize_trade_republic_row_to_usd(row)
+
+    assert normalized.currency == "USD"
+    assert normalized.entry_price == pytest.approx(110)
+    assert normalized.current_price == pytest.approx(132)
+    assert normalized.stop_price == 200
+
+
 def test_trade_republic_parser_handles_broker_edge_cases() -> None:
     rows = parse_transaction_export_csv((FIXTURE_DIR / "trade_republic_edge_cases.csv").read_text())
 

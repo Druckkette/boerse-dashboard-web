@@ -794,6 +794,7 @@ def _to_ranking_item(result: StockAssessmentResult, name: str) -> StockAssessmen
         ticker=result.ticker,
         name=name or result.ticker,
         as_of=result.as_of,
+        last_close=result.metrics.last_close,
         verdict_label=result.verdict_label,
         verdict_tone=result.verdict_tone,
         overall_score=result.scores.overall,

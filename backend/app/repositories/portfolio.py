@@ -416,6 +416,7 @@ def update_position_stop_price(ticker: str, stop_price: float | None) -> Portfol
             if position is None:
                 raise PortfolioRepositoryUnavailable(f"Offene Position {clean} wurde nicht gefunden.")
             position.stop_price = stop_price
+            position.stop_pct = None
             db.commit()
             return _position_to_row(db, position)
     except SQLAlchemyError as exc:

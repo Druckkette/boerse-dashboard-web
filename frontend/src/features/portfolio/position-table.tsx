@@ -46,6 +46,12 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         cell: ({ row, getValue }) => `${Number(getValue()).toLocaleString("de-DE")} ${row.original.currency}`
       },
       {
+        accessorKey: "current_price",
+        header: "Aktueller Preis",
+        cell: ({ row, getValue }) =>
+          `${Number(getValue()).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${row.original.currency}`
+      },
+      {
         accessorKey: "pnl_pct",
         header: "P&L",
         cell: ({ getValue }) => {
@@ -176,7 +182,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
   return (
     <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
       <div ref={scrollParentRef} className="max-h-[460px] overflow-auto">
-        <table className="w-full min-w-[1120px] border-collapse text-sm">
+        <table className="w-full min-w-[1240px] border-collapse text-sm">
           <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
