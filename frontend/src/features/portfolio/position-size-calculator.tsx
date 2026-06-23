@@ -32,7 +32,7 @@ export function PositionSizeCalculator() {
   const [beta, setBeta] = useState("");
   const [marketAtrPct, setMarketAtrPct] = useState("");
 
-  const effectiveDepotValue = depotValue || String(snapshot?.total_value ?? 0);
+  const effectiveDepotValue = depotValue || String(Math.trunc(snapshot?.total_value ?? 0));
   const effectiveRiskPct = riskPct || String(settings?.risk_per_position_pct ?? 1);
   const effectiveTargetRiskContribution =
     targetRiskContribution || String(settings?.target_risk_contribution ?? 0.2);
@@ -123,7 +123,7 @@ export function PositionSizeCalculator() {
 
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="Depotwert USD">
-              <input className="input-dark" min="0" step="500" type="number" value={effectiveDepotValue} onChange={(event) => setDepotValue(event.target.value)} />
+              <input className="input-dark" min="0" step="500" type="number" value={effectiveDepotValue} onChange={(event) => setDepotValue(integerInput(event.target.value))} />
             </Field>
             <Field label="Ticker optional">
               <input className="input-dark" placeholder="NVDA" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} />
@@ -349,6 +349,13 @@ function positiveNumber(value: string) {
 function optionalNumber(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function integerInput(value: string) {
+  if (!value.trim()) return "";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return "";
+  return String(Math.trunc(parsed));
 }
 
 function clamp(value: number, min: number, max: number) {

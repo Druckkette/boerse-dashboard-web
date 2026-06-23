@@ -215,6 +215,7 @@ class Position(Base):
     buy_date: Mapped[date | None] = mapped_column(Date)
     pivot_tag: Mapped[date | None] = mapped_column(Date)
     stop_pct: Mapped[float | None] = mapped_column(Float)
+    stop_price: Mapped[float | None] = mapped_column(Float)
     currency: Mapped[str] = mapped_column(String(8), default="EUR")
     broker: Mapped[str] = mapped_column(String(64), default="")
     account: Mapped[str] = mapped_column(String(64), default="")

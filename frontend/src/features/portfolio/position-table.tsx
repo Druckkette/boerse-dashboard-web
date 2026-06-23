@@ -8,12 +8,14 @@ import {
   SortingState,
   useReactTable
 } from "@tanstack/react-table";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUpDown, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
+import { api } from "@/lib/api/client";
 import type { PortfolioPosition } from "@/lib/types/api";
 
 const statusTone: Record<PortfolioPosition["status"], "good" | "neutral" | "warning" | "bad"> = {
@@ -94,12 +96,14 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         }
       },
       {
-        accessorKey: "stop_pct",
-        header: "Stopp",
-        cell: ({ getValue }) => {
-          const value = getValue();
-          return typeof value === "number" ? `${value.toFixed(1)}%` : "-";
-        }
+        accessorKey: "stop_price",
+        header: "Stopp USD",
+        cell: ({ row }) => (
+          <StopPriceCell
+            key={`${row.original.ticker}-${row.original.stop_price ?? "none"}`}
+            position={row.original}
+          />
+        )
       },
       {
         accessorKey: "position_loss_risk",
@@ -230,4 +234,67 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
       </div>
     </div>
   );
+}
+
+function StopPriceCell({ position }: { position: PortfolioPosition }) {
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState(formatEditableNumber(position.stop_price));
+  const mutation = useMutation({
+    mutationFn: (stopPrice: number | null) => api.updatePortfolioStop(position.ticker, stopPrice),
+    onSuccess: () => invalidatePortfolioTable(queryClient)
+  });
+
+  function save() {
+    const nextStop = parseEditableNumber(value);
+    const currentStop = typeof position.stop_price === "number" ? position.stop_price : null;
+    if (numbersEqual(nextStop, currentStop) || mutation.isPending) return;
+    mutation.mutate(nextStop);
+  }
+
+  return (
+    <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+      <input
+        aria-label={`${position.ticker} Stopp USD`}
+        className="h-8 w-28 rounded border border-[#2d333d] bg-[#111419] px-2 text-right text-sm tabular-nums text-[#d8dde6] outline-none transition focus:border-emerald-300/70 disabled:opacity-60"
+        inputMode="decimal"
+        placeholder="-"
+        value={value}
+        disabled={mutation.isPending}
+        onBlur={save}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setValue(formatEditableNumber(position.stop_price));
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      {mutation.isPending && <span className="text-xs text-[#a0a7b4]">speichert</span>}
+      {mutation.isError && <span className="text-xs text-rose-300">Fehler</span>}
+    </div>
+  );
+}
+
+function invalidatePortfolioTable(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
+  queryClient.invalidateQueries({ queryKey: ["portfolio-positions"] });
+  queryClient.invalidateQueries({ queryKey: ["portfolio-curve"] });
+  queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
+}
+
+function formatEditableNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? String(Number(value.toFixed(2))) : "";
+}
+
+function parseEditableNumber(value: string) {
+  const clean = value.trim().replace(",", ".");
+  if (!clean) return null;
+  const parsed = Number(clean);
+  return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(4)) : null;
+}
+
+function numbersEqual(left: number | null, right: number | null) {
+  if (left === null || right === null) return left === right;
+  return Math.abs(left - right) < 0.0001;
 }

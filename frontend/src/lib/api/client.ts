@@ -207,6 +207,13 @@ export const api = {
     const payload = await postJson<{ position: PortfolioPosition }>("/portfolio/positions", body);
     return payload.position;
   },
+  updatePortfolioStop: async (ticker: string, stopPrice: number | null) => {
+    const payload = await patchJson<{ position: PortfolioPosition }>(
+      `/portfolio/positions/${encodeURIComponent(ticker)}/stop`,
+      { stop_price: stopPrice }
+    );
+    return payload.position;
+  },
   deletePortfolioPosition: (ticker: string) =>
     fetch(`${getApiBaseUrl()}/portfolio/positions/${ticker}`, { method: "DELETE" }).then((response) => {
       if (!response.ok) throw new Error(`API request failed: ${response.status} ${response.statusText}`);

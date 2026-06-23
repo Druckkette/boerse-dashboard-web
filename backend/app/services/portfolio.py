@@ -51,6 +51,7 @@ from app.schemas import (
     PortfolioPositionDeleteResponse,
     PortfolioPositionSizeRequest,
     PortfolioPositionSizeResponse,
+    PortfolioPositionStopRequest,
     PortfolioPositionWriteRequest,
     PortfolioPositionWriteResponse,
     PortfolioSnapshotResponse,
@@ -900,10 +901,15 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
     if not series_map:
         return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars im Cache.{tr_error or ''}")
 
-    all_dates = sorted(date_value for date_value in set().union(*(series.index for series in series_map.values())) if date_value.date() >= curve_start)
+    all_cached_dates = sorted(set().union(*(series.index for series in series_map.values())))
+    all_dates = sorted(date_value for date_value in all_cached_dates if date_value.date() >= curve_start)
+    used_requested_start = True
+    if not all_dates:
+        all_dates = all_cached_dates
+        used_requested_start = False
     frame = pd.DataFrame(index=pd.DatetimeIndex(all_dates))
     if frame.empty:
-        return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars ab {curve_start.isoformat()} im Cache.{tr_error or ''}")
+        return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars im Cache.{tr_error or ''}")
     for row in rows:
         series = series_map.get(row.ticker)
         if series is None:
@@ -951,7 +957,11 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
         source="database",
         data_status="fresh",
         base_date=points[0].date if points else curve_start.isoformat(),
-        message="Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand.",
+        message=(
+            "Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand."
+            if used_requested_start
+            else f"Keine Price-Bars ab {curve_start.isoformat()} gefunden; Kurve startet mit dem ersten verfügbaren Cache-Datum."
+        ),
         points=points,
     )
 
@@ -976,11 +986,12 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         return None
     fx_rate = get_eur_usd_rate()
 
-    start_date = min(row.date for row in transactions)
+    curve_start_date = start_date
+    first_transaction_date = min(row.date for row in transactions)
     end_date = date.today()
-    if start_date > end_date:
+    if first_transaction_date > end_date or curve_start_date > end_date:
         return None
-    calendar = pd.DatetimeIndex(pd.date_range(start_date, end_date, freq="B"))
+    calendar = pd.DatetimeIndex(pd.date_range(first_transaction_date, end_date, freq="B"))
     if calendar.empty:
         return None
 
@@ -1005,7 +1016,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 running = max(running + _signed_share_delta(typ, row.shares), 0.0)
             shares.loc[shares.index >= pd.Timestamp(row.date)] = running
 
-        cached_prices = _cached_price_series(ticker, start_date) if ticker else pd.Series(dtype=float)
+        cached_prices = _cached_price_series(ticker, first_transaction_date) if ticker else pd.Series(dtype=float)
         if cached_prices.empty:
             cached_prices = _trade_price_fallback_series(instrument_transactions, calendar, fx_rate=fx_rate)
             if cached_prices.empty:
@@ -1047,10 +1058,13 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         return None
     curve = curve.loc[first_active.idxmax() :].reset_index(drop=True)
 
-    window_start = pd.Timestamp(start_date)
+    window_start = pd.Timestamp(curve_start_date)
     curve = curve[curve["date"] >= window_start].reset_index(drop=True)
     if curve.empty:
-        return None
+        window_start = pd.Timestamp(max(first_transaction_date, date.today() - timedelta(days=max(30, min(2500, days)))))
+        curve = curve[curve["date"] >= window_start].reset_index(drop=True)
+        if curve.empty:
+            return None
 
     index_values = [100.0]
     depot_values = curve["depot_value"].tolist()
@@ -1106,7 +1120,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="trade_republic_transactions",
         data_status="fresh" if points else "missing",
-        base_date=points[0].date if points else start_date.isoformat(),
+        base_date=points[0].date if points else curve_start_date.isoformat(),
         message=message,
         points=points,
     )
@@ -1312,12 +1326,18 @@ def upsert_portfolio_position(payload: PortfolioPositionWriteRequest) -> Portfol
         buy_date=_parse_date(payload.buy_date),
         pivot_tag=_parse_date(payload.pivot_tag),
         stop_pct=payload.stop_pct,
+        stop_price=payload.stop_price,
         broker=payload.broker,
         account=payload.account,
         note=payload.note,
         record_transaction=payload.record_transaction,
     )
     row = portfolio_repository.upsert_position(write)
+    return PortfolioPositionWriteResponse(position=_position_from_row(row, invested=row.current_price * row.shares))
+
+
+def update_portfolio_position_stop(ticker: str, payload: PortfolioPositionStopRequest) -> PortfolioPositionWriteResponse:
+    row = portfolio_repository.update_position_stop_price(ticker, payload.stop_price)
     return PortfolioPositionWriteResponse(position=_position_from_row(row, invested=row.current_price * row.shares))
 
 

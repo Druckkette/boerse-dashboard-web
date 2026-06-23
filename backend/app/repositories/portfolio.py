@@ -41,6 +41,7 @@ class PortfolioPositionWrite:
     buy_date: date | None
     pivot_tag: date | None
     stop_pct: float | None
+    stop_price: float | None
     broker: str
     account: str
     note: str
@@ -287,6 +288,7 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
                     buy_date=write.buy_date,
                     pivot_tag=write.pivot_tag,
                     stop_pct=write.stop_pct,
+                    stop_price=write.stop_price,
                     currency=write.currency,
                     broker=write.broker,
                     account=write.account,
@@ -301,6 +303,8 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
                 position.buy_date = write.buy_date
                 position.pivot_tag = write.pivot_tag
                 position.stop_pct = write.stop_pct
+                if write.stop_price is not None:
+                    position.stop_price = write.stop_price
                 position.currency = write.currency
                 position.broker = write.broker
                 position.account = write.account
@@ -325,6 +329,24 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
                     note=write.note,
                 )
 
+            db.commit()
+            return _position_to_row(db, position)
+    except SQLAlchemyError as exc:
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def update_position_stop_price(ticker: str, stop_price: float | None) -> PortfolioPositionRow:
+    clean = ticker.strip().upper()
+    if not clean:
+        raise PortfolioRepositoryUnavailable("Ticker must not be empty")
+    try:
+        with SessionLocal() as db:
+            position = db.scalars(
+                select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
+            ).first()
+            if position is None:
+                raise PortfolioRepositoryUnavailable(f"Offene Position {clean} wurde nicht gefunden.")
+            position.stop_price = stop_price
             db.commit()
             return _position_to_row(db, position)
     except SQLAlchemyError as exc:
@@ -827,6 +849,8 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
 
 
 def _position_stop_price(position: Position) -> float | None:
+    if position.stop_price is not None:
+        return float(position.stop_price)
     if position.stop_pct is None or position.buy_price is None:
         return None
     return float(position.buy_price) * (1 - float(position.stop_pct) / 100)

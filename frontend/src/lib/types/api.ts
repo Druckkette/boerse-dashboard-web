@@ -608,6 +608,7 @@ export type PortfolioPositionWriteRequest = {
   buy_date?: string | null;
   pivot_tag?: string | null;
   stop_pct?: number | null;
+  stop_price?: number | null;
   broker?: string;
   account?: string;
   note?: string;

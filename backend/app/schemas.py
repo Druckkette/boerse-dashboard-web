@@ -887,6 +887,7 @@ class PortfolioPositionWriteRequest(BaseModel):
     buy_date: str | None = None
     pivot_tag: str | None = None
     stop_pct: float | None = Field(default=7.0, gt=0, le=50)
+    stop_price: float | None = Field(default=None, gt=0)
     broker: str = ""
     account: str = ""
     note: str = ""
@@ -895,6 +896,10 @@ class PortfolioPositionWriteRequest(BaseModel):
 
 class PortfolioPositionWriteResponse(BaseModel):
     position: PortfolioPosition
+
+
+class PortfolioPositionStopRequest(BaseModel):
+    stop_price: float | None = Field(default=None, gt=0)
 
 
 class PortfolioPositionDeleteResponse(BaseModel):

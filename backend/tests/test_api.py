@@ -9,6 +9,8 @@ from app.schemas import (
     BuyStrengthOverviewResponse,
     BuyStrengthSummaryItem,
     FreshnessResponse,
+    PortfolioPosition,
+    PortfolioPositionWriteResponse,
     ServiceFreshness,
     SetupStatusResponse,
     SetupStep,
@@ -772,6 +774,40 @@ def test_portfolio_position_size_contract() -> None:
     assert payload["max_shares_by_loss_budget"] == 142
     assert payload["recommended_max_shares"] > 0
     assert payload["limiting_factor"] in {"loss_budget", "beta_balancer", "insufficient_data"}
+
+
+def test_portfolio_stop_update_contract(monkeypatch) -> None:
+    from app.api.v1 import portfolio as portfolio_api
+
+    def fake_stop_update(ticker, payload) -> PortfolioPositionWriteResponse:
+        return PortfolioPositionWriteResponse(
+            position=PortfolioPosition(
+                ticker=ticker.upper(),
+                name="NVIDIA",
+                shares=2,
+                entry_price=100,
+                current_price=125,
+                market_value=250,
+                pnl_pct=25,
+                weight_pct=100,
+                atr_pct=3.2,
+                beta=1.4,
+                status="ok",
+                pnl_abs=50,
+                currency="USD",
+                stop_pct=None,
+                stop_price=payload.stop_price,
+            )
+        )
+
+    monkeypatch.setattr(portfolio_api, "update_portfolio_position_stop", fake_stop_update)
+
+    response = client.patch("/api/v1/portfolio/positions/nvda/stop", json={"stop_price": 118.5})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["position"]["ticker"] == "NVDA"
+    assert payload["position"]["stop_price"] == 118.5
 
 
 def test_portfolio_import_history_contract() -> None:

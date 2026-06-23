@@ -18,6 +18,7 @@ from app.schemas import (
     PortfolioPositionDeleteResponse,
     PortfolioPositionSizeRequest,
     PortfolioPositionSizeResponse,
+    PortfolioPositionStopRequest,
     PortfolioPositionWriteRequest,
     PortfolioPositionWriteResponse,
     PortfolioPositionsResponse,
@@ -45,6 +46,7 @@ from app.services.portfolio import (
     import_trade_republic_transaction_export,
     sell_portfolio_position,
     update_isin_mappings,
+    update_portfolio_position_stop,
     upsert_portfolio_position,
 )
 
@@ -73,6 +75,17 @@ def patch_position(ticker: str, payload: PortfolioPositionWriteRequest) -> Portf
     try:
         next_payload = payload.model_copy(update={"ticker": ticker})
         return upsert_portfolio_position(next_payload)
+    except PortfolioRepositoryUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Portfolio-Datenbank ist nicht erreichbar: {exc}",
+        ) from exc
+
+
+@router.patch("/positions/{ticker}/stop", response_model=PortfolioPositionWriteResponse)
+def patch_position_stop(ticker: str, payload: PortfolioPositionStopRequest) -> PortfolioPositionWriteResponse:
+    try:
+        return update_portfolio_position_stop(ticker, payload)
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
