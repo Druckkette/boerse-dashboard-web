@@ -187,6 +187,82 @@ def test_trade_republic_curve_values_derivatives_from_trade_prices_without_ticke
     assert "DE000DERIV01" in curve.message
 
 
+def test_trade_republic_curve_deduplicates_cached_price_dates(monkeypatch) -> None:
+    transactions = [
+        _tr_row(date(2025, 1, 2), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2025, 1, 2), "buy", 10, 100, -1000, ticker="NVDA", isin="US67066G1040"),
+    ]
+
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: transactions)
+    monkeypatch.setattr(
+        portfolio_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, start_date=None: {
+            "NVDA": [
+                PriceRow(date=date(2025, 1, 2), close=100),
+                PriceRow(date=date(2025, 1, 2), close=101),
+                PriceRow(date=date(2025, 1, 3), close=110),
+            ],
+            "^GSPC": [
+                PriceRow(date=date(2025, 1, 2), close=5000),
+                PriceRow(date=date(2025, 1, 2), close=5010),
+                PriceRow(date=date(2025, 1, 3), close=5050),
+            ],
+        }.get(ticker, []),
+    )
+
+    curve = portfolio_service.get_portfolio_curve(days=2500)
+
+    assert curve.source == "trade_republic_transactions"
+    assert curve.points
+    assert curve.points[-1].portfolio_index > 100
+    assert curve.points[-1].sp500_index is not None
+
+
+def test_trade_republic_curve_deduplicates_trade_price_fallback_dates(monkeypatch) -> None:
+    transactions = [
+        _tr_row(date(2025, 2, 3), "customer_inbound", 0, None, 300),
+        _tr_row(
+            date(2025, 2, 3),
+            "buy",
+            5,
+            20,
+            -100,
+            isin="DE000DERIV02",
+            asset_class="DERIVATIVE",
+            name="Factor Long",
+        ),
+        _tr_row(
+            date(2025, 2, 3),
+            "buy",
+            5,
+            22,
+            -110,
+            isin="DE000DERIV02",
+            asset_class="DERIVATIVE",
+            name="Factor Long",
+        ),
+    ]
+
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: transactions)
+    monkeypatch.setattr(
+        portfolio_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, start_date=None: {
+            "^GSPC": [
+                PriceRow(date=date(2025, 2, 3), close=5000),
+                PriceRow(date=date(2025, 2, 4), close=5000),
+            ],
+        }.get(ticker, []),
+    )
+
+    curve = portfolio_service.get_portfolio_curve(days=2500)
+
+    assert curve.source == "trade_republic_transactions"
+    assert curve.points
+    assert "DE000DERIV02" in curve.message
+
+
 def test_portfolio_curve_falls_back_to_missing_response_when_tr_curve_fails(monkeypatch) -> None:
     def broken_transactions():
         raise RuntimeError("malformed stored TR transaction")

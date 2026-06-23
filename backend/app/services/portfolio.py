@@ -1023,7 +1023,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 missing_price_instruments.append(label)
                 continue
             trade_price_fallbacks.append(label)
-        aligned_prices = cached_prices.reindex(calendar, method="ffill").ffill().bfill().fillna(0.0)
+        aligned_prices = _align_price_series_to_calendar(cached_prices, calendar)
         positions_value = positions_value.add(shares.values * aligned_prices.values, fill_value=0.0)
 
     cash_daily = pd.Series(0.0, index=calendar)
@@ -1147,7 +1147,7 @@ def _cached_price_series(ticker: str, start_date: date) -> pd.Series:
         [item[1] for item in values],
         index=pd.DatetimeIndex([item[0] for item in values]),
         dtype=float,
-    ).sort_index()
+    ).pipe(_deduplicate_series_index)
 
 
 def _benchmark_index_series(calendar: pd.DatetimeIndex) -> pd.Series:
@@ -1157,7 +1157,7 @@ def _benchmark_index_series(calendar: pd.DatetimeIndex) -> pd.Series:
     for ticker in ("^GSPC", "SPY"):
         series = _cached_price_series(ticker, start)
         if not series.empty:
-            aligned = series.reindex(calendar, method="ffill").ffill().bfill()
+            aligned = _align_price_series_to_calendar(series, calendar)
             valid = aligned.dropna()
             if not valid.empty and float(valid.iloc[0]) > 0:
                 return aligned / float(valid.iloc[0]) * 100
@@ -1208,8 +1208,26 @@ def _trade_price_fallback_series(
         [item[1] for item in values],
         index=pd.DatetimeIndex([item[0] for item in values]),
         dtype=float,
-    ).sort_index()
-    return series.reindex(calendar, method="ffill").ffill().bfill()
+    ).pipe(_deduplicate_series_index)
+    return _align_price_series_to_calendar(series, calendar)
+
+
+def _deduplicate_series_index(series: pd.Series) -> pd.Series:
+    if series.empty:
+        return series
+    ordered = series.sort_index()
+    if not ordered.index.has_duplicates:
+        return ordered
+    return ordered[~ordered.index.duplicated(keep="last")]
+
+
+def _align_price_series_to_calendar(series: pd.Series, calendar: pd.DatetimeIndex) -> pd.Series:
+    if calendar.empty:
+        return pd.Series(dtype=float)
+    clean = _deduplicate_series_index(series)
+    if clean.empty:
+        return pd.Series(0.0, index=calendar, dtype=float)
+    return clean.reindex(calendar, method="ffill").ffill().bfill().fillna(0.0)
 
 
 def _signed_share_delta(transaction_type: str, shares: float) -> float:

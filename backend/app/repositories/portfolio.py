@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import CashFlow, ImportBatch, Instrument, IsinMapping, Position, PriceBar, Transaction
@@ -150,6 +150,12 @@ class PortfolioRepositoryUnavailable(RuntimeError):
     pass
 
 
+_STOP_PRICE_MIGRATION_MESSAGE = (
+    "Datenbankschema ist nicht aktuell: Migration 0007_position_stop_price fehlt. "
+    "Bitte Alembic-Migrationen ausführen."
+)
+
+
 def list_isin_mappings() -> dict[str, str]:
     try:
         with SessionLocal() as db:
@@ -259,6 +265,67 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                 )
             return rows
     except SQLAlchemyError as exc:
+        if _is_missing_stop_price_column(exc):
+            return _list_open_positions_without_stop_price_column()
+        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def _list_open_positions_without_stop_price_column() -> list[PortfolioPositionRow]:
+    try:
+        with SessionLocal() as db:
+            position_rows = db.execute(
+                text(
+                    """
+                    SELECT id, instrument_id, ticker, shares, buy_price, buy_date, pivot_tag,
+                           stop_pct, currency, broker, account, note
+                    FROM positions
+                    WHERE is_open IS TRUE
+                    ORDER BY ticker ASC
+                    """
+                )
+            ).mappings().all()
+
+            rows: list[PortfolioPositionRow] = []
+            for position in position_rows:
+                ticker = str(position.get("ticker") or "").upper()
+                instrument = None
+                instrument_id = position.get("instrument_id")
+                if instrument_id:
+                    instrument = db.get(Instrument, instrument_id)
+                if instrument is None and ticker:
+                    instrument = db.scalars(select(Instrument).where(Instrument.ticker == ticker)).first()
+
+                latest_price = None
+                if instrument is not None:
+                    latest_price = db.scalars(
+                        select(PriceBar.close)
+                        .where(PriceBar.instrument_id == instrument.id, PriceBar.close.is_not(None))
+                        .order_by(PriceBar.date.desc())
+                        .limit(1)
+                    ).first()
+
+                entry_price = _float_or_zero(position.get("buy_price"))
+                current_price_source = "price_cache" if latest_price is not None else "position_entry"
+                rows.append(
+                    PortfolioPositionRow(
+                        ticker=ticker,
+                        name=(instrument.name if instrument and instrument.name else ticker),
+                        shares=_float_or_zero(position.get("shares")),
+                        entry_price=entry_price,
+                        current_price=float(latest_price or entry_price),
+                        currency=str(position.get("currency") or "EUR"),
+                        buy_date=_as_date(position.get("buy_date")),
+                        pivot_tag=_as_date(position.get("pivot_tag")),
+                        stop_pct=position.get("stop_pct"),
+                        stop_price=_stop_price_from_values(position.get("stop_pct"), entry_price),
+                        broker=str(position.get("broker") or ""),
+                        account=str(position.get("account") or ""),
+                        note=str(position.get("note") or ""),
+                        current_price_source=current_price_source,
+                    )
+                )
+            return rows
+    except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
@@ -332,6 +399,8 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
             db.commit()
             return _position_to_row(db, position)
     except SQLAlchemyError as exc:
+        if _is_missing_stop_price_column(exc):
+            raise PortfolioRepositoryUnavailable(_STOP_PRICE_MIGRATION_MESSAGE) from exc
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
@@ -350,6 +419,8 @@ def update_position_stop_price(ticker: str, stop_price: float | None) -> Portfol
             db.commit()
             return _position_to_row(db, position)
     except SQLAlchemyError as exc:
+        if _is_missing_stop_price_column(exc):
+            raise PortfolioRepositoryUnavailable(_STOP_PRICE_MIGRATION_MESSAGE) from exc
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
@@ -849,11 +920,39 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
 
 
 def _position_stop_price(position: Position) -> float | None:
-    if position.stop_price is not None:
-        return float(position.stop_price)
-    if position.stop_pct is None or position.buy_price is None:
+    stop_price = getattr(position, "stop_price", None)
+    if stop_price is not None:
+        return float(stop_price)
+    return _stop_price_from_values(position.stop_pct, position.buy_price)
+
+
+def _stop_price_from_values(stop_pct: object, buy_price: object) -> float | None:
+    if stop_pct is None or buy_price is None:
         return None
-    return float(position.buy_price) * (1 - float(position.stop_pct) / 100)
+    try:
+        return float(buy_price) * (1 - float(stop_pct) / 100)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_zero(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _as_date(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _is_missing_stop_price_column(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "positions.stop_price" in message or ("stop_price" in message and "undefinedcolumn" in message)
 
 
 def _add_transaction(
