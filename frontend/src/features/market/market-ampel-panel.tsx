@@ -40,12 +40,12 @@ export function MarketAmpelPanel({
   });
 
   if (query.isLoading) {
-    return <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">Marktampel lädt...</section>;
+    return <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 text-sm text-[#687386] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">Marktampel lädt...</section>;
   }
 
   if (query.error || !query.data) {
     return (
-      <section className="rounded border border-rose-400/40 bg-rose-400/10 p-5 text-sm text-rose-100">
+      <section className="rounded-[24px] border border-[#f0b9b5] bg-[#fff0ef] p-5 text-sm font-medium text-[#c2413b] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
         Marktampel ist aktuell nicht erreichbar.
       </section>
     );
@@ -73,7 +73,7 @@ export function MarketAmpelPanel({
 
   return (
     <section className="space-y-4">
-      <div className={clsx("rounded border p-5", heroToneClasses(data.hero.tone))}>
+      <div className={clsx("rounded-[28px] border p-6 shadow-[0_18px_48px_rgba(15,23,42,0.08)]", heroToneClasses(data.hero.tone))}>
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -82,11 +82,14 @@ export function MarketAmpelPanel({
               <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
-            <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">Marktampel</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#d8dde6]">{data.hero.action}</p>
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Marktampel</div>
+            <h1 className={clsx("mt-2 text-4xl font-semibold tracking-normal md:text-5xl", toneText(data.hero.tone))}>
+              {data.hero.mode}
+            </h1>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-[#172033]">{data.hero.action}</p>
             <div className="mt-4 grid gap-2 md:grid-cols-2">
               {heroReasons.map((reason) => (
-                <div key={reason} className="rounded border border-white/10 bg-black/15 px-3 py-2 text-sm text-[#c9d0da]">
+                <div key={reason} className="rounded-2xl border border-[#e3e8ef] bg-white/78 px-4 py-3 text-sm leading-6 text-[#687386]">
                   {reason}
                 </div>
               ))}
@@ -98,10 +101,10 @@ export function MarketAmpelPanel({
                 <button
                   key={item.ticker}
                   className={clsx(
-                    "rounded border px-3 py-2 text-sm transition",
+                    "rounded-full border px-4 py-2 text-sm font-medium transition",
                     ticker === item.ticker
-                      ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-100"
-                      : "border-[#2d333d] bg-[#111419] text-[#a0a7b4] hover:border-[#586071] hover:text-[#d8dde6]"
+                      ? "border-[#0f766e] bg-[#0f766e] text-white shadow-[0_10px_20px_rgba(15,118,110,0.18)]"
+                      : "border-[#d8e1ea] bg-white text-[#687386] hover:border-[#b8c4d2] hover:text-[#172033]"
                   )}
                   type="button"
                   onClick={() => onTickerChange?.(item.ticker)}
@@ -115,10 +118,10 @@ export function MarketAmpelPanel({
                 <button
                   key={option}
                   className={clsx(
-                    "rounded border px-3 py-2 text-sm transition",
+                    "rounded-full border px-4 py-2 text-sm font-medium transition",
                     days === option
-                      ? "border-sky-300/60 bg-sky-300/10 text-sky-100"
-                      : "border-[#2d333d] bg-[#111419] text-[#a0a7b4] hover:border-[#586071] hover:text-[#d8dde6]"
+                      ? "border-[#2563eb] bg-[#eef5ff] text-[#2563eb]"
+                      : "border-[#d8e1ea] bg-white text-[#687386] hover:border-[#b8c4d2] hover:text-[#172033]"
                   )}
                   type="button"
                   onClick={() => setDays(option)}
@@ -127,11 +130,11 @@ export function MarketAmpelPanel({
                 </button>
               ))}
               <button
-                className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm text-[#d8dde6] transition hover:border-emerald-300/60"
+                className="inline-flex items-center gap-2 rounded-full border border-[#d8e1ea] bg-white px-4 py-2 text-sm font-medium text-[#172033] transition hover:border-[#0f766e]"
                 type="button"
                 onClick={() => query.refetch()}
               >
-                <RotateCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+                <RotateCw size={15} className={query.isFetching ? "animate-spin text-[#0f766e]" : "text-[#687386]"} />
                 Aktualisieren
               </button>
             </div>
@@ -175,12 +178,12 @@ export function MarketAmpelPanel({
 
 function TrafficLightPanel({ data }: { data: MarketAmpel }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
       <div className="grid gap-6 2xl:grid-cols-[minmax(240px,0.42fr)_minmax(0,1fr)]">
         <div className="min-w-0">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold tracking-normal">Trendwende-Ampel</h2>
-            <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">Rot, Gelb, Grün und Aufwärtstrend nach den migrierten Marktampel-Regeln.</p>
+            <h2 className="text-xl font-semibold tracking-normal text-[#172033]">Trendwende-Ampel</h2>
+            <p className="mt-1 text-sm leading-6 text-[#687386]">Rot, Gelb, Grün und Rückenwind nach den migrierten Marktampel-Regeln.</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-1">
             {data.lights.map((light) => (
@@ -188,10 +191,10 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
             ))}
           </div>
         </div>
-        <div className={clsx("min-w-0 rounded border p-5 sm:p-6", phaseCardClass(data.phase_info.tone))}>
+        <div className={clsx("min-w-0 rounded-[24px] border p-5 sm:p-6", phaseCardClass(data.phase_info.tone))}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-normal text-[#a0a7b4]">Aktuelle Ampelphase</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Aktuelle Ampelphase</div>
               <div
                 className={clsx(
                   "mt-2 break-words text-3xl font-semibold leading-tight tracking-normal sm:text-4xl",
@@ -209,8 +212,8 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
             <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
           </div>
 
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-normal text-[#77808f]">Letzter Startschuss und Zykluswerte</div>
+          <div className="mt-6 border-t border-[#e3e8ef] pt-5">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Letzter Startschuss und Zykluswerte</div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} />
               <CycleMetric
@@ -230,7 +233,7 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
               />
             </div>
             {data.cycle.diagnostics.length > 0 ? (
-              <div className="mt-3 text-xs leading-5 text-[#8e97a6]">{data.cycle.diagnostics.join(" · ")}</div>
+              <div className="mt-3 text-xs leading-5 text-[#687386]">{data.cycle.diagnostics.join(" · ")}</div>
             ) : null}
           </div>
         </div>
@@ -243,8 +246,8 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
 function InfoBlock({ emphasis = false, text, title }: { emphasis?: boolean; text: string; title: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">{title}</div>
-      <p className={clsx("mt-2 text-sm leading-7", emphasis ? "text-[#f2f5f8]" : "text-[#d8dde6]")}>{text}</p>
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{title}</div>
+      <p className={clsx("mt-2 text-sm leading-7", emphasis ? "font-medium text-[#172033]" : "text-[#4b5565]")}>{text}</p>
     </div>
   );
 }
@@ -260,15 +263,15 @@ function Light({ light }: { light: MarketAmpelLight }) {
       <span
         className={clsx(
           "grid size-11 shrink-0 place-items-center rounded-full border transition",
-          light.active ? activeLightClass(light.tone, light.key) : "border-[#3b4350] bg-[#141820] text-[#586071]"
-        )}
+        light.active ? activeLightClass(light.tone, light.key) : "border-[#d8e1ea] bg-[#f9fbfd] text-[#8a94a6]"
+      )}
       >
         <CircleDot size={22} />
       </span>
       <span
         className={clsx(
           "min-w-0 break-words text-xs font-semibold leading-5 [overflow-wrap:anywhere] sm:text-sm",
-          light.active ? toneText(light.tone) : "text-[#77808f]"
+          light.active ? toneText(light.tone) : "text-[#687386]"
         )}
       >
         {light.key === "aufwaertstrend" ? (
@@ -283,27 +286,27 @@ function Light({ light }: { light: MarketAmpelLight }) {
 
 function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
   return (
-    <details className="group mt-4 rounded border border-[#2d333d] bg-[#111419]">
+    <details className="group mt-4 overflow-hidden rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd]">
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3">
         <span>
-          <span className="block text-base font-semibold">Regeldefinitionen</span>
-          <span className="mt-1 block text-sm leading-6 text-[#a0a7b4]">Ampelphasen aus der Streamlit-Logik.</span>
+          <span className="block text-base font-semibold text-[#172033]">Regeldefinitionen</span>
+          <span className="mt-1 block text-sm leading-6 text-[#687386]">Ampelphasen aus der Streamlit-Logik.</span>
         </span>
-        <span className="mt-1 shrink-0 rounded border border-[#2d333d] bg-[#171a20] px-2 py-1 text-xs text-[#a0a7b4] group-open:text-emerald-200">
+        <span className="mt-1 shrink-0 rounded-full border border-[#d8e1ea] bg-white px-3 py-1 text-xs font-semibold text-[#687386] group-open:text-[#0f766e]">
           Details
         </span>
       </summary>
-      <div className="grid gap-3 border-t border-[#2d333d] p-4 md:grid-cols-2">
+      <div className="grid gap-3 border-t border-[#e3e8ef] p-4 md:grid-cols-2">
         {lights.map((light) => (
-          <div key={light.key} className={clsx("rounded border bg-[#171a20] p-4", light.active ? tileBorder(light.tone) : "border-[#242a33]")}>
+          <div key={light.key} className={clsx("rounded-2xl border bg-white p-4", light.active ? tileBorder(light.tone) : "border-[#e3e8ef]")}>
             <div className="mb-2 flex items-center gap-2">
               <span className={clsx("size-2 rounded-full", dotBg(light.tone))} />
-              <div className={clsx("text-sm font-semibold", light.active ? toneText(light.tone) : "text-[#d8dde6]")}>
+              <div className={clsx("text-sm font-semibold", light.active ? toneText(light.tone) : "text-[#172033]")}>
                 {light.label}
               </div>
               {light.active && <StatusChip tone={light.tone}>aktiv</StatusChip>}
             </div>
-            <p className="text-sm leading-6 text-[#c9d0da]">{light.rule}</p>
+            <p className="text-sm leading-6 text-[#687386]">{light.rule}</p>
           </div>
         ))}
       </div>
@@ -313,44 +316,44 @@ function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
 
 function ChangeCard({ card }: { card: MarketAmpelChangeCard }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm text-[#a0a7b4]">{card.title}</div>
+        <div className="text-sm font-medium text-[#687386]">{card.title}</div>
         <StatusChip tone={card.tone}>{card.quality ?? card.tone}</StatusChip>
       </div>
-      <div className="flex items-center gap-2 text-2xl font-semibold tracking-normal">
-        {card.arrow === "up" && <ArrowUp className="text-emerald-300" size={20} />}
-        {card.arrow === "down" && <ArrowDown className="text-rose-300" size={20} />}
+      <div className="flex items-center gap-2 text-2xl font-semibold tracking-normal text-[#172033]">
+        {card.arrow === "up" && <ArrowUp className="text-[#138a57]" size={20} />}
+        {card.arrow === "down" && <ArrowDown className="text-[#c2413b]" size={20} />}
         {card.value}
       </div>
-      <div className="mt-2 text-sm text-[#a0a7b4]">{card.detail}</div>
-      {card.detail2 && <div className="mt-1 text-xs text-[#77808f]">{card.detail2}</div>}
-      {card.detail3 && <div className="mt-1 text-xs text-[#77808f]">{card.detail3}</div>}
+      <div className="mt-2 text-sm leading-6 text-[#687386]">{card.detail}</div>
+      {card.detail2 && <div className="mt-1 text-xs text-[#687386]">{card.detail2}</div>}
+      {card.detail3 && <div className="mt-1 text-xs text-[#687386]">{card.detail3}</div>}
     </div>
   );
 }
 
 function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {
   return (
-    <div className="min-h-[104px] rounded border border-[#2d333d] bg-[#111419] p-4">
-      <div className="text-xs font-semibold uppercase tracking-normal text-[#77808f]">{label}</div>
+    <div className="min-h-[104px] rounded-2xl border border-[#e3e8ef] bg-white p-4">
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{label}</div>
       <div className={clsx("mt-3 break-words text-lg font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
     </div>
   );
 }
 
 function heroToneClasses(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/30 bg-emerald-300/10";
-  if (tone === "bad") return "border-rose-300/30 bg-rose-300/10";
-  if (tone === "warning") return "border-amber-300/30 bg-amber-300/10";
-  return "border-[#2d333d] bg-[#171a20]";
+  if (tone === "good") return "border-[#b7e2cf] bg-[linear-gradient(135deg,#ffffff_0%,#eaf7ef_100%)]";
+  if (tone === "bad") return "border-[#f0b9b5] bg-[linear-gradient(135deg,#ffffff_0%,#fff0ef_100%)]";
+  if (tone === "warning") return "border-[#efd58f] bg-[linear-gradient(135deg,#ffffff_0%,#fff7df_100%)]";
+  return "border-[#d8e1ea] bg-[linear-gradient(135deg,#ffffff_0%,#eef5ff_100%)]";
 }
 
 function phaseCardClass(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/35 bg-emerald-300/10";
-  if (tone === "bad") return "border-rose-300/35 bg-rose-300/10";
-  if (tone === "warning") return "border-amber-300/35 bg-amber-300/10";
-  return "border-[#2d333d] bg-[#111419]";
+  if (tone === "good") return "border-[#b7e2cf] bg-[#eaf7ef]";
+  if (tone === "bad") return "border-[#f0b9b5] bg-[#fff0ef]";
+  if (tone === "warning") return "border-[#efd58f] bg-[#fff7df]";
+  return "border-[#bdd3ff] bg-[#eef5ff]";
 }
 
 function activeLightClass(tone: Tone, key?: MarketAmpelLight["key"]) {
@@ -368,17 +371,17 @@ function dotBg(tone: Tone) {
 }
 
 function tileBorder(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/35";
-  if (tone === "bad") return "border-rose-300/35";
-  if (tone === "warning") return "border-amber-300/35";
-  return "border-[#2d333d]";
+  if (tone === "good") return "border-[#b7e2cf] bg-[#eaf7ef]";
+  if (tone === "bad") return "border-[#f0b9b5] bg-[#fff0ef]";
+  if (tone === "warning") return "border-[#efd58f] bg-[#fff7df]";
+  return "border-[#bdd3ff] bg-[#eef5ff]";
 }
 
 function toneText(tone: Tone) {
-  if (tone === "good") return "text-emerald-200";
-  if (tone === "bad") return "text-rose-200";
-  if (tone === "warning") return "text-amber-100";
-  return "text-[#c9d0da]";
+  if (tone === "good") return "text-[#138a57]";
+  if (tone === "bad") return "text-[#c2413b]";
+  if (tone === "warning") return "text-[#9a650f]";
+  return "text-[#2563eb]";
 }
 
 function distanceTone(value?: number | null): Tone {

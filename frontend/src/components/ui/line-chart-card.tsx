@@ -236,15 +236,15 @@ export function LineChartCard({
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-base font-semibold">{title}</h2>
-          <p className="text-sm leading-5 text-[#a0a7b4]">{caption}</p>
+          <h2 className="text-lg font-semibold text-[#172033]">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-[#687386]">{caption}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="inline-flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#20252e] text-[#d8dde6] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex size-9 items-center justify-center rounded-full border border-[#d8e1ea] bg-white text-[#172033] shadow-sm transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-45"
             type="button"
             title="In den Chart hineinzoomen"
             aria-label="In den Chart hineinzoomen"
@@ -254,7 +254,7 @@ export function LineChartCard({
             <Plus size={15} />
           </button>
           <button
-            className="inline-flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#20252e] text-[#d8dde6] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex size-9 items-center justify-center rounded-full border border-[#d8e1ea] bg-white text-[#172033] shadow-sm transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-45"
             type="button"
             title="Aus dem Chart herauszoomen"
             aria-label="Aus dem Chart herauszoomen"
@@ -264,7 +264,7 @@ export function LineChartCard({
             <Minus size={15} />
           </button>
           <button
-            className="inline-flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#20252e] text-[#d8dde6] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex size-9 items-center justify-center rounded-full border border-[#d8e1ea] bg-white text-[#172033] shadow-sm transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-45"
             type="button"
             title="Chart zurücksetzen"
             aria-label="Chart zurücksetzen"
@@ -279,7 +279,7 @@ export function LineChartCard({
 
       <div
         ref={chartRef}
-        className="relative h-[320px] touch-none select-none rounded border border-[#d9dee8] bg-white"
+        className="relative h-[320px] touch-none select-none rounded-[20px] border border-[#d9dee8] bg-white"
         onPointerCancel={handlePointerEnd}
         onPointerDown={handlePointerDown}
         onPointerLeave={handlePointerEnd}
@@ -288,17 +288,17 @@ export function LineChartCard({
         onWheel={handleWheel}
       >
         {isLoading && (
-          <div className="absolute inset-0 grid place-items-center text-sm text-[#4a5362]">
+          <div className="absolute inset-0 grid place-items-center text-sm text-[#687386]">
             Daten werden geladen...
           </div>
         )}
         {hasError && (
-          <div className="absolute inset-0 grid place-items-center px-4 text-center text-sm text-rose-200">
+          <div className="absolute inset-0 grid place-items-center px-4 text-center text-sm font-medium text-[#c2413b]">
             Chart-Daten konnten nicht geladen werden.
           </div>
         )}
         {empty && !hasError && (
-          <div className="absolute inset-0 grid place-items-center text-sm text-[#4a5362]">
+          <div className="absolute inset-0 grid place-items-center text-sm text-[#687386]">
             Keine Zeitreihe verfügbar.
           </div>
         )}
@@ -516,8 +516,8 @@ export function LineChartCard({
                 className={[
                   "inline-flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs transition",
                   hidden
-                    ? "border-[#2d333d] bg-[#111419] text-[#77808f] hover:border-[#4a5362]"
-                    : "border-[#d9dee8] bg-white text-[#20252e] hover:border-[#aab2c0]"
+                    ? "border-[#d8e1ea] bg-[#f9fbfd] text-[#687386] hover:border-[#b8c4d2]"
+                    : "border-[#d9dee8] bg-white text-[#172033] shadow-sm hover:border-[#0f766e]"
                 ].join(" ")}
                 key={`${item.panel}-${item.key}`}
                 type="button"
@@ -534,18 +534,18 @@ export function LineChartCard({
 
       <div className="mt-3 flex flex-wrap gap-3">
         {volumeKey && (
-          <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
+          <div className="flex items-center gap-2 text-sm text-[#172033]">
             <span className="size-2 rounded-full bg-[#697386]" />
-            <span className="text-[#a0a7b4]">{volumeLabel}</span>
+            <span className="text-[#687386]">{volumeLabel}</span>
             <span className="tabular-nums">{formatCompact(toNumber(latest?.[volumeKey]))}</span>
           </div>
         )}
         {visibleSeries.map((item) => {
           const value = latest ? toNumber(latest[item.key]) : null;
           return (
-            <div key={item.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">
+            <div key={item.key} className="flex items-center gap-2 text-sm text-[#172033]">
               <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className="text-[#a0a7b4]">{item.label}</span>
+              <span className="text-[#687386]">{item.label}</span>
               <span className="tabular-nums">{value === null ? "-" : (item.formatter?.(value) ?? value.toFixed(2))}</span>
             </div>
           );
@@ -553,30 +553,30 @@ export function LineChartCard({
         {visibleSubSeries.map((item) => {
           const value = latest ? toNumber(latest[item.key]) : null;
           return (
-            <div key={item.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">
+            <div key={item.key} className="flex items-center gap-2 text-sm text-[#172033]">
               <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className="text-[#a0a7b4]">{item.label}</span>
+              <span className="text-[#687386]">{item.label}</span>
               <span className="tabular-nums">{value === null ? "-" : (item.formatter?.(value) ?? value.toFixed(2))}</span>
             </div>
           );
         })}
         {levels.map((level) => (
-          <div key={level.key} className="flex items-center gap-2 text-sm text-[#c9d0da]">
+          <div key={level.key} className="flex items-center gap-2 text-sm text-[#172033]">
             <span className="h-px w-4 border-t border-dashed" style={{ borderColor: level.color }} />
-            <span className="text-[#a0a7b4]">{level.label}</span>
+            <span className="text-[#687386]">{level.label}</span>
             <span className="tabular-nums">{level.value.toFixed(2)}</span>
           </div>
         ))}
         {chartMode === "candlestick" && (
           <>
-            <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
+            <div className="flex items-center gap-2 text-sm text-[#172033]">
               <span className="h-3 w-2 rounded-[2px] border border-rose-400 bg-white" />
-              <span className="text-[#a0a7b4]">rote Kontur: Abwärtskerze</span>
+              <span className="text-[#687386]">rote Kontur: Abwärtskerze</span>
             </div>
             {volumeKey && (
-              <div className="flex items-center gap-2 text-sm text-[#c9d0da]">
+              <div className="flex items-center gap-2 text-sm text-[#172033]">
                 <span className="h-3 w-2 rounded-[2px] bg-rose-400" />
-                <span className="text-[#a0a7b4]">voll rot: Volumen fallender Tag</span>
+                <span className="text-[#687386]">voll rot: Volumen fallender Tag</span>
               </div>
             )}
           </>

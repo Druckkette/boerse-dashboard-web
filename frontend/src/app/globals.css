@@ -1,13 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: dark;
-  --background: #0f1115;
-  --panel: #171a20;
-  --panel-strong: #1f242c;
-  --border: #2d333d;
-  --muted: #a0a7b4;
-  --text: #f4f6f8;
+  color-scheme: light;
+  --background: #f6f8fb;
+  --panel: #ffffff;
+  --panel-soft: #f9fbfd;
+  --panel-strong: #eef3f7;
+  --border: #e3e8ef;
+  --border-strong: #cbd5e1;
+  --muted: #687386;
+  --muted-soft: #8a94a6;
+  --text: #172033;
+  --text-strong: #0f172a;
+  --teal: #0f766e;
+  --teal-soft: #e6f5f2;
+  --green: #138a57;
+  --green-soft: #eaf7ef;
+  --yellow: #b7791f;
+  --yellow-soft: #fff7df;
+  --red: #c2413b;
+  --red-soft: #fff0ef;
+  --blue: #2563eb;
+  --blue-soft: #eef5ff;
+  --shadow-soft: 0 18px 48px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
 
 * {
@@ -22,10 +38,12 @@ html {
 body {
   margin: 0;
   background:
-    linear-gradient(180deg, rgba(20, 24, 31, 0.96), rgba(15, 17, 21, 1) 36%),
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 32rem),
+    linear-gradient(180deg, #fbfdff 0%, var(--background) 24rem),
     var(--background);
   color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
+  text-rendering: geometricPrecision;
 }
 
 a {
@@ -43,17 +61,167 @@ textarea {
 .input-dark {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: #111419;
+  border-radius: 999px;
+  background: var(--panel);
   color: var(--text);
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.9rem;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .input-dark:focus {
-  border-color: rgba(110, 231, 183, 0.65);
+  border-color: rgba(15, 118, 110, 0.65);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
   outline: none;
 }
 
 ::selection {
   background: rgba(45, 212, 191, 0.28);
+}
+
+/* Light-theme compatibility layer for legacy hard-coded dark Tailwind classes.
+   This keeps the refactor presentation-only and avoids touching business logic. */
+[class*="bg-[#0f1115]"],
+[class*="bg-[#111419]"],
+[class*="bg-[#141820]"],
+[class*="bg-[#171a20]"],
+[class*="bg-[#1b2027]"],
+[class*="bg-[#1b2028]"],
+[class*="bg-[#1f242c]"],
+[class*="bg-[#20252e]"],
+[class*="bg-[#20262f]"] {
+  background-color: var(--panel) !important;
+}
+
+[class*="bg-[#242a33]"],
+[class*="bg-[#26333a]"] {
+  background-color: var(--teal-soft) !important;
+}
+
+[class*="border-[#242a33]"],
+[class*="border-[#2d333d]"],
+[class*="border-[#3b4350]"],
+[class*="border-[#4a5362]"],
+[class*="border-[#4b5563]"],
+[class*="border-[#586071]"] {
+  border-color: var(--border) !important;
+}
+
+[class*="text-[#4a5362]"],
+[class*="text-[#586071]"],
+[class*="text-[#697386]"],
+[class*="text-[#77808f]"],
+[class*="text-[#7f8794]"],
+[class*="text-[#8e97a6]"],
+[class*="text-[#a0a7b4]"] {
+  color: var(--muted) !important;
+}
+
+[class*="text-[#c7ccd6]"],
+[class*="text-[#c9d0da]"],
+[class*="text-[#d7dde6]"],
+[class*="text-[#d8dde6]"],
+[class*="text-[#dbe4ef]"],
+[class*="text-[#f2f5f8]"],
+[class*="text-[#f2f5f9]"],
+[class*="text-[#f4f7fb]"] {
+  color: var(--text) !important;
+}
+
+[class*="bg-[#111419]"][class~="text-white"],
+[class*="bg-[#141820]"][class~="text-white"],
+[class*="bg-[#171a20]"][class~="text-white"],
+[class*="bg-[#1f242c]"][class~="text-white"],
+input[class~="text-white"],
+select[class~="text-white"],
+textarea[class~="text-white"] {
+  color: var(--text) !important;
+}
+
+[class*="text-emerald-100"],
+[class*="text-emerald-200"],
+[class*="text-emerald-300"] {
+  color: var(--green) !important;
+}
+
+[class*="text-sky-100"],
+[class*="text-sky-200"],
+[class*="text-sky-300"] {
+  color: var(--blue) !important;
+}
+
+[class*="text-amber-100"],
+[class*="text-amber-200"],
+[class*="text-amber-300"] {
+  color: var(--yellow) !important;
+}
+
+[class*="text-rose-100"],
+[class*="text-rose-200"],
+[class*="text-rose-300"] {
+  color: var(--red) !important;
+}
+
+[class*="bg-emerald-300/10"],
+[class*="bg-emerald-400/10"],
+[class*="bg-emerald-300/15"],
+[class*="bg-emerald-400/15"] {
+  background-color: var(--green-soft) !important;
+}
+
+[class*="bg-sky-300/10"],
+[class*="bg-sky-400/10"],
+[class*="bg-blue-300/10"],
+[class*="bg-blue-400/10"] {
+  background-color: var(--blue-soft) !important;
+}
+
+[class*="bg-amber-300/10"],
+[class*="bg-amber-400/10"],
+[class*="bg-yellow-300/10"],
+[class*="bg-yellow-400/10"] {
+  background-color: var(--yellow-soft) !important;
+}
+
+[class*="bg-rose-300/10"],
+[class*="bg-rose-400/10"],
+[class*="bg-red-300/10"],
+[class*="bg-red-400/10"] {
+  background-color: var(--red-soft) !important;
+}
+
+[class*="hover:bg-[#1b2027]"]:hover,
+[class*="hover:bg-[#1b2028]"]:hover,
+[class*="hover:bg-[#20262f]"]:hover {
+  background-color: #f1f6f8 !important;
+}
+
+input,
+select,
+textarea {
+  background-color: var(--panel);
+  color: var(--text);
+}
+
+button {
+  color: inherit;
+}
+
+table {
+  border-color: var(--border);
+}
+
+::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
 }

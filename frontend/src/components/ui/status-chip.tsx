@@ -1,10 +1,10 @@
 import clsx from "clsx";
 
 const tones = {
-  good: "border-emerald-400/35 bg-emerald-400/10 text-emerald-200",
-  neutral: "border-sky-300/30 bg-sky-300/10 text-sky-100",
-  warning: "border-amber-300/35 bg-amber-300/10 text-amber-100",
-  bad: "border-rose-300/35 bg-rose-300/10 text-rose-100"
+  good: "border-[#b7e2cf] bg-[#eaf7ef] text-[#138a57]",
+  neutral: "border-[#bdd3ff] bg-[#eef5ff] text-[#2563eb]",
+  warning: "border-[#efd58f] bg-[#fff7df] text-[#9a650f]",
+  bad: "border-[#f0b9b5] bg-[#fff0ef] text-[#c2413b]"
 };
 
 export function StatusChip({
@@ -15,9 +15,8 @@ export function StatusChip({
   tone?: keyof typeof tones;
 }) {
   return (
-    <span className={clsx("inline-flex items-center rounded border px-2 py-1 text-xs", tones[tone])}>
+    <span className={clsx("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", tones[tone])}>
       {children}
     </span>
   );
 }
-

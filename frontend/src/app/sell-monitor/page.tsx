@@ -157,14 +157,14 @@ export default function SellMonitorPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Sell Monitor</h1>
-          <p className="mt-1 text-sm text-[#a0a7b4]">
+          <h1 className="text-2xl font-semibold text-[#172033]">Sell Monitor</h1>
+          <p className="mt-1 text-sm leading-6 text-[#687386]">
             Ranking aus der extrahierten Sell-Engine, ohne Jobs im Click-Pfad.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
-            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#20252e] px-3 py-2 text-sm text-[#f4f7fb] transition hover:border-[#4a5362] disabled:cursor-not-allowed disabled:opacity-55"
+            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d8e1ea] bg-white px-4 text-sm font-medium text-[#172033] shadow-sm transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-55"
             type="button"
             disabled={monitorMutation.isPending}
             onClick={() => monitorMutation.mutate()}
@@ -179,22 +179,22 @@ export default function SellMonitorPage() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-[1.2fr_2fr]">
-        <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-          <div className="text-xs uppercase text-[#77808f]">Ranking-Quelle</div>
+        <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Ranking-Quelle</div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusChip tone={data?.source === "snapshot" ? "good" : "warning"}>
               {data?.source === "snapshot" ? "Worker Snapshot" : "Live Fallback"}
             </StatusChip>
-            <span className="text-sm text-[#d8dde6]">
+            <span className="text-sm text-[#172033]">
               {data?.generated_at ? new Date(data.generated_at).toLocaleString("de-DE") : "noch nicht vorcomputet"}
             </span>
           </div>
         </div>
-        <div className="rounded border border-[#2d333d] bg-[#171a20] p-4 text-sm text-[#a0a7b4]">
+        <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 text-sm leading-6 text-[#687386] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
           {monitorMutation.data
             ? `Positionsmonitor gestartet: ${monitorMutation.data.job_id}`
             : data?.message || "Nach dem ersten Positionsmonitor-Lauf liest diese Seite den vorcomputeten Snapshot."}
-          {data?.source_job_id ? <span className="ml-2 text-[#77808f]">Job: {data.source_job_id}</span> : null}
+          {data?.source_job_id ? <span className="ml-2 text-[#687386]">Job: {data.source_job_id}</span> : null}
         </div>
       </div>
 
@@ -205,14 +205,14 @@ export default function SellMonitorPage() {
         <KpiCard item={{ label: "Ø Health", value: averageHealth.toFixed(1), detail: "Score über Ranking", tone: averageHealth >= 65 ? "good" : averageHealth >= 40 ? "warning" : "bad" }} />
       </div>
 
-      <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
+      <div className="overflow-hidden rounded-[24px] border border-[#e3e8ef] bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
         <div ref={scrollParentRef} className="max-h-[560px] overflow-auto">
           <table className="w-full min-w-[980px] border-collapse text-sm">
-            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+            <thead className="sticky top-0 bg-[#f6f8fb] text-left text-xs uppercase text-[#687386]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
-                    <th key={header.id} className="border-b border-[#2d333d] px-4 py-3 font-medium">
+                    <th key={header.id} className="border-b border-[#e3e8ef] px-4 py-3 font-semibold">
                       {header.isPlaceholder ? null : (
                         <button
                           className="inline-flex items-center gap-2 text-left uppercase"
@@ -220,7 +220,7 @@ export default function SellMonitorPage() {
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                          <ArrowUpDown size={13} className="text-[#77808f]" />
+                          <ArrowUpDown size={13} className="text-[#687386]" />
                         </button>
                       )}
                     </th>
@@ -239,7 +239,7 @@ export default function SellMonitorPage() {
                 return (
                   <tr
                     key={row.id}
-                    className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
+                    className="cursor-pointer border-b border-[#eef2f6] transition hover:bg-[#f6faf9]"
                     onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -258,7 +258,7 @@ export default function SellMonitorPage() {
             </tbody>
           </table>
         </div>
-        <div className="border-t border-[#2d333d] px-4 py-2 text-xs text-[#a0a7b4]">
+        <div className="border-t border-[#e3e8ef] bg-[#f9fbfd] px-4 py-3 text-xs text-[#687386]">
           Sortierbare, klickbare TanStack Table mit Virtualisierung. State zeigt Streak oder Snooze-Fenster aus Postgres.
         </div>
       </div>

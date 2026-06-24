@@ -16,11 +16,11 @@ export function StockAssessmentPanel({ ticker }: { ticker: string }) {
 
   if (query.isLoading) {
     return (
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="h-5 w-44 animate-pulse rounded bg-[#242a33]" />
+      <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+        <div className="h-5 w-44 animate-pulse rounded-full bg-[#e3e8ef]" />
         <div className="mt-5 grid gap-3 md:grid-cols-4">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-28 animate-pulse rounded border border-[#242a33] bg-[#111419]" />
+            <div key={item} className="h-28 animate-pulse rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd]" />
           ))}
         </div>
       </section>
@@ -29,7 +29,7 @@ export function StockAssessmentPanel({ ticker }: { ticker: string }) {
 
   if (query.isError || !query.data) {
     return (
-      <section className="rounded border border-rose-300/25 bg-rose-950/20 p-5 text-sm text-rose-100">
+      <section className="rounded-[24px] border border-[#f0b9b5] bg-[#fff0ef] p-5 text-sm font-medium text-[#c2413b]">
         Aktienbewertung konnte nicht geladen werden.
       </section>
     );
@@ -45,11 +45,11 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
 
   return (
     <section className="space-y-4">
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="rounded-[28px] border border-[#e3e8ef] bg-white p-6 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-semibold">Aktienbewertung</h2>
+              <h2 className="text-2xl font-semibold text-[#172033]">Aktienbewertung</h2>
               <StatusChip tone={assessment.verdict_tone}>{assessment.verdict_label}</StatusChip>
               <StatusChip tone={hasData ? "good" : "warning"}>
                 {hasData ? "Price Cache" : "Daten fehlen"}
@@ -58,14 +58,16 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
                 <StatusChip tone={assessment.earnings.tone}>Earnings {assessment.earnings.trading_days ?? "-"}T</StatusChip>
               )}
             </div>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">{assessment.verdict_text}</p>
-            <p className="mt-1 text-xs text-[#7f8794]">
+            <p className="mt-2 max-w-3xl text-base leading-7 text-[#4b5565]">{assessment.verdict_text}</p>
+            <p className="mt-2 text-xs font-medium text-[#687386]">
               Stand {assessment.as_of} · {assessment.message}
             </p>
           </div>
-          <div className="min-w-36 rounded border border-[#242a33] bg-[#111419] p-4 text-center">
-            <div className="text-xs uppercase text-[#a0a7b4]">Gesamtscore</div>
-            <div className="mt-1 text-4xl font-semibold tabular-nums">{assessment.scores.overall}</div>
+          <div className="min-w-44 rounded-[24px] border border-[#e3e8ef] bg-[#f9fbfd] p-5 text-center">
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Gesamtscore</div>
+            <div className="mx-auto mt-3 grid size-24 place-items-center rounded-full border-8 border-[#e6f5f2] bg-white text-4xl font-semibold tabular-nums text-[#0f766e] shadow-sm">
+              {assessment.scores.overall}
+            </div>
             <ScoreBar value={assessment.scores.overall} tone={assessment.verdict_tone} />
           </div>
         </div>
@@ -110,11 +112,11 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-base font-semibold">Regel-Checkliste</h3>
-              <p className="mt-1 text-sm text-[#a0a7b4]">Aus den technischen Streamlit-Regeln extrahiert.</p>
+              <h3 className="text-lg font-semibold text-[#172033]">Regel-Checkliste</h3>
+              <p className="mt-1 text-sm text-[#687386]">Aus den technischen Streamlit-Regeln extrahiert.</p>
             </div>
             <StatusChip tone="neutral">{assessment.checks.length} Regeln</StatusChip>
           </div>
@@ -126,11 +128,11 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
           </div>
         </div>
 
-        <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-base font-semibold">Chartverhalten</h3>
-              <p className="mt-1 text-sm text-[#a0a7b4]">Positive, negative und neutrale Signale.</p>
+              <h3 className="text-lg font-semibold text-[#172033]">Chartverhalten</h3>
+              <p className="mt-1 text-sm text-[#687386]">Positive, negative und neutrale Signale.</p>
             </div>
             <StatusChip tone="neutral">{assessment.chart_signals.length} Signale</StatusChip>
           </div>
@@ -155,43 +157,43 @@ function ScoreCard({
   tone?: Tone;
 }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#171a20] p-4">
+    <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Gauge className="size-4 text-[#8ea4c8]" />
+        <div className="flex items-center gap-2 text-sm font-medium text-[#172033]">
+          <Gauge className="size-4 text-[#2563eb]" />
           {label}
         </div>
         <StatusChip tone={tone}>{toneLabel(tone)}</StatusChip>
       </div>
-      <div className="text-3xl font-semibold tabular-nums">{Math.round(value)}</div>
+      <div className="text-3xl font-semibold tabular-nums text-[#172033]">{Math.round(value)}</div>
       <ScoreBar value={value} tone={tone} />
-      <div className="mt-2 text-xs text-[#a0a7b4]">{detail}</div>
+      <div className="mt-2 text-xs leading-5 text-[#687386]">{detail}</div>
     </div>
   );
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
-      <div className="mb-2 flex items-center gap-2 text-xs uppercase text-[#a0a7b4]">
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">
         <TrendingUp className="size-3.5" />
         {label}
       </div>
-      <div className="text-xl font-semibold tabular-nums">{value}</div>
-      <div className="mt-1 text-xs text-[#7f8794]">{detail}</div>
+      <div className="text-xl font-semibold tabular-nums text-[#172033]">{value}</div>
+      <div className="mt-1 text-xs leading-5 text-[#687386]">{detail}</div>
     </div>
   );
 }
 
 function PriceMetric({ percent, price }: { percent?: number | null; price?: number | null }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
-      <div className="mb-2 flex items-center gap-2 text-xs uppercase text-[#a0a7b4]">
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">
         <TrendingUp className="size-3.5" />
         Aktueller Preis
       </div>
-      <div className="text-xl font-semibold tabular-nums">{money(price)}</div>
-      <div className={`mt-1 text-xs ${priceMoveToneClass(percent)}`}>Veränderung {pct(percent)}</div>
+      <div className="text-xl font-semibold tabular-nums text-[#172033]">{money(price)}</div>
+      <div className={`mt-1 text-xs font-medium ${priceMoveToneClass(percent)}`}>Veränderung {pct(percent)}</div>
     </div>
   );
 }
@@ -208,23 +210,23 @@ function ReasonList({
   empty: string;
 }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-base font-semibold">{title}</h3>
+        <h3 className="text-lg font-semibold text-[#172033]">{title}</h3>
         <StatusChip tone={tone}>{items.length}</StatusChip>
       </div>
       {items.length === 0 ? (
-        <div className="text-sm text-[#a0a7b4]">{empty}</div>
+        <div className="text-sm text-[#687386]">{empty}</div>
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
-            <div key={item} className="flex gap-2 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+            <div key={item} className="flex gap-2 rounded-2xl border border-[#e3e8ef] bg-[#f9fbfd] p-3 text-sm">
               {tone === "good" ? (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#138a57]" />
               ) : (
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-300" />
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#b7791f]" />
               )}
-              <span className="leading-5 text-[#c9d0da]">{item}</span>
+              <span className="leading-5 text-[#172033]">{item}</span>
             </div>
           ))}
         </div>
@@ -236,22 +238,22 @@ function ReasonList({
 function CheckGroup({ title, checks }: { title: string; checks: StockAssessmentCheck[] }) {
   const visibleChecks = title === "Fundamental" ? checks.filter((check) => check.label !== "Fundamental-Datenquelle") : checks;
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
-      <div className="mb-3 text-sm font-medium">{title}</div>
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4">
+      <div className="mb-3 text-sm font-semibold text-[#172033]">{title}</div>
       {visibleChecks.length === 0 ? (
-        <div className="text-sm text-[#7f8794]">Noch keine Regeln.</div>
+        <div className="text-sm text-[#687386]">Noch keine Regeln.</div>
       ) : (
         <div className="space-y-2">
           {visibleChecks.map((check) => (
-            <div key={check.label} className="flex gap-2 text-sm">
+            <div key={check.label} className="flex gap-2 rounded-2xl border border-[#e3e8ef] bg-white p-3 text-sm">
               {check.passed ? (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#138a57]" />
               ) : (
-                <XCircle className="mt-0.5 size-4 shrink-0 text-rose-300" />
+                <XCircle className="mt-0.5 size-4 shrink-0 text-[#c2413b]" />
               )}
               <div>
-                <div className={check.passed ? "text-emerald-100" : "text-rose-100"}>{check.label}</div>
-                <div className={check.passed ? "text-xs leading-5 text-emerald-200/70" : "text-xs leading-5 text-rose-200/75"}>
+                <div className={check.passed ? "font-medium text-[#138a57]" : "font-medium text-[#c2413b]"}>{check.label}</div>
+                <div className="text-xs leading-5 text-[#687386]">
                   {check.detail}
                 </div>
               </div>
@@ -267,17 +269,17 @@ function SignalGroup({ title, tone, signals }: { title: string; tone: Tone; sign
   return (
     <div className="mb-4 last:mb-0">
       <div className="mb-2 flex items-center justify-between text-sm font-medium">
-        <span>{title}</span>
+        <span className="text-[#172033]">{title}</span>
         <StatusChip tone={tone}>{signals.length}</StatusChip>
       </div>
       {signals.length === 0 ? (
-        <div className="rounded border border-[#242a33] bg-[#111419] p-3 text-sm text-[#7f8794]">Keine Signale.</div>
+        <div className="rounded-2xl border border-[#e3e8ef] bg-[#f9fbfd] p-3 text-sm text-[#687386]">Keine Signale.</div>
       ) : (
         <div className="space-y-2">
           {signals.map((signal) => (
-            <div key={`${signal.category}-${signal.label}`} className="rounded border border-[#242a33] bg-[#111419] p-3">
-              <div className="text-sm text-[#dbe4ef]">{signal.label}</div>
-              {signal.detail && <div className="mt-1 text-xs leading-5 text-[#7f8794]">{signal.detail}</div>}
+            <div key={`${signal.category}-${signal.label}`} className="rounded-2xl border border-[#e3e8ef] bg-[#f9fbfd] p-3">
+              <div className="text-sm font-medium text-[#172033]">{signal.label}</div>
+              {signal.detail && <div className="mt-1 text-xs leading-5 text-[#687386]">{signal.detail}</div>}
             </div>
           ))}
         </div>
@@ -289,7 +291,7 @@ function SignalGroup({ title, tone, signals }: { title: string; tone: Tone; sign
 function ScoreBar({ value, tone }: { value: number; tone: Tone }) {
   const width = Math.max(0, Math.min(100, value));
   return (
-    <div className="mt-3 h-2 overflow-hidden rounded bg-[#242a33]">
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e3e8ef]">
       <div className={barClass(tone)} style={{ width: `${width}%` }} />
     </div>
   );
@@ -341,10 +343,10 @@ function pct(value?: number | null) {
 }
 
 function priceMoveToneClass(value?: number | null) {
-  if (typeof value !== "number" || Number.isNaN(value)) return "text-[#7f8794]";
-  if (value > 0) return "text-emerald-300";
-  if (value < 0) return "text-rose-300";
-  return "text-[#7f8794]";
+  if (typeof value !== "number" || Number.isNaN(value)) return "text-[#687386]";
+  if (value > 0) return "text-[#138a57]";
+  if (value < 0) return "text-[#c2413b]";
+  return "text-[#687386]";
 }
 
 function atrRegime(value?: number | null) {
@@ -370,10 +372,10 @@ function numberOrDash(value?: number | null) {
 
 function earningsBoxClass(tone: Tone) {
   if (tone === "good") {
-    return "flex gap-2 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100";
+    return "flex gap-2 rounded-[20px] border border-[#b7e2cf] bg-[#eaf7ef] p-3 text-sm font-medium text-[#138a57]";
   }
   if (tone === "bad") {
-    return "flex gap-2 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100";
+    return "flex gap-2 rounded-[20px] border border-[#f0b9b5] bg-[#fff0ef] p-3 text-sm font-medium text-[#c2413b]";
   }
-  return "flex gap-2 rounded border border-amber-300/25 bg-amber-950/20 p-3 text-sm text-amber-100";
+  return "flex gap-2 rounded-[20px] border border-[#efd58f] bg-[#fff7df] p-3 text-sm font-medium text-[#9a650f]";
 }
