@@ -142,7 +142,32 @@ def test_smart_plan_can_force_incremental_all_fundamentals() -> None:
     assert [action.key for action in plan] == ["refresh_fundamentals"]
     assert plan[0].payload["fundamental_universe"] == "all"
     assert plan[0].payload["fundamental_limit"] == 5000
+    assert plan[0].payload["fundamental_max_refresh_count"] == 250
     assert plan[0].payload["incremental"] is True
+
+
+def test_smart_plan_allows_custom_fundamental_batch_limit() -> None:
+    plan = smart_module.build_smart_refresh_plan(
+        diagnostics=_diagnostics(),
+        freshness=_freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            fundamentals="stale",
+        ),
+        universe_status=_universe(),
+        payload={
+            "universe": "us_common_stocks",
+            "fundamental_universe": "all",
+            "fundamental_limit": 5000,
+            "fundamental_max_refresh_count": 40,
+        },
+    )
+
+    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert plan[0].payload["fundamental_limit"] == 5000
+    assert plan[0].payload["fundamental_max_refresh_count"] == 40
 
 
 def test_smart_plan_repairs_incomplete_current_fundamentals(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -212,6 +237,7 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
     assert plan[0].payload["price_overlap_days"] == 1
     assert plan[-1].payload["fundamental_universe"] == "all"
     assert plan[-1].payload["fundamental_limit"] == 5000
+    assert plan[-1].payload["fundamental_max_refresh_count"] == 250
     assert plan[-1].payload["fundamental_action_max_seconds"] == 2700
     assert "Geplanter Smart-Refresh" in plan[0].reason
 
@@ -428,6 +454,59 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
     assert "price:^GSPC:6m:True" in calls
     assert calls[-3:] == ["breadth", "rs", "fundamentals:NVDA"]
     assert result["results"]["refresh_breadth"]["snapshot_date"] == "2026-06-19"
+    assert updated is not None
+    assert updated.status == "done"
+
+
+def test_smart_refresh_fundamentals_are_batched_and_deferred(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics())
+    monkeypatch.setattr(
+        smart_module,
+        "get_freshness",
+        lambda: _freshness(
+            prices="fresh",
+            breadth="fresh",
+            rs="fresh",
+            sell_ranking="fresh",
+            fundamentals="stale",
+        ),
+    )
+    monkeypatch.setattr(smart_module, "get_universe_status", lambda key: _universe(key=key))
+    monkeypatch.setattr(smart_module, "resolve_fundamental_tickers", lambda payload=None: ["AAA", "BBB", "CCC"])
+    monkeypatch.setattr(smart_module, "_latest_fundamental_states", lambda tickers: {})
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_fundamentals_for_ticker",
+        lambda ticker, *, include_holders=True: calls.append(ticker) or {
+            "ticker": ticker,
+            "ok": True,
+            "records_seen": 1,
+            "records_written": 1,
+        },
+    )
+
+    job = job_repository.create_job(
+        "smart_refresh_market_data",
+        {
+            "mode": "smart",
+            "force_fundamentals": True,
+            "fundamental_universe": "all",
+            "fundamental_max_refresh_count": 2,
+        },
+    )
+    result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
+    updated = job_repository.get_job(job.job_id)
+
+    fundamentals = result["results"]["refresh_fundamentals"]
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["partial_actions"] == ["refresh_fundamentals"]
+    assert calls == ["AAA", "BBB"]
+    assert fundamentals["selected_ticker_count"] == 2
+    assert fundamentals["deferred_count"] == 1
+    assert fundamentals["stopped_due_to_limit"] is True
     assert updated is not None
     assert updated.status == "done"
 

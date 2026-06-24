@@ -23,6 +23,7 @@ SMART_REFRESH_PAYLOAD = {
     "include_sec13f": True,
     "fundamental_universe": "all",
     "fundamental_limit": 5000,
+    "fundamental_max_refresh_count": 250,
     "incremental_fundamentals": True,
     "fundamental_action_max_seconds": 2700,
     "sec13f_universe": "us_common_stocks",

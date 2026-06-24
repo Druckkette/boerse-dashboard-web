@@ -52,7 +52,7 @@ def cancel_job(job_id: str) -> tuple[Job | None, bool]:
 
     if job.celery_task_id:
         try:
-            celery_app.control.revoke(job.celery_task_id, terminate=False)
+            celery_app.control.revoke(job.celery_task_id, terminate=True, signal="SIGTERM")
         except (CeleryError, KombuError, OSError):
             pass
 

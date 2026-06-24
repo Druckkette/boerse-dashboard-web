@@ -13,6 +13,9 @@ from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
 
+DEFAULT_MAX_REFRESH_COUNT = 250
+
+
 @celery_app.task(bind=True, name="refresh_fundamentals")
 def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None = None) -> dict:
     payload = payload or {}
@@ -27,17 +30,30 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
     tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
     incremental = _normalize_bool(payload.get("incremental"), default=False)
+    max_refresh_count = _normalize_max_refresh_count(
+        payload.get("fundamental_max_refresh_count") or payload.get("fundamental_batch_limit")
+    )
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
+    selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
+        tickers,
+        latest_states=latest_states,
+        incremental=incremental,
+        max_refresh_count=max_refresh_count,
+    )
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
         "ok": False,
         "job_type": "refresh_fundamentals",
-        "tickers": tickers,
+        "tickers": selected_tickers,
         "ticker_count": len(tickers),
+        "selected_ticker_count": len(selected_tickers),
+        "pending_count": len(selected_tickers) + deferred_count,
+        "max_refresh_count": max_refresh_count,
         "include_holders": include_holders,
         "incremental": incremental,
         "success_count": 0,
-        "skipped_count": 0,
+        "skipped_count": skipped_current_count,
+        "deferred_count": deferred_count,
         "failure_count": 0,
         "failed_tickers": [],
         "records_seen": 0,
@@ -47,30 +63,9 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
 
     job_repository.mark_running(job.job_id, step="Fundamental-Refresh startet")
     try:
-        total = max(1, len(tickers))
-        for index, ticker in enumerate(tickers, start=1):
+        total = max(1, len(selected_tickers))
+        for index, ticker in enumerate(selected_tickers, start=1):
             raise_if_cancelled(job.job_id)
-            latest_state = latest_states.get(ticker)
-            if (
-                incremental
-                and latest_state is not None
-                and latest_state.latest_date is not None
-                and latest_state.latest_date >= date.today()
-                and latest_state.complete
-            ):
-                result["skipped_count"] += 1
-                result["items"].append(
-                    {
-                        "ticker": ticker,
-                        "ok": True,
-                        "skipped": True,
-                        "reason": "Fundamental-Snapshot ist heute bereits aktuell.",
-                        "as_of": latest_state.latest_date.isoformat(),
-                        "records_seen": 0,
-                        "records_written": 0,
-                    }
-                )
-                continue
             job_repository.update_progress(
                 job.job_id,
                 progress=min(90, 10 + int(index / total * 80)),
@@ -102,7 +97,12 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
             result["records_written"] += int(item.get("records_written") or 0)
 
         result["ok"] = result["failure_count"] == 0 and (result["success_count"] > 0 or result["skipped_count"] > 0)
-        result["partial"] = result["success_count"] > 0 and result["failure_count"] > 0
+        result["partial"] = (result["success_count"] > 0 and result["failure_count"] > 0) or result["deferred_count"] > 0
+        if result["deferred_count"] > 0:
+            result["stopped_due_to_limit"] = True
+            result["continuation_message"] = (
+                f"{result['deferred_count']} Fundamental-Ticker wurden auf den nächsten Refresh vertagt."
+            )
         if result["success_count"] == 0 and result["skipped_count"] > 0:
             job_repository.mark_done(
                 job.job_id,
@@ -113,7 +113,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         if result["success_count"] == 0:
             job_repository.mark_failed(
                 job.job_id,
-                error_message="Kein Ticker konnte mit Fundamentals aktualisiert werden.",
+                error_message="Kein ausgewählter Ticker konnte mit Fundamentals aktualisiert werden.",
                 result=result,
             )
             return result
@@ -121,6 +121,10 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         message = "Fundamental-Cache aktualisiert."
         if result["failure_count"]:
             message = f"Fundamental-Cache teilweise aktualisiert; {result['failure_count']} Ticker fehlgeschlagen."
+        elif result["deferred_count"]:
+            message = (
+                f"Fundamental-Cache teilweise aktualisiert; {result['deferred_count']} Ticker werden im nächsten Lauf fortgesetzt."
+            )
         job_repository.mark_done(job.job_id, result=result, message=message)
         return result
     except JobCancelled:
@@ -186,6 +190,45 @@ def _normalize_limit(value: object) -> int:
         return max(1, min(5000, int(value)))
     except (TypeError, ValueError):
         return 50
+
+
+def _normalize_max_refresh_count(value: object) -> int:
+    try:
+        return max(1, min(1000, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_REFRESH_COUNT
+
+
+def _select_fundamental_work(
+    tickers: list[str],
+    *,
+    latest_states: dict[str, fundamentals_repository.FundamentalRefreshState],
+    incremental: bool,
+    max_refresh_count: int,
+) -> tuple[list[str], int, int]:
+    today = date.today()
+    if not incremental:
+        selected = tickers[:max_refresh_count]
+        return selected, 0, max(0, len(tickers) - len(selected))
+
+    selected: list[str] = []
+    skipped_current_count = 0
+    pending_count = 0
+    for ticker in tickers:
+        latest_state = latest_states.get(ticker)
+        is_current = (
+            latest_state is not None
+            and latest_state.latest_date is not None
+            and latest_state.latest_date >= today
+            and latest_state.complete
+        )
+        if is_current:
+            skipped_current_count += 1
+            continue
+        pending_count += 1
+        if len(selected) < max_refresh_count:
+            selected.append(ticker)
+    return selected, skipped_current_count, max(0, pending_count - len(selected))
 
 
 def _latest_fundamental_states(tickers: list[str]) -> dict[str, fundamentals_repository.FundamentalRefreshState]:

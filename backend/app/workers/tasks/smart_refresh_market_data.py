@@ -39,6 +39,7 @@ from app.workers.tasks.refresh_fundamentals import resolve_fundamental_tickers
 DEFAULT_PRICE_PROVIDER_TIMEOUT_SECONDS = 15
 DEFAULT_PRICE_ACTION_MAX_SECONDS = 2 * 60 * 60
 DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS = 45 * 60
+DEFAULT_FUNDAMENTAL_MAX_REFRESH_COUNT = 250
 
 
 @dataclass(frozen=True)
@@ -203,6 +204,9 @@ def build_smart_refresh_plan(
     ).strip().lower()
     fundamental_limit_default = limit_universe if fundamental_universe in {"all", "universe", universe_key} else 80
     fundamental_limit = _normalize_fundamental_limit(payload.get("fundamental_limit") or fundamental_limit_default)
+    fundamental_max_refresh_count = _normalize_fundamental_max_refresh_count(
+        payload.get("fundamental_max_refresh_count") or payload.get("fundamental_batch_limit")
+    )
     fundamental_action_max_seconds = _normalize_seconds(
         payload.get("fundamental_action_max_seconds") or payload.get("max_action_seconds"),
         default=DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS,
@@ -230,6 +234,7 @@ def build_smart_refresh_plan(
         "include_holders": True,
         "incremental": incremental_fundamentals,
         "fundamental_action_max_seconds": fundamental_action_max_seconds,
+        "fundamental_max_refresh_count": fundamental_max_refresh_count,
     }
     incomplete_fundamental_tickers: list[str] = []
     if include_fundamentals and not (
@@ -636,6 +641,9 @@ def _refresh_fundamentals(
     tickers = resolve_fundamental_tickers(payload)
     include_holders = bool(payload.get("include_holders", True))
     incremental = _normalize_bool(payload.get("incremental"), default=True)
+    max_refresh_count = _normalize_fundamental_max_refresh_count(
+        payload.get("fundamental_max_refresh_count") or payload.get("fundamental_batch_limit")
+    )
     max_action_seconds = _normalize_seconds(
         payload.get("fundamental_action_max_seconds") or payload.get("max_action_seconds"),
         default=DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS,
@@ -643,36 +651,46 @@ def _refresh_fundamentals(
         max_value=6 * 60 * 60,
     )
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
+    selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
+        tickers,
+        latest_states=latest_states,
+        incremental=incremental,
+        max_refresh_count=max_refresh_count,
+    )
     fundamental_result: dict[str, Any] = {
         "ok": False,
         "job_type": "refresh_fundamentals",
-        "tickers": tickers,
+        "tickers": selected_tickers,
         "ticker_count": len(tickers),
+        "selected_ticker_count": len(selected_tickers),
+        "pending_count": len(selected_tickers) + deferred_count,
+        "max_refresh_count": max_refresh_count,
         "include_holders": include_holders,
         "incremental": incremental,
         "success_count": 0,
-        "skipped_count": 0,
+        "skipped_count": skipped_current_count,
+        "deferred_count": deferred_count,
         "failure_count": 0,
         "failed_tickers": [],
         "records_seen": 0,
         "records_written": 0,
         "max_action_seconds": max_action_seconds,
     }
-    total_tickers = max(1, len(tickers))
+    total_tickers = max(1, len(selected_tickers))
     base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
     next_progress = 8 + int(action_index / max(1, total_actions) * 82)
     started_at = monotonic()
-    for index, ticker in enumerate(tickers, start=1):
+    for index, ticker in enumerate(selected_tickers, start=1):
         raise_if_cancelled(job_id)
         if _elapsed_seconds(started_at) >= max_action_seconds:
-            skipped = total_tickers - index + 1
-            fundamental_result["skipped_count"] += skipped
+            deferred = total_tickers - index + 1
+            fundamental_result["deferred_count"] += deferred
             fundamental_result["stopped_due_to_timeout"] = True
             fundamental_result["partial"] = fundamental_result["success_count"] > 0
             fundamental_result["ok"] = False
             fundamental_result["timeout_message"] = (
                 f"Fundamental-Refresh nach {max_action_seconds // 60} Minuten gestoppt; "
-                f"{skipped} Ticker werden im nächsten Smart Refresh nachgezogen."
+                f"{deferred} Ticker werden im nächsten Smart Refresh nachgezogen."
             )
             job_repository.update_progress(
                 job_id,
@@ -684,16 +702,6 @@ def _refresh_fundamentals(
             if fundamental_result["success_count"] == 0:
                 raise RuntimeError(str(fundamental_result["timeout_message"]))
             return fundamental_result
-        latest_state = latest_states.get(ticker)
-        if (
-            incremental
-            and latest_state is not None
-            and latest_state.latest_date is not None
-            and latest_state.latest_date >= datetime.now(UTC).date()
-            and latest_state.complete
-        ):
-            fundamental_result["skipped_count"] += 1
-            continue
         progress = min(92, base_progress + int(index / total_tickers * max(1, next_progress - base_progress)))
         job_repository.update_progress(
             job_id,
@@ -719,19 +727,60 @@ def _refresh_fundamentals(
         (fundamental_result["success_count"] > 0 or fundamental_result["skipped_count"] > 0)
         and fundamental_result["failure_count"] == 0
     )
-    fundamental_result["partial"] = fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] > 0
+    fundamental_result["partial"] = (
+        (fundamental_result["success_count"] > 0 and fundamental_result["failure_count"] > 0)
+        or fundamental_result["deferred_count"] > 0
+    )
+    if fundamental_result["deferred_count"] > 0:
+        fundamental_result["stopped_due_to_limit"] = True
+        fundamental_result["continuation_message"] = (
+            f"{fundamental_result['deferred_count']} Fundamental-Ticker wurden auf den nächsten Smart Refresh vertagt."
+        )
     if tickers and fundamental_result["success_count"] == 0 and fundamental_result["skipped_count"] > 0:
         fundamental_result["ok"] = True
         fundamental_result["skipped"] = True
         fundamental_result["reason"] = "Fundamental-Cache war bereits aktuell und vollständig."
         return fundamental_result
-    if tickers and fundamental_result["success_count"] == 0:
+    if selected_tickers and fundamental_result["success_count"] == 0:
         raise RuntimeError("Smart Refresh konnte keine Fundamentals aktualisieren.")
     if not tickers:
         fundamental_result["ok"] = True
         fundamental_result["skipped"] = True
         fundamental_result["reason"] = "Keine getrackten Ticker für Fundamental-Refresh."
     return fundamental_result
+
+
+def _select_fundamental_work(
+    tickers: list[str],
+    *,
+    latest_states: dict[str, Any],
+    incremental: bool,
+    max_refresh_count: int,
+) -> tuple[list[str], int, int]:
+    today = datetime.now(UTC).date()
+    if not incremental:
+        selected = tickers[:max_refresh_count]
+        return selected, 0, max(0, len(tickers) - len(selected))
+
+    selected: list[str] = []
+    skipped_current_count = 0
+    pending_count = 0
+    for ticker in tickers:
+        latest_state = latest_states.get(ticker)
+        is_current = (
+            latest_state is not None
+            and latest_state.latest_date is not None
+            and latest_state.latest_date >= today
+            and latest_state.complete
+        )
+        if is_current:
+            skipped_current_count += 1
+            continue
+        pending_count += 1
+        if len(selected) < max_refresh_count:
+            selected.append(ticker)
+
+    return selected, skipped_current_count, max(0, pending_count - len(selected))
 
 
 def _latest_fundamental_states(tickers: list[str]) -> dict[str, Any]:
@@ -891,6 +940,13 @@ def _normalize_fundamental_limit(value: object) -> int:
         return max(1, min(5000, int(value)))
     except (TypeError, ValueError):
         return 80
+
+
+def _normalize_fundamental_max_refresh_count(value: object) -> int:
+    try:
+        return max(1, min(1000, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_FUNDAMENTAL_MAX_REFRESH_COUNT
 
 
 def _normalize_13f_limit(value: object) -> int:

@@ -68,11 +68,11 @@ def test_jobs_cancel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
         "send_task",
         lambda *args, **kwargs: SimpleNamespace(id="celery-cancel-id"),
     )
-    revoked: list[str] = []
+    revoked: list[tuple[str, bool, str | None]] = []
     monkeypatch.setattr(
         job_service.celery_app.control,
         "revoke",
-        lambda task_id, terminate=False: revoked.append(task_id),
+        lambda task_id, terminate=False, signal=None: revoked.append((task_id, terminate, signal)),
     )
 
     job = client.post("/api/v1/jobs", json={"type": "refresh_breadth", "payload": {}}).json()["job"]
@@ -81,7 +81,7 @@ def test_jobs_cancel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.status_code == 200
     assert response.json()["cancelled"] is True
     assert response.json()["job"]["status"] == "cancelled"
-    assert revoked == ["celery-cancel-id"]
+    assert revoked == [("celery-cancel-id", True, "SIGTERM")]
 
 
 def test_parallel_heavy_jobs_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

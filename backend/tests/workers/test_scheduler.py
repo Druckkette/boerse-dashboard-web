@@ -23,6 +23,8 @@ def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     assert afternoon["args"][1]["include_sec13f"] is True
     assert afternoon["args"][1]["sec13f_universe"] == "us_common_stocks"
     assert afternoon["args"][1]["sec13f_limit_universe"] == 5000
+    assert afternoon["args"][1]["fundamental_limit"] == 5000
+    assert afternoon["args"][1]["fundamental_max_refresh_count"] == 250
 
     assert evening["task"] == "smart_refresh_market_data"
     assert evening["schedule"]._orig_hour == 22
@@ -31,6 +33,8 @@ def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     assert evening["args"][1]["mode"] == "scheduled"
     assert evening["args"][1]["source"] == "scheduler"
     assert evening["args"][1]["include_sec13f"] is True
+    assert evening["args"][1]["fundamental_limit"] == 5000
+    assert evening["args"][1]["fundamental_max_refresh_count"] == 250
 
 
 def test_sec13f_monthly_schedule_remains_as_backup() -> None:
