@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -226,6 +226,7 @@ def upsert_market_snapshot(snapshot: MarketSnapshotWrite) -> None:
             row.breadth_mode = snapshot.breadth_mode
             row.volatility_regime = snapshot.volatility_regime
             row.metrics_json = snapshot.metrics_json
+            row.generated_at = datetime.now(UTC)
             db.commit()
     except SQLAlchemyError as exc:
         raise MarketRepositoryUnavailable(str(exc)) from exc
