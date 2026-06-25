@@ -363,7 +363,7 @@ export function LineChartCard({
                         y2={yLow}
                       />
                       <rect
-                        fill={up ? "#34d399" : "#ffffff"}
+                        fill={up ? "#34d399" : "#fb7185"}
                         height={bodyHeight}
                         stroke={color}
                         strokeWidth="1.5"
@@ -567,20 +567,6 @@ export function LineChartCard({
             <span className="tabular-nums">{level.value.toFixed(2)}</span>
           </div>
         ))}
-        {chartMode === "candlestick" && (
-          <>
-            <div className="flex items-center gap-2 text-sm text-[#172033]">
-              <span className="h-3 w-2 rounded-[2px] border border-rose-400 bg-white" />
-              <span className="text-[#687386]">rote Kontur: Abwärtskerze</span>
-            </div>
-            {volumeKey && (
-              <div className="flex items-center gap-2 text-sm text-[#172033]">
-                <span className="h-3 w-2 rounded-[2px] bg-rose-400" />
-                <span className="text-[#687386]">voll rot: Volumen fallender Tag</span>
-              </div>
-            )}
-          </>
-        )}
       </div>
     </section>
   );

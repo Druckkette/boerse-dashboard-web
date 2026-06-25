@@ -164,7 +164,7 @@ export function StockComparePanel() {
 
       {compareQuery.data?.missing_tickers.length ? (
         <div className="border-b border-[#2d333d] px-5 py-3 text-sm text-amber-100">
-          Price Cache fehlt oder ist zu kurz für: {compareQuery.data.missing_tickers.join(", ")}.
+          Kursdaten fehlen oder sind zu kurz für: {compareQuery.data.missing_tickers.join(", ")}.
         </div>
       ) : null}
 

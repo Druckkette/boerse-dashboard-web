@@ -6,7 +6,6 @@ import {
   ChartCandlestick,
   Gauge,
   LineChart,
-  ListChecks,
   NotebookPen,
   NotebookTabs,
   Search,
@@ -19,20 +18,20 @@ import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 
 const navItems = [
-  { href: "/market", label: "Market / Marktampel", icon: Gauge },
-  { href: "/sectors", label: "Sectors", icon: Shield },
-  { href: "/stocks", label: "Stocks / Aktien", icon: Search },
+  { href: "/market", label: "Marktübersicht", icon: Gauge },
+  { href: "/sectors", label: "Sektoren", icon: Shield },
+  { href: "/stocks", label: "Aktien", icon: Search },
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness, exact: true },
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
-  { href: "/trade-journal", label: "Workspace / Journal", icon: NotebookPen },
-  { href: "/sell-monitor", label: "Sell Monitor", icon: ChartCandlestick },
+  { href: "/trade-journal", label: "Handelstagebuch", icon: NotebookPen },
+  { href: "/sell-monitor", label: "Verkaufsmonitor", icon: ChartCandlestick },
   { href: "/workspace", label: "Workspace", icon: NotebookTabs },
-  { href: "/jobs", label: "Jobs", icon: ListChecks },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
 const hiddenPageLabels = [
   { href: "/setup", label: "Setup" },
+  { href: "/jobs", label: "Jobs" },
   { href: "/portfolio/imports", label: "Import" }
 ];
 

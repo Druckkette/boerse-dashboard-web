@@ -433,7 +433,7 @@ function JobFreshnessPanel({
         <div>
           <h2 className="text-base font-semibold">Job Freshness</h2>
           <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">
-            Datenstand von Price Cache, Marktanalyse, RS, 13F und Positionsmonitor.
+            Datenstand von Kursdaten, Marktanalyse, RS, 13F und Positionsmonitor.
           </p>
         </div>
         {isOpen && services.length > 0 ? (

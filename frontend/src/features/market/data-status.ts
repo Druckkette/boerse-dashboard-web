@@ -4,7 +4,7 @@ export type MarketDataSource = "database" | "synthetic_fixture" | "missing";
 export type MarketDataStatus = "fresh" | "stale" | "missing" | "fallback";
 
 export function labelForSource(source?: MarketDataSource | "synthetic_fallback") {
-  if (source === "database") return "Price Cache";
+  if (source === "database") return "gespeichert";
   if (source === "synthetic_fixture") return "Fixture";
   if (source === "synthetic_fallback") return "Fallback";
   if (source === "missing") return "Cache fehlt";

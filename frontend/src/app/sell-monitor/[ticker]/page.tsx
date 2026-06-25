@@ -183,7 +183,7 @@ export default function SellMonitorTickerPage() {
       <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-sm text-[#a0a7b4]">Sell Monitor</div>
+            <div className="text-sm text-[#a0a7b4]">Verkaufsmonitor</div>
             <h1 className="text-3xl font-semibold">{ticker}</h1>
             <div className="mt-2 text-sm text-[#a0a7b4]">
               {evaluation.data?.explanation_short ?? "Evaluation wird geladen."}

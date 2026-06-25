@@ -105,7 +105,7 @@ export function StockAssessmentRankingPanel() {
   return (
     <CollapsiblePanel
       title="Aktienbewertung Ranking"
-      subtitle="Bewertung der stärksten RS-Kandidaten auf Basis Price Cache, RS, Fundamentals und 13F. Lädt erst beim Öffnen."
+      subtitle="Bewertung der stärksten RS-Kandidaten auf Basis gespeicherter Kursdaten, RS, Fundamentals und 13F. Lädt erst beim Öffnen."
       open={open}
       onOpenChange={setOpen}
       summary={
@@ -123,7 +123,7 @@ export function StockAssessmentRankingPanel() {
         <div className="text-sm text-[#a0a7b4]">
           {query.data?.source === "database"
             ? `${rows.length} angezeigt von ${totalCount || rows.length} aktuellen RS-Kandidaten · Stand ${query.data.as_of}`
-            : "Noch keine ausreichenden RS- und Price-Cache-Daten für ein Ranking."}
+            : "Noch keine ausreichenden RS- und Kursdaten für ein Ranking."}
           <div className="mt-1 text-xs text-[#77808f]">
             Das API-Limit ist {limit}; die Bewertung wird hier nicht live für das komplette Universe neu gerechnet.
           </div>
@@ -148,7 +148,7 @@ export function StockAssessmentRankingPanel() {
         <div className="p-5 text-sm text-[#a0a7b4]">Aktienbewertung-Ranking lädt...</div>
       ) : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">
-          Die Tabelle wird gefüllt, sobald Price Cache und RS Ratings vorhanden sind.
+          Die Tabelle wird gefüllt, sobald Kursdaten und RS Ratings vorhanden sind.
         </div>
       ) : (
         <div className="max-h-[520px] overflow-auto">

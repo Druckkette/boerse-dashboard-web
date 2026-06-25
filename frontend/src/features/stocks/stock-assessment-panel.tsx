@@ -41,7 +41,6 @@ export function StockAssessmentPanel({ ticker }: { ticker: string }) {
 function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
   const checksByCategory = groupChecks(assessment.checks);
   const signalsByCategory = groupSignals(assessment.chart_signals);
-  const hasData = assessment.source === "database";
 
   return (
     <section className="space-y-4">
@@ -51,9 +50,6 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-semibold text-[#172033]">Aktienbewertung</h2>
               <StatusChip tone={assessment.verdict_tone}>{assessment.verdict_label}</StatusChip>
-              <StatusChip tone={hasData ? "good" : "warning"}>
-                {hasData ? "Price Cache" : "Daten fehlen"}
-              </StatusChip>
               {assessment.earnings && (
                 <StatusChip tone={assessment.earnings.tone}>Earnings {assessment.earnings.trading_days ?? "-"}T</StatusChip>
               )}

@@ -1443,7 +1443,7 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
     {
       type: "refresh_breadth",
       label: "2. Market Breadth",
-      description: "Marktbreite und MarketSnapshot aus dem Price Cache vorberechnen.",
+      description: "Marktbreite und MarketSnapshot aus gespeicherten Kursdaten vorberechnen.",
       settings: `Nutzt vorhandene Kurse aus Postgres, Lookback ${config.breadthLookbackDays} Tage. Kein yfinance im Request.`,
       payload: { mode: "manual", lookback_days: config.breadthLookbackDays, ...customUniversePayload }
     },
@@ -1451,7 +1451,7 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
       type: "refresh_relative_strength",
       label: "3. RS Ratings",
       description: "Relative Stärke aus gecachten Kursen berechnen.",
-      settings: `Berechnet RS-Ratings gegen ${rsBenchmarkTicker} über ${config.rsLookbackDays} Tage aus dem Price Cache.`,
+      settings: `Berechnet RS-Ratings gegen ${rsBenchmarkTicker} über ${config.rsLookbackDays} Tage aus gespeicherten Kursdaten.`,
       payload: {
         mode: "manual",
         lookback_days: config.rsLookbackDays,
@@ -1469,7 +1469,7 @@ function buildRefreshSequence(config: MarketDataBootstrapConfig): {
     {
       type: "position_atr_monitor",
       label: "5. Positionsmonitor",
-      description: "Offene Positionen gegen Price Cache und Sell-Engine prüfen.",
+      description: "Offene Positionen gegen gespeicherte Kursdaten und Sell-Engine prüfen.",
       settings: "Prüft importierte offene Positionen, aktualisiert Sell-Recommendation-State und nutzt vorhandene Kursdaten.",
       payload: { mode: "manual" }
     }

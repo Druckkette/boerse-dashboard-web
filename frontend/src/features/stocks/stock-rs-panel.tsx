@@ -33,7 +33,7 @@ export function StockRsPanel({ ticker }: { ticker: string }) {
       )}
       {!query.isLoading && !query.isError && !item && (
         <div className="text-sm text-[#a0a7b4]">
-          Nach Prices und RS Ratings erscheint hier das Rating aus dem Price Cache.
+          Nach Kurs- und RS-Aktualisierung erscheint hier das Rating.
         </div>
       )}
       {item && (

@@ -5,7 +5,7 @@ import { RotateCw } from "lucide-react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { MarketBreadthSignal, Tone } from "@/lib/types/api";
-import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { labelForStatus, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
@@ -39,7 +39,6 @@ export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: stri
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
               <StatusChip tone={coverageTone(data.coverage_ratio)}>
                 Coverage {(data.coverage_ratio * 100).toFixed(0)}%

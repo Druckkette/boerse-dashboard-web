@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { labelForStatus, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
@@ -33,7 +33,6 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
                   {data.trend_ampel.ticker} {data.trend_ampel.phase_label}
                 </StatusChip>
               )}
-              <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
             <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">Marktstatus</h1>
@@ -76,9 +75,9 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
               <div className="mt-2 text-sm text-[#a0a7b4]">Stand {data.trend_ampel.as_of}</div>
             </div>
             <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-              <div className="text-sm text-[#a0a7b4]">Anchor</div>
+              <div className="text-sm text-[#a0a7b4]">Ankertag</div>
               <div className="mt-3 text-2xl font-semibold tracking-normal">{data.trend_ampel.anchor_date ?? "-"}</div>
-              <div className="mt-2 text-sm text-[#a0a7b4]">Floor {formatNumber(data.trend_ampel.floor_mark)}</div>
+              <div className="mt-2 text-sm text-[#a0a7b4]">Bodenmarke {formatNumber(data.trend_ampel.floor_mark)}</div>
             </div>
             <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
               <div className="text-sm text-[#a0a7b4]">Startschuss</div>

@@ -235,9 +235,6 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
           </tbody>
         </table>
       </div>
-      <div className="border-t border-[#2d333d] px-4 py-2 text-xs text-[#a0a7b4]">
-        Sortierbare, klickbare TanStack Table mit Virtualisierung für große Depots.
-      </div>
     </div>
   );
 }

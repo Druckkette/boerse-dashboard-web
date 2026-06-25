@@ -286,7 +286,7 @@ export function SettingsPanel() {
                   value={settings.rs_rating_source}
                   onChange={(event) => update("rs_rating_source", event.target.value as AppSettings["rs_rating_source"])}
                 >
-                  <option value="computed">Computed aus Price Cache</option>
+                  <option value="computed">Computed aus Kursdaten</option>
                   <option value="csv_latest">CSV Latest</option>
                 </select>
               </Field>
@@ -368,7 +368,7 @@ function SettingsWorkflowLinks() {
           Einmalige Einrichtung und Portfolio-Imports sind aus der Hauptnavigation hierher verschoben.
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-3">
         <SettingsWorkflowLink
           description="Erststart, Runtime-Secrets, Datenbank-Ziel, Datenjobs und Systemprüfung."
           href="/setup"
@@ -380,6 +380,12 @@ function SettingsWorkflowLinks() {
           href="/portfolio/imports"
           icon={<Upload size={18} />}
           title="Import öffnen"
+        />
+        <SettingsWorkflowLink
+          description="Marktdaten initialisieren, Smart Refresh starten und Worker-Status prüfen."
+          href="/jobs"
+          icon={<DatabaseZap size={18} />}
+          title="Jobs öffnen"
         />
       </div>
     </section>

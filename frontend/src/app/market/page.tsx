@@ -10,8 +10,8 @@ import {
 import { useState, type ReactNode } from "react";
 
 const indexes = [
-  { ticker: "^GSPC", label: "S&P 500" },
-  { ticker: "^IXIC", label: "Nasdaq" },
+  { ticker: "^GSPC", label: "S&P500" },
+  { ticker: "^IXIC", label: "NASDAQ" },
   { ticker: "^RUT", label: "Russell 2000" }
 ] as const;
 
@@ -24,7 +24,7 @@ export default function MarketPage() {
     <div className="space-y-5">
       <MarketAmpelPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
       <MarketOverviewPanel ticker={ticker} />
-      <MarketRiskSectionsPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
+      <MarketRiskSectionsPanel ticker={ticker} />
       <MarketArea
         title="Marktbreite"
         description="Russell-vs-S&P, Equal-Weight-ETFs, A/D, Volumen, McClellan, NH/NL, MA-Teilnahme und Deemer Ratio."

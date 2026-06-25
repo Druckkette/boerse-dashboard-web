@@ -16,25 +16,13 @@ import type {
   MarketSectorRotationGroup,
   Tone
 } from "@/lib/types/api";
-import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { labelForStatus, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
-const defaultIndexes = [
-  { ticker: "^GSPC", label: "S&P 500" },
-  { ticker: "^IXIC", label: "Nasdaq" },
-  { ticker: "^RUT", label: "Russell 2000" }
-] as const;
-type MarketIndexOption = (typeof defaultIndexes)[number];
-type MarketIndexTicker = MarketIndexOption["ticker"];
-
 export function MarketRiskSectionsPanel({
-  indexes = defaultIndexes,
-  onTickerChange,
   ticker = "^GSPC"
 }: {
-  indexes?: readonly MarketIndexOption[];
-  onTickerChange?: (ticker: MarketIndexTicker) => void;
-  ticker?: MarketIndexTicker;
+  ticker?: string;
 }) {
   const ampelQuery = useQuery({
     queryKey: ["market-risk-sections-ampel", ticker],
@@ -67,21 +55,6 @@ export function MarketRiskSectionsPanel({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        {indexes.map((item) => (
-          <button
-            key={item.ticker}
-            className={clsx(
-              "rounded border px-3 py-2 text-sm transition",
-              ticker === item.ticker
-                ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-100"
-                : "border-[#2d333d] bg-[#111419] text-[#a0a7b4] hover:border-[#586071] hover:text-[#d8dde6]"
-            )}
-            type="button"
-            onClick={() => onTickerChange?.(item.ticker)}
-          >
-            {item.label}
-          </button>
-        ))}
         <button
           className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm text-[#d8dde6] transition hover:border-emerald-300/60"
           type="button"
@@ -153,14 +126,13 @@ export function MarketSentimentPositioningPanel({ ticker = "^GSPC" }: { ticker?:
     <section className="space-y-4">
       <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <StatusChip tone={volatility ? toneForSource(volatility.source) : "neutral"}>{volatility ? labelForSource(volatility.source) : "lädt"}</StatusChip>
           <StatusChip tone={overviewQuery.data ? toneForStatus(overviewQuery.data.data_status) : "neutral"}>
             {overviewQuery.data ? labelForStatus(overviewQuery.data.data_status) : "lädt"}
           </StatusChip>
         </div>
         <h3 className="text-xl font-semibold tracking-normal">Signalübersicht</h3>
         <p className="mt-2 max-w-4xl text-sm leading-6 text-[#a0a7b4]">
-          VIX und VXX kommen aus dem Price Cache; Margin Debt aus dem gespeicherten FINRA-Snapshot, sofern verfügbar.
+          VIX, VXX und Margin Debt als ergänzende Stimmungs- und Positionierungsindikatoren.
         </p>
       </div>
 

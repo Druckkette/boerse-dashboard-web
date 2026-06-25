@@ -45,8 +45,6 @@ export function StockPricePanel({
     [benchmarkQuery.data?.points, history?.points, rsHistory]
   );
   const autoMarkers = useMemo(() => buildAutoMarkers(chartPoints), [chartPoints]);
-  const statusTone = history?.source === "database" ? "good" : "warning";
-  const statusLabel = history?.source === "database" ? "Price Cache" : "Fallback";
   const hasBenchmark = clean !== "SPY" && Boolean(benchmarkQuery.data?.points.length);
   const hasRsHistory = clean !== "SPY" && rsHistory.length > 0;
 
@@ -126,8 +124,6 @@ export function StockPricePanel({
             : ""
       }
       volumeKey="volume"
-      statusLabel={history ? statusLabel : "lädt"}
-      statusTone={history ? statusTone : "neutral"}
       title={`${clean} ${title}`}
     />
   );

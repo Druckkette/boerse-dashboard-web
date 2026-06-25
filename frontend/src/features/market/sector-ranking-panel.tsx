@@ -6,7 +6,7 @@ import { useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { SectorRankingPoint, SectorRankingRow } from "@/lib/types/api";
-import { labelForSource, labelForStatus, toneForStatus } from "./data-status";
+import { labelForStatus, toneForStatus } from "./data-status";
 
 type Mode = "daily" | "weekly";
 type PerformanceView = "return" | "rank";
@@ -30,13 +30,8 @@ export function SectorRankingPanel() {
               <StatusChip tone={data ? toneForStatus(data.data_status) : "neutral"}>
                 {data ? labelForStatus(data.data_status) : "lädt"}
               </StatusChip>
-              {data && <StatusChip tone="neutral">{labelForSource(data.source)}</StatusChip>}
             </div>
             <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">Sektoranalyse</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-              S&P-500-Sektor-ETFs nach Performance und Rankingverlauf. Berechnet aus dem Price-Cache, ohne yfinance im Klickpfad.
-            </p>
-            {data?.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[#77808f]">{data.message}</p>}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-col gap-1">
@@ -106,15 +101,13 @@ export function SectorRankingPanel() {
         <>
           <div className="grid gap-4 xl:grid-cols-2">
             <SectorSummary title="Top 3 Sektoren" rows={data.top} direction="up" />
-            <SectorSummary title="Bottom 3 Sektoren" rows={data.bottom} direction="down" />
+            <SectorSummary title="Flop 3 Sektoren" rows={data.bottom} direction="down" />
           </div>
           <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h2 className="text-base font-semibold">Performance-Tabelle</h2>
-                <p className="text-sm text-[#a0a7b4]">
-                  Stand {data.as_of}. Neueste Periode links. Sortierung nach aktueller Ansicht: bester Rang oder größter % Gewinn.
-                </p>
+                <p className="text-sm text-[#a0a7b4]">Stand {data.as_of}</p>
               </div>
               <StatusChip tone="neutral">{performanceView === "return" ? "% Gewinn" : "Platz Ranking"}</StatusChip>
             </div>

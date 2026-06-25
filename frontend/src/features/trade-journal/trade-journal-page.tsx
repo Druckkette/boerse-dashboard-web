@@ -738,11 +738,11 @@ function StockSnapshotReport({ snapshot }: { snapshot: Record<string, unknown> }
   const warnings = stringArray(assessment.warnings);
 
   return (
-    <section className="space-y-4 rounded border border-[#242a33] bg-[#111419] p-4 print:border-gray-300 print:bg-white">
+    <section className="space-y-5 rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)] print:border-gray-300 print:bg-white print:shadow-none">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h3 className="text-base font-semibold">Stock Detail Snapshot</h3>
-          <p className="mt-1 text-sm text-[#a0a7b4] print:text-gray-700">
+          <h3 className="text-xl font-semibold text-[#172033]">Aktienbewertung zum Zeitpunkt des Eintrags</h3>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[#687386] print:text-gray-700">
             Eingefrorene Bewertung am Tagebucheintrag: Scores, Kennzahlen, Regeln, Fundamentals, 13F und Relative Stärke.
           </p>
         </div>
@@ -769,6 +769,7 @@ function StockSnapshotReport({ snapshot }: { snapshot: Record<string, unknown> }
         <TextList title="Warnungen" icon="warning" items={warnings} empty="Keine Warnungen gespeichert." />
       </div>
 
+      <SnapshotFeatureOverview checks={checks} signals={chartSignals} drivers={drivers} warnings={warnings} />
       <RuleChecklist checks={checks} />
       <ChartSignalPanel signals={chartSignals} />
       <FundamentalsSnapshot item={fundamentalItem} />
@@ -778,19 +779,96 @@ function StockSnapshotReport({ snapshot }: { snapshot: Record<string, unknown> }
   );
 }
 
-function TextList({ empty, icon, items, title }: { empty: string; icon: "good" | "warning"; items: string[]; title: string }) {
+function SnapshotFeatureOverview({
+  checks,
+  drivers,
+  signals,
+  warnings
+}: {
+  checks: SnapshotCheck[];
+  drivers: string[];
+  signals: SnapshotSignal[];
+  warnings: string[];
+}) {
+  const passed = checks.filter((check) => check.passed).length;
+  const failed = checks.filter((check) => check.passed === false).length;
+  const positiveSignals = signals.filter((signal) => signal.category === "positive").length;
+  const negativeSignals = signals.filter((signal) => signal.category === "negative").length;
   return (
-    <div className="rounded border border-[#2d333d] p-3">
-      <div className="mb-2 flex items-center gap-2 font-medium">
-        {icon === "good" ? <CheckCircle2 className="size-4 text-emerald-300" /> : <AlertTriangle className="size-4 text-amber-300" />}
-        {title}
+    <section className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
+      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h4 className="text-base font-semibold text-[#172033]">Merkmale zusammengefasst</h4>
+          <p className="mt-1 text-sm leading-6 text-[#687386]">
+            Kompakter Blick auf die gespeicherten Kriterien, damit Kauf- oder Verkaufsqualität später schnell vergleichbar bleibt.
+          </p>
+        </div>
+        <StatusChip tone={failed + negativeSignals + warnings.length > passed + positiveSignals + drivers.length ? "warning" : "good"}>
+          Snapshot
+        </StatusChip>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryTile label="Regeln erfüllt" value={`${passed}/${checks.length || 0}`} detail="grüne Kriterien" tone="good" />
+        <SummaryTile label="Offene Kriterien" value={String(failed)} detail="nicht erfüllt oder kritisch" tone={failed ? "bad" : "good"} />
+        <SummaryTile label="Positive Zeichen" value={String(positiveSignals + drivers.length)} detail="Chartsignale und Treiber" tone="good" />
+        <SummaryTile label="Warnzeichen" value={String(negativeSignals + warnings.length)} detail="Chartsignale und Warnungen" tone={negativeSignals + warnings.length ? "warning" : "good"} />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <CompactList title="Wichtigste Treiber" items={drivers.slice(0, 4)} empty="Keine Treiber gespeichert." tone="good" />
+        <CompactList title="Wichtigste Warnungen" items={warnings.slice(0, 4)} empty="Keine Warnungen gespeichert." tone={warnings.length ? "warning" : "good"} />
+      </div>
+    </section>
+  );
+}
+
+function SummaryTile({ detail, label, tone, value }: { detail: string; label: string; tone: Tone; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[#e3e8ef] bg-white p-4 print:border-gray-300">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{label}</div>
+        <StatusChip tone={tone}>{toneLabel(tone)}</StatusChip>
+      </div>
+      <div className="mt-3 text-2xl font-semibold tabular-nums text-[#172033]">{value}</div>
+      <div className="mt-1 text-xs leading-5 text-[#687386]">{detail}</div>
+    </div>
+  );
+}
+
+function CompactList({ empty, items, title, tone }: { empty: string; items: string[]; title: string; tone: Tone }) {
+  return (
+    <div className="rounded-2xl border border-[#e3e8ef] bg-white p-4 print:border-gray-300">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="font-semibold text-[#172033]">{title}</div>
+        <StatusChip tone={tone}>{items.length}</StatusChip>
       </div>
       {items.length === 0 ? (
-        <div className="text-sm text-[#a0a7b4]">{empty}</div>
+        <div className="text-sm text-[#687386]">{empty}</div>
       ) : (
         <div className="space-y-2">
           {items.map((item) => (
-            <div key={item} className="rounded border border-[#242a33] p-2 text-sm leading-5 text-[#c9d0da]">
+            <div key={item} className="rounded-xl bg-[#f6f8fb] px-3 py-2 text-sm leading-5 text-[#172033]">
+              {item}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TextList({ empty, icon, items, title }: { empty: string; icon: "good" | "warning"; items: string[]; title: string }) {
+  return (
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
+      <div className="mb-2 flex items-center gap-2 font-semibold text-[#172033]">
+        {icon === "good" ? <CheckCircle2 className="size-4 text-[#138a57]" /> : <AlertTriangle className="size-4 text-[#b7791f]" />}
+        {title}
+      </div>
+      {items.length === 0 ? (
+        <div className="text-sm text-[#687386]">{empty}</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <div key={item} className="rounded-xl border border-[#e3e8ef] bg-white p-3 text-sm leading-5 text-[#172033] print:border-gray-300">
               {item}
             </div>
           ))}
@@ -808,27 +886,32 @@ function RuleChecklist({ checks }: { checks: SnapshotCheck[] }) {
     ["fundamental", "Fundamental"]
   ];
   return (
-    <div className="rounded border border-[#2d333d] p-3">
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-medium">
-          <Gauge className="size-4 text-[#8ea4c8]" />
+        <div className="flex items-center gap-2 font-semibold text-[#172033]">
+          <Gauge className="size-4 text-[#2563eb]" />
           Regel-Checkliste
         </div>
         <StatusChip tone="neutral">{checks.length}</StatusChip>
       </div>
       {checks.length === 0 ? (
-        <div className="text-sm text-[#a0a7b4]">Keine Checkliste im Snapshot vorhanden.</div>
+        <div className="text-sm text-[#687386]">Keine Checkliste im Snapshot vorhanden.</div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {groups.map(([category, label]) => (
-            <div key={category} className="rounded border border-[#242a33] p-3">
-              <div className="mb-2 text-sm font-medium">{label}</div>
+            <div key={category} className="rounded-2xl border border-[#e3e8ef] bg-white p-4 print:border-gray-300">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-[#172033]">{label}</div>
+                <StatusChip tone={categoryTone(checks.filter((check) => check.category === category))}>
+                  {categorySummary(checks.filter((check) => check.category === category))}
+                </StatusChip>
+              </div>
               <div className="space-y-2">
                 {checks.filter((check) => check.category === category).map((check, index) => (
                   <CheckRow key={`${check.label}-${index}`} check={check} />
                 ))}
                 {checks.filter((check) => check.category === category).length === 0 ? (
-                  <div className="text-sm text-[#7f8794]">Keine Regeln.</div>
+                  <div className="text-sm text-[#687386]">Keine Regeln.</div>
                 ) : null}
               </div>
             </div>
@@ -841,18 +924,39 @@ function RuleChecklist({ checks }: { checks: SnapshotCheck[] }) {
 
 function CheckRow({ check }: { check: SnapshotCheck }) {
   return (
-    <div className="flex gap-2 rounded border border-[#242a33] p-2 text-sm print:border-gray-300">
+    <div className="flex gap-2 rounded-xl border border-[#e3e8ef] bg-[#f9fbfd] p-3 text-sm print:border-gray-300 print:bg-white">
       {check.passed ? (
-        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300 print:text-green-700" />
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#138a57] print:text-green-700" />
       ) : (
-        <XCircle className="mt-0.5 size-4 shrink-0 text-rose-300 print:text-red-700" />
+        <XCircle className="mt-0.5 size-4 shrink-0 text-[#c2413b] print:text-red-700" />
       )}
       <div>
-        <div className={check.passed ? "text-emerald-100 print:text-green-800" : "text-rose-100 print:text-red-800"}>{check.label}</div>
-        <div className="text-xs leading-5 text-[#a0a7b4] print:text-gray-700">{check.detail}</div>
+        <div className={check.passed ? "font-medium text-[#138a57] print:text-green-800" : "font-medium text-[#c2413b] print:text-red-800"}>{check.label}</div>
+        <div className="text-xs leading-5 text-[#687386] print:text-gray-700">{check.detail}</div>
       </div>
     </div>
   );
+}
+
+function categorySummary(checks: SnapshotCheck[]) {
+  if (checks.length === 0) return "0";
+  const passed = checks.filter((check) => check.passed).length;
+  return `${passed}/${checks.length}`;
+}
+
+function categoryTone(checks: SnapshotCheck[]): Tone {
+  if (checks.length === 0) return "neutral";
+  const failed = checks.some((check) => check.passed === false);
+  if (!failed) return "good";
+  const passed = checks.filter((check) => check.passed).length;
+  return passed >= checks.length / 2 ? "warning" : "bad";
+}
+
+function toneLabel(tone: Tone) {
+  if (tone === "good") return "gut";
+  if (tone === "bad") return "kritisch";
+  if (tone === "warning") return "prüfen";
+  return "neutral";
 }
 
 function ChartSignalPanel({ signals }: { signals: SnapshotSignal[] }) {
@@ -862,28 +966,28 @@ function ChartSignalPanel({ signals }: { signals: SnapshotSignal[] }) {
     ["neutral", "Neutral", "neutral" as Tone]
   ];
   return (
-    <div className="rounded border border-[#2d333d] p-3">
-      <div className="mb-3 flex items-center gap-2 font-medium">
-        <BarChart3 className="size-4 text-[#8ea4c8]" />
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
+      <div className="mb-3 flex items-center gap-2 font-semibold text-[#172033]">
+        <BarChart3 className="size-4 text-[#2563eb]" />
         Chartverhalten
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         {groups.map(([category, label, tone]) => {
           const items = signals.filter((signal) => signal.category === category);
           return (
-            <div key={category} className="rounded border border-[#242a33] p-3">
+            <div key={category} className="rounded-2xl border border-[#e3e8ef] bg-white p-4 print:border-gray-300">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-sm font-medium">{label}</div>
+                <div className="text-sm font-semibold text-[#172033]">{label}</div>
                 <StatusChip tone={tone}>{items.length}</StatusChip>
               </div>
               {items.length === 0 ? (
-                <div className="text-sm text-[#7f8794]">Keine Signale.</div>
+                <div className="text-sm text-[#687386]">Keine Signale.</div>
               ) : (
                 <div className="space-y-2">
                   {items.map((signal, index) => (
-                    <div key={`${signal.label}-${index}`} className="rounded border border-[#242a33] p-2 text-sm">
-                      <div className="font-medium">{signal.label}</div>
-                      <div className="mt-1 text-xs leading-5 text-[#a0a7b4]">{signal.detail}</div>
+                    <div key={`${signal.label}-${index}`} className="rounded-xl border border-[#e3e8ef] bg-[#f9fbfd] p-3 text-sm print:border-gray-300">
+                      <div className="font-medium text-[#172033]">{signal.label}</div>
+                      <div className="mt-1 text-xs leading-5 text-[#687386]">{signal.detail}</div>
                     </div>
                   ))}
                 </div>
@@ -903,16 +1007,16 @@ function FundamentalsSnapshot({ item }: { item: Record<string, unknown> }) {
   const revenueAnnual = recordArray(item.annual_revenue_history).slice(0, 3);
   const roeHistory = recordArray(item.roe_history).slice(0, 3);
   return (
-    <div className="rounded border border-[#2d333d] p-3">
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-medium">
-          <TrendingUp className="size-4 text-[#8ea4c8]" />
+        <div className="flex items-center gap-2 font-semibold text-[#172033]">
+          <TrendingUp className="size-4 text-[#2563eb]" />
           Fundamental
         </div>
         <StatusChip tone={item.ticker ? "good" : "warning"}>{stringValue(item.source) || "missing"}</StatusChip>
       </div>
       {!item.ticker ? (
-        <div className="text-sm text-[#a0a7b4]">Keine Fundamental-Daten im Snapshot.</div>
+        <div className="text-sm text-[#687386]">Keine Fundamental-Daten im Snapshot.</div>
       ) : (
         <div className="space-y-3">
           <div className="grid gap-3 md:grid-cols-4">
@@ -948,18 +1052,18 @@ function MiniHistory({
   valueKey: string;
 }) {
   return (
-    <div className="rounded border border-[#242a33] p-3">
-      <div className="mb-2 text-sm font-medium">{title}</div>
+    <div className="rounded-2xl border border-[#e3e8ef] bg-white p-3 print:border-gray-300">
+      <div className="mb-2 text-sm font-semibold text-[#172033]">{title}</div>
       {rows.length === 0 ? (
-        <div className="text-sm text-[#7f8794]">Keine Daten gespeichert.</div>
+        <div className="text-sm text-[#687386]">Keine Daten gespeichert.</div>
       ) : (
         <div className="space-y-2">
           {rows.map((row, index) => {
             const value = asNumber(row[valueKey]);
             return (
               <div key={`${String(row[labelKey])}-${index}`} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-[#a0a7b4]">{stringValue(row[labelKey]) || `#${index + 1}`}</span>
-                <span className={value === null ? "text-[#7f8794]" : value >= 20 ? "text-emerald-200" : "text-rose-200"}>
+                <span className="text-[#687386]">{stringValue(row[labelKey]) || `#${index + 1}`}</span>
+                <span className={value === null ? "text-[#687386]" : value >= 20 ? "font-medium text-[#138a57]" : "font-medium text-[#c2413b]"}>
                   {pct(value)}
                 </span>
               </div>
@@ -973,16 +1077,16 @@ function MiniHistory({
 
 function InstitutionalSnapshot({ item, source }: { item: Record<string, unknown>; source: string }) {
   return (
-    <div className="rounded border border-[#2d333d] p-3">
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-medium">
-          <Building2 className="size-4 text-[#8ea4c8]" />
+        <div className="flex items-center gap-2 font-semibold text-[#172033]">
+          <Building2 className="size-4 text-[#2563eb]" />
           Institutionelle 13F-Trends
         </div>
         <StatusChip tone={item.ticker ? toneFor13F(stringValue(item.trend)) : "warning"}>{stringValue(item.trend) || source || "missing"}</StatusChip>
       </div>
       {!item.ticker ? (
-        <div className="text-sm text-[#a0a7b4]">Keine 13F-Trends im Snapshot.</div>
+        <div className="text-sm text-[#687386]">Keine 13F-Trends im Snapshot.</div>
       ) : (
         <div className="grid gap-3 md:grid-cols-4">
           <MetricBox label="Alle 13F-Halter" value={formatNumber(asNumber(item.holder_count))} detail={deltaText(asNumber(item.holder_count_delta))} />
@@ -997,16 +1101,16 @@ function InstitutionalSnapshot({ item, source }: { item: Record<string, unknown>
 
 function RelativeStrengthSnapshot({ found, item }: { found: boolean; item: Record<string, unknown> }) {
   return (
-    <div className="rounded border border-[#2d333d] p-3">
+    <div className="rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd] p-4 print:border-gray-300 print:bg-white">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-medium">
-          <TrendingUp className="size-4 text-[#8ea4c8]" />
+        <div className="flex items-center gap-2 font-semibold text-[#172033]">
+          <TrendingUp className="size-4 text-[#2563eb]" />
           Relative Stärke
         </div>
         <StatusChip tone={found ? toneForRating(asNumber(item.rating)) : "warning"}>{found ? formatNumber(asNumber(item.rating)) : "missing"}</StatusChip>
       </div>
       {!found ? (
-        <div className="text-sm text-[#a0a7b4]">Kein RS-Rating im Snapshot.</div>
+        <div className="text-sm text-[#687386]">Kein RS-Rating im Snapshot.</div>
       ) : (
         <div className="grid gap-3 md:grid-cols-4">
           <MetricBox label="Bewertung" value={formatNumber(asNumber(item.rating))} detail={`Universe ${formatNumber(asNumber(item.universe_size))}`} />
@@ -1034,19 +1138,19 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function MetricBox({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-3 print:border-gray-300 print:bg-white">
-      <div className="text-xs uppercase text-[#a0a7b4] print:text-gray-600">{label}</div>
-      <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-      <div className="mt-1 text-xs text-[#7f8794] print:text-gray-600">{detail}</div>
+    <div className="rounded-2xl border border-[#e3e8ef] bg-white p-3 print:border-gray-300 print:bg-white">
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386] print:text-gray-600">{label}</div>
+      <div className="mt-1 text-lg font-semibold tabular-nums text-[#172033]">{value}</div>
+      <div className="mt-1 text-xs leading-5 text-[#687386] print:text-gray-600">{detail}</div>
     </div>
   );
 }
 
 function TextBlock({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-3 print:border-gray-300 print:bg-white">
-      <div className="text-xs uppercase text-[#a0a7b4] print:text-gray-600">{title}</div>
-      <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#c9d0da] print:text-gray-900">{text}</div>
+    <div className="rounded-2xl border border-[#e3e8ef] bg-white p-3 print:border-gray-300 print:bg-white">
+      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386] print:text-gray-600">{title}</div>
+      <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#172033] print:text-gray-900">{text}</div>
     </div>
   );
 }

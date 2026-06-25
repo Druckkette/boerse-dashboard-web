@@ -37,7 +37,7 @@ export function PortfolioCurvePanel() {
         caption={
           curve?.points.length
             ? `Basis ${curve.base_date ?? startDate} · Stand ${curve.as_of}`
-            : (curve?.message || "Depotindex aus offenen Positionen und Price Cache.")
+            : (curve?.message || "Depotindex aus offenen Positionen und gespeicherten Kursdaten.")
         }
         dateTickMode="weekly"
         error={query.error}
@@ -69,14 +69,6 @@ export function PortfolioCurvePanel() {
             formatter: (value) => value.toFixed(2)
           }
         ]}
-        statusLabel={
-          curve?.source === "trade_republic_transactions"
-            ? "TR-Transaktionen"
-            : curve?.source === "database"
-              ? "Price Cache"
-              : "Cache fehlt"
-        }
-        statusTone={curve?.source === "missing" ? "warning" : "good"}
         title="Depotkurve"
       />
     </div>

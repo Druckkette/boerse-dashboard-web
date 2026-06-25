@@ -95,7 +95,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
 
   const savePositionMutation = useMutation({
     mutationFn: () => {
-      if (!positionDefaults.price) throw new Error("Kein Kurs im Price Cache vorhanden.");
+      if (!positionDefaults.price) throw new Error("Kein gespeicherter Kurs vorhanden.");
       return api.upsertPortfolioPosition({
         ticker: clean,
         name: clean,

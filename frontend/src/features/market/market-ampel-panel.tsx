@@ -8,12 +8,12 @@ import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelLight, Tone } from "@/lib/types/api";
-import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
+import { labelForStatus, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 const defaultIndexes = [
-  { ticker: "^GSPC", label: "S&P 500" },
-  { ticker: "^IXIC", label: "Nasdaq" },
+  { ticker: "^GSPC", label: "S&P500" },
+  { ticker: "^IXIC", label: "NASDAQ" },
   { ticker: "^RUT", label: "Russell 2000" }
 ] as const;
 type MarketIndexOption = (typeof defaultIndexes)[number];
@@ -79,7 +79,6 @@ export function MarketAmpelPanel({
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <StatusChip tone={data.hero.tone}>{data.hero.mode}</StatusChip>
               <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
-              <StatusChip tone={toneForSource(data.source)}>{labelForSource(data.source)}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Marktampel</div>
@@ -109,7 +108,10 @@ export function MarketAmpelPanel({
                   type="button"
                   onClick={() => onTickerChange?.(item.ticker)}
                 >
-                  {item.label}
+                  <span className="block text-base leading-5">{item.label}</span>
+                  <span className={clsx("mt-0.5 block text-xs", ticker === item.ticker ? "text-white/80" : "text-[#687386]")}>
+                    {item.ticker}
+                  </span>
                 </button>
               ))}
             </div>
@@ -183,7 +185,6 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
         <div className="min-w-0">
           <div className="mb-4">
             <h2 className="text-xl font-semibold tracking-normal text-[#172033]">Trendwende-Ampel</h2>
-            <p className="mt-1 text-sm leading-6 text-[#687386]">Rot, Gelb, Grün und Rückenwind nach den migrierten Marktampel-Regeln.</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-1">
             {data.lights.map((light) => (

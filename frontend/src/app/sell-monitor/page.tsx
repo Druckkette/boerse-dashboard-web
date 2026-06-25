@@ -157,10 +157,7 @@ export default function SellMonitorPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[#172033]">Sell Monitor</h1>
-          <p className="mt-1 text-sm leading-6 text-[#687386]">
-            Ranking aus der extrahierten Sell-Engine, ohne Jobs im Click-Pfad.
-          </p>
+          <h1 className="text-2xl font-semibold text-[#172033]">Verkaufsmonitor</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -178,7 +175,7 @@ export default function SellMonitorPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1.2fr_2fr]">
+      <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
           <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Ranking-Quelle</div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -189,12 +186,6 @@ export default function SellMonitorPage() {
               {data?.generated_at ? new Date(data.generated_at).toLocaleString("de-DE") : "noch nicht vorcomputet"}
             </span>
           </div>
-        </div>
-        <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 text-sm leading-6 text-[#687386] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-          {monitorMutation.data
-            ? `Positionsmonitor gestartet: ${monitorMutation.data.job_id}`
-            : data?.message || "Nach dem ersten Positionsmonitor-Lauf liest diese Seite den vorcomputeten Snapshot."}
-          {data?.source_job_id ? <span className="ml-2 text-[#687386]">Job: {data.source_job_id}</span> : null}
         </div>
       </div>
 
@@ -257,9 +248,6 @@ export default function SellMonitorPage() {
               )}
             </tbody>
           </table>
-        </div>
-        <div className="border-t border-[#e3e8ef] bg-[#f9fbfd] px-4 py-3 text-xs text-[#687386]">
-          Sortierbare, klickbare TanStack Table mit Virtualisierung. State zeigt Streak oder Snooze-Fenster aus Postgres.
         </div>
       </div>
     </div>

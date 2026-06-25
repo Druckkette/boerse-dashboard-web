@@ -113,7 +113,7 @@ export function RsRankingPanel() {
       summary={
         <>
           <StatusChip tone={!query.isFetched ? "neutral" : ranking?.source === "database" ? "good" : "warning"}>
-            {!query.isFetched ? "nicht geladen" : ranking?.source === "database" ? "Price Cache" : "Cache fehlt"}
+            {!query.isFetched ? "nicht geladen" : ranking?.source === "database" ? "aktuell" : "Cache fehlt"}
           </StatusChip>
           <StatusChip tone="neutral">
             {ranking?.source === "database" ? `${rows.length}/${totalCount || rows.length}` : `${limit} Limit`}

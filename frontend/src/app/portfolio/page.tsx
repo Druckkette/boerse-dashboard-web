@@ -14,7 +14,6 @@ export default function PortfolioPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold">Portfolio</h1>
-        <p className="mt-1 text-sm text-[#a0a7b4]">Snapshot, Risiko und klickbare Positionen.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {data?.kpis.map((item) => <KpiCard key={item.label} item={item} />)}
