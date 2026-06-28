@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import date
 import json
 import sys
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
+from app.data_sources.yfinance_client import FetchedAfterHoursQuote
 from app.domain.sell import service as sell_service
 from app.domain.sell.rules import LEGACY_CUSTOM_STRATEGY_STEPS
 from app.domain.sell.schemas import SellEvaluationRequest, SellManualInput, SnoozeRequest, TrancheLogEntry
@@ -312,6 +313,23 @@ def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pyte
 
     monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: rows)
     monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", fake_price_bars)
+    monkeypatch.setattr(
+        sell_service,
+        "_position_monitor_live_quotes",
+        lambda rows: {
+            "AAPL": FetchedAfterHoursQuote(
+                ticker="AAPL",
+                regular_price=65,
+                after_hours_price=None,
+                after_hours_change=None,
+                after_hours_change_pct=None,
+                currency="USD",
+                market_state="REGULAR",
+                source="test",
+                fetched_at=datetime(2026, 6, 18, tzinfo=UTC),
+            )
+        },
+    )
 
     result = sell_service.monitor_open_positions(
         monitor_settings={
