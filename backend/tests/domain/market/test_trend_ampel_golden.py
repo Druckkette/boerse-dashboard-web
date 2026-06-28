@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.domain.market.ampel import TrendAmpelBar, compute_trend_ampel
-from app.services.market import _build_ampel_warning_checks
+from app.services.market import _build_ampel_warning_checks, _detect_failing_rally
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "market" / "ampel"
@@ -201,6 +201,44 @@ def test_loss_gain_warning_activates_when_loss_days_outnumber_gain_days() -> Non
     assert check.active_warning is True
     assert check.passed is False
     assert check.tone == "warning"
+
+
+def test_failing_rally_detail_uses_recovered_drop_share_not_price_gain() -> None:
+    closes = [80 + index * (20 / 30) for index in range(31)]
+    closes.extend([98.0, 95.0, 92.9, 93.2, 93.61])
+    bars = [
+        _bar(
+            index,
+            open_price=closes[index - 1] if index else closes[index],
+            close=float(close),
+            high=float(close) + 1.0,
+            low=float(close) - 1.0,
+            volume=1_000_000,
+        )
+        for index, close in enumerate(closes)
+    ]
+    points = compute_trend_ampel(bars)
+
+    rally = _detect_failing_rally(points)
+
+    assert rally is not None
+    assert rally.drop_from_high_pct == pytest.approx(7.1)
+    assert rally.recovered_drop_pct == pytest.approx(10.0, abs=0.2)
+    assert rally.current_below_high_pct == pytest.approx(-6.4, abs=0.2)
+
+    checks = _build_ampel_warning_checks(
+        points=points,
+        latest=points[-1],
+        intermarket=[],
+        defensive_lead=None,
+        defensive_spread_pct=None,
+        index_name="Nasdaq",
+    )
+    check = next(item for item in checks if item.label == "Erholungsquote >=50%")
+
+    assert check.active_warning is True
+    assert "Rückeroberung 10% des Rückgangs" in check.detail
+    assert "aktueller Abstand zum Hoch -6.4%" in check.detail
 
 
 def test_green_waits_for_full_ma_order_before_uptrend() -> None:

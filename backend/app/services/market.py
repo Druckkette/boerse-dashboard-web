@@ -2503,14 +2503,18 @@ def _build_ampel_warning_checks(
                 bool(defensive_lead),
             )
         )
-    recovery_pct, drop_pct = _detect_failing_rally(points)
-    if recovery_pct is not None and drop_pct is not None and drop_pct > 5:
-        weak_recovery = recovery_pct < 50
+    failing_rally = _detect_failing_rally(points)
+    if failing_rally is not None and failing_rally.drop_from_high_pct > 5:
+        weak_recovery = failing_rally.recovered_drop_pct < 50
         checks.append(
             _ampel_warning_check(
                 "Erholungsquote >=50%",
                 not weak_recovery,
-                f"Rückgang {drop_pct:.1f}%, Erholung {recovery_pct:.0f}%",
+                (
+                    f"Rückgang vom Hoch {failing_rally.drop_from_high_pct:.1f}%, "
+                    f"Rückeroberung {failing_rally.recovered_drop_pct:.0f}% des Rückgangs "
+                    f"(Schwelle: 50%), aktueller Abstand zum Hoch {failing_rally.current_below_high_pct:.1f}%"
+                ),
                 weak_recovery,
             )
         )
@@ -2610,27 +2614,43 @@ def _ampel_chart_markers(
     return markers[-8:]
 
 
-def _detect_failing_rally(points: Sequence[TrendAmpelPoint]) -> tuple[float | None, float | None]:
+@dataclass(frozen=True)
+class FailingRally:
+    recovered_drop_pct: float
+    drop_from_high_pct: float
+    rebound_from_low_pct: float
+    current_below_high_pct: float
+
+
+def _detect_failing_rally(points: Sequence[TrendAmpelPoint]) -> FailingRally | None:
     clean = [point for point in points if point.close is not None]
     if len(clean) < 30:
-        return None, None
+        return None
     recent = clean[-60:]
     high_point = max(recent, key=lambda point: point.close or 0)
     high_index = recent.index(high_point)
     after_high = recent[high_index:]
     if len(after_high) < 5 or high_point.close is None:
-        return None, None
+        return None
     low_point = min(after_high, key=lambda point: point.close or float("inf"))
     if low_point.close is None or high_point.close <= 0:
-        return None, None
+        return None
     drop = high_point.close - low_point.close
     if drop / high_point.close < 0.03:
-        return None, None
+        return None
     latest_close = clean[-1].close
     if latest_close is None:
-        return None, None
+        return None
     recovery = latest_close - low_point.close
-    return round(recovery / drop * 100, 1), round(drop / high_point.close * 100, 1)
+    recovered_drop_pct = max(0.0, recovery / drop * 100)
+    rebound_from_low_pct = recovery / low_point.close * 100 if low_point.close > 0 else 0.0
+    current_below_high_pct = (latest_close / high_point.close - 1) * 100
+    return FailingRally(
+        recovered_drop_pct=round(recovered_drop_pct, 1),
+        drop_from_high_pct=round(drop / high_point.close * 100, 1),
+        rebound_from_low_pct=round(max(0.0, rebound_from_low_pct), 1),
+        current_below_high_pct=round(current_below_high_pct, 1),
+    )
 
 
 def _volatility_card_status(volatility: VolatilityResponse, title: str) -> str:
