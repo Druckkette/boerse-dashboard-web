@@ -158,6 +158,7 @@ class MarketAmpelChartMarker(BaseModel):
 
 class MarketAmpelResponse(BaseModel):
     as_of: str
+    as_of_time: str = ""
     ticker: str
     name: str
     source: Literal["database", "missing"]

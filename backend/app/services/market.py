@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
@@ -166,7 +167,7 @@ def get_market_ampel(
     if not points:
         return _missing_market_ampel(clean_ticker)
 
-    overview = get_market_overview()
+    overview = get_market_overview(ticker=clean_ticker)
     volatility = get_volatility()
     intermarket = _cached_intermarket_divergence()
     rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
@@ -227,6 +228,7 @@ def build_market_ampel_response(
     chart_points = _ampel_chart_points(points[-days:])
     return MarketAmpelResponse(
         as_of=latest.date,
+        as_of_time=overview.as_of_time,
         ticker=ticker,
         name=name,
         source="database",
@@ -265,6 +267,7 @@ def build_market_ampel_response(
             breadth_mode=overview.breadth_mode,
             volatility=volatility,
             index_name=name,
+            as_of_time=overview.as_of_time,
         ),
         distance_tiles=_ampel_distance_tiles(latest, index_name=name),
         warning_checks=warning_checks,
@@ -1887,6 +1890,7 @@ def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
     today = date.today().isoformat()
     return MarketAmpelResponse(
         as_of=today,
+        as_of_time="",
         ticker=ticker,
         name=MARKET_AMPEL_INDEXES.get(ticker, ticker),
         source="missing",
@@ -2241,6 +2245,7 @@ def _ampel_change_cards(
     breadth_mode: str,
     volatility: VolatilityResponse,
     index_name: str,
+    as_of_time: str = "",
 ) -> list[MarketAmpelChangeCard]:
     cards: list[MarketAmpelChangeCard] = []
     if latest.pct_change is not None:
@@ -2249,7 +2254,7 @@ def _ampel_change_cards(
                 title=f"Heute {index_name}",
                 value=f"{latest.pct_change:+.2f}%",
                 detail=f"Schlusskurs {_format_number(latest.close)}",
-                detail2=f"Index Stand: {_format_date_de(latest.date)}",
+                detail2=f"Index Stand: {_format_date_de(latest.date)} {_format_time_de(as_of_time)}".strip(),
                 detail3=f"52W-Hoch: {_format_optional_pct(latest.dist_52w_pct)}",
                 tone="good" if latest.pct_change >= 0 else "bad",
                 arrow="up" if latest.pct_change >= 0 else "down",
@@ -2588,7 +2593,7 @@ def _ampel_chart_markers(
                     date=point.date,
                     label="Dist.",
                     value=point.close,
-                    color="#fb7185",
+                    color="#111827",
                 )
             )
         elif point.is_stall:
@@ -2734,6 +2739,18 @@ def _format_date_de(value: str) -> str:
         return date.fromisoformat(value).strftime("%d.%m.%Y")
     except ValueError:
         return value
+
+
+def _format_time_de(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(ZoneInfo("Europe/Berlin"))
+    return parsed.strftime("%H:%M")
 
 
 def _normalize_tickers(tickers: list[str]) -> list[str]:

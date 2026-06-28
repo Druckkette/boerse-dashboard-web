@@ -49,6 +49,7 @@ type LineChartCardProps = {
   dateTickMode?: "ends" | "weekly";
   isLoading?: boolean;
   error?: unknown;
+  hideTextHeader?: boolean;
 };
 
 const WIDTH = 920;
@@ -86,7 +87,8 @@ export function LineChartCard({
   statusTone = "neutral",
   dateTickMode = "ends",
   isLoading,
-  error
+  error,
+  hideTextHeader = false
 }: LineChartCardProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -237,11 +239,13 @@ export function LineChartCard({
 
   return (
     <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-[#172033]">{title}</h2>
-          <p className="mt-1 text-sm leading-6 text-[#687386]">{caption}</p>
-        </div>
+      <div className={hideTextHeader ? "mb-3 flex justify-end" : "mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
+        {!hideTextHeader && (
+          <div>
+            <h2 className="text-lg font-semibold text-[#172033]">{title}</h2>
+            <p className="mt-1 text-sm leading-6 text-[#687386]">{caption}</p>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <button
             className="inline-flex size-9 items-center justify-center rounded-full border border-[#d8e1ea] bg-white text-[#172033] shadow-sm transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-45"
@@ -273,7 +277,7 @@ export function LineChartCard({
           >
             <RotateCcw size={15} />
           </button>
-          {statusLabel && <StatusChip tone={statusTone}>{statusLabel}</StatusChip>}
+          {!hideTextHeader && statusLabel && <StatusChip tone={statusTone}>{statusLabel}</StatusChip>}
         </div>
       </div>
 
@@ -435,7 +439,7 @@ export function LineChartCard({
                     y1={PAD_TOP}
                     y2={priceBottom}
                   />
-                  <circle cx={x} cy={y} fill={marker.color} r="5" vectorEffect="non-scaling-stroke" />
+                  <circle cx={x} cy={y} fill={marker.color} r={marker.label === "Dist." ? "3" : "4"} vectorEffect="non-scaling-stroke" />
                   <text fill={marker.color} fontSize="11" fontWeight="700" textAnchor="middle" x={x} y={Math.max(18, y - 10)}>
                     {truncateLabel(marker.label)}
                   </text>

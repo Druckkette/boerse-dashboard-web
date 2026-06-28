@@ -7,7 +7,7 @@ import { ArrowDown, ArrowUp, CircleDot, RotateCw } from "lucide-react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelLight, Tone } from "@/lib/types/api";
+import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelDistanceTile, MarketAmpelLight, Tone } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
@@ -54,7 +54,7 @@ export function MarketAmpelPanel({
   const data = query.data;
   const heroReasons = data.hero.reasons.filter((reason) => reason.startsWith("Trendwende-Ampel"));
   const changeCards = data.change_cards.filter(
-    (card) => !["Distribution", "EW-Breite", "Volatilität"].includes(card.title)
+    (card) => !["Distribution", "EW-Breite", "Volatilität", "Trendwende-Ampel"].includes(card.title)
   );
   const chartPoints = data.chart_points.map((point) => ({
     date: point.date,
@@ -156,6 +156,7 @@ export function MarketAmpelPanel({
       <LineChartCard
         title={`${data.name} Trendwende-Ampel`}
         caption={`${data.phase_info.reason} Stand ${data.as_of}. ${data.message}`}
+        hideTextHeader
         points={chartPoints}
         chartMode="candlestick"
         volumeKey="volume"
@@ -240,6 +241,7 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
         </div>
       </div>
       <RuleDefinitions lights={data.lights} />
+      <MovingAverageDistanceSummary tiles={data.distance_tiles} />
     </div>
   );
 }
@@ -312,6 +314,22 @@ function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
         ))}
       </div>
     </details>
+  );
+}
+
+function MovingAverageDistanceSummary({ tiles }: { tiles: MarketAmpelDistanceTile[] }) {
+  if (!tiles.length) return null;
+  return (
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {tiles.map((tile) => (
+        <div key={tile.label} className={clsx("rounded-2xl border bg-white p-4", tileBorder(tile.tone))}>
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{tile.label}</div>
+          <div className={clsx("mt-2 text-xl font-semibold tabular-nums", toneText(tile.tone))}>{tile.value}</div>
+          <div className="mt-1 text-sm text-[#4b5565]">{tile.indicator}</div>
+          <div className="mt-1 text-xs leading-5 text-[#687386]">{tile.detail}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 

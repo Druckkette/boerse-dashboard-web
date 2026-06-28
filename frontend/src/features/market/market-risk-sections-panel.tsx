@@ -154,7 +154,10 @@ export function MarketSentimentPositioningPanel({ ticker = "^GSPC" }: { ticker?:
           title="VIX / VXX"
         />
         <div className="grid gap-3">
-          {(volatility?.status_cards ?? []).filter((item) => item.title.includes("VIX") || item.title.includes("VXX")).map((item) => (
+          {(volatility?.status_cards ?? [])
+            .filter((item) => item.title !== "VIX Regime")
+            .filter((item) => item.title.includes("VIX") || item.title.includes("VXX"))
+            .map((item) => (
             <SignalCard key={item.title} title={item.title} value={item.status} detail={item.detail} tone={item.tone} />
           ))}
           <SignalCard

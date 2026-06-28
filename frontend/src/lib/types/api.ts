@@ -135,6 +135,7 @@ export type MarketAmpelChartMarker = {
 
 export type MarketAmpel = {
   as_of: string;
+  as_of_time: string;
   ticker: string;
   name: string;
   source: "database" | "missing";

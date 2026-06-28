@@ -2,7 +2,6 @@
 
 import { MarketAmpelPanel } from "@/features/market/market-ampel-panel";
 import { MarketBreadthOverviewPanel } from "@/features/market/market-breadth-overview-panel";
-import { MarketOverviewPanel } from "@/features/market/market-overview-panel";
 import {
   MarketRiskSectionsPanel,
   MarketSentimentPositioningPanel
@@ -23,7 +22,6 @@ export default function MarketPage() {
   return (
     <div className="space-y-5">
       <MarketAmpelPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
-      <MarketOverviewPanel ticker={ticker} />
       <MarketRiskSectionsPanel ticker={ticker} />
       <MarketArea
         title="Marktbreite"
