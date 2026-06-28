@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from math import isnan
 from typing import Any
 
@@ -36,6 +36,20 @@ class FetchedFundamentals:
     institutional_ownership_pct: float | None
     next_earnings_date: date | None
     beta: float | None
+
+
+@dataclass(frozen=True)
+class FetchedAfterHoursQuote:
+    ticker: str
+    regular_price: float | None
+    after_hours_price: float | None
+    after_hours_change: float | None
+    after_hours_change_pct: float | None
+    currency: str
+    market_state: str
+    source: str
+    fetched_at: datetime
+    error_message: str = ""
 
 
 def fetch_daily_price_bars(
@@ -95,6 +109,65 @@ def fetch_daily_price_bars_batch(
         normalized = _normalize_download_frame(frame, symbol)
         result[symbol] = _bars_from_frame(normalized)
     return result
+
+
+def fetch_after_hours_quotes(symbols: list[str]) -> dict[str, FetchedAfterHoursQuote]:
+    """Fetch Yahoo quote data for portfolio after-hours display.
+
+    yfinance exposes Yahoo's quote fields through ``Ticker.get_info()``. The
+    important fields for this use case are ``postMarketPrice`` and the regular
+    market price. Missing post-market data is returned as an unavailable quote
+    instead of falling back silently to the regular close.
+    """
+    import yfinance as yf
+
+    clean_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()))
+    fetched_at = datetime.now(UTC)
+    quotes: dict[str, FetchedAfterHoursQuote] = {}
+    for symbol in clean_symbols:
+        try:
+            info = _safe_info(yf.Ticker(symbol))
+            regular_price = _first_float(
+                info,
+                "regularMarketPrice",
+                "currentPrice",
+                "regularMarketPreviousClose",
+                "previousClose",
+            )
+            after_price = _first_float(info, "postMarketPrice")
+            after_change = _first_float(info, "postMarketChange")
+            after_change_pct = _normalize_percent(_first_float(info, "postMarketChangePercent"))
+            if after_price is None and after_change is not None and regular_price is not None:
+                after_price = regular_price + after_change
+            if after_price is not None and regular_price is not None and regular_price > 0:
+                after_change = after_price - regular_price
+                after_change_pct = after_change / regular_price * 100
+            quotes[symbol] = FetchedAfterHoursQuote(
+                ticker=symbol,
+                regular_price=regular_price,
+                after_hours_price=after_price,
+                after_hours_change=after_change,
+                after_hours_change_pct=after_change_pct,
+                currency=str(info.get("currency") or "USD"),
+                market_state=str(info.get("marketState") or ""),
+                source="yfinance",
+                fetched_at=fetched_at,
+                error_message="" if after_price is not None else "Yahoo liefert aktuell keinen After-Market-Kurs.",
+            )
+        except Exception as exc:  # noqa: BLE001 - a single quote failure must not break the portfolio response
+            quotes[symbol] = FetchedAfterHoursQuote(
+                ticker=symbol,
+                regular_price=None,
+                after_hours_price=None,
+                after_hours_change=None,
+                after_hours_change_pct=None,
+                currency="USD",
+                market_state="",
+                source="yfinance",
+                fetched_at=fetched_at,
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+    return quotes
 
 
 def _download_kwargs(*, period: str, start: date | None, timeout: int) -> dict[str, Any]:
@@ -222,6 +295,21 @@ def _safe_info(ticker: Any) -> dict:
         except Exception:
             info = {}
     return info if isinstance(info, dict) else {}
+
+
+def _first_float(source: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = _float_or_none(source.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_percent(value: float | None) -> float | None:
+    if value is None:
+        return None
+    # Yahoo/yfinance has returned both 0.42 and 0.0042 style values over time.
+    return value * 100 if abs(value) <= 1 else value
 
 
 def _next_earnings_date(ticker: Any) -> date | None:

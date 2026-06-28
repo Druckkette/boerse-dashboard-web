@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.domain.market.ampel import TrendAmpelBar, compute_trend_ampel
+from app.services.market import _build_ampel_warning_checks
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "market" / "ampel"
@@ -166,6 +167,40 @@ def test_loss_gain_ratio_uses_last_ten_sessions() -> None:
     assert latest.loss_days_10d == 8
     assert latest.gain_days_10d == 2
     assert latest.loss_gain_ratio_10d == pytest.approx(4.0)
+
+
+def test_loss_gain_warning_activates_when_loss_days_outnumber_gain_days() -> None:
+    closes = [100, 101, 100, 99, 100, 99, 98, 99, 98, 97, 98]
+    bars = [
+        _bar(
+            index,
+            open_price=closes[index - 1] if index else closes[index],
+            close=float(close),
+            high=float(close) + 1.0,
+            low=float(close) - 1.0,
+            volume=1_000_000,
+        )
+        for index, close in enumerate(closes)
+    ]
+    points = compute_trend_ampel(bars)
+    latest = points[-1]
+
+    assert latest.loss_days_10d == 6
+    assert latest.gain_days_10d == 4
+
+    checks = _build_ampel_warning_checks(
+        points=points,
+        latest=latest,
+        intermarket=[],
+        defensive_lead=None,
+        defensive_spread_pct=None,
+        index_name="S&P 500",
+    )
+    check = next(item for item in checks if item.label == "Verlusttage/Gewinntage (10T)")
+
+    assert check.active_warning is True
+    assert check.passed is False
+    assert check.tone == "warning"
 
 
 def test_green_waits_for_full_ma_order_before_uptrend() -> None:

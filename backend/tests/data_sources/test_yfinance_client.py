@@ -4,7 +4,7 @@ from datetime import date
 
 import pandas as pd
 
-from app.data_sources.yfinance_client import fetch_daily_price_bars, fetch_daily_price_bars_batch
+from app.data_sources.yfinance_client import fetch_after_hours_quotes, fetch_daily_price_bars, fetch_daily_price_bars_batch
 
 
 def test_fetch_daily_price_bars_passes_explicit_timeout(monkeypatch) -> None:
@@ -105,3 +105,30 @@ def test_fetch_daily_price_bars_batch_does_not_reuse_other_symbol_data(monkeypat
 
     assert result["AAPL"][0].close == 101.0
     assert result["MSFT"] == []
+
+
+def test_fetch_after_hours_quotes_uses_post_market_price(monkeypatch) -> None:
+    import yfinance as yf
+
+    class FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            self.symbol = symbol
+
+        def get_info(self) -> dict:
+            return {
+                "regularMarketPrice": 100.0,
+                "postMarketPrice": 102.5,
+                "currency": "USD",
+                "marketState": "POST",
+            }
+
+    monkeypatch.setattr(yf, "Ticker", FakeTicker)
+
+    quotes = fetch_after_hours_quotes(["AAPL"])
+
+    quote = quotes["AAPL"]
+    assert quote.regular_price == 100.0
+    assert quote.after_hours_price == 102.5
+    assert quote.after_hours_change == 2.5
+    assert quote.after_hours_change_pct == 2.5
+    assert quote.market_state == "POST"

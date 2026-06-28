@@ -44,3 +44,13 @@ def test_sec13f_monthly_schedule_remains_as_backup() -> None:
 
     assert monthly["task"] == "refresh_sec13f"
     assert monthly["args"][1]["source"] == "scheduler"
+
+
+def test_position_atr_monitor_runs_every_five_minutes() -> None:
+    schedule = get_beat_schedule()
+
+    monitor = schedule["position-atr-monitor"]
+
+    assert monitor["task"] == "position_atr_monitor"
+    assert monitor["schedule"]._orig_minute == "*/5"
+    assert monitor["args"][1]["source"] == "scheduler"

@@ -9,6 +9,8 @@ from app.schemas import (
     BuyStrengthOverviewResponse,
     BuyStrengthSummaryItem,
     FreshnessResponse,
+    PortfolioAfterHoursPosition,
+    PortfolioAfterHoursResponse,
     PortfolioPosition,
     PortfolioPositionWriteResponse,
     ServiceFreshness,
@@ -823,6 +825,49 @@ def test_portfolio_stop_update_contract(monkeypatch) -> None:
     payload = response.json()
     assert payload["position"]["ticker"] == "NVDA"
     assert payload["position"]["stop_price"] == 118.5
+
+
+def test_portfolio_after_hours_contract(monkeypatch) -> None:
+    from app.api.v1 import portfolio as portfolio_api
+
+    def fake_after_hours() -> PortfolioAfterHoursResponse:
+        return PortfolioAfterHoursResponse(
+            as_of=datetime(2026, 6, 18, 20, 15, tzinfo=UTC),
+            currency="USD",
+            total_market_value=1000,
+            total_after_hours_change=25,
+            total_after_hours_change_pct=2.5,
+            available_count=1,
+            positions_count=1,
+            positions=[
+                PortfolioAfterHoursPosition(
+                    ticker="NVDA",
+                    name="NVIDIA",
+                    shares=5,
+                    regular_price=100,
+                    after_hours_price=105,
+                    after_hours_change=5,
+                    after_hours_change_pct=5,
+                    after_hours_value_change=25,
+                    market_value=500,
+                    market_state="POST",
+                    currency="USD",
+                    source="yfinance",
+                    available=True,
+                    error_message="",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(portfolio_api, "get_portfolio_after_hours", fake_after_hours)
+
+    response = client.post("/api/v1/portfolio/after-hours", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_after_hours_change"] == 25
+    assert payload["positions"][0]["ticker"] == "NVDA"
+    assert payload["positions"][0]["after_hours_price"] == 105
 
 
 def test_portfolio_import_history_contract() -> None:

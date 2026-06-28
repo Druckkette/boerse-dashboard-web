@@ -2430,13 +2430,13 @@ def _build_ampel_warning_checks(
         )
     )
     loss_gain_ratio = latest.loss_gain_ratio_10d or 0.0
-    loss_day_warning = loss_gain_ratio >= 3.0
-    loss_day_critical = loss_gain_ratio >= 4.0
+    loss_day_warning = latest.loss_days_10d > latest.gain_days_10d
+    loss_day_critical = loss_day_warning and loss_gain_ratio >= 2.0
     checks.append(
         _ampel_warning_check(
             "Verlusttage/Gewinntage (10T)",
             not loss_day_warning,
-            f"{latest.loss_days_10d} Verlusttage / {latest.gain_days_10d} Gewinntage · Verhältnis {loss_gain_ratio:.1f}:1",
+            f"{latest.loss_days_10d} Verlusttage / {latest.gain_days_10d} Gewinntage · Verhältnis {loss_gain_ratio:.1f}:1 · negativ sobald Verlusttage überwiegen",
             loss_day_warning,
             tone="bad" if loss_day_critical else "warning",
         )

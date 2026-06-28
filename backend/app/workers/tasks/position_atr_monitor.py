@@ -146,6 +146,8 @@ def _apply_cooldown_state(
             ticker_state[ticker] = decision["state_update"]
             alerts.append(decision["alert"])
         elif decision["suppression"] is not None:
+            if decision["state_update"] is not None:
+                ticker_state[ticker] = decision["state_update"]
             suppressed.append(decision["suppression"])
 
     summary = {
@@ -270,19 +272,40 @@ def _cooldown_decision(
 
     previous = ticker_state.get(ticker) if isinstance(ticker_state.get(ticker), dict) else {}
     previous_trade_day = str(previous.get("trade_day") or "")
+    previous_distance = _float_or_none(previous.get("last_distance_atr"))
+    previous_reference_price = _float_or_none(previous.get("reference_price"))
+    current_reference_price = _float_or_none(monitor.get("reference_price"))
     two_x_threshold = threshold_atr * 2
     is_two_x = distance_atr >= two_x_threshold
     previous_two_x = bool(previous.get("escalated_2x"))
     is_new_trade_day = previous_trade_day != trade_day
-    allowed = is_new_trade_day or (is_two_x and not previous_two_x)
-    reason = "new_trade_day" if is_new_trade_day else "2x_atr_escalation" if allowed else "cooldown_same_trade_day"
+    reference_changed = (
+        previous_reference_price is not None
+        and current_reference_price is not None
+        and abs(previous_reference_price - current_reference_price)
+        > max(0.01, abs(previous_reference_price) * 0.0001)
+    )
+    distance_deeper = previous_distance is None or distance_atr > previous_distance + 0.25
+    fresh_new_trade_day = is_new_trade_day and (not previous_trade_day or reference_changed or distance_deeper)
+    allowed = fresh_new_trade_day or (is_two_x and not previous_two_x)
+    reason = (
+        "new_trade_day"
+        if fresh_new_trade_day
+        else "2x_atr_escalation"
+        if allowed
+        else "new_trade_day_no_new_loss"
+        if is_new_trade_day
+        else "cooldown_same_trade_day"
+    )
 
     state_update = {
         "trade_day": trade_day,
-        "last_alert_at": now.isoformat(),
+        "last_alert_at": now.isoformat() if allowed else str(previous.get("last_alert_at") or ""),
         "last_distance_atr": distance_atr,
         "threshold_atr": threshold_atr,
         "reference": str(monitor.get("reference") or ""),
+        "reference_price": current_reference_price,
+        "current_price": _float_or_none(monitor.get("current_price")),
         "escalated_2x": is_two_x or previous_two_x,
     }
     monitor_update.update(
@@ -316,7 +339,7 @@ def _cooldown_decision(
     return {
         "allowed": False,
         "monitor_update": monitor_update,
-        "state_update": None,
+        "state_update": state_update if is_new_trade_day else None,
         "alert": None,
         "suppression": {
             **alert_payload,

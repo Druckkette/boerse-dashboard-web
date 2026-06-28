@@ -37,7 +37,7 @@ const fallbackSettings: AppSettings = {
   position_monitor_atr_period: 14,
   position_monitor_lookback_days: 420,
   position_monitor_cooldown_hours: 18,
-  position_monitor_reference: "high_since_buy",
+  position_monitor_reference: "previous_close",
   pushover_enabled: false,
   pushover_configured: false,
   rs_rating_source: "computed",
@@ -149,48 +149,7 @@ export function SettingsPanel() {
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">
           <SettingCard
-            description="Default-Werte für Positionsgrößen, Risiko-Ranking und den Stückzahl-Rechner."
-            title="Depot-Annahmen"
-            value={`${settings.risk_per_position_pct.toFixed(1)}% / ${settings.target_risk_contribution.toFixed(2)}`}
-          >
-            <div className="grid gap-3 md:grid-cols-2">
-              <NumberField
-                label="Max. Verlust je Idee %"
-                max={5}
-                min={0.1}
-                step={0.1}
-                value={settings.risk_per_position_pct}
-                onChange={(value) => updateNumber("risk_per_position_pct", value, 0.1, 5)}
-              />
-              <NumberField
-                label="Ziel Risikobeitrag"
-                max={0.5}
-                min={0.05}
-                step={0.01}
-                value={settings.target_risk_contribution}
-                onChange={(value) => updateNumber("target_risk_contribution", value, 0.05, 0.5, 0.01)}
-              />
-              <NumberField
-                label="Untergrenze Max.-Depotverlust %"
-                max={30}
-                min={1}
-                step={0.5}
-                value={settings.max_depot_loss_lower_pct}
-                onChange={(value) => updateNumber("max_depot_loss_lower_pct", value, 1, 30, 0.5)}
-              />
-              <NumberField
-                label="Obergrenze Max.-Depotverlust %"
-                max={30}
-                min={1}
-                step={0.5}
-                value={settings.max_depot_loss_upper_pct}
-                onChange={(value) => updateNumber("max_depot_loss_upper_pct", value, 1, 30, 0.5)}
-              />
-            </div>
-          </SettingCard>
-
-          <SettingCard
-            description="Positionsmonitor läuft im Worker/Scheduler. Kleine Änderungen speichern debounced und blockieren die UI nicht."
+            description="Positionsmonitor läuft im Worker/Scheduler. Der Scheduler prüft alle 5 Minuten und nutzt im Worker Live-Kurse, damit ATR-Verlustmeldungen nicht bis zum Tagescache warten."
             title="Positionsmonitor"
             value={settings.position_monitor_enabled ? "aktiv" : "aus"}
           >
@@ -224,16 +183,10 @@ export function SettingsPanel() {
               <p className="rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-xs leading-5 text-[#a0a7b4] md:col-span-2">
                 Bei Vortagesschluss wird nur der ATR-Verlust unter dem vorherigen Handelstagesschluss
                 bewertet. Der Cooldown wird an einem neuen Handelstag ab 07:30 Uhr deutscher Zeit
-                zurückgesetzt; am selben Tag eskaliert der Monitor erneut bei 2x ATR-Schwelle.
+                nur dann erneut ausgelöst, wenn die Referenz oder der Verlust wirklich neu ist.
+                Am selben Tag eskaliert der Monitor erneut bei 2x ATR-Schwelle.
+                Der Scheduler prüft fest alle 5 Minuten.
               </p>
-              <NumberField
-                label="Intervall Minuten"
-                max={240}
-                min={1}
-                step={1}
-                value={settings.position_monitor_interval_minutes}
-                onChange={(value) => updateNumber("position_monitor_interval_minutes", value, 1, 240, 1)}
-              />
               <NumberField
                 label="ATR Schwelle"
                 max={10}
@@ -338,9 +291,7 @@ export function SettingsPanel() {
             <h2 className="text-base font-semibold">Runtime Status</h2>
             <div className="mt-4 space-y-3 text-sm">
               <InfoRow label="Monitor" value={settings.position_monitor_enabled ? "aktiv" : "aus"} tone={settings.position_monitor_enabled ? "good" : "neutral"} />
-              <InfoRow label="Max. Verlust / Idee" value={`${settings.risk_per_position_pct.toFixed(1)}%`} />
-              <InfoRow label="Ziel Risikobeitrag" value={settings.target_risk_contribution.toFixed(2)} />
-              <InfoRow label="Intervall" value={`${settings.position_monitor_interval_minutes} min`} />
+              <InfoRow label="Scheduler-Takt" value="5 min" />
               <InfoRow label="ATR Schwelle" value={`${settings.position_monitor_threshold_atr.toFixed(1)} ATR`} />
               <InfoRow label="RS Quelle" value={settings.rs_rating_source} />
               <InfoRow label="Pushover" value={settings.pushover_configured ? "konfiguriert" : "nicht konfiguriert"} tone={settings.pushover_configured ? "good" : "neutral"} />

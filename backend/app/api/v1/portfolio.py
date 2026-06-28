@@ -8,6 +8,7 @@ from app.schemas import (
     BuyStrengthOverviewResponse,
     IsinMappingListResponse,
     IsinMappingPatchRequest,
+    PortfolioAfterHoursResponse,
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
     PortfolioCashFlowsResponse,
@@ -39,6 +40,7 @@ from app.services.portfolio import (
     get_portfolio_curve,
     get_portfolio_import_history,
     get_isin_mappings,
+    get_portfolio_after_hours,
     get_portfolio_positions,
     get_portfolio_snapshot,
     get_portfolio_transactions,
@@ -115,6 +117,11 @@ def sell_position(ticker: str, payload: PortfolioSellRequest) -> PortfolioSellRe
 @router.get("/snapshot", response_model=PortfolioSnapshotResponse)
 def snapshot() -> PortfolioSnapshotResponse:
     return get_portfolio_snapshot()
+
+
+@router.post("/after-hours", response_model=PortfolioAfterHoursResponse)
+def after_hours() -> PortfolioAfterHoursResponse:
+    return get_portfolio_after_hours()
 
 
 @router.get("/curve", response_model=PortfolioCurveResponse)

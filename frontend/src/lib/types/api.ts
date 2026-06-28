@@ -480,6 +480,34 @@ export type PortfolioPosition = {
   note: string;
 };
 
+export type PortfolioAfterHoursPosition = {
+  ticker: string;
+  name: string;
+  shares: number;
+  regular_price?: number | null;
+  after_hours_price?: number | null;
+  after_hours_change?: number | null;
+  after_hours_change_pct?: number | null;
+  after_hours_value_change?: number | null;
+  market_value: number;
+  market_state: string;
+  currency: string;
+  source: string;
+  available: boolean;
+  error_message: string;
+};
+
+export type PortfolioAfterHours = {
+  as_of: string;
+  currency: string;
+  total_market_value: number;
+  total_after_hours_change: number;
+  total_after_hours_change_pct: number;
+  available_count: number;
+  positions_count: number;
+  positions: PortfolioAfterHoursPosition[];
+};
+
 export type PortfolioSnapshot = {
   as_of: string;
   total_value: number;

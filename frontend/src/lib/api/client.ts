@@ -22,6 +22,7 @@ import type {
   PriceRefresh,
   PortfolioCashFlow,
   PortfolioCashFlowRequest,
+  PortfolioAfterHours,
   PortfolioCurve,
   PortfolioImportHistoryItem,
   PortfolioImportRequest,
@@ -208,6 +209,7 @@ export const api = {
     return payload.positions;
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
+  portfolioAfterHours: () => postJson<PortfolioAfterHours>("/portfolio/after-hours", {}),
   portfolioCurve: (options?: { days?: number; startDate?: string }) => {
     const params = new URLSearchParams();
     if (options?.days) params.set("days", String(options.days));

@@ -7,6 +7,7 @@ from io import StringIO
 
 import pandas as pd
 
+from app.data_sources.yfinance_client import fetch_after_hours_quotes
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.repositories import fundamentals as fundamentals_repository
@@ -36,6 +37,8 @@ from app.schemas import (
     IsinMappingListResponse,
     IsinMappingPatchRequest,
     KpiCard,
+    PortfolioAfterHoursPosition,
+    PortfolioAfterHoursResponse,
     PortfolioCashFlow,
     PortfolioCashFlowRequest,
     PortfolioCashFlowResponse,
@@ -236,6 +239,66 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         max_depot_loss_available=max_depot_loss_available,
         max_depot_loss_pct=max_depot_loss_pct,
         kpis=kpis,
+        positions=positions,
+    )
+
+
+def get_portfolio_after_hours() -> PortfolioAfterHoursResponse:
+    try:
+        rows = portfolio_repository.list_open_positions()
+    except PortfolioRepositoryUnavailable:
+        rows = []
+    rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
+    tickers = [row.ticker for row in rows]
+    quotes = fetch_after_hours_quotes(tickers)
+    positions: list[PortfolioAfterHoursPosition] = []
+    total_market_value = 0.0
+    total_after_hours_change = 0.0
+    available_count = 0
+
+    for row in rows:
+        quote = quotes.get(row.ticker)
+        regular_price = quote.regular_price if quote and quote.regular_price is not None else row.current_price
+        market_value = regular_price * row.shares if regular_price else row.current_price * row.shares
+        total_market_value += market_value
+        after_price = quote.after_hours_price if quote else None
+        available = quote is not None and after_price is not None and regular_price is not None and regular_price > 0
+        after_change = after_price - regular_price if available and after_price is not None and regular_price is not None else None
+        after_change_pct = after_change / regular_price * 100 if after_change is not None and regular_price else None
+        after_value_change = after_change * row.shares if after_change is not None else None
+        if after_value_change is not None:
+            total_after_hours_change += after_value_change
+            available_count += 1
+        positions.append(
+            PortfolioAfterHoursPosition(
+                ticker=row.ticker,
+                name=row.name,
+                shares=row.shares,
+                regular_price=round(regular_price, 4) if regular_price is not None else None,
+                after_hours_price=round(after_price, 4) if after_price is not None else None,
+                after_hours_change=round(after_change, 4) if after_change is not None else None,
+                after_hours_change_pct=round(after_change_pct, 3) if after_change_pct is not None else None,
+                after_hours_value_change=round(after_value_change, 2) if after_value_change is not None else None,
+                market_value=round(market_value, 2),
+                market_state=quote.market_state if quote else "",
+                currency="USD",
+                source=quote.source if quote else "yfinance",
+                available=available,
+                error_message=quote.error_message if quote else "Kein Yahoo-Quote geladen.",
+            )
+        )
+
+    total_after_hours_change_pct = (
+        total_after_hours_change / total_market_value * 100 if total_market_value else 0.0
+    )
+    return PortfolioAfterHoursResponse(
+        as_of=datetime.now(UTC),
+        currency="USD",
+        total_market_value=round(total_market_value, 2),
+        total_after_hours_change=round(total_after_hours_change, 2),
+        total_after_hours_change_pct=round(total_after_hours_change_pct, 3),
+        available_count=available_count,
+        positions_count=len(positions),
         positions=positions,
     )
 

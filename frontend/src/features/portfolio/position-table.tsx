@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { PortfolioPosition } from "@/lib/types/api";
+import type { PortfolioAfterHoursPosition, PortfolioPosition } from "@/lib/types/api";
 
 const statusTone: Record<PortfolioPosition["status"], "good" | "neutral" | "warning" | "bad"> = {
   ok: "good",
@@ -25,9 +25,16 @@ const statusTone: Record<PortfolioPosition["status"], "good" | "neutral" | "warn
   sell: "bad"
 };
 
-export function PositionTable({ positions }: { positions: PortfolioPosition[] }) {
+export function PositionTable({
+  positions,
+  afterHoursByTicker
+}: {
+  positions: PortfolioPosition[];
+  afterHoursByTicker?: Map<string, PortfolioAfterHoursPosition>;
+}) {
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([{ id: "market_value", desc: true }]);
+  const showAfterHours = Boolean(afterHoursByTicker?.size);
   const columns = useMemo<ColumnDef<PortfolioPosition>[]>(
     () => [
       {
@@ -51,6 +58,48 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         cell: ({ row, getValue }) =>
           `${Number(getValue()).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${row.original.currency}`
       },
+      ...(showAfterHours
+        ? [
+            {
+              id: "after_hours",
+              header: "After Hours",
+              cell: ({ row }) => {
+                const quote = afterHoursByTicker?.get(row.original.ticker);
+                if (!quote) return <span className="text-[#a0a7b4]">nicht geladen</span>;
+                if (!quote.available || typeof quote.after_hours_price !== "number") {
+                  return (
+                    <div>
+                      <div className="text-[#a0a7b4]">n/a</div>
+                      {quote.error_message ? (
+                        <div className="max-w-40 truncate text-xs text-[#687386]" title={quote.error_message}>
+                          {quote.error_message}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }
+                const pct = quote.after_hours_change_pct ?? 0;
+                const change = quote.after_hours_change ?? 0;
+                return (
+                  <div className={pct >= 0 ? "text-emerald-300" : "text-rose-300"}>
+                    <div className="font-medium tabular-nums">
+                      {quote.after_hours_price.toLocaleString("de-DE", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      })}{" "}
+                      {quote.currency}
+                    </div>
+                    <div className="text-xs tabular-nums">
+                      {pct >= 0 ? "+" : ""}
+                      {pct.toFixed(2)}% · {change >= 0 ? "+" : ""}
+                      {change.toFixed(2)}
+                    </div>
+                  </div>
+                );
+              }
+            } satisfies ColumnDef<PortfolioPosition>
+          ]
+        : []),
       {
         accessorKey: "pnl_pct",
         header: "P&L",
@@ -129,7 +178,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
         )
       }
     ],
-    []
+    [afterHoursByTicker, showAfterHours]
   );
 
   // TanStack Table intentionally returns function-heavy table instances.
@@ -182,7 +231,7 @@ export function PositionTable({ positions }: { positions: PortfolioPosition[] })
   return (
     <div className="overflow-hidden rounded border border-[#2d333d] bg-[#171a20]">
       <div ref={scrollParentRef} className="max-h-[460px] overflow-auto">
-        <table className="w-full min-w-[1240px] border-collapse text-sm">
+        <table className="w-full min-w-[1360px] border-collapse text-sm">
           <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>

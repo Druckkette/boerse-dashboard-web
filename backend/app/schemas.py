@@ -883,6 +883,34 @@ class PortfolioPositionsResponse(BaseModel):
     positions: list[PortfolioPosition]
 
 
+class PortfolioAfterHoursPosition(BaseModel):
+    ticker: str
+    name: str = ""
+    shares: float
+    regular_price: float | None = None
+    after_hours_price: float | None = None
+    after_hours_change: float | None = None
+    after_hours_change_pct: float | None = None
+    after_hours_value_change: float | None = None
+    market_value: float
+    market_state: str = ""
+    currency: str = "USD"
+    source: str = "yfinance"
+    available: bool = False
+    error_message: str = ""
+
+
+class PortfolioAfterHoursResponse(BaseModel):
+    as_of: datetime
+    currency: str = "USD"
+    total_market_value: float
+    total_after_hours_change: float
+    total_after_hours_change_pct: float
+    available_count: int
+    positions_count: int
+    positions: list[PortfolioAfterHoursPosition]
+
+
 class PortfolioPositionWriteRequest(BaseModel):
     ticker: str
     name: str = ""
@@ -1466,7 +1494,7 @@ class AppSettings(BaseModel):
     position_monitor_atr_period: int = 14
     position_monitor_lookback_days: int = 420
     position_monitor_cooldown_hours: int = 18
-    position_monitor_reference: Literal["high_since_buy", "close_since_buy", "entry_price", "previous_close"] = "high_since_buy"
+    position_monitor_reference: Literal["high_since_buy", "close_since_buy", "entry_price", "previous_close"] = "previous_close"
     pushover_enabled: bool = False
     pushover_configured: bool = False
     rs_rating_source: Literal["csv_latest", "computed"]

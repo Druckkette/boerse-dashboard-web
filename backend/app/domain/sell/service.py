@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.data_sources.yfinance_client import FetchedAfterHoursQuote, fetch_after_hours_quotes
 from app.domain.sell.metrics import build_sell_decision_metrics_payload
 from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision, normalize_sell_setup_payload
 from app.domain.sell.schemas import (
@@ -293,6 +294,7 @@ def monitor_open_positions(
 
     items: list[dict[str, Any]] = []
     ranking_items: list[SellPositionRankingItem] = []
+    live_quotes = _position_monitor_live_quotes(portfolio_rows)
     for row in portfolio_rows:
         metrics_request = _metrics_request_from_portfolio_row(row)
         metrics = get_sell_metrics_for_position(row.ticker, metrics_request)
@@ -306,7 +308,15 @@ def monitor_open_positions(
         atr_pct = None
         if metrics.atr14 is not None and metrics.current_price:
             atr_pct = metrics.atr14 / metrics.current_price * 100
-        monitor_state = _monitor_state_from_metrics(row, metrics, settings)
+        quote = live_quotes.get(_clean_ticker(row.ticker))
+        live_price = _position_monitor_live_price(quote)
+        monitor_state = _monitor_state_from_metrics(
+            row,
+            metrics,
+            settings,
+            current_price_override=live_price,
+            current_price_source="yfinance_live" if live_price is not None else "price_cache",
+        )
         ranking_items.append(
             SellPositionRankingItem(
                 ticker=row.ticker,
@@ -422,6 +432,9 @@ def _monitor_state_from_metrics(
     row: PortfolioPositionRow,
     metrics: SellMetricsApiResponse,
     settings: dict[str, Any],
+    *,
+    current_price_override: float | None = None,
+    current_price_source: str = "price_cache",
 ) -> dict[str, Any]:
     atr_period = int(_finite_float(settings.get("position_monitor_atr_period"), 14) or 14)
     threshold_atr = float(_finite_float(settings.get("position_monitor_threshold_atr"), 1.5) or 1.5)
@@ -431,15 +444,15 @@ def _monitor_state_from_metrics(
         reference_mode = "high_since_buy"
 
     daily_frame = metrics.raw_payload.ohlc_frames.get("daily_since_buy")
+    current_price = _finite_float(current_price_override, metrics.current_price)
     reference_price = _monitor_reference_price(
         daily_frame=daily_frame,
         row=row,
-        current_price=metrics.current_price,
+        current_price=current_price,
         reference_mode=reference_mode,
         lookback_days=lookback_days,
     )
     atr_value = _monitor_atr(daily_frame, atr_period) or metrics.atr14
-    current_price = _finite_float(metrics.current_price)
     distance_atr = None
     threshold_crossed = False
     if reference_price is not None and atr_value is not None and atr_value > 0 and current_price is not None:
@@ -452,6 +465,7 @@ def _monitor_state_from_metrics(
         "reference_label": _POSITION_MONITOR_REFERENCE_LABELS.get(reference_mode, reference_mode),
         "reference_price": _round_metric(reference_price),
         "current_price": _round_metric(current_price),
+        "current_price_source": current_price_source,
         "atr_period": atr_period,
         "atr_value": _round_metric(atr_value),
         "threshold_atr": threshold_atr,
@@ -459,6 +473,22 @@ def _monitor_state_from_metrics(
         "threshold_crossed": threshold_crossed,
         "cooldown_hours": int(_finite_float(settings.get("position_monitor_cooldown_hours"), 18) or 18),
     }
+
+
+def _position_monitor_live_quotes(rows: list[PortfolioPositionRow]) -> dict[str, FetchedAfterHoursQuote]:
+    symbols = [_clean_ticker(row.ticker) for row in rows if _clean_ticker(row.ticker)]
+    if not symbols:
+        return {}
+    try:
+        return fetch_after_hours_quotes(symbols)
+    except Exception:
+        return {}
+
+
+def _position_monitor_live_price(quote: FetchedAfterHoursQuote | None) -> float | None:
+    if quote is None:
+        return None
+    return _finite_float(quote.after_hours_price, quote.regular_price)
 
 
 def _strategy_hub(signals: list[SellSignal]) -> list[SellStrategyDiagnostic]:
