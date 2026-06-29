@@ -241,6 +241,57 @@ def test_failing_rally_detail_uses_recovered_drop_share_not_price_gain() -> None
     assert "aktueller Abstand zum Hoch -6.4%" in check.detail
 
 
+def test_recovery_ratio_check_is_present_without_relevant_correction() -> None:
+    points = compute_trend_ampel(_rising_bars(70, start=100.0, step=0.2))
+
+    checks = _build_ampel_warning_checks(
+        points=points,
+        latest=points[-1],
+        intermarket=[],
+        defensive_lead=None,
+        defensive_spread_pct=None,
+        index_name="S&P 500",
+    )
+    check = next(item for item in checks if item.label == "Erholungsquote >=50%")
+
+    assert check.active_warning is False
+    assert check.passed is True
+    assert check.tone == "neutral"
+    assert "nicht anwendbar" in check.detail
+
+
+def test_recovery_ratio_check_is_present_below_correction_threshold() -> None:
+    closes = [80 + index * (20 / 30) for index in range(31)]
+    closes.extend([99.0, 98.0, 96.0, 97.0, 98.0])
+    bars = [
+        _bar(
+            index,
+            open_price=closes[index - 1] if index else closes[index],
+            close=float(close),
+            high=float(close) + 1.0,
+            low=float(close) - 1.0,
+            volume=1_000_000,
+        )
+        for index, close in enumerate(closes)
+    ]
+    points = compute_trend_ampel(bars)
+
+    checks = _build_ampel_warning_checks(
+        points=points,
+        latest=points[-1],
+        intermarket=[],
+        defensive_lead=None,
+        defensive_spread_pct=None,
+        index_name="Nasdaq",
+    )
+    check = next(item for item in checks if item.label == "Erholungsquote >=50%")
+
+    assert check.active_warning is False
+    assert check.passed is True
+    assert check.tone == "neutral"
+    assert "unter der Prüfschwelle von 5%" in check.detail
+
+
 def test_green_waits_for_full_ma_order_before_uptrend() -> None:
     points = compute_trend_ampel(_green_without_full_ma_order_bars())
     latest = points[-1]

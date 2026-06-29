@@ -2509,7 +2509,30 @@ def _build_ampel_warning_checks(
             )
         )
     failing_rally = _detect_failing_rally(points)
-    if failing_rally is not None and failing_rally.drop_from_high_pct > 5:
+    if failing_rally is None:
+        checks.append(
+            MarketAmpelWarningCheck(
+                label="Erholungsquote >=50%",
+                passed=True,
+                detail="Keine relevante Korrektur im 60T-Fenster erkannt; Erholungsquote aktuell nicht anwendbar.",
+                active_warning=False,
+                tone="neutral",
+            )
+        )
+    elif failing_rally.drop_from_high_pct <= 5:
+        checks.append(
+            MarketAmpelWarningCheck(
+                label="Erholungsquote >=50%",
+                passed=True,
+                detail=(
+                    f"Rückgang vom Hoch {failing_rally.drop_from_high_pct:.1f}% "
+                    "liegt unter der Prüfschwelle von 5%; Erholungsquote aktuell nicht kritisch."
+                ),
+                active_warning=False,
+                tone="neutral",
+            )
+        )
+    else:
         weak_recovery = failing_rally.recovered_drop_pct < 50
         checks.append(
             _ampel_warning_check(
