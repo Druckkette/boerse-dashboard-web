@@ -731,6 +731,8 @@ def import_trade_republic_transactions(
             db.add(import_batch)
             db.flush()
 
+            imported_tickers = {item.ticker.upper().strip() for item in positions if item.ticker.strip()}
+
             for isin, ticker in mappings.items():
                 clean_isin = str(isin or "").upper().strip()
                 clean_ticker = str(ticker or "").upper().strip()
@@ -759,7 +761,10 @@ def import_trade_republic_transactions(
                     row.confidence = 1.0
 
             if replace_open_positions:
-                for position in db.scalars(select(Position).where(Position.is_open.is_(True))).all():
+                stale_query = select(Position).where(Position.is_open.is_(True))
+                if imported_tickers:
+                    stale_query = stale_query.where(Position.ticker.not_in(imported_tickers))
+                for position in db.scalars(stale_query).all():
                     position.is_open = False
                     position.closed_at = datetime.now(UTC)
 

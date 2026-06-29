@@ -80,6 +80,27 @@ def test_portfolio_import_uses_repository_on_save(monkeypatch: pytest.MonkeyPatc
     assert captured["rows"][0].ticker == "AAPL"
 
 
+def test_portfolio_import_defaults_to_sync_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    def fake_upsert(rows, *, source: str, file_name: str, replace_open_positions: bool):
+        captured["replace_open_positions"] = replace_open_positions
+        return PortfolioImportResult(import_id="import-default-sync", rows_imported=len(rows))
+
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "upsert_imported_positions", fake_upsert)
+
+    result = portfolio_service.import_portfolio_positions(
+        PortfolioImportRequest(
+            file_name="website-upload.csv",
+            content="Ticker,Shares,Entry_Price\nAAPL,3,100\n",
+            dry_run=False,
+        )
+    )
+
+    assert result.ok is True
+    assert captured["replace_open_positions"] is True
+
+
 def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
         PortfolioPositionRow(
@@ -341,6 +362,61 @@ def test_trade_republic_import_save_calls_repository_with_transactions(monkeypat
     assert captured["replace_open_positions"] is True
     assert {position.ticker for position in captured["positions"]} == {"APP", "VRT", "ARKK.L"}
     assert captured["mappings"]["US03831W1080"] == "APP"
+
+
+def test_trade_republic_import_defaults_to_sync_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    def fake_import(*, transactions, positions, mappings, file_name: str, replace_open_positions: bool):
+        captured["replace_open_positions"] = replace_open_positions
+        return TradeRepublicImportResult(
+            import_id="tr-import-default-sync",
+            rows_imported=len(positions),
+            transactions_imported=len(transactions),
+        )
+
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "import_trade_republic_transactions", fake_import)
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name="tr-export.csv",
+            content=(FIXTURE_DIR / "trade_republic_reference_sample.csv").read_text(),
+            dry_run=False,
+        )
+    )
+
+    assert result.ok is True
+    assert captured["replace_open_positions"] is True
+
+
+def test_trade_republic_sync_save_requires_open_position_mappings(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    def fake_import(**kwargs):
+        nonlocal called
+        called = True
+        return TradeRepublicImportResult(import_id="should-not-save", rows_imported=0, transactions_imported=0)
+
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_isin_mappings", lambda: {})
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "import_trade_republic_transactions", fake_import)
+    content = (
+        "date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax\n"
+        "2025-01-02,2025-01-02T10:00:00Z,BUY,STOCK,Unknown Corp,US0000000000,10,100,USD,-1000,0,0\n"
+    )
+
+    result = portfolio_service.import_trade_republic_transaction_export(
+        TradeRepublicTransactionImportRequest(
+            file_name="tr-missing-mapping.csv",
+            content=content,
+            dry_run=False,
+            replace_open_positions=True,
+        )
+    )
+
+    assert result.ok is False
+    assert called is False
+    assert "US0000000000" in result.errors[0]
 
 
 def test_trade_republic_import_converts_eur_prices_to_usd(monkeypatch: pytest.MonkeyPatch) -> None:

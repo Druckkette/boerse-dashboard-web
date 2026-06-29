@@ -1043,7 +1043,7 @@ class PortfolioImportRequest(BaseModel):
     file_name: str = "positions.csv"
     content: str
     dry_run: bool = True
-    replace_open_positions: bool = False
+    replace_open_positions: bool = True
 
 
 class PortfolioImportResponse(BaseModel):
@@ -1077,7 +1077,7 @@ class TradeRepublicTransactionImportRequest(BaseModel):
     file_name: str = "trade-republic-transactions.csv"
     content: str
     dry_run: bool = True
-    replace_open_positions: bool = False
+    replace_open_positions: bool = True
     isin_overrides: dict[str, str] = Field(default_factory=dict)
 
 

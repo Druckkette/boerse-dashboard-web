@@ -1658,6 +1658,24 @@ def import_trade_republic_transaction_export(
             f"TR-EUR-Preise wurden automatisch mit EUR/USD {fx_rate.rate:.4f} ({fx_rate.source}, {fx_rate.as_of.isoformat()}) in USD umgerechnet."
         )
 
+    if payload.replace_open_positions and missing_mappings and not payload.dry_run:
+        return TradeRepublicTransactionImportResponse(
+            ok=False,
+            dry_run=False,
+            rows_total=len(rows),
+            rows_imported=0,
+            transactions_total=len(rows),
+            cash_balance_estimate=estimate_cash_balance(rows),
+            positions=positions,
+            mappings=mappings,
+            skipped_positions=skipped_positions,
+            warnings=warnings,
+            errors=[
+                "Synchronisierender TR-Import wurde abgebrochen, weil offene Positionen ohne Yahoo-Ticker erkannt wurden: "
+                + ", ".join(missing_mappings)
+            ],
+        )
+
     if payload.dry_run:
         return TradeRepublicTransactionImportResponse(
             ok=True,

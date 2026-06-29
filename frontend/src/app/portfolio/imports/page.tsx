@@ -27,7 +27,7 @@ export default function PortfolioImportsPage() {
   const queryClient = useQueryClient();
   const [fileName, setFileName] = useState("");
   const [content, setContent] = useState("");
-  const [replaceOpenPositions, setReplaceOpenPositions] = useState(false);
+  const [replaceOpenPositions, setReplaceOpenPositions] = useState(true);
   const [dragActive, setDragActive] = useState(false);
   const [lastResult, setLastResult] = useState<PortfolioImportResponse | null>(null);
 
@@ -163,7 +163,12 @@ export default function PortfolioImportsPage() {
           </label>
 
           <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm">
-            <span>Offene Positionen ersetzen, die nicht in der CSV stehen</span>
+            <span>
+              <span className="block font-medium">Depotbestand synchronisieren</span>
+              <span className="mt-1 block text-xs leading-5 text-[#a0a7b4]">
+                Aktiv: offene Positionen, die nicht in der CSV stehen, werden geschlossen.
+              </span>
+            </span>
             <input
               checked={replaceOpenPositions}
               className="size-4 accent-emerald-300"
@@ -267,7 +272,7 @@ function TradeRepublicTransactionImportPanel() {
   const queryClient = useQueryClient();
   const [fileName, setFileName] = useState("");
   const [content, setContent] = useState("");
-  const [replaceOpenPositions, setReplaceOpenPositions] = useState(false);
+  const [replaceOpenPositions, setReplaceOpenPositions] = useState(true);
   const [dragActive, setDragActive] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [lastResult, setLastResult] = useState<TradeRepublicTransactionImportResponse | null>(null);
@@ -334,7 +339,13 @@ function TradeRepublicTransactionImportPanel() {
 
   const result = lastResult;
   const missingMappingCount = result?.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length ?? 0;
-  const canSave = Boolean(result?.ok && result.dry_run && result.transactions_total > 0 && content.trim());
+  const canSave = Boolean(
+    result?.ok &&
+      result.dry_run &&
+      result.transactions_total > 0 &&
+      content.trim() &&
+      !(replaceOpenPositions && missingMappingCount > 0)
+  );
   const saveHint = !result
     ? "CSV hochladen oder einfügen. Nach Upload wird automatisch geprüft."
     : !result.ok
@@ -343,9 +354,13 @@ function TradeRepublicTransactionImportPanel() {
         ? "Dieser Import wurde bereits gespeichert."
         : result.transactions_total === 0
           ? "Keine Buchungen erkannt."
-          : missingMappingCount > 0
-            ? `${missingMappingCount} ISINs ohne Yahoo-Ticker. Speichern ist möglich; diese offenen Positionen werden übersprungen, bis die Zuordnung ergänzt ist.`
-            : "Speichert Transaktionen, Cashflows, ISIN-Zuordnungen und rekonstruierte offene Positionen.";
+          : missingMappingCount > 0 && replaceOpenPositions
+            ? `${missingMappingCount} offene ISINs ohne Yahoo-Ticker. Bitte Zuordnung ergänzen, damit der Depotbestand sicher synchronisiert werden kann.`
+            : missingMappingCount > 0
+              ? `${missingMappingCount} ISINs ohne Yahoo-Ticker. Speichern ist im Anhänge-Modus möglich; diese offenen Positionen werden übersprungen, bis die Zuordnung ergänzt ist.`
+              : replaceOpenPositions
+                ? "Synchronisiert dein Depot: nicht mehr enthaltene offene Positionen werden geschlossen, vorhandene Positionen aktualisiert."
+                : "Anhänge-Modus: neue/erkannte Positionen werden aktualisiert, nicht mehr enthaltene Positionen bleiben offen.";
   const cashLabel = result
     ? result.cash_balance_estimate.toLocaleString("de-DE", { maximumFractionDigits: 2, style: "currency", currency: "EUR" })
     : "-";
@@ -410,7 +425,12 @@ function TradeRepublicTransactionImportPanel() {
           </label>
 
           <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm">
-            <span>Offene Positionen vor TR-Import ersetzen</span>
+            <span>
+              <span className="block font-medium">Depotbestand synchronisieren</span>
+              <span className="mt-1 block text-xs leading-5 text-[#a0a7b4]">
+                Aktiv: Positionen, die im neuen TR-Export nicht mehr offen sind, werden geschlossen.
+              </span>
+            </span>
             <input
               checked={replaceOpenPositions}
               className="size-4 accent-emerald-300"
