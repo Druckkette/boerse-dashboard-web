@@ -196,6 +196,7 @@ export function MarketAmpelPanel({
         chartMode="candlestick"
         volumeKey="volume"
         markers={data.chart_markers}
+        showHorizontalGrid={false}
         levels={[
           ...(data.cycle.floor_mark ? [{ key: "floor", label: "Bodenmarke", value: data.cycle.floor_mark, color: "#f87171" }] : []),
           ...(data.cycle.startschuss_low

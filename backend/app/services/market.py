@@ -2614,7 +2614,7 @@ def _ampel_chart_markers(
                 MarketAmpelChartMarker(
                     key=f"dist-{point.date}",
                     date=point.date,
-                    label="Dist.",
+                    label="Distributionstag",
                     value=point.close,
                     color="#111827",
                 )
@@ -2629,16 +2629,6 @@ def _ampel_chart_markers(
                     color="#fbbf24",
                 )
             )
-    if floor_mark is not None and latest.phase == "rot":
-        markers.append(
-            MarketAmpelChartMarker(
-                key="floor",
-                date=latest.date,
-                label=f"Floor {_format_number(floor_mark)}",
-                value=floor_mark,
-                color="#f87171",
-            )
-        )
     return markers[-8:]
 
 

@@ -47,6 +47,7 @@ type LineChartCardProps = {
   statusLabel?: string;
   statusTone?: "good" | "neutral" | "warning" | "bad";
   dateTickMode?: "ends" | "weekly";
+  showHorizontalGrid?: boolean;
   isLoading?: boolean;
   error?: unknown;
   hideTextHeader?: boolean;
@@ -86,6 +87,7 @@ export function LineChartCard({
   statusLabel,
   statusTone = "neutral",
   dateTickMode = "ends",
+  showHorizontalGrid = true,
   isLoading,
   error,
   hideTextHeader = false
@@ -169,6 +171,7 @@ export function LineChartCard({
   const minWindow = Math.min(MIN_VISIBLE_POINTS, points.length);
   const canZoomIn = points.length > 1 && currentWindow > minWindow;
   const canZoomOut = points.length > 1 && currentWindow < points.length;
+  const hasDistributionMarkers = markers.some(isDistributionMarker);
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     if (points.length <= 1) return;
@@ -309,18 +312,19 @@ export function LineChartCard({
         {!isLoading && !hasError && !empty && (
           <svg className="size-full" preserveAspectRatio="none" role="img" viewBox={`0 0 ${WIDTH} ${HEIGHT}`}>
             <rect fill="#ffffff" height={HEIGHT} width={WIDTH} />
-            {[0.2, 0.4, 0.6, 0.8].map((ratio) => (
-              <line
-                key={ratio}
-                stroke="#d9dee8"
-                strokeDasharray="4 8"
-                strokeWidth="1"
-                x1={PAD_X}
-                x2={WIDTH - PAD_X}
-                y1={PAD_TOP + ratio * (priceBottom - PAD_TOP)}
-                y2={PAD_TOP + ratio * (priceBottom - PAD_TOP)}
-              />
-            ))}
+            {showHorizontalGrid &&
+              [0.2, 0.4, 0.6, 0.8].map((ratio) => (
+                <line
+                  key={ratio}
+                  stroke="#d9dee8"
+                  strokeDasharray="4 8"
+                  strokeWidth="1"
+                  x1={PAD_X}
+                  x2={WIDTH - PAD_X}
+                  y1={PAD_TOP + ratio * (priceBottom - PAD_TOP)}
+                  y2={PAD_TOP + ratio * (priceBottom - PAD_TOP)}
+                />
+              ))}
             {volumeKey && maxVolume > 0 && (
               <g opacity="0.24">
                 {visiblePoints.map((point, index) => {
@@ -426,23 +430,28 @@ export function LineChartCard({
               if (markerValue === null) return null;
               const x = xForIndex(markerIndex, visiblePoints.length);
               const y = yForValue(markerValue, yMin, yMax, PAD_TOP, priceBottom);
+              const distributionMarker = isDistributionMarker(marker);
               return (
                 <g key={marker.key}>
                   <line
-                    opacity="0.55"
+                    opacity={distributionMarker ? "0.5" : "0.55"}
                     stroke={marker.color}
-                    strokeDasharray="3 7"
-                    strokeWidth="1.5"
+                    strokeDasharray={distributionMarker ? "4 6" : "3 7"}
+                    strokeWidth={distributionMarker ? "1.3" : "1.5"}
                     vectorEffect="non-scaling-stroke"
                     x1={x}
                     x2={x}
                     y1={PAD_TOP}
                     y2={priceBottom}
                   />
-                  <circle cx={x} cy={y} fill={marker.color} r={marker.label === "Dist." ? "3" : "4"} vectorEffect="non-scaling-stroke" />
-                  <text fill={marker.color} fontSize="11" fontWeight="700" textAnchor="middle" x={x} y={Math.max(18, y - 10)}>
-                    {truncateLabel(marker.label)}
-                  </text>
+                  {!distributionMarker && (
+                    <>
+                      <circle cx={x} cy={y} fill={marker.color} r="4" vectorEffect="non-scaling-stroke" />
+                      <text fill={marker.color} fontSize="11" fontWeight="700" textAnchor="middle" x={x} y={Math.max(18, y - 10)}>
+                        {truncateLabel(marker.label)}
+                      </text>
+                    </>
+                  )}
                 </g>
               );
             })}
@@ -571,6 +580,12 @@ export function LineChartCard({
             <span className="tabular-nums">{level.value.toFixed(2)}</span>
           </div>
         ))}
+        {hasDistributionMarkers && (
+          <div className="flex items-center gap-2 text-sm text-[#172033]">
+            <span className="h-4 border-l border-dashed border-[#111827]" />
+            <span className="text-[#687386]">Distributionstag</span>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -649,6 +664,10 @@ function indexForDate(points: ChartDatum[], date: string) {
     }
   });
   return bestDistance <= 1000 * 60 * 60 * 24 * 7 ? bestIndex : -1;
+}
+
+function isDistributionMarker(marker: ChartMarker) {
+  return marker.key.startsWith("dist-") || marker.label.toLowerCase().includes("distribution");
 }
 
 function toNumber(value: string | number | null | undefined) {
