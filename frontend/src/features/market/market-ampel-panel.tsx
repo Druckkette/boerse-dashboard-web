@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, CircleDot, RotateCw } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleDot, RotateCw, ShieldAlert } from "lucide-react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -53,8 +53,11 @@ export function MarketAmpelPanel({
 
   const data = query.data;
   const heroReasons = data.hero.reasons.filter((reason) => reason.startsWith("Trendwende-Ampel"));
+  const todayCard = data.change_cards.find((card) => card.title.startsWith("Heute "));
   const changeCards = data.change_cards.filter(
-    (card) => !["Distribution", "EW-Breite", "Volatilität", "Trendwende-Ampel"].includes(card.title)
+    (card) =>
+      !card.title.startsWith("Heute ") &&
+      !["Distribution", "EW-Breite", "Volatilität", "Trendwende-Ampel"].includes(card.title)
   );
   const chartPoints = data.chart_points.map((point) => ({
     date: point.date,
@@ -73,84 +76,116 @@ export function MarketAmpelPanel({
 
   return (
     <section className="space-y-4">
-      <div className={clsx("rounded-[28px] border p-6 shadow-[0_18px_48px_rgba(15,23,42,0.08)]", heroToneClasses(data.hero.tone))}>
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+      <div
+        className={clsx(
+          "relative overflow-hidden rounded-[32px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.09)] sm:p-6",
+          heroToneClasses(data.hero.tone)
+        )}
+      >
+        <div className={clsx("absolute inset-y-6 left-0 w-1 rounded-r-full", cycleAccentClass(data.hero.tone))} />
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.48fr)]">
           <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
               <StatusChip tone={data.hero.tone}>{data.hero.mode}</StatusChip>
               <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
             </div>
-            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Marktampel</div>
-            <h1 className={clsx("mt-2 text-4xl font-semibold tracking-normal md:text-5xl", toneText(data.hero.tone))}>
-              {data.hero.mode}
-            </h1>
-            <p className="mt-3 max-w-3xl text-base leading-7 text-[#172033]">{data.hero.action}</p>
-            <div className="mt-4 grid gap-2 md:grid-cols-2">
-              {heroReasons.map((reason) => (
-                <div key={reason} className="rounded-2xl border border-[#e3e8ef] bg-white/78 px-4 py-3 text-sm leading-6 text-[#687386]">
-                  {reason}
+            <div className="flex min-w-0 items-start gap-4">
+              <StatusEmblem tone={data.hero.tone} />
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#64748b]">Marktampel</div>
+                <h1 className={clsx("mt-2 break-words text-4xl font-semibold leading-tight tracking-normal md:text-5xl", toneText(data.hero.tone))}>
+                  {data.hero.mode}
+                </h1>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.62fr)]">
+              <div className="rounded-[24px] border border-white/75 bg-white/72 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">
+                  <ShieldAlert size={14} />
+                  Handlung
                 </div>
-              ))}
+                <p className="max-w-3xl text-sm font-semibold leading-7 text-[#0f172a]">{data.hero.action}</p>
+              </div>
+              <TrendReasonCard reason={heroReasons[0]} tone={data.phase_info.tone} />
             </div>
           </div>
-          <div className="flex shrink-0 flex-col gap-3">
-            <div className="flex flex-wrap gap-2 xl:justify-end">
-              {indexes.map((item) => (
-                <button
-                  key={item.ticker}
-                  className={clsx(
-                    "rounded-full border px-4 py-2 text-sm font-medium transition",
-                    ticker === item.ticker
-                      ? "border-[#0f766e] bg-[#0f766e] text-white shadow-[0_10px_20px_rgba(15,118,110,0.18)]"
-                      : "border-[#d8e1ea] bg-white text-[#687386] hover:border-[#b8c4d2] hover:text-[#172033]"
-                  )}
-                  type="button"
-                  onClick={() => onTickerChange?.(item.ticker)}
-                >
-                  <span className="block text-base leading-5">{item.label}</span>
-                  <span className={clsx("mt-0.5 block text-xs", ticker === item.ticker ? "text-white/80" : "text-[#687386]")}>
-                    {item.ticker}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2 xl:justify-end">
-              {dayOptions.map((option) => (
-                <button
-                  key={option}
-                  className={clsx(
-                    "rounded-full border px-4 py-2 text-sm font-medium transition",
-                    days === option
-                      ? "border-[#2563eb] bg-[#eef5ff] text-[#2563eb]"
-                      : "border-[#d8e1ea] bg-white text-[#687386] hover:border-[#b8c4d2] hover:text-[#172033]"
-                  )}
-                  type="button"
-                  onClick={() => setDays(option)}
-                >
-                  {option}T
-                </button>
-              ))}
-              <button
-                className="inline-flex items-center gap-2 rounded-full border border-[#d8e1ea] bg-white px-4 py-2 text-sm font-medium text-[#172033] transition hover:border-[#0f766e]"
-                type="button"
-                onClick={() => query.refetch()}
-              >
-                <RotateCw size={15} className={query.isFetching ? "animate-spin text-[#0f766e]" : "text-[#687386]"} />
-                Aktualisieren
-              </button>
+
+          <div className="rounded-[28px] border border-white/75 bg-white/72 p-4 shadow-[0_16px_38px_rgba(15,23,42,0.06)] backdrop-blur">
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Index</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {indexes.map((item) => (
+                    <button
+                      key={item.ticker}
+                      aria-pressed={ticker === item.ticker}
+                      className={clsx(
+                        "min-h-[58px] rounded-2xl border px-3 py-2 text-left text-sm font-semibold transition duration-200 focus:outline-none focus:ring-2 focus:ring-[#0f766e]/30",
+                        ticker === item.ticker
+                          ? "border-[#0f766e] bg-[#0f766e] text-white shadow-[0_12px_28px_rgba(15,118,110,0.20)]"
+                          : "border-[#e2e8f0] bg-[#f8fafc] text-[#0f172a] hover:-translate-y-0.5 hover:border-[#cbd5e1] hover:bg-white hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+                      )}
+                      type="button"
+                      onClick={() => onTickerChange?.(item.ticker)}
+                    >
+                      <span className="block leading-5">{item.label}</span>
+                      <span className={clsx("mt-0.5 block text-xs font-medium", ticker === item.ticker ? "text-white/75" : "text-[#64748b]")}>
+                        {item.ticker}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Zeitraum</div>
+                <div className="flex flex-wrap gap-2">
+                  {dayOptions.map((option) => (
+                    <button
+                      key={option}
+                      aria-pressed={days === option}
+                      className={clsx(
+                        "rounded-full border px-3.5 py-2 text-sm font-semibold transition duration-200 focus:outline-none focus:ring-2 focus:ring-[#2563eb]/25",
+                        days === option
+                          ? "border-[#2563eb] bg-[#eff6ff] text-[#1d4ed8] shadow-[0_10px_22px_rgba(37,99,235,0.10)]"
+                          : "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b] hover:-translate-y-0.5 hover:border-[#cbd5e1] hover:bg-white"
+                      )}
+                      type="button"
+                      onClick={() => setDays(option)}
+                    >
+                      {option}T
+                    </button>
+                  ))}
+                  <button
+                    aria-label="Marktampel aktualisieren"
+                    className="inline-flex items-center gap-2 rounded-full border border-[#e2e8f0] bg-white px-3.5 py-2 text-sm font-semibold text-[#0f172a] shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#0f766e] hover:shadow-[0_10px_22px_rgba(15,23,42,0.07)] focus:outline-none focus:ring-2 focus:ring-[#0f766e]/25"
+                    type="button"
+                    onClick={() => query.refetch()}
+                  >
+                    <RotateCw size={15} className={query.isFetching ? "animate-spin text-[#0f766e]" : "text-[#64748b]"} />
+                    Aktualisieren
+                  </button>
+                </div>
+              </div>
+
+              {todayCard ? <TodayIndexCard card={todayCard} /> : null}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <TrafficLightPanel data={data} />
+      {changeCards.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2">
           {changeCards.map((card) => (
             <ChangeCard key={card.title} card={card} />
           ))}
         </div>
+      ) : null}
+
+      <div>
+        <TrafficLightPanel data={data} />
       </div>
 
       <LineChartCard
@@ -177,6 +212,55 @@ export function MarketAmpelPanel({
       />
     </section>
   );
+}
+
+function TrendReasonCard({ reason, tone }: { reason?: string; tone: Tone }) {
+  if (!reason) return null;
+  const parsed = parseTrendReason(reason);
+  return (
+    <div className={clsx("relative overflow-hidden rounded-[24px] border bg-white/72 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]", phasePillClass(tone))}>
+      <div className={clsx("absolute inset-y-4 left-0 w-1 rounded-r-full", cycleAccentClass(tone))} />
+      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{parsed.label}</div>
+      <div className={clsx("mt-2 text-lg font-semibold leading-6", toneText(tone))}>{parsed.value}</div>
+      {parsed.detail ? <div className="mt-1 text-sm leading-6 text-[#475569]">{parsed.detail}</div> : null}
+    </div>
+  );
+}
+
+function TodayIndexCard({ card }: { card: MarketAmpelChangeCard }) {
+  return (
+    <div className="rounded-[24px] border border-[#e2e8f0] bg-white p-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{card.title}</div>
+          <div className="mt-2 flex items-center gap-2 text-3xl font-semibold tracking-normal text-[#0f172a]">
+            {card.arrow === "up" && <ArrowUp className="text-[#059669]" size={21} />}
+            {card.arrow === "down" && <ArrowDown className="text-[#dc2626]" size={21} />}
+            <span className={toneText(card.tone)}>{card.value}</span>
+          </div>
+        </div>
+        <span className={clsx("rounded-full border px-2.5 py-1 text-xs font-semibold", phasePillClass(card.tone))}>
+          {card.quality ?? card.tone}
+        </span>
+      </div>
+      <div className="space-y-1 text-sm leading-6 text-[#475569]">
+        <div>{card.detail}</div>
+        {card.detail2 ? <div>{card.detail2}</div> : null}
+        {card.detail3 ? <div>{card.detail3}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function parseTrendReason(reason: string) {
+  const [, rawContent] = reason.split(/:\s(.+)/);
+  const content = rawContent || reason;
+  const [value, ...rest] = content.split("·").map((part) => part.trim()).filter(Boolean);
+  return {
+    label: "Trendwende-Ampel",
+    value: value || content,
+    detail: rest.join(" · "),
+  };
 }
 
 function TrafficLightPanel({ data }: { data: MarketAmpel }) {
@@ -402,10 +486,10 @@ function CycleMetric({ label, value, tone = "neutral" }: { label: string; value:
 }
 
 function heroToneClasses(tone: Tone) {
-  if (tone === "good") return "border-[#b7e2cf] bg-[linear-gradient(135deg,#ffffff_0%,#eaf7ef_100%)]";
-  if (tone === "bad") return "border-[#f0b9b5] bg-[linear-gradient(135deg,#ffffff_0%,#fff0ef_100%)]";
-  if (tone === "warning") return "border-[#efd58f] bg-[linear-gradient(135deg,#ffffff_0%,#fff7df_100%)]";
-  return "border-[#d8e1ea] bg-[linear-gradient(135deg,#ffffff_0%,#eef5ff_100%)]";
+  if (tone === "good") return "border-[#bbf7d0] bg-[linear-gradient(135deg,#ffffff_0%,#f0fdf4_55%,#ecfdf5_100%)]";
+  if (tone === "bad") return "border-[#fecaca] bg-[linear-gradient(135deg,#ffffff_0%,#fff7f7_52%,#fef2f2_100%)]";
+  if (tone === "warning") return "border-[#fed7aa] bg-[linear-gradient(135deg,#ffffff_0%,#fffaf0_54%,#fffbeb_100%)]";
+  return "border-[#bfdbfe] bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_54%,#eff6ff_100%)]";
 }
 
 function phaseCardClass(tone: Tone) {
