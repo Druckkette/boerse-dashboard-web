@@ -181,65 +181,74 @@ export function MarketAmpelPanel({
 
 function TrafficLightPanel({ data }: { data: MarketAmpel }) {
   return (
-    <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-      <div className="grid gap-6 2xl:grid-cols-[minmax(240px,0.42fr)_minmax(0,1fr)]">
-        <div className="min-w-0">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold tracking-normal text-[#172033]">Trendwende-Ampel</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-1">
-            {data.lights.map((light) => (
-              <Light key={light.key} light={light} />
-            ))}
-          </div>
+    <div className="overflow-hidden rounded-[28px] border border-[#e2e8f0] bg-white p-5 shadow-[0_18px_42px_rgba(15,23,42,0.07)] sm:p-6">
+      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Trendwende-Ampel</div>
+          <h2 className="mt-1 text-xl font-semibold tracking-normal text-[#0f172a]">Marktphase</h2>
         </div>
-        <div className={clsx("min-w-0 rounded-[24px] border p-5 sm:p-6", phaseCardClass(data.phase_info.tone))}>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
+      </div>
+
+      <PhaseStepper lights={data.lights} />
+
+      <div className={clsx("mt-5 rounded-[28px] border p-5 shadow-[0_20px_52px_rgba(15,23,42,0.08)] sm:p-6", phaseCardClass(data.phase_info.tone))}>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <StatusEmblem tone={data.phase_info.tone} />
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Aktuelle Ampelphase</div>
-              <div
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Aktuelle Ampelphase</div>
+              <h3
                 className={clsx(
                   "mt-2 break-words text-3xl font-semibold leading-tight tracking-normal sm:text-4xl",
                   toneText(data.phase_info.tone)
                 )}
               >
                 {data.phase_info.label}
-              </div>
+              </h3>
             </div>
-            <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
           </div>
+          <span
+            className={clsx(
+              "inline-flex w-fit shrink-0 items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-sm",
+              phasePillClass(data.phase_info.tone)
+            )}
+          >
+            {data.phase_info.label}
+          </span>
+        </div>
 
-          <div className="mt-6 grid gap-5 lg:grid-cols-2">
-            <InfoBlock title="Definition" text={data.phase_info.reason} />
-            <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
-          </div>
+        <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+          <InfoBlock title="Definition" text={data.phase_info.reason} />
+          <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
+        </div>
 
-          <div className="mt-6 border-t border-[#e3e8ef] pt-5">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Letzter Startschuss und Zykluswerte</div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} />
-              <CycleMetric
-                label="Bodenmarke"
-                value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
-                tone={distanceTone(data.cycle.floor_distance_pct)}
-              />
-              <CycleMetric
-                label="Startschuss-Tief"
-                value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
-                tone={distanceTone(data.cycle.startschuss_distance_pct)}
-              />
-              <CycleMetric
-                label="MA-Ordnung"
-                value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
-                tone={data.cycle.ma_order ? "good" : "bad"}
-              />
-            </div>
-            {data.cycle.diagnostics.length > 0 ? (
-              <div className="mt-3 text-xs leading-5 text-[#687386]">{data.cycle.diagnostics.join(" · ")}</div>
-            ) : null}
+        <div className="mt-6 border-t border-white/65 pt-5">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Letzter Startschuss und Zykluswerte</div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} tone="neutral" />
+            <CycleMetric
+              label="Bodenmarke"
+              value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
+              tone={distanceTone(data.cycle.floor_distance_pct)}
+            />
+            <CycleMetric
+              label="Startschuss-Tief"
+              value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
+              tone={distanceTone(data.cycle.startschuss_distance_pct)}
+            />
+            <CycleMetric
+              label="MA-Ordnung"
+              value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
+              tone={data.cycle.ma_order ? "good" : "bad"}
+            />
           </div>
+          {data.cycle.diagnostics.length > 0 ? (
+            <div className="mt-3 text-xs leading-5 text-[#64748b]">{data.cycle.diagnostics.join(" · ")}</div>
+          ) : null}
         </div>
       </div>
+
       <RuleDefinitions lights={data.lights} />
       <MovingAverageDistanceSummary tiles={data.distance_tiles} />
     </div>
@@ -248,42 +257,72 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
 
 function InfoBlock({ emphasis = false, text, title }: { emphasis?: boolean; text: string; title: string }) {
   return (
-    <div className="min-w-0">
-      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{title}</div>
-      <p className={clsx("mt-2 text-sm leading-7", emphasis ? "font-medium text-[#172033]" : "text-[#4b5565]")}>{text}</p>
+    <div
+      className={clsx(
+        "min-w-0 rounded-[22px] border bg-white/72 p-4 shadow-[0_8px_22px_rgba(15,23,42,0.04)]",
+        emphasis ? "border-[#cbd5e1]" : "border-white/70"
+      )}
+    >
+      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{title}</div>
+      <p className={clsx("mt-2 text-sm leading-7", emphasis ? "font-semibold text-[#0f172a]" : "text-[#475569]")}>{text}</p>
     </div>
   );
 }
 
-function Light({ light }: { light: MarketAmpelLight }) {
+function PhaseStepper({ lights }: { lights: MarketAmpelLight[] }) {
+  return (
+    <div className="relative grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="pointer-events-none absolute left-10 right-10 top-[31px] hidden h-px bg-[#e2e8f0] md:block" />
+      {lights.map((light) => (
+        <PhaseStep key={light.key} light={light} />
+      ))}
+    </div>
+  );
+}
+
+function PhaseStep({ light }: { light: MarketAmpelLight }) {
   return (
     <div
+      aria-current={light.active ? "step" : undefined}
       className={clsx(
-        "flex min-h-[88px] min-w-0 items-center gap-3 rounded border p-3",
-        light.active ? tileBorder(light.tone) : "border-[#242a33] bg-[#111419]"
+        "relative z-10 min-w-0 rounded-[22px] border p-3 transition duration-200",
+        light.active
+          ? clsx("scale-[1.01] shadow-[0_14px_34px_rgba(15,23,42,0.10)]", phaseStepClass(light.tone))
+          : "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b]"
       )}
     >
-      <span
-        className={clsx(
-          "grid size-11 shrink-0 place-items-center rounded-full border transition",
-        light.active ? activeLightClass(light.tone, light.key) : "border-[#d8e1ea] bg-[#f9fbfd] text-[#8a94a6]"
-      )}
-      >
-        <CircleDot size={22} />
-      </span>
-      <span
-        className={clsx(
-          "min-w-0 break-words text-xs font-semibold leading-5 [overflow-wrap:anywhere] sm:text-sm",
-          light.active ? toneText(light.tone) : "text-[#687386]"
-        )}
-      >
-        {light.key === "aufwaertstrend" ? (
-          "AUFWÄRTSTREND"
-        ) : (
-          light.label
-        )}
-      </span>
+      <div className="flex items-center gap-3">
+        <span
+          className={clsx(
+            "grid size-9 shrink-0 place-items-center rounded-full border transition duration-200",
+            light.active ? activeLightClass(light.tone, light.key) : "border-[#cbd5e1] bg-white text-[#94a3b8]"
+          )}
+        >
+          <CircleDot size={18} />
+        </span>
+        <span
+          className={clsx(
+            "min-w-0 break-words text-xs font-semibold uppercase leading-5 tracking-[0.08em] [overflow-wrap:anywhere]",
+            light.active ? toneText(light.tone) : "text-[#64748b]"
+          )}
+        >
+          {light.key === "aufwaertstrend" ? "AUFWÄRTSTREND" : light.label}
+        </span>
+      </div>
     </div>
+  );
+}
+
+function StatusEmblem({ tone }: { tone: Tone }) {
+  return (
+    <span
+      className={clsx(
+        "grid size-12 shrink-0 place-items-center rounded-2xl border shadow-[0_12px_28px_rgba(15,23,42,0.08)]",
+        activeLightClass(tone)
+      )}
+    >
+      <CircleDot size={24} />
+    </span>
   );
 }
 
@@ -354,9 +393,10 @@ function ChangeCard({ card }: { card: MarketAmpelChangeCard }) {
 
 function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {
   return (
-    <div className="min-h-[104px] rounded-2xl border border-[#e3e8ef] bg-white p-4">
-      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{label}</div>
-      <div className={clsx("mt-3 break-words text-lg font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
+    <div className="relative min-h-[118px] overflow-hidden rounded-[22px] border border-white/70 bg-white/82 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+      <div className={clsx("absolute inset-x-0 top-0 h-1", cycleAccentClass(tone))} />
+      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{label}</div>
+      <div className={clsx("mt-4 break-words text-xl font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
     </div>
   );
 }
@@ -369,17 +409,18 @@ function heroToneClasses(tone: Tone) {
 }
 
 function phaseCardClass(tone: Tone) {
-  if (tone === "good") return "border-[#b7e2cf] bg-[#eaf7ef]";
-  if (tone === "bad") return "border-[#f0b9b5] bg-[#fff0ef]";
-  if (tone === "warning") return "border-[#efd58f] bg-[#fff7df]";
-  return "border-[#bdd3ff] bg-[#eef5ff]";
+  if (tone === "good") return "border-[#bbf7d0] bg-[linear-gradient(135deg,#ffffff_0%,#ecfdf5_100%)]";
+  if (tone === "bad") return "border-[#fecaca] bg-[linear-gradient(135deg,#ffffff_0%,#fff1f2_100%)]";
+  if (tone === "warning") return "border-[#fed7aa] bg-[linear-gradient(135deg,#ffffff_0%,#fffbeb_100%)]";
+  return "border-[#bfdbfe] bg-[linear-gradient(135deg,#ffffff_0%,#eff6ff_100%)]";
 }
 
 function activeLightClass(tone: Tone, key?: MarketAmpelLight["key"]) {
-  if (key === "aufwaertstrend") return "border-sky-100 bg-sky-400/90 text-[#03111d] shadow-[0_0_28px_rgba(56,189,248,0.35)]";
-  if (tone === "good") return "border-emerald-200 bg-emerald-400/90 text-[#07130d] shadow-[0_0_28px_rgba(52,211,153,0.35)]";
-  if (tone === "bad") return "border-rose-200 bg-rose-400/90 text-[#18070a] shadow-[0_0_28px_rgba(251,113,133,0.35)]";
-  return "border-amber-100 bg-amber-300/90 text-[#1d1303] shadow-[0_0_28px_rgba(251,191,36,0.35)]";
+  if (key === "aufwaertstrend") return "border-[#bfdbfe] bg-[#2563eb] text-white shadow-[0_0_28px_rgba(37,99,235,0.24)]";
+  if (tone === "good") return "border-[#bbf7d0] bg-[#059669] text-white shadow-[0_0_28px_rgba(5,150,105,0.22)]";
+  if (tone === "bad") return "border-[#fecaca] bg-[#dc2626] text-white shadow-[0_0_28px_rgba(220,38,38,0.20)]";
+  if (tone === "warning") return "border-[#fed7aa] bg-[#d97706] text-white shadow-[0_0_28px_rgba(217,119,6,0.22)]";
+  return "border-[#bfdbfe] bg-[#2563eb] text-white shadow-[0_0_28px_rgba(37,99,235,0.20)]";
 }
 
 function dotBg(tone: Tone) {
@@ -390,17 +431,38 @@ function dotBg(tone: Tone) {
 }
 
 function tileBorder(tone: Tone) {
-  if (tone === "good") return "border-[#b7e2cf] bg-[#eaf7ef]";
-  if (tone === "bad") return "border-[#f0b9b5] bg-[#fff0ef]";
-  if (tone === "warning") return "border-[#efd58f] bg-[#fff7df]";
-  return "border-[#bdd3ff] bg-[#eef5ff]";
+  if (tone === "good") return "border-[#bbf7d0] bg-[#ecfdf5]";
+  if (tone === "bad") return "border-[#fecaca] bg-[#fff1f2]";
+  if (tone === "warning") return "border-[#fed7aa] bg-[#fffbeb]";
+  return "border-[#bfdbfe] bg-[#eff6ff]";
 }
 
 function toneText(tone: Tone) {
-  if (tone === "good") return "text-[#138a57]";
-  if (tone === "bad") return "text-[#c2413b]";
-  if (tone === "warning") return "text-[#9a650f]";
+  if (tone === "good") return "text-[#059669]";
+  if (tone === "bad") return "text-[#dc2626]";
+  if (tone === "warning") return "text-[#d97706]";
   return "text-[#2563eb]";
+}
+
+function phaseStepClass(tone: Tone) {
+  if (tone === "good") return "border-[#bbf7d0] bg-[#ecfdf5]";
+  if (tone === "bad") return "border-[#fecaca] bg-[#fff1f2]";
+  if (tone === "warning") return "border-[#fed7aa] bg-[#fffbeb]";
+  return "border-[#bfdbfe] bg-[#eff6ff]";
+}
+
+function phasePillClass(tone: Tone) {
+  if (tone === "good") return "border-[#bbf7d0] bg-[#ecfdf5] text-[#047857]";
+  if (tone === "bad") return "border-[#fecaca] bg-[#fff1f2] text-[#b91c1c]";
+  if (tone === "warning") return "border-[#fed7aa] bg-[#fffbeb] text-[#b45309]";
+  return "border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]";
+}
+
+function cycleAccentClass(tone: Tone) {
+  if (tone === "good") return "bg-[#059669]";
+  if (tone === "bad") return "bg-[#dc2626]";
+  if (tone === "warning") return "bg-[#d97706]";
+  return "bg-[#2563eb]";
 }
 
 function distanceTone(value?: number | null): Tone {
