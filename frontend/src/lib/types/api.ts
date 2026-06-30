@@ -559,6 +559,9 @@ export type BuyStrengthSummaryItem = {
   name: string;
   buy_date: string;
   age_days: number;
+  window_days?: number | null;
+  latest_price_date?: string | null;
+  data_status?: "fresh" | "stale" | "missing";
   pnl_pct?: number | null;
   current_price?: number | null;
   entry_price?: number | null;

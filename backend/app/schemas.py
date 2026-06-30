@@ -1159,6 +1159,9 @@ class BuyStrengthSummaryItem(BaseModel):
     name: str
     buy_date: str
     age_days: int
+    window_days: int = 21
+    latest_price_date: str | None = None
+    data_status: Literal["fresh", "stale", "missing"] = "missing"
     pnl_pct: float | None = None
     current_price: float | None = None
     entry_price: float | None = None

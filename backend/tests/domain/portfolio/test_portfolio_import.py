@@ -191,6 +191,11 @@ def test_buy_strength_overview_detects_recent_manual_and_imported_positions(monk
 
     assert [item.ticker for item in overview.items] == ["NVDA"]
     assert overview.window_days == 21
+    assert overview.items[0].buy_date == rows[0].buy_date.isoformat()
+    assert overview.items[0].age_days == 7
+    assert overview.items[0].window_days == 21
+    assert overview.items[0].latest_price_date is not None
+    assert overview.items[0].data_status in {"fresh", "stale"}
     assert overview.items[0].checks_total == 7
     assert overview.items[0].warnings_total == 11
     assert overview.items[0].warnings_active >= 0

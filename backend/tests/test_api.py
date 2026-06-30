@@ -685,6 +685,9 @@ def test_portfolio_buy_strength_contract(monkeypatch) -> None:
                     name="Nvidia",
                     buy_date="2026-06-14",
                     age_days=7,
+                    window_days=weeks * 7,
+                    latest_price_date="2026-06-21",
+                    data_status="fresh",
                     pnl_pct=5.2,
                     current_price=105.2,
                     entry_price=100,
@@ -707,6 +710,11 @@ def test_portfolio_buy_strength_contract(monkeypatch) -> None:
     assert called["weeks"] == 6
     assert payload["window_days"] == 42
     assert payload["items"][0]["ticker"] == "NVDA"
+    assert payload["items"][0]["buy_date"] == "2026-06-14"
+    assert payload["items"][0]["age_days"] == 7
+    assert payload["items"][0]["window_days"] == 42
+    assert payload["items"][0]["latest_price_date"] == "2026-06-21"
+    assert payload["items"][0]["data_status"] == "fresh"
     assert payload["items"][0]["warnings_total"] == 11
 
 

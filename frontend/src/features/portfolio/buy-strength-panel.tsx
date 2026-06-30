@@ -76,8 +76,11 @@ export function BuyStrengthPanel({ initialWeeks = 3 }: { initialWeeks?: number }
                 </div>
                 <StatusChip tone={statusTone[item.status]}>{item.status_label}</StatusChip>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
-                <Metric label="Alter" value={`${item.age_days}T`} />
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <Metric label="Kaufdatum" value={formatDate(item.buy_date)} />
+                <Metric label="Alter" value={`${item.age_days} Tage`} />
+                <Metric label="Fenster" value={`${item.window_days ?? query.data?.window_days ?? weeks * 7} Tage`} />
+                <Metric label="Stand Kurse" value={formatDate(item.latest_price_date)} tone={item.data_status === "stale" ? "bad" : "neutral"} />
                 <Metric label="P&L" value={formatPercent(item.pnl_pct)} tone={(item.pnl_pct ?? 0) >= 0 ? "good" : "bad"} />
                 <Metric label="Warnungen" value={`${item.warnings_active}/${item.warnings_total}`} tone={item.warnings_active ? "bad" : "good"} />
               </div>
@@ -125,4 +128,11 @@ function Metric({
 function formatPercent(value?: number | null) {
   if (value === undefined || value === null || Number.isNaN(value)) return "-";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
