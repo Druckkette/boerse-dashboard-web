@@ -311,16 +311,23 @@ function TrafficLightPanel({ data }: { data: MarketAmpel }) {
         <div className="mt-6 border-t border-white/65 pt-5">
           <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Letzter Startschuss und Zykluswerte</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <CycleMetric label="Ankertag" value={data.cycle.anchor_date ?? "-"} tone="neutral" />
+            <CycleMetric
+              label="Ankertag"
+              value={data.cycle.anchor_date ?? "-"}
+              tone="neutral"
+              freshness={cycleFreshness(data.cycle.anchor_date, data.cycle.anchor_current)}
+            />
             <CycleMetric
               label="Bodenmarke"
               value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
               tone={distanceTone(data.cycle.floor_distance_pct)}
+              freshness={cycleFreshness(data.cycle.floor_mark, data.cycle.floor_current)}
             />
             <CycleMetric
               label="Startschuss-Tief"
               value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
               tone={distanceTone(data.cycle.startschuss_distance_pct)}
+              freshness={cycleFreshness(data.cycle.startschuss_low, data.cycle.startschuss_current)}
             />
             <CycleMetric
               label="MA-Ordnung"
@@ -476,14 +483,48 @@ function ChangeCard({ card }: { card: MarketAmpelChangeCard }) {
   );
 }
 
-function CycleMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: Tone }) {
+function CycleMetric({
+  freshness,
+  label,
+  value,
+  tone = "neutral"
+}: {
+  freshness?: "current" | "old" | "missing";
+  label: string;
+  value: string;
+  tone?: Tone;
+}) {
   return (
     <div className="relative min-h-[118px] overflow-hidden rounded-[22px] border border-white/70 bg-white/82 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
       <div className={clsx("absolute inset-x-0 top-0 h-1", cycleAccentClass(tone))} />
-      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{label}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{label}</div>
+        {freshness ? (
+          <span className={clsx("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]", cycleFreshnessClass(freshness))}>
+            {cycleFreshnessLabel(freshness)}
+          </span>
+        ) : null}
+      </div>
       <div className={clsx("mt-4 break-words text-xl font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
     </div>
   );
+}
+
+function cycleFreshness(value: string | number | null | undefined, current: boolean | null | undefined) {
+  if (value === null || value === undefined || value === "") return "missing" as const;
+  return current ? ("current" as const) : ("old" as const);
+}
+
+function cycleFreshnessLabel(value: "current" | "old" | "missing") {
+  if (value === "current") return "aktuell";
+  if (value === "old") return "alter Wert";
+  return "fehlt";
+}
+
+function cycleFreshnessClass(value: "current" | "old" | "missing") {
+  if (value === "current") return "border-[#bbf7d0] bg-[#ecfdf5] text-[#047857]";
+  if (value === "old") return "border-[#fed7aa] bg-[#fffbeb] text-[#b45309]";
+  return "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b]";
 }
 
 function heroToneClasses(tone: Tone) {

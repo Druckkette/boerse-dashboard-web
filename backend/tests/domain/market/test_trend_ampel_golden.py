@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.domain.market.ampel import TrendAmpelBar, compute_trend_ampel
-from app.services.market import _build_ampel_warning_checks, _detect_failing_rally
+from app.services.market import _ampel_cycle, _build_ampel_warning_checks, _detect_failing_rally, _last_cycle_markers
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "market" / "ampel"
@@ -54,6 +54,26 @@ def test_negative_upper_half_close_counts_as_anchor_day() -> None:
     assert latest.floor_mark == 95.0
 
 
+def test_active_cycle_values_are_marked_current() -> None:
+    points = compute_trend_ampel(_startschuss_to_green_bars())
+    latest = points[-1]
+    anchor_date, floor_mark, startschuss_low = _last_cycle_markers(points, latest)
+
+    cycle = _ampel_cycle(
+        latest,
+        anchor_date=anchor_date,
+        floor_mark=floor_mark,
+        startschuss_low=startschuss_low,
+    )
+
+    assert cycle.anchor_date is not None
+    assert cycle.floor_mark is not None
+    assert cycle.startschuss_low is not None
+    assert cycle.anchor_current is True
+    assert cycle.floor_current is True
+    assert cycle.startschuss_current is True
+
+
 def test_green_resets_to_red_when_close_breaks_startschuss_low() -> None:
     bars = _startschuss_to_green_bars()
     points = compute_trend_ampel(bars)
@@ -77,6 +97,44 @@ def test_green_resets_to_red_when_close_breaks_startschuss_low() -> None:
 
     assert latest.phase == "rot"
     assert latest.startschuss_low is None
+
+
+def test_historical_cycle_values_are_marked_old_after_red_reset() -> None:
+    bars = _startschuss_to_green_bars()
+    points = compute_trend_ampel(bars)
+    startschuss_low = points[-1].startschuss_low
+    assert startschuss_low is not None
+    bars.append(
+        _bar(
+            71,
+            open_price=startschuss_low + 1.0,
+            close=startschuss_low - 0.5,
+            high=startschuss_low + 1.4,
+            low=startschuss_low - 1.0,
+            volume=1_300_000,
+        )
+    )
+    points = compute_trend_ampel(bars)
+    latest = points[-1]
+    anchor_date, floor_mark, fallback_startschuss_low = _last_cycle_markers(points, latest)
+
+    cycle = _ampel_cycle(
+        latest,
+        anchor_date=anchor_date,
+        floor_mark=floor_mark,
+        startschuss_low=fallback_startschuss_low,
+    )
+
+    assert latest.phase == "rot"
+    assert latest.anchor_date is None
+    assert latest.floor_mark is None
+    assert latest.startschuss_low is None
+    assert cycle.anchor_date is not None
+    assert cycle.floor_mark is not None
+    assert cycle.startschuss_low is not None
+    assert cycle.anchor_current is False
+    assert cycle.floor_current is False
+    assert cycle.startschuss_current is False
 
 
 def test_uptrend_resets_to_red_when_close_breaks_startschuss_low() -> None:

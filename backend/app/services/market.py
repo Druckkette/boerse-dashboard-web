@@ -2176,22 +2176,40 @@ def _ampel_cycle(
 ) -> MarketAmpelCycle:
     close = latest.close
     diagnostics = []
+    anchor_current = bool(anchor_date and latest.anchor_date == anchor_date)
+    floor_current = _same_optional_number(latest.floor_mark, floor_mark)
+    startschuss_current = _same_optional_number(latest.startschuss_low, startschuss_low)
     if not anchor_date:
         diagnostics.append("Kein aktiver Ankertag")
+    elif not anchor_current:
+        diagnostics.append("Ankertag ist ein historischer letzter Wert")
     if floor_mark is None:
         diagnostics.append("Bodenmarke noch nicht gesetzt")
+    elif not floor_current:
+        diagnostics.append("Bodenmarke ist ein historischer letzter Wert")
     if startschuss_low is None:
         diagnostics.append("Startschuss-Tief noch nicht gesetzt")
+    elif not startschuss_current:
+        diagnostics.append("Startschuss-Tief ist ein historischer letzter Wert")
     return MarketAmpelCycle(
         anchor_date=anchor_date,
+        anchor_current=anchor_current,
         floor_mark=floor_mark,
+        floor_current=floor_current,
         floor_distance_pct=_safe_pct_change(close, floor_mark),
         startschuss_low=startschuss_low,
+        startschuss_current=startschuss_current,
         startschuss_distance_pct=_safe_pct_change(close, startschuss_low),
         startschuss_bonus=latest.startschuss_bonus,
         ma_order=latest.ma_order,
         diagnostics=diagnostics,
     )
+
+
+def _same_optional_number(left: float | None, right: float | None) -> bool:
+    if left is None or right is None:
+        return False
+    return abs(float(left) - float(right)) <= 1e-9
 
 
 def _ampel_reasons(

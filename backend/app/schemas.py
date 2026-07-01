@@ -85,9 +85,12 @@ class MarketAmpelPhaseInfo(BaseModel):
 
 class MarketAmpelCycle(BaseModel):
     anchor_date: str | None = None
+    anchor_current: bool = False
     floor_mark: float | None = None
+    floor_current: bool = False
     floor_distance_pct: float | None = None
     startschuss_low: float | None = None
+    startschuss_current: bool = False
     startschuss_distance_pct: float | None = None
     startschuss_bonus: bool | None = None
     ma_order: bool | None = None

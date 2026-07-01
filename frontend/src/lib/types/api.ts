@@ -62,9 +62,12 @@ export type MarketAmpelPhaseInfo = {
 
 export type MarketAmpelCycle = {
   anchor_date?: string | null;
+  anchor_current?: boolean;
   floor_mark?: number | null;
+  floor_current?: boolean;
   floor_distance_pct?: number | null;
   startschuss_low?: number | null;
+  startschuss_current?: boolean;
   startschuss_distance_pct?: number | null;
   startschuss_bonus?: boolean | null;
   ma_order?: boolean | null;
