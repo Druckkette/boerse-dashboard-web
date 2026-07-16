@@ -177,6 +177,45 @@ cd /volume1/docker/boerse-dashboard-web/infra
 ./update-nas.sh
 ```
 
+## Start After NAS Reboot
+
+The Compose services use `restart: unless-stopped`, but Synology can still leave a Compose project
+stopped after a DSM restart, especially if Container Manager starts later than the network or the
+containers were stopped before shutdown. If `docker compose ps` shows no running services after a
+reboot, start them with:
+
+```bash
+cd /volume1/docker/boerse-dashboard-web/infra
+./start-nas.sh
+```
+
+For unattended restarts, create a Synology **Task Scheduler** task:
+
+1. Open **Control Panel > Task Scheduler > Create > Triggered Task > User-defined script**.
+2. Run as `root`.
+3. Event: **Boot-up**.
+4. User-defined script:
+
+```bash
+sleep 120
+/bin/sh /volume1/docker/boerse-dashboard-web/infra/start-nas.sh
+```
+
+`start-nas.sh` waits for Docker to be ready and then runs `docker compose up -d`. It does not pull
+new images, run migrations or delete volumes. Keep `update-nas.sh` for deliberate app updates.
+
+Quick checks after reboot:
+
+```bash
+cd /volume1/docker/boerse-dashboard-web/infra
+docker compose --env-file .env.nas -f docker-compose.nas.yml ps
+curl -I http://127.0.0.1:3000/market
+```
+
+`HTTP/1.1 200 OK` means the frontend is reachable on the NAS host. If the browser still shows an old
+Next.js error after a deployment or restart, use a hard refresh because the browser can briefly hold
+stale RSC/client assets from the previous image.
+
 ## Rollback
 
 Images are published as `latest` and commit-SHA tags. To roll back:

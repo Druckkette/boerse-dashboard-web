@@ -110,6 +110,21 @@ email, for example `boerse-dashboard-web name@example.com`.
 Detailed NAS operations, backup and rollback notes are in `docs/nas-deployment.md`.
 Use `infra/backup-postgres.sh` before major updates; it writes Postgres dumps into
 `infra/backups/`, which is ignored by git.
+If the Synology NAS has restarted and the dashboard is not reachable, start the existing containers
+without pulling images or running migrations:
+
+```bash
+cd /volume1/docker/boerse-dashboard-web/infra
+./start-nas.sh
+```
+
+For unattended restarts, add this command as a root boot task in Synology Task Scheduler:
+
+```bash
+sleep 120
+/bin/sh /volume1/docker/boerse-dashboard-web/infra/start-nas.sh
+```
+
 The later VPS target is prepared in `infra/docker-compose.hetzner.yml` and documented in
 `docs/hetzner-deployment.md`; it uses Caddy for HTTPS and keeps FastAPI internal.
 
