@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.domain.sell.schemas import (
     ManualInputResponse,
@@ -17,6 +17,8 @@ from app.domain.sell.schemas import (
     TrancheLogResponse,
 )
 from app.domain.sell.service import (
+    SellMarketDataUnavailableError,
+    SellPositionNotFoundError,
     create_tranche_log_entry,
     evaluate_position_sell_decision,
     get_sell_diagnostics_for_position,
@@ -39,7 +41,12 @@ def ranking() -> SellRankingResponse:
 
 @router.get("/{ticker}/metrics", response_model=SellMetricsApiResponse)
 def metrics(ticker: str) -> SellMetricsApiResponse:
-    return get_sell_metrics_for_position(ticker)
+    try:
+        return get_sell_metrics_for_position(ticker)
+    except SellPositionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SellMarketDataUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/{ticker}/evaluate", response_model=SellEvaluationResponse)
@@ -47,12 +54,22 @@ def evaluate(
     ticker: str,
     payload: SellEvaluationRequest | None = None,
 ) -> SellEvaluationResponse:
-    return evaluate_position_sell_decision(ticker, payload)
+    try:
+        return evaluate_position_sell_decision(ticker, payload)
+    except SellPositionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SellMarketDataUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{ticker}/diagnostics", response_model=SellDiagnosticsResponse)
 def diagnostics(ticker: str) -> SellDiagnosticsResponse:
-    return get_sell_diagnostics_for_position(ticker)
+    try:
+        return get_sell_diagnostics_for_position(ticker)
+    except SellPositionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SellMarketDataUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{ticker}/post-mortem", response_model=list[SellPostMortemNote])

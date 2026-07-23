@@ -353,8 +353,9 @@ def test_stock_price_history_contract() -> None:
     payload = response.json()
     assert payload["ticker"] == "NVDA"
     assert payload["range"] == "3m"
-    assert payload["points"]
-    assert {"date", "close"}.issubset(payload["points"][0])
+    assert payload["source"] == "missing"
+    assert payload["data_status"] == "missing"
+    assert payload["points"] == []
 
 
 def test_rs_ranking_contract() -> None:
@@ -887,20 +888,14 @@ def test_portfolio_import_history_contract() -> None:
 
 def test_sell_metrics_contract() -> None:
     response = client.get("/api/v1/sell/PLTR/metrics")
-    assert response.status_code == 200
-    assert response.json()["ticker"] == "PLTR"
+    assert response.status_code == 404
+    assert "keine offene Portfolioposition" in response.json()["detail"]
 
 
 def test_sell_diagnostics_contract() -> None:
     response = client.get("/api/v1/sell/NVDA/diagnostics")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ticker"] == "NVDA"
-    assert isinstance(payload["price_context"], list)
-    assert isinstance(payload["strategy_hub"], list)
-    assert isinstance(payload["post_mortem"], list)
-    assert isinstance(payload["post_mortem_notes"], list)
-    assert payload["next_action"]
+    assert response.status_code == 404
+    assert "keine offene Portfolioposition" in response.json()["detail"]
 
 
 def test_sell_post_mortem_note_contract() -> None:
@@ -920,9 +915,9 @@ def test_sell_post_mortem_note_contract() -> None:
     assert payload["note"]["status"] == "open"
     assert any(note["check_key"] == "data_quality" for note in payload["notes"])
 
-    diagnostics = client.get("/api/v1/sell/NOTE/diagnostics")
-    assert diagnostics.status_code == 200
-    assert any(note["check_key"] == "data_quality" for note in diagnostics.json()["post_mortem_notes"])
+    notes = client.get("/api/v1/sell/NOTE/post-mortem")
+    assert notes.status_code == 200
+    assert any(note["check_key"] == "data_quality" for note in notes.json())
 
 
 def test_settings_data_diagnostics_contract() -> None:

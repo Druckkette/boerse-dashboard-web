@@ -27,7 +27,7 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
         fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-        limit=int(payload.get("limit_universe") or 5000),
+        limit=int(payload.get("limit_universe") or 10000),
     )
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
     lookback_days = int(payload.get("lookback_days") or DEFAULT_RS_LOOKBACK_DAYS)

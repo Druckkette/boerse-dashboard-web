@@ -45,28 +45,32 @@ def refresh_relative_strength_ratings(
             "records_written": 0,
         }
 
+    snapshot_date = max(item.date for item in ratings)
     writes = [
         RsRatingWrite(
             ticker=item.ticker,
-            date=item.date,
+            date=snapshot_date,
             rating=item.rating,
             score=item.score,
             percentile=item.percentile,
             method=item.method,
             source=source,
             universe_size=item.universe_size,
-            metadata_json=item.metadata,
+            metadata_json={
+                **item.metadata,
+                "data_as_of": item.date.isoformat(),
+                "snapshot_date": snapshot_date.isoformat(),
+            },
         )
         for item in ratings
     ]
     records_written = rs_repository.upsert_rs_ratings(writes)
     top = [_row_to_payload(item) for item in rs_repository.list_latest_rs_ratings(limit=10, source=source)]
-    as_of = max(item.date for item in ratings)
     return {
         "ok": True,
         "benchmark_ticker": clean_benchmark,
         "source": source,
-        "as_of": as_of.isoformat(),
+        "as_of": snapshot_date.isoformat(),
         "universe_size": len(clean_tickers),
         "covered_tickers": len(series),
         "ratings_count": len(ratings),

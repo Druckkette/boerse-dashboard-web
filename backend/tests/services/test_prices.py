@@ -6,6 +6,18 @@ from app.data_sources.yfinance_client import FetchedPriceBar
 from app.services import prices as prices_service
 
 
+def test_missing_price_history_does_not_generate_synthetic_market_data(monkeypatch) -> None:
+    monkeypatch.setattr(prices_service, "list_price_bars", lambda *args, **kwargs: [])
+    monkeypatch.setattr(prices_service, "get_price_cache_metadata", lambda *args, **kwargs: None)
+
+    result = prices_service.get_price_history("MISSING", range_key="1y")
+
+    assert result.source == "missing"
+    assert result.data_status == "missing"
+    assert result.points == []
+    assert result.last_close is None
+
+
 def test_incremental_batch_keeps_cached_symbols_incremental_when_missing_symbol_is_present(monkeypatch) -> None:
     latest_dates = {"AAA": date(2026, 6, 17), "BBB": None}
     fetch_calls: list[dict] = []

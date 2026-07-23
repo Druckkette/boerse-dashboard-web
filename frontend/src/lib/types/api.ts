@@ -890,7 +890,7 @@ export type PriceHistory = {
   name: string;
   currency: string;
   range: PriceRange;
-  source: "database" | "synthetic_fallback";
+  source: "database" | "missing";
   data_status: "fresh" | "stale" | "missing" | "fallback";
   as_of: string;
   first_date?: string | null;
@@ -1497,6 +1497,7 @@ export type Job = {
   created_at: string;
   requested_at: string;
   started_at?: string | null;
+  heartbeat_at: string;
   finished_at?: string | null;
   result: Record<string, unknown>;
 };

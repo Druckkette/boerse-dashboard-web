@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { berlinDate } from "@/lib/date";
 import type { PortfolioPosition } from "@/lib/types/api";
 import { PositionSizeCalculator } from "./position-size-calculator";
 import {
@@ -376,5 +377,5 @@ function money(value: number) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return berlinDate();
 }

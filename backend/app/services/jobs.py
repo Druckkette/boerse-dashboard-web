@@ -31,6 +31,7 @@ def start_job(payload: JobCreateRequest) -> Job:
             args=[job.job_id, payload.payload],
             queue="default",
             ignore_result=True,
+            expires=job_repository.QUEUED_JOB_EXPIRES_SECONDS,
         )
     except (CeleryError, KombuError, OSError, RuntimeError) as exc:
         failed = job_repository.mark_failed(

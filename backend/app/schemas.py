@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -482,7 +482,7 @@ class PriceHistoryResponse(BaseModel):
     name: str = ""
     currency: str = "USD"
     range: Literal["1m", "3m", "6m", "1y", "2y", "5y"]
-    source: Literal["database", "synthetic_fallback"]
+    source: Literal["database", "missing"]
     data_status: Literal["fresh", "stale", "missing", "fallback"]
     as_of: str
     first_date: str | None = None
@@ -1392,6 +1392,7 @@ class Job(BaseModel):
     created_at: datetime
     requested_at: datetime
     started_at: datetime | None = None
+    heartbeat_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     finished_at: datetime | None = None
     result: dict = Field(default_factory=dict)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -211,6 +211,40 @@ def test_refresh_fundamentals_incremental_marks_all_current_snapshots_done(
     assert result["success_count"] == 0
     assert updated is not None
     assert updated.status == "done"
+
+
+def test_incremental_fundamentals_prioritize_missing_and_oldest_snapshots() -> None:
+    state = refresh_fundamentals_module.fundamentals_repository.FundamentalRefreshState
+    selected, skipped, deferred = refresh_fundamentals_module._select_fundamental_work(
+        ["RECENT", "OLDER", "MISSING", "OLD"],
+        latest_states={
+            "RECENT": state(
+                ticker="RECENT",
+                latest_date=date.today() - timedelta(days=2),
+                complete=True,
+                missing_history_keys=[],
+            ),
+            "OLDER": state(
+                ticker="OLDER",
+                latest_date=date.today() - timedelta(days=20),
+                complete=True,
+                missing_history_keys=[],
+            ),
+            "OLD": state(
+                ticker="OLD",
+                latest_date=date.today() - timedelta(days=30),
+                complete=True,
+                missing_history_keys=[],
+            ),
+        },
+        incremental=True,
+        max_refresh_count=2,
+        freshness_days=14,
+    )
+
+    assert selected == ["MISSING", "OLD"]
+    assert skipped == 1
+    assert deferred == 1
 
 
 def test_refresh_fundamentals_continues_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -22,14 +22,17 @@ from app.domain.sell.service import (
     snooze_sell_signal,
 )
 from app.repositories.portfolio import PortfolioPositionRow
+from tests.helpers.sell_fixture_data import fixture_positions, fixture_price_bars
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "sell"
 
 
 @pytest.fixture(autouse=True)
-def reset_sell_state() -> None:
+def reset_sell_state(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_sell_engine_state()
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", fixture_positions)
+    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", fixture_price_bars)
 
 
 def _load_fixture(name: str) -> dict:
@@ -218,7 +221,13 @@ def test_sell_ranking_prefers_imported_portfolio_positions(monkeypatch: pytest.M
         )
     ]
     monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: rows)
-    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        sell_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, *args, **kwargs: _price_bars(start=410, step=0.12)
+        if ticker.upper() == "SPY"
+        else _price_bars(start=100, step=0.20),
+    )
 
     ranking = get_sell_position_ranking()
     metrics = get_sell_metrics_for_position("AAPL")
@@ -226,8 +235,8 @@ def test_sell_ranking_prefers_imported_portfolio_positions(monkeypatch: pytest.M
 
     assert [row.ticker for row in ranking.rows] == ["AAPL"]
     assert ranking.rows[0].name == "Apple"
-    assert metrics.current_price == pytest.approx(130, abs=0.01)
-    assert metrics.pnl_pct == pytest.approx(30, abs=0.01)
+    assert metrics.current_price == pytest.approx(100 + 279 * 0.20, abs=0.01)
+    assert metrics.pnl_pct == pytest.approx((metrics.current_price / 100 - 1) * 100, abs=0.01)
     assert evaluation.ticker == "AAPL"
 
 
@@ -277,7 +286,13 @@ def test_monitor_open_positions_persists_recommendation_state(monkeypatch: pytes
         )
     ]
     monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: rows)
-    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        sell_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, *args, **kwargs: _price_bars(start=410, step=0.12)
+        if ticker.upper() == "SPY"
+        else _price_bars(start=100, step=0.20),
+    )
 
     result = sell_service.monitor_open_positions()
     ranking = get_sell_position_ranking()

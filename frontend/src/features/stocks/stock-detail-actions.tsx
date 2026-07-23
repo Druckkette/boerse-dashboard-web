@@ -5,6 +5,7 @@ import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Loader2, RefreshCw, Tria
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { berlinDate } from "@/lib/date";
 import type { Job, PriceHistory, StockAssessment, WorkspaceState } from "@/lib/types/api";
 
 const workspaceKey = ["workspace"];
@@ -18,6 +19,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
   const handledRefreshJobId = useRef<string | null>(null);
   const autoPriceRefreshTicker = useRef<string | null>(null);
+  const autoDetailRefreshKey = useRef<string | null>(null);
 
   const workspaceQuery = useQuery({ queryKey: workspaceKey, queryFn: api.workspace, staleTime: 30_000 });
   const assessmentQuery = useQuery({
@@ -117,7 +119,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     }
   });
   const refreshStockMutation = useMutation({
-    mutationFn: (options?: { includePrices?: boolean; include13f?: boolean }) =>
+    mutationFn: (options?: { includePrices?: boolean; include13f?: boolean; auto?: boolean }) =>
       api.startJob({
         type: "refresh_stock_detail",
         payload: {
@@ -126,13 +128,16 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           benchmark_ticker: "SPY",
           include_prices: options?.includePrices ?? true,
           include_fundamentals: true,
-          include_rs: true,
+          include_rs: false,
           include_13f: options?.include13f ?? true,
           incremental: true,
           source: "stock_detail"
         }
       }),
-    onSuccess: (job) => {
+    onSuccess: (job, options) => {
+      if (options?.auto && typeof window !== "undefined") {
+        window.sessionStorage.setItem(`stock-detail-refresh:${clean}:${berlinDate()}`, "1");
+      }
       setRefreshJobId(job.job_id);
       handledRefreshJobId.current = null;
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
@@ -141,6 +146,9 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   const refreshPriceMutation = useMutation({
     mutationFn: () => api.refreshStockPrices(clean, "1y"),
     onSuccess: (payload) => {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(`stock-detail-price-refresh:${clean}`, "1");
+      }
       queryClient.setQueryData(["stock-prices", clean, "1y"], payload.history);
       void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
       void queryClient.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
@@ -166,7 +174,6 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     const storageKey = `stock-detail-price-refresh:${clean}`;
     if (window.sessionStorage.getItem(storageKey)) return;
     autoPriceRefreshTicker.current = clean;
-    window.sessionStorage.setItem(storageKey, "1");
     refreshPriceMutation.mutate();
   }, [clean, refreshPriceMutation]);
 
@@ -182,17 +189,20 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     !fundamentalsQuery.data?.item ||
     !rsQuery.data?.found ||
     !institutionalQuery.data?.item;
+  const fundamentalsNeedDailyRefresh =
+    !fundamentalsQuery.data?.item?.as_of || fundamentalsQuery.data.item.as_of.slice(0, 10) < berlinDate();
   const blockingDetailDataMissing =
     priceQuery.data?.source !== "database" ||
-    !fundamentalsQuery.data?.item ||
+    fundamentalsNeedDailyRefresh ||
     !rsQuery.data?.found;
 
   useEffect(() => {
     if (!clean || detailDataLoading || !blockingDetailDataMissing || refreshRunning || refreshStockMutation.isPending || refreshJobId) return;
-    const storageKey = `stock-detail-refresh:${clean}:${today()}`;
+    const storageKey = `stock-detail-refresh:${clean}:${berlinDate()}`;
     if (typeof window !== "undefined" && window.sessionStorage.getItem(storageKey)) return;
-    if (typeof window !== "undefined") window.sessionStorage.setItem(storageKey, "1");
-    refreshStockMutation.mutate({ includePrices: false, include13f: false });
+    if (autoDetailRefreshKey.current === storageKey) return;
+    autoDetailRefreshKey.current = storageKey;
+    refreshStockMutation.mutate({ includePrices: false, include13f: false, auto: true });
   }, [
     blockingDetailDataMissing,
     clean,
@@ -380,7 +390,7 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return berlinDate();
 }
 
 function errorText(error: unknown) {

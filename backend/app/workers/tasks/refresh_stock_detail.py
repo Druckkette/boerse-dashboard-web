@@ -4,7 +4,7 @@ from typing import Any
 
 from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
-from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
+from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER
 from app.services.sec13f import refresh_institutional_13f_from_sec
 from app.services.settings import get_runtime_config_value
 from app.repositories import jobs as job_repository
@@ -145,21 +145,14 @@ def _refresh_one_stock(
         }
 
     if include_rs:
-        if include_prices:
-            update(0.22, f"{benchmark_ticker} Benchmark laden", f"{benchmark_ticker}: Benchmark-Kurse für RS prüfen.")
-            item["steps"]["benchmark_price"] = _safe_step(
-                lambda: refresh_price_cache_for_ticker(benchmark_ticker, range_key=range_key, incremental=incremental)
-            )
-        else:
-            item["steps"]["benchmark_price"] = {
-                "ok": True,
-                "skipped": True,
-                "reason": "Benchmark-Kursrefresh wurde im automatischen Detailjob übersprungen.",
-            }
-        update(0.38, f"{ticker} Relative Stärke berechnen", f"{ticker}: RS-Rating gegen {benchmark_ticker} berechnen.")
-        item["steps"]["relative_strength"] = _safe_step(
-            lambda: refresh_relative_strength_ratings(tickers=[ticker], benchmark_ticker=benchmark_ticker)
-        )
+        item["steps"]["relative_strength"] = {
+            "ok": True,
+            "skipped": True,
+            "reason": (
+                "Das RS-Rating bleibt der letzte vollständige Universums-Snapshot. "
+                "Eine Einzelaktie darf das Perzentil-Ranking nicht überschreiben."
+            ),
+        }
 
     if include_fundamentals:
         update(0.58, f"{ticker} Fundamentals laden", f"{ticker}: yfinance/FMP/SEC Fundamental-Cache aktualisieren.")

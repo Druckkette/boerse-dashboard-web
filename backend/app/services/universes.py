@@ -70,7 +70,7 @@ def get_universe_symbol_mappings(
     clean_key = key.strip() or "us_common_stocks"
     source = "database"
     try:
-        member_tickers = universe_repository.list_universe_tickers(clean_key, limit=5_000)
+        member_tickers = universe_repository.list_universe_tickers(clean_key, limit=10_000)
         mapping_rows = universe_repository.list_symbol_mappings(clean_key, limit=limit)
     except universe_repository.UniverseRepositoryUnavailable:
         source = "fallback"

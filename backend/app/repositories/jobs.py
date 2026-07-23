@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -31,6 +31,9 @@ SUPPORTED_JOB_TYPES: set[str] = {
 }
 
 _MEMORY_JOBS: dict[str, Job] = {}
+QUEUED_JOB_STALE_AFTER = timedelta(minutes=30)
+RUNNING_JOB_STALE_AFTER = timedelta(minutes=90)
+QUEUED_JOB_EXPIRES_SECONDS = int(QUEUED_JOB_STALE_AFTER.total_seconds())
 
 
 def create_job(
@@ -51,16 +54,19 @@ def create_job(
         payload=payload or {},
         created_at=now,
         requested_at=now,
+        heartbeat_at=now,
         result={},
     )
     return _with_db(lambda db: _create_job_db(db, job), fallback=lambda: _store_memory(job))
 
 
 def list_jobs(limit: int = 50) -> list[Job]:
+    reconcile_stale_jobs()
     return _with_db(lambda db: _list_jobs_db(db, limit), fallback=lambda: _list_jobs_memory(limit))
 
 
 def list_active_jobs() -> list[Job]:
+    reconcile_stale_jobs()
     return _with_db(_list_active_jobs_db, fallback=_list_active_jobs_memory)
 
 
@@ -157,7 +163,12 @@ def is_cancelled(job_id: str) -> bool:
 
 
 def active_job_exists() -> bool:
+    reconcile_stale_jobs()
     return _with_db(_active_job_exists_db, fallback=_active_job_exists_memory)
+
+
+def reconcile_stale_jobs() -> int:
+    return _with_db(_reconcile_stale_jobs_db, fallback=_reconcile_stale_jobs_memory)
 
 
 def clear_memory_jobs() -> None:
@@ -165,6 +176,7 @@ def clear_memory_jobs() -> None:
 
 
 def update_job(job_id: str, **values) -> Job | None:
+    values["heartbeat_at"] = _utcnow()
     return _with_db(
         lambda db: _update_job_db(db, job_id, values),
         fallback=lambda: _update_job_memory(job_id, values),
@@ -187,6 +199,7 @@ def _create_job_db(db: Session, job: Job) -> Job:
         created_at=job.created_at,
         requested_at=job.requested_at,
         started_at=job.started_at,
+        heartbeat_at=job.heartbeat_at,
         finished_at=job.finished_at,
     )
     db.add(row)
@@ -239,6 +252,28 @@ def _active_job_exists_db(db: Session) -> bool:
     return row is not None
 
 
+def _reconcile_stale_jobs_db(db: Session) -> int:
+    now = _utcnow()
+    rows = db.scalars(select(JobModel).where(JobModel.status.in_(ACTIVE_JOB_STATUSES))).all()
+    reconciled = 0
+    for row in rows:
+        reference = row.heartbeat_at or row.started_at or row.requested_at or row.created_at
+        if reference is None or not _job_is_stale(row.status, reference, now):
+            continue
+        row.status = "failed"
+        row.current_step = "Verwaisten Job beendet"
+        row.message = "Der Job hatte keinen Worker-Heartbeat mehr und wurde automatisch freigegeben."
+        row.error_message = (
+            "Worker-Heartbeat abgelaufen. Der Prozess wurde vermutlich neu gestartet oder der Auftrag ging verloren."
+        )
+        row.finished_at = now
+        row.heartbeat_at = now
+        reconciled += 1
+    if reconciled:
+        db.commit()
+    return reconciled
+
+
 def _store_memory(job: Job) -> Job:
     _MEMORY_JOBS[job.job_id] = job
     return job
@@ -288,6 +323,32 @@ def _active_job_exists_memory() -> bool:
     return any(job.status in ACTIVE_JOB_STATUSES for job in _MEMORY_JOBS.values())
 
 
+def _reconcile_stale_jobs_memory() -> int:
+    now = _utcnow()
+    reconciled = 0
+    for job_id, job in list(_MEMORY_JOBS.items()):
+        if job.status not in ACTIVE_JOB_STATUSES:
+            continue
+        reference = job.heartbeat_at or job.started_at or job.requested_at or job.created_at
+        if not _job_is_stale(job.status, reference, now):
+            continue
+        _MEMORY_JOBS[job_id] = job.model_copy(
+            update={
+                "status": "failed",
+                "current_step": "Verwaisten Job beendet",
+                "message": "Der Job hatte keinen Worker-Heartbeat mehr und wurde automatisch freigegeben.",
+                "error_message": (
+                    "Worker-Heartbeat abgelaufen. Der Prozess wurde vermutlich neu gestartet "
+                    "oder der Auftrag ging verloren."
+                ),
+                "finished_at": now,
+                "heartbeat_at": now,
+            }
+        )
+        reconciled += 1
+    return reconciled
+
+
 def _row_to_schema(row: JobModel) -> Job:
     return Job(
         job_id=row.job_id,
@@ -303,6 +364,7 @@ def _row_to_schema(row: JobModel) -> Job:
         created_at=row.created_at or row.requested_at or _utcnow(),
         requested_at=row.requested_at or row.created_at or _utcnow(),
         started_at=row.started_at,
+        heartbeat_at=row.heartbeat_at or row.started_at or row.requested_at or row.created_at or _utcnow(),
         finished_at=row.finished_at,
         result=row.result_json or {},
     )
@@ -318,3 +380,9 @@ def _with_db(callback, fallback):
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _job_is_stale(status: str, reference: datetime, now: datetime) -> bool:
+    normalized_reference = reference if reference.tzinfo is not None else reference.replace(tzinfo=UTC)
+    threshold = QUEUED_JOB_STALE_AFTER if status == "queued" else RUNNING_JOB_STALE_AFTER
+    return normalized_reference < now - threshold

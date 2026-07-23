@@ -236,7 +236,7 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
     assert plan[0].payload["price_batch_size"] == 50
     assert plan[0].payload["price_overlap_days"] == 1
     assert plan[-1].payload["fundamental_universe"] == "all"
-    assert plan[-1].payload["fundamental_limit"] == 5000
+    assert plan[-1].payload["fundamental_limit"] == 10000
     assert plan[-1].payload["fundamental_max_refresh_count"] == 250
     assert plan[-1].payload["fundamental_action_max_seconds"] == 2700
     assert "Geplanter Smart-Refresh" in plan[0].reason

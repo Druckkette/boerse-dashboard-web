@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from datetime import date
-from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -45,8 +43,6 @@ from app.repositories.prices import PriceRepositoryUnavailable
 from app.services.fx import eur_to_usd, get_eur_usd_rate
 
 
-_SYNTHETIC_END_DATE = date(2026, 6, 5)
-_SYNTHETIC_PERIODS = 280
 _POSITION_MONITOR_REFERENCES = {"high_since_buy", "close_since_buy", "entry_price", "previous_close"}
 _POSITION_MONITOR_REFERENCE_LABELS = {
     "high_since_buy": "Vom Hoch seit Kauf",
@@ -54,51 +50,22 @@ _POSITION_MONITOR_REFERENCE_LABELS = {
     "entry_price": "Vom Einstand",
     "previous_close": "Vom Vortagesschluss",
 }
+MINIMUM_SELL_PRICE_BARS = 80
 
-_POSITION_CATALOG: dict[str, dict[str, Any]] = {
-    "NVDA": {
-        "name": "NVIDIA",
-        "buy_price": 100.0,
-        "shares": 12.0,
-        "scenario": "profit",
-        "market_environment": "Bullisch",
-        "industry_group_status": "Stark",
-    },
-    "PLTR": {
-        "name": "Palantir",
-        "buy_price": 70.0,
-        "shares": 20.0,
-        "scenario": "losing",
-        "market_environment": "Unsicher",
-        "industry_group_status": "Neutral",
-    },
-    "EMAB": {
-        "name": "EMA21 Break Setup",
-        "buy_price": 100.0,
-        "shares": 10.0,
-        "scenario": "ema21_break",
-        "market_environment": "Unsicher",
-        "industry_group_status": "Neutral",
-    },
-    "CLMX": {
-        "name": "Climax Winner",
-        "buy_price": 80.0,
-        "shares": 8.0,
-        "scenario": "climax",
-        "market_environment": "Bullisch",
-        "industry_group_status": "Neutral",
-    },
-}
+
+class SellPositionNotFoundError(LookupError):
+    pass
+
+
+class SellMarketDataUnavailableError(RuntimeError):
+    pass
+
 
 def get_sell_metrics_for_position(
     ticker: str,
     request: SellMetricsRequest | None = None,
 ) -> SellMetricsApiResponse:
-    """Return sell metrics for one position.
-
-    Current implementation uses deterministic fixture-like OHLC data. The function boundary is
-    intentionally repository-friendly so a later price cache can replace the data source.
-    """
+    """Return sell metrics for an open position backed by cached market data."""
     clean_ticker = _clean_ticker(ticker)
     payload = _build_metrics_payload(request or _default_metrics_request(clean_ticker))
     manual = _manual_for_payload(clean_ticker, payload)
@@ -654,17 +621,8 @@ def _default_metrics_request(ticker: str) -> SellMetricsRequest:
     portfolio_row = _portfolio_position_context(clean_ticker)
     if portfolio_row is not None:
         return _metrics_request_from_portfolio_row(portfolio_row)
-    context = _position_context(clean_ticker)
-    dates = _price_dates()
-    return SellMetricsRequest(
-        ticker=clean_ticker,
-        buy_date=dates[-170].date(),
-        buy_price=float(context["buy_price"]),
-        shares=float(context["shares"]),
-        benchmark_ticker="SPY",
-        currency="USD",
-        pivot_date=dates[-170].date(),
-        scenario=str(context["scenario"]),
+    raise SellPositionNotFoundError(
+        f"{clean_ticker} ist keine offene Portfolioposition. Der Verkaufsmonitor bewertet keine Testpositionen."
     )
 
 
@@ -679,14 +637,7 @@ def _ranking_contexts() -> list[dict[str, Any]]:
             }
             for row in portfolio_rows
         ]
-    return [
-        {
-            "ticker": ticker,
-            "name": context["name"],
-            "metrics_request": None,
-        }
-        for ticker, context in _POSITION_CATALOG.items()
-    ]
+    return []
 
 
 def _portfolio_positions() -> list[PortfolioPositionRow]:
@@ -705,8 +656,7 @@ def _portfolio_position_context(ticker: str) -> PortfolioPositionRow | None:
 
 
 def _metrics_request_from_portfolio_row(row: PortfolioPositionRow) -> SellMetricsRequest:
-    dates = _price_dates()
-    buy_date = row.buy_date or dates[-170].date()
+    buy_date = row.buy_date or date.today()
     buy_price, current_price, currency = _portfolio_row_prices_for_sell(row)
     return SellMetricsRequest(
         ticker=row.ticker,
@@ -717,21 +667,8 @@ def _metrics_request_from_portfolio_row(row: PortfolioPositionRow) -> SellMetric
         benchmark_ticker="SPY",
         currency=currency,
         pivot_date=buy_date,
-        scenario=_scenario_for_portfolio_row(row),
+        scenario=None,
     )
-
-
-def _scenario_for_portfolio_row(row: PortfolioPositionRow) -> str:
-    entry_price, current_price, _currency = _portfolio_row_prices_for_sell(row)
-    current = _finite_float(current_price, entry_price) or entry_price
-    pnl_pct = (current / entry_price - 1) * 100 if entry_price else 0
-    if pnl_pct <= -8:
-        return "losing"
-    if pnl_pct <= -3:
-        return "ema21_break"
-    if pnl_pct >= 70:
-        return "climax"
-    return "profit"
 
 
 def _portfolio_row_prices_for_sell(row: PortfolioPositionRow) -> tuple[float, float | None, str]:
@@ -749,42 +686,27 @@ def _portfolio_row_prices_for_sell(row: PortfolioPositionRow) -> tuple[float, fl
 
 def _position_context(ticker: str) -> dict[str, Any]:
     clean_ticker = _clean_ticker(ticker)
-    if clean_ticker in _POSITION_CATALOG:
-        return _POSITION_CATALOG[clean_ticker]
     return {
         "name": clean_ticker,
-        "buy_price": 100.0,
-        "shares": 1.0,
-        "scenario": "profit",
         "market_environment": "Unsicher",
         "industry_group_status": "Neutral",
     }
 
 
 def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
-    context = _position_context(request.ticker)
-    is_catalog_default = (
-        request.current_price is None
-        and request.ticker in _POSITION_CATALOG
-        and request.scenario == context["scenario"]
-        and float(request.buy_price) == float(context["buy_price"])
-        and float(request.shares) == float(context["shares"])
-    )
-    if is_catalog_default:
-        return deepcopy(_cached_metrics_payload(request.ticker))
-
     price_frame = _price_frame_from_cache(request.ticker)
-    price_data_source = "database"
-    if len(price_frame) < 80:
-        price_frame = _build_price_frame(request.scenario or "profit")
-        price_frame = _scale_price_frame_to_last_close(price_frame, request.current_price)
-        price_data_source = "synthetic_fallback"
+    if len(price_frame) < MINIMUM_SELL_PRICE_BARS:
+        raise SellMarketDataUnavailableError(
+            f"{request.ticker}: nur {len(price_frame)} Kurszeilen im Price Cache; "
+            f"mindestens {MINIMUM_SELL_PRICE_BARS} werden für den Verkaufsmonitor benötigt."
+        )
 
     benchmark_frame = _price_frame_from_cache(request.benchmark_ticker)
-    benchmark_data_source = "database"
-    if len(benchmark_frame) < 80:
-        benchmark_frame = _build_price_frame("benchmark")
-        benchmark_data_source = "synthetic_fallback"
+    if len(benchmark_frame) < MINIMUM_SELL_PRICE_BARS:
+        raise SellMarketDataUnavailableError(
+            f"{request.benchmark_ticker}: nur {len(benchmark_frame)} Benchmark-Zeilen im Price Cache; "
+            f"mindestens {MINIMUM_SELL_PRICE_BARS} werden für den Verkaufsmonitor benötigt."
+        )
 
     payload = build_sell_decision_metrics_payload(
         ticker=request.ticker,
@@ -798,8 +720,8 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
         pivot_date=request.pivot_date,
     )
     if isinstance(payload.get("metrics"), dict):
-        payload["metrics"]["price_data_source"] = price_data_source
-        payload["metrics"]["benchmark_data_source"] = benchmark_data_source
+        payload["metrics"]["price_data_source"] = "database"
+        payload["metrics"]["benchmark_data_source"] = "database"
     return payload
 
 
@@ -827,102 +749,6 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows).drop_duplicates(subset=["Date"], keep="last").set_index("Date").sort_index()
-
-
-def _scale_price_frame_to_last_close(frame: pd.DataFrame, current_price: float | None) -> pd.DataFrame:
-    target = _finite_float(current_price)
-    if frame.empty or target is None:
-        return frame
-    last_close = _finite_float(frame["Close"].iloc[-1] if "Close" in frame else None)
-    if last_close is None or last_close <= 0:
-        return frame
-    scaled = frame.copy()
-    factor = target / last_close
-    for column in ("Open", "High", "Low", "Close"):
-        if column in scaled:
-            scaled[column] = pd.to_numeric(scaled[column], errors="coerce") * factor
-    return scaled
-
-
-@lru_cache(maxsize=64)
-def _cached_metrics_payload(ticker: str) -> dict[str, Any]:
-    request = _default_metrics_request(ticker)
-    price_frame = _build_price_frame(request.scenario or "profit")
-    benchmark_frame = _build_price_frame("benchmark")
-    payload = build_sell_decision_metrics_payload(
-        ticker=request.ticker,
-        buy_date=request.buy_date,
-        buy_price=request.buy_price,
-        shares=request.shares,
-        price_frame=price_frame,
-        benchmark_frame=benchmark_frame,
-        benchmark_ticker=request.benchmark_ticker,
-        currency=request.currency,
-        pivot_date=request.pivot_date,
-    )
-    if isinstance(payload.get("metrics"), dict):
-        payload["metrics"]["price_data_source"] = "synthetic_fixture"
-        payload["metrics"]["benchmark_data_source"] = "synthetic_fixture"
-    return payload
-
-
-def _build_price_frame(scenario: str) -> pd.DataFrame:
-    dates = _price_dates()
-    close = _close_curve(scenario, len(dates))
-    idx = np.arange(len(dates), dtype=float)
-    open_ = close * (1 + 0.004 * np.sin(idx / 4.0))
-    high = np.maximum(open_, close) * (1.012 + 0.003 * np.cos(idx / 8.0))
-    low = np.minimum(open_, close) * (0.988 - 0.002 * np.sin(idx / 6.0))
-    volume = 1_000_000 * (1 + 0.12 * np.sin(idx / 9.0) + 0.04 * np.cos(idx / 3.0))
-
-    if scenario == "losing":
-        volume[-30:] *= np.linspace(1.2, 1.8, 30)
-    elif scenario == "ema21_break":
-        volume[-8:] *= np.linspace(1.1, 1.7, 8)
-    elif scenario == "climax":
-        volume[-6:] *= [1.2, 1.4, 2.2, 2.8, 2.0, 2.5]
-
-    return pd.DataFrame(
-        {
-            "Open": open_,
-            "High": high,
-            "Low": low,
-            "Close": close,
-            "Volume": np.maximum(volume, 100_000),
-        },
-        index=dates,
-    )
-
-
-def _close_curve(scenario: str, periods: int) -> np.ndarray:
-    if scenario == "benchmark":
-        curve = np.linspace(380, 430, periods)
-        curve[-20:] = np.linspace(curve[-21], 432, 20)
-        return curve
-    if scenario == "losing":
-        curve = np.linspace(86, 61, periods)
-        curve[-15:] = np.linspace(curve[-16] * 0.98, 58.2, 15)
-        return curve
-    if scenario == "ema21_break":
-        curve = np.concatenate(
-            [
-                np.linspace(82, 132, periods - 28),
-                np.linspace(135, 123, 18),
-                np.linspace(121, 118.5, 10),
-            ]
-        )
-        return curve[:periods]
-    if scenario == "climax":
-        curve = np.linspace(72, 144, periods)
-        curve[-8:] = [145, 149, 154, 162, 171, 166, 169, 174]
-        return curve
-    curve = np.linspace(82, 134, periods)
-    curve[-18:] = np.linspace(curve[-19], 138, 18)
-    return curve
-
-
-def _price_dates() -> pd.DatetimeIndex:
-    return pd.bdate_range(end=pd.Timestamp(_SYNTHETIC_END_DATE), periods=_SYNTHETIC_PERIODS)
 
 
 def _manual_for_payload(ticker: str, payload: dict[str, Any]) -> SellManualInput:
@@ -1069,10 +895,6 @@ def _fmt_pct(value: float | None) -> str:
 def _data_source_label(value: str) -> str:
     if value == "database":
         return "Price Cache"
-    if value == "synthetic_fixture":
-        return "Fixture"
-    if value == "synthetic_fallback":
-        return "Fallback"
     return "unbekannt"
 
 

@@ -20,7 +20,7 @@ def refresh_breadth(self, job_id: str | None = None, payload: dict | None = None
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
         fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-        limit=int(payload.get("limit_universe") or 5000),
+        limit=int(payload.get("limit_universe") or 10000),
     )
     lookback_days = int(payload.get("lookback_days") or 550)
 

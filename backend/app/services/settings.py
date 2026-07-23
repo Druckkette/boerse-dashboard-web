@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import re
 import socket
+import subprocess
 import threading
 import time
 from datetime import UTC, date, datetime, timedelta
 from json import dumps, loads
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -380,6 +382,8 @@ def switch_database_target(payload: DatabaseTargetSwitchRequest) -> DatabaseTarg
         if _database_target_for_url(current_url) == "local":
             stored["LOCAL_DATABASE_URL"] = current_url
 
+    target_url = _database_url_for_target(target, stored)
+    _migrate_database_target(target_url)
     stored["DATABASE_TARGET"] = target
     try:
         settings_repository.write_runtime_config(stored)
@@ -643,6 +647,42 @@ def _stored_database_target(stored: dict) -> str:
 
 def _stored_neon_database_url(stored: dict) -> str:
     return str(stored.get("NEON_DATABASE_URL") or stored.get("DATABASE_URL") or "").strip()
+
+
+def _database_url_for_target(target: str, stored: dict) -> str:
+    if target == "neon":
+        value = _stored_neon_database_url(stored)
+    else:
+        value = str(stored.get("LOCAL_DATABASE_URL") or os.environ.get("LOCAL_DATABASE_URL") or "").strip()
+        if not value and _database_target_for_url(get_settings().database_url) == "local":
+            value = get_settings().database_url
+    if not value:
+        raise ValueError(f"Für das Datenbankziel {target} ist keine Verbindungsadresse gespeichert.")
+    return _normalize_database_url(value)
+
+
+def _migrate_database_target(database_url: str) -> None:
+    backend_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    try:
+        completed = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            cwd=backend_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError(f"Datenbankmigration konnte nicht gestartet werden: {type(exc).__name__}.") from exc
+    if completed.returncode == 0:
+        return
+    detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+    last_line = detail[-1] if detail else "unbekannter Alembic-Fehler"
+    safe_detail = last_line.replace(database_url, "<database-url>")
+    raise ValueError(f"Datenbankziel wurde nicht umgeschaltet: Alembic-Migration fehlgeschlagen ({safe_detail}).")
 
 
 def _database_target_for_url(value: str) -> str:

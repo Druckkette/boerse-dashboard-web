@@ -156,6 +156,18 @@ path at 16:00 and 22:30 Europe/Berlin time. Scheduled runs force the market-data
 cache, breadth snapshots and RS ratings are rebuilt instead of being skipped by the normal
 freshness window.
 
+For the NAS, "current" is implemented by data class rather than by reloading every history:
+
+- At 16:00 and 22:30 Europe/Berlin, all members of the stored US universe are checked in yfinance
+  batches. Existing symbols use a one-trading-day overlap, so only changed/new bars are upserted.
+- Breadth and RS are recomputed completely after the price stage. All rows of an RS run share one
+  snapshot date, so rankings never collapse to a partially refreshed subset.
+- Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window. A stock opened
+  in the UI gets a targeted daily fundamentals check and an immediate incremental price check.
+- 13F remains quarterly freshness-gated because SEC filings do not change daily.
+- Expired scheduler messages and worker jobs without a heartbeat are released automatically instead
+  of blocking the next scheduled or manual refresh.
+
 Long-running bootstrap jobs are configured for NAS runtimes: Celery has a 48 hour hard task limit
 and a 72 hour Redis visibility timeout by default. The bootstrap stores checkpoints in the job
 result, so if Redis redelivers the task or the worker is recreated, completed stages such as

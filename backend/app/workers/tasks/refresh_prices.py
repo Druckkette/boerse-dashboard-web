@@ -192,7 +192,7 @@ def _normalize_preset(value: object) -> PriceRefreshPreset:
 
 def _normalize_limit(value: object) -> int:
     try:
-        return max(1, min(5_000, int(value)))
+        return max(1, min(10_000, int(value)))
     except (TypeError, ValueError):
         return 50
 

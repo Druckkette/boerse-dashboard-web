@@ -66,6 +66,13 @@ You do not have to copy CSV files into a container or run `curl` commands manual
 The scheduler runs the same smart refresh automatically at 16:00 and 22:30 Europe/Berlin time.
 Scheduled runs force the market-data path, so price cache, breadth snapshots and RS ratings are
 rebuilt even if the generic freshness window still marks yesterday's data as fresh.
+Each run resolves the complete stored US common-stock universe (up to 10,000 members), fetches only
+the missing trading days in yfinance batches, and then computes one complete Breadth and RS
+snapshot. A single-stock page refresh never overwrites this universe-wide RS percentile.
+Fundamentals are different from daily market data: the NAS processes at most 250 oldest or missing
+snapshots per run and rotates the full universe over a 14-day freshness window. Opening a stock
+checks its price once per browser session and refreshes stale/missing fundamentals for that ticker
+once per Berlin calendar day. 13F data remains quarterly freshness-gated.
 The market page itself only reads prepared Postgres snapshots and does not start live yfinance or
 breadth recalculations while you open the dashboard.
 
@@ -138,7 +145,8 @@ docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recre
 Saving a Neon URL only stores and tests the candidate. It does not switch the app. Use the
 **Datenbank-Ziel** controls in `/setup`:
 
-1. Click **Neon verwenden** or **Lokale Postgres verwenden**.
+1. Click **Neon verwenden** or **Lokale Postgres verwenden**. The backend first runs
+   `alembic upgrade head` against the selected target; the target is not changed if migration fails.
 2. Click **Dienste neu starten**.
 
 The button restarts `worker`, `scheduler`, `frontend` and then `backend` through the Docker socket. This replaces
@@ -169,6 +177,9 @@ cd /volume1/docker/boerse-dashboard-web/infra
 ```
 
 The script pulls GHCR images, runs Alembic migrations and restarts services without deleting volumes.
+Migration `0010_job_heartbeat` lets the app recognize abandoned worker jobs. Queued jobs without a
+heartbeat for 30 minutes and running jobs without a heartbeat for 90 minutes are marked failed and
+no longer block a new refresh after a NAS/worker restart.
 Run a database backup before major updates:
 
 ```bash

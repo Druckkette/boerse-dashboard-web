@@ -53,6 +53,9 @@ def test_refresh_relative_strength_uses_cached_prices_and_persists(monkeypatch: 
     assert result["records_written"] == 3
     assert result["top"][0]["ticker"] == "NVDA"
     assert stored[0].source == "computed"
+    assert len({row.date for row in stored}) == 1
+    assert all(row.metadata_json["snapshot_date"] == result["as_of"] for row in stored)
+    assert all(row.metadata_json["data_as_of"] for row in stored)
     assert stored[0].metadata_json["rs_ema21_last"] is not None
     assert stored[0].metadata_json["rs_sma50_last"] is not None
 

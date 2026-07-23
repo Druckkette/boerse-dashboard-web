@@ -38,7 +38,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
     mode = str(payload.get("mode") or "initial").strip().lower()
     is_initial = mode in {"initial", "bootstrap", "full"}
     universe_key = str(payload.get("universe") or DEFAULT_MARKET_UNIVERSE_KEY).strip() or DEFAULT_MARKET_UNIVERSE_KEY
-    limit_universe = _normalize_limit(payload.get("limit_universe") or 5000)
+    limit_universe = _normalize_limit(payload.get("limit_universe") or 10000)
     range_key = _normalize_range(payload.get("range") or ("2y" if is_initial else "6m"))
     incremental_prices = _normalize_bool(payload.get("incremental_prices"), default=not is_initial)
     price_batch_size = _normalize_batch_size(payload.get("price_batch_size") or payload.get("batch_size") or 50)
@@ -379,9 +379,9 @@ def _normalize_range(value: object) -> PriceRange:
 
 def _normalize_limit(value: object) -> int:
     try:
-        return max(350, min(5000, int(value)))
+        return max(350, min(10000, int(value)))
     except (TypeError, ValueError):
-        return 5000
+        return 10000
 
 
 def _normalize_bool(value: object, *, default: bool) -> bool:

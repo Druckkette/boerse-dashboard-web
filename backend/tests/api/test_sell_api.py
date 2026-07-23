@@ -3,16 +3,20 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.domain.sell import service as sell_service
 from app.domain.sell.service import clear_sell_engine_state
 from app.main import app
+from tests.helpers.sell_fixture_data import fixture_positions, fixture_price_bars
 
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def reset_sell_state() -> None:
+def reset_sell_state(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_sell_engine_state()
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", fixture_positions)
+    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", fixture_price_bars)
 
 
 def test_sell_ranking_endpoint_returns_actionable_rows() -> None:
@@ -77,6 +81,24 @@ def test_sell_diagnostics_endpoint_returns_strategy_context() -> None:
     assert isinstance(payload["post_mortem"], list)
     assert payload["next_action"]
     assert {"strategy_key", "status", "signals"} <= set(payload["strategy_hub"][0])
+
+
+def test_sell_metrics_endpoint_rejects_non_portfolio_test_positions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: [])
+
+    response = client.get("/api/v1/sell/NVDA/metrics")
+
+    assert response.status_code == 404
+    assert "keine offene Portfolioposition" in response.json()["detail"]
+
+
+def test_sell_metrics_endpoint_rejects_incomplete_price_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", lambda *args, **kwargs: [])
+
+    response = client.get("/api/v1/sell/NVDA/metrics")
+
+    assert response.status_code == 409
+    assert "Price Cache" in response.json()["detail"]
 
 
 def test_manual_inputs_tranches_and_snooze_are_mutable_over_api() -> None:

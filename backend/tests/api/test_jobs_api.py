@@ -22,10 +22,12 @@ def reset_jobs() -> None:
 def test_jobs_can_be_started_and_listed(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.services.jobs as job_service
 
+    send_calls: list[dict] = []
     monkeypatch.setattr(
         job_service.celery_app,
         "send_task",
-        lambda *args, **kwargs: SimpleNamespace(id="celery-test-id"),
+        lambda *args, **kwargs: send_calls.append({"args": args, "kwargs": kwargs})
+        or SimpleNamespace(id="celery-test-id"),
     )
 
     response = client.post("/api/v1/jobs", json={"type": "refresh_prices", "payload": {"mode": "test"}})
@@ -34,6 +36,7 @@ def test_jobs_can_be_started_and_listed(monkeypatch: pytest.MonkeyPatch) -> None
     assert job["job_type"] == "refresh_prices"
     assert job["status"] == "queued"
     assert job["celery_task_id"] == "celery-test-id"
+    assert send_calls[0]["kwargs"]["expires"] == 30 * 60
 
     list_response = client.get("/api/v1/jobs")
     assert list_response.status_code == 200
@@ -100,9 +103,10 @@ def test_parallel_heavy_jobs_are_rejected(monkeypatch: pytest.MonkeyPatch) -> No
     assert second.status_code == 409
 
 
-def test_active_jobs_remain_visible_when_older_than_recent_limit() -> None:
+def test_stale_running_jobs_are_reconciled_and_no_longer_block(monkeypatch: pytest.MonkeyPatch) -> None:
     active = job_repository.create_job("refresh_relative_strength", {"mode": "test"}, requested_by="test")
     old_started_at = datetime.now(UTC) - timedelta(days=2)
+    monkeypatch.setattr(job_repository, "_utcnow", lambda: old_started_at)
     job_repository.update_job(
         active.job_id,
         status="running",
@@ -112,6 +116,7 @@ def test_active_jobs_remain_visible_when_older_than_recent_limit() -> None:
         requested_at=old_started_at,
         started_at=old_started_at,
     )
+    monkeypatch.setattr(job_repository, "_utcnow", lambda: datetime.now(UTC))
 
     for index in range(5):
         job = job_repository.create_job("refresh_prices", {"index": index}, requested_by="test")
@@ -121,6 +126,9 @@ def test_active_jobs_remain_visible_when_older_than_recent_limit() -> None:
 
     assert response.status_code == 200
     jobs = response.json()["jobs"]
-    assert jobs[0]["job_id"] == active.job_id
-    assert jobs[0]["status"] == "running"
-    assert len(jobs) == 4
+    stale = job_repository.get_job(active.job_id)
+    assert stale is not None
+    assert stale.status == "failed"
+    assert stale.current_step == "Verwaisten Job beendet"
+    assert len(jobs) == 3
+    assert job_repository.active_job_exists() is False

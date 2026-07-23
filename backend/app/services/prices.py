@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-import random
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -81,12 +79,11 @@ def get_price_history(ticker: str, *, range_key: PriceRange = "1y") -> PriceHist
             cache_updated_at=cache_updated_at,
         )
 
-    fallback_points = _synthetic_price_points(clean, start_date=start_date)
     return _build_response(
         clean,
         range_key=range_key,
-        source="synthetic_fallback",
-        points=fallback_points,
+        source="missing",
+        points=[],
         cache_updated_at=None,
     )
 
@@ -403,7 +400,7 @@ def _build_response(
     ticker: str,
     *,
     range_key: PriceRange,
-    source: Literal["database", "synthetic_fallback"],
+    source: Literal["database", "missing"],
     points: list[PriceBarPoint],
     cache_updated_at: datetime | None,
 ) -> PriceHistoryResponse:
@@ -419,7 +416,7 @@ def _build_response(
         name=ticker,
         range=range_key,
         source=source,
-        data_status="fallback" if source == "synthetic_fallback" else "fresh",
+        data_status="missing" if source == "missing" else "fresh",
         as_of=as_of,
         first_date=points[0].date if points else None,
         last_date=points[-1].date if points else None,
@@ -428,44 +425,6 @@ def _build_response(
         change_pct=change_pct,
         points=points,
     )
-
-
-def _synthetic_price_points(ticker: str, *, start_date: date) -> list[PriceBarPoint]:
-    seed = sum(ord(char) for char in ticker)
-    rng = random.Random(seed)
-    price = 60 + seed % 140
-    trend = ((seed % 17) - 8) / 10000
-    points: list[PriceBarPoint] = []
-    current = start_date
-
-    while current <= date.today():
-        if current.weekday() >= 5:
-            current += timedelta(days=1)
-            continue
-
-        drift = trend + math.sin(len(points) / 12) * 0.001
-        shock = rng.uniform(-0.012, 0.013)
-        previous = price
-        price = max(2.0, price * (1 + drift + shock))
-        high = max(previous, price) * (1 + rng.uniform(0.002, 0.018))
-        low = min(previous, price) * (1 - rng.uniform(0.002, 0.018))
-        volume = 1_000_000 + rng.randint(0, 7_500_000)
-        points.append(
-            PriceBarPoint(
-                date=current.isoformat(),
-                open=round(previous, 2),
-                high=round(high, 2),
-                low=round(low, 2),
-                close=round(price, 2),
-                adj_close=round(price, 2),
-                volume=float(volume),
-            )
-        )
-        current += timedelta(days=1)
-
-    return points
-
-
 def _normalize_ticker(ticker: str) -> str:
     clean = ticker.strip().upper()
     if not clean:

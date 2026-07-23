@@ -21,6 +21,7 @@ import {
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { berlinDate } from "@/lib/date";
 import type {
   Tone,
   TradeJournalDefaults,
@@ -1211,7 +1212,7 @@ function emptyDraft(ticker: string, type: TradeJournalEntryType): JournalDraft {
   return {
     ticker,
     entry_type: type,
-    trade_date: new Date().toISOString().slice(0, 10),
+    trade_date: berlinDate(),
     price: "",
     shares: "",
     stop_price: "",

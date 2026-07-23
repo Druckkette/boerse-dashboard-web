@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from time import monotonic
 from typing import Any
 
@@ -40,6 +40,7 @@ DEFAULT_PRICE_PROVIDER_TIMEOUT_SECONDS = 15
 DEFAULT_PRICE_ACTION_MAX_SECONDS = 2 * 60 * 60
 DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS = 45 * 60
 DEFAULT_FUNDAMENTAL_MAX_REFRESH_COUNT = 250
+DEFAULT_FUNDAMENTAL_FRESHNESS_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -171,7 +172,7 @@ def build_smart_refresh_plan(
 ) -> list[SmartRefreshAction]:
     payload = payload or {}
     universe_key = str(payload.get("universe") or DEFAULT_MARKET_UNIVERSE_KEY)
-    limit_universe = _normalize_limit(payload.get("limit_universe") or 5000)
+    limit_universe = _normalize_limit(payload.get("limit_universe") or 10000)
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
     breadth_lookback_days = _normalize_days(payload.get("breadth_lookback_days") or payload.get("lookback_days") or 550)
     rs_lookback_days = _normalize_days(payload.get("rs_lookback_days") or 430)
@@ -213,6 +214,9 @@ def build_smart_refresh_plan(
         min_value=60,
         max_value=6 * 60 * 60,
     )
+    fundamental_freshness_days = _normalize_fundamental_freshness_days(
+        payload.get("fundamental_freshness_days")
+    )
 
     freshness_by_name = {item.name: item for item in freshness.services}
     price_freshness = freshness_by_name.get("prices")
@@ -235,6 +239,8 @@ def build_smart_refresh_plan(
         "incremental": incremental_fundamentals,
         "fundamental_action_max_seconds": fundamental_action_max_seconds,
         "fundamental_max_refresh_count": fundamental_max_refresh_count,
+        "fundamental_freshness_days": fundamental_freshness_days,
+        "scheduled_window": payload.get("scheduled_window"),
     }
     incomplete_fundamental_tickers: list[str] = []
     if include_fundamentals and not (
@@ -456,7 +462,7 @@ def _run_action(
             explicit_tickers=action.payload.get("tickers"),
             universe_key=action.payload.get("universe"),
             fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-            limit=int(action.payload.get("limit_universe") or 5000),
+            limit=int(action.payload.get("limit_universe") or 10000),
         )
         return refresh_market_breadth(
             tickers=tickers,
@@ -468,7 +474,7 @@ def _run_action(
             explicit_tickers=action.payload.get("tickers"),
             universe_key=action.payload.get("universe"),
             fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-            limit=int(action.payload.get("limit_universe") or 5000),
+            limit=int(action.payload.get("limit_universe") or 10000),
         )
         return refresh_relative_strength_ratings(
             tickers=tickers,
@@ -512,7 +518,7 @@ def _refresh_prices(
         explicit_tickers=payload.get("tickers"),
         universe_key=payload.get("universe"),
         fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
-        limit=int(payload.get("limit_universe") or 5000),
+        limit=int(payload.get("limit_universe") or 10000),
     )
     if payload.get("include_market_helpers"):
         symbols = _merge_price_symbols(symbols, benchmark_ticker=str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER))
@@ -644,6 +650,7 @@ def _refresh_fundamentals(
     max_refresh_count = _normalize_fundamental_max_refresh_count(
         payload.get("fundamental_max_refresh_count") or payload.get("fundamental_batch_limit")
     )
+    freshness_days = _normalize_fundamental_freshness_days(payload.get("fundamental_freshness_days"))
     max_action_seconds = _normalize_seconds(
         payload.get("fundamental_action_max_seconds") or payload.get("max_action_seconds"),
         default=DEFAULT_FUNDAMENTAL_ACTION_MAX_SECONDS,
@@ -656,6 +663,7 @@ def _refresh_fundamentals(
         latest_states=latest_states,
         incremental=incremental,
         max_refresh_count=max_refresh_count,
+        freshness_days=freshness_days,
     )
     fundamental_result: dict[str, Any] = {
         "ok": False,
@@ -665,6 +673,7 @@ def _refresh_fundamentals(
         "selected_ticker_count": len(selected_tickers),
         "pending_count": len(selected_tickers) + deferred_count,
         "max_refresh_count": max_refresh_count,
+        "freshness_days": freshness_days,
         "include_holders": include_holders,
         "incremental": incremental,
         "success_count": 0,
@@ -756,31 +765,38 @@ def _select_fundamental_work(
     latest_states: dict[str, Any],
     incremental: bool,
     max_refresh_count: int,
+    freshness_days: int,
 ) -> tuple[list[str], int, int]:
-    today = datetime.now(UTC).date()
+    freshness_cutoff = datetime.now(UTC).date() - timedelta(days=max(0, freshness_days - 1))
     if not incremental:
         selected = tickers[:max_refresh_count]
         return selected, 0, max(0, len(tickers) - len(selected))
 
-    selected: list[str] = []
     skipped_current_count = 0
-    pending_count = 0
+    pending: list[str] = []
     for ticker in tickers:
         latest_state = latest_states.get(ticker)
         is_current = (
             latest_state is not None
             and latest_state.latest_date is not None
-            and latest_state.latest_date >= today
+            and latest_state.latest_date >= freshness_cutoff
             and latest_state.complete
         )
         if is_current:
             skipped_current_count += 1
             continue
-        pending_count += 1
-        if len(selected) < max_refresh_count:
-            selected.append(ticker)
+        pending.append(ticker)
 
-    return selected, skipped_current_count, max(0, pending_count - len(selected))
+    pending.sort(
+        key=lambda ticker: (
+            latest_states[ticker].latest_date
+            if ticker in latest_states and latest_states[ticker].latest_date is not None
+            else date.min,
+            ticker,
+        )
+    )
+    selected = pending[:max_refresh_count]
+    return selected, skipped_current_count, max(0, len(pending) - len(selected))
 
 
 def _latest_fundamental_states(tickers: list[str]) -> dict[str, Any]:
@@ -930,14 +946,14 @@ def _normalize_range(value: object) -> PriceRange:
 
 def _normalize_limit(value: object) -> int:
     try:
-        return max(350, min(5000, int(value)))
+        return max(350, min(10000, int(value)))
     except (TypeError, ValueError):
-        return 5000
+        return 10000
 
 
 def _normalize_fundamental_limit(value: object) -> int:
     try:
-        return max(1, min(5000, int(value)))
+        return max(1, min(10000, int(value)))
     except (TypeError, ValueError):
         return 80
 
@@ -949,9 +965,16 @@ def _normalize_fundamental_max_refresh_count(value: object) -> int:
         return DEFAULT_FUNDAMENTAL_MAX_REFRESH_COUNT
 
 
+def _normalize_fundamental_freshness_days(value: object) -> int:
+    try:
+        return max(1, min(90, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_FUNDAMENTAL_FRESHNESS_DAYS
+
+
 def _normalize_13f_limit(value: object) -> int:
     try:
-        return max(1, min(5000, int(value)))
+        return max(1, min(10000, int(value)))
     except (TypeError, ValueError):
         return 120
 

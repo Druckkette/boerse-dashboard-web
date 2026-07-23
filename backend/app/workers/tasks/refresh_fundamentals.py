@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import fundamentals as fundamentals_repository
@@ -14,6 +14,7 @@ from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
 
 DEFAULT_MAX_REFRESH_COUNT = 250
+DEFAULT_FUNDAMENTAL_FRESHNESS_DAYS = 14
 
 
 @celery_app.task(bind=True, name="refresh_fundamentals")
@@ -33,12 +34,14 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
     max_refresh_count = _normalize_max_refresh_count(
         payload.get("fundamental_max_refresh_count") or payload.get("fundamental_batch_limit")
     )
+    freshness_days = _normalize_freshness_days(payload.get("fundamental_freshness_days"))
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
     selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
         tickers,
         latest_states=latest_states,
         incremental=incremental,
         max_refresh_count=max_refresh_count,
+        freshness_days=freshness_days,
     )
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
@@ -49,6 +52,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         "selected_ticker_count": len(selected_tickers),
         "pending_count": len(selected_tickers) + deferred_count,
         "max_refresh_count": max_refresh_count,
+        "freshness_days": freshness_days,
         "include_holders": include_holders,
         "incremental": incremental,
         "success_count": 0,
@@ -187,7 +191,7 @@ def _dedupe_tickers(values: list[str]) -> list[str]:
 
 def _normalize_limit(value: object) -> int:
     try:
-        return max(1, min(5000, int(value)))
+        return max(1, min(10000, int(value)))
     except (TypeError, ValueError):
         return 50
 
@@ -205,30 +209,38 @@ def _select_fundamental_work(
     latest_states: dict[str, fundamentals_repository.FundamentalRefreshState],
     incremental: bool,
     max_refresh_count: int,
+    freshness_days: int,
 ) -> tuple[list[str], int, int]:
-    today = date.today()
+    freshness_cutoff = date.today() - timedelta(days=max(0, freshness_days - 1))
     if not incremental:
         selected = tickers[:max_refresh_count]
         return selected, 0, max(0, len(tickers) - len(selected))
 
-    selected: list[str] = []
     skipped_current_count = 0
-    pending_count = 0
+    pending: list[str] = []
     for ticker in tickers:
         latest_state = latest_states.get(ticker)
         is_current = (
             latest_state is not None
             and latest_state.latest_date is not None
-            and latest_state.latest_date >= today
+            and latest_state.latest_date >= freshness_cutoff
             and latest_state.complete
         )
         if is_current:
             skipped_current_count += 1
             continue
-        pending_count += 1
-        if len(selected) < max_refresh_count:
-            selected.append(ticker)
-    return selected, skipped_current_count, max(0, pending_count - len(selected))
+        pending.append(ticker)
+
+    pending.sort(
+        key=lambda ticker: (
+            latest_states[ticker].latest_date
+            if ticker in latest_states and latest_states[ticker].latest_date is not None
+            else date.min,
+            ticker,
+        )
+    )
+    selected = pending[:max_refresh_count]
+    return selected, skipped_current_count, max(0, len(pending) - len(selected))
 
 
 def _latest_fundamental_states(tickers: list[str]) -> dict[str, fundamentals_repository.FundamentalRefreshState]:
@@ -244,3 +256,10 @@ def _normalize_bool(value: object, *, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_freshness_days(value: object) -> int:
+    try:
+        return max(1, min(90, int(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_FUNDAMENTAL_FRESHNESS_DAYS

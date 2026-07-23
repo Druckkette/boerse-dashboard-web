@@ -459,7 +459,10 @@ class Sec13fCusipMapping(Base):
 
 class Job(Base):
     __tablename__ = "jobs"
-    __table_args__ = (Index("ix_jobs_status_created_at", "status", "created_at"),)
+    __table_args__ = (
+        Index("ix_jobs_status_created_at", "status", "created_at"),
+        Index("ix_jobs_status_heartbeat_at", "status", "heartbeat_at"),
+    )
 
     id: Mapped[str] = uuid_pk()
     job_id: Mapped[str] = mapped_column(String(96), unique=True, index=True)
@@ -476,6 +479,7 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

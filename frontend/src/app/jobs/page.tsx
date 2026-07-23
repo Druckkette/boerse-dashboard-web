@@ -67,7 +67,7 @@ const BOOTSTRAP_CONFIG_STORAGE_KEY = "boerse-dashboard.market-data-bootstrap.v2"
 const defaultBootstrapConfig: MarketDataBootstrapConfig = {
   pricePreset: "stored_universe",
   priceRange: "2y",
-  storedUniverseLimit: 5000,
+  storedUniverseLimit: 10000,
   customTickers: "",
   breadthLookbackDays: 550,
   rsLookbackDays: 430,
@@ -1101,7 +1101,7 @@ function RefreshSequence({
         </label>
         <NumberField
           label="Universe Limit"
-          max={5000}
+          max={10000}
           min={25}
           suffix="Ticker"
           value={config.storedUniverseLimit}
@@ -1526,20 +1526,18 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
       price_batch_size: 50,
       price_overlap_days: 1,
       universe: "us_common_stocks",
-      limit_universe: 5000,
+      limit_universe: 10000,
       breadth_lookback_days: 550,
       rs_lookback_days: 430,
       benchmark_ticker: "SPY",
       include_position_monitor: true,
       include_fundamentals: true,
-      force_fundamentals: true,
       fundamental_universe: "all",
-      fundamental_limit: 5000,
+      fundamental_limit: 10000,
       incremental_fundamentals: true,
       include_sec13f: true,
-      force_sec13f: true,
       sec13f_universe: "us_common_stocks",
-      sec13f_limit_universe: 5000
+      sec13f_limit_universe: 10000
     };
   }
   if (type === "bootstrap_market_data") {
@@ -1548,7 +1546,7 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
       source: "dashboard",
       range: "6m",
       universe: "us_common_stocks",
-      limit_universe: 5000,
+      limit_universe: 10000,
       breadth_lookback_days: 550,
       rs_lookback_days: 430,
       benchmark_ticker: "SPY",
@@ -1556,9 +1554,9 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
     };
   }
   if (type === "refresh_prices") return { mode: "manual", range: "1y", preset: "all" };
-  if (type === "refresh_breadth") return { mode: "manual", lookback_days: 550, universe: "us_common_stocks", limit_universe: 5000 };
+  if (type === "refresh_breadth") return { mode: "manual", lookback_days: 550, universe: "us_common_stocks", limit_universe: 10000 };
   if (type === "refresh_relative_strength") {
-    return { mode: "manual", lookback_days: 430, universe: "us_common_stocks", limit_universe: 5000 };
+    return { mode: "manual", lookback_days: 430, universe: "us_common_stocks", limit_universe: 10000 };
   }
   if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
   if (type === "refresh_stock_detail") {
@@ -1593,7 +1591,7 @@ function sanitizeBootstrapConfig(value: unknown): MarketDataBootstrapConfig {
     storedUniverseLimit: clampNumber(
       Number(candidate.storedUniverseLimit),
       25,
-      5000,
+      10000,
       defaultBootstrapConfig.storedUniverseLimit
     ),
     customTickers: typeof candidate.customTickers === "string" ? candidate.customTickers : "",

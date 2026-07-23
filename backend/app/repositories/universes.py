@@ -187,7 +187,7 @@ def list_symbol_mappings(
                 select(UniverseSymbolMapping)
                 .where(UniverseSymbolMapping.universe_key == clean_key)
                 .order_by(UniverseSymbolMapping.source_ticker.asc())
-                .limit(max(1, min(5_000, limit)))
+                .limit(max(1, min(10_000, limit)))
             ).all()
             return [_mapping_row(row) for row in rows]
     except SQLAlchemyError as exc:

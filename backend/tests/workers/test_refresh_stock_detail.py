@@ -25,14 +25,6 @@ def test_refresh_stock_detail_runs_targeted_stock_pipeline(monkeypatch: pytest.M
     )
     monkeypatch.setattr(
         stock_detail_module,
-        "refresh_relative_strength_ratings",
-        lambda *, tickers, benchmark_ticker: calls.append(f"rs:{tickers[0]}:{benchmark_ticker}") or {
-            "ok": True,
-            "records_written": 1,
-        },
-    )
-    monkeypatch.setattr(
-        stock_detail_module,
         "refresh_fundamentals_for_ticker",
         lambda ticker, *, include_holders: calls.append(f"fundamentals:{ticker}:{include_holders}") or {
             "ok": True,
@@ -55,11 +47,10 @@ def test_refresh_stock_detail_runs_targeted_stock_pipeline(monkeypatch: pytest.M
     assert result["success_count"] == 1
     assert calls == [
         "price:SNDK:2y:True",
-        "price:SPY:2y:True",
-        "rs:SNDK:SPY",
         "fundamentals:SNDK:True",
         "13f:SNDK",
     ]
+    assert result["items"][0]["steps"]["relative_strength"]["skipped"] is True
     assert updated is not None
     assert updated.status == "done"
 
@@ -68,11 +59,6 @@ def test_refresh_stock_detail_skips_13f_without_user_agent(monkeypatch: pytest.M
     monkeypatch.setattr(
         stock_detail_module,
         "refresh_price_cache_for_ticker",
-        lambda *args, **kwargs: {"ok": True, "records_written": 1},
-    )
-    monkeypatch.setattr(
-        stock_detail_module,
-        "refresh_relative_strength_ratings",
         lambda *args, **kwargs: {"ok": True, "records_written": 1},
     )
     monkeypatch.setattr(
@@ -105,11 +91,6 @@ def test_refresh_stock_detail_skips_13f_by_default(monkeypatch: pytest.MonkeyPat
     )
     monkeypatch.setattr(
         stock_detail_module,
-        "refresh_relative_strength_ratings",
-        lambda *args, **kwargs: {"ok": True, "records_written": 1},
-    )
-    monkeypatch.setattr(
-        stock_detail_module,
         "refresh_fundamentals_for_ticker",
         lambda *args, **kwargs: {"ok": True, "records_written": 1},
     )
@@ -137,14 +118,6 @@ def test_refresh_stock_detail_can_skip_price_refresh(monkeypatch: pytest.MonkeyP
     )
     monkeypatch.setattr(
         stock_detail_module,
-        "refresh_relative_strength_ratings",
-        lambda *, tickers, benchmark_ticker: calls.append(f"rs:{tickers[0]}:{benchmark_ticker}") or {
-            "ok": True,
-            "records_written": 1,
-        },
-    )
-    monkeypatch.setattr(
-        stock_detail_module,
         "refresh_fundamentals_for_ticker",
         lambda ticker, *, include_holders: calls.append(f"fundamentals:{ticker}") or {
             "ok": True,
@@ -160,8 +133,8 @@ def test_refresh_stock_detail_can_skip_price_refresh(monkeypatch: pytest.MonkeyP
     assert result["ok"] is True
     assert result["include_prices"] is False
     assert item["steps"]["price"]["skipped"] is True
-    assert item["steps"]["benchmark_price"]["skipped"] is True
-    assert calls == ["rs:NVDA:SPY", "fundamentals:NVDA"]
+    assert item["steps"]["relative_strength"]["skipped"] is True
+    assert calls == ["fundamentals:NVDA"]
 
 
 def test_refresh_stock_detail_reports_fundamental_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -171,11 +144,6 @@ def test_refresh_stock_detail_reports_fundamental_failure(monkeypatch: pytest.Mo
     monkeypatch.setattr(
         stock_detail_module,
         "refresh_price_cache_for_ticker",
-        lambda *args, **kwargs: {"ok": True, "records_written": 1},
-    )
-    monkeypatch.setattr(
-        stock_detail_module,
-        "refresh_relative_strength_ratings",
         lambda *args, **kwargs: {"ok": True, "records_written": 1},
     )
     monkeypatch.setattr(stock_detail_module, "refresh_fundamentals_for_ticker", raise_provider_empty)
