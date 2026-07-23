@@ -132,7 +132,10 @@ export function PositionTable({
       {
         accessorKey: "atr_pct",
         header: "ATR",
-        cell: ({ getValue }) => `${Number(getValue()).toFixed(1)}%`
+        cell: ({ getValue }) => {
+          const value = getValue();
+          return typeof value === "number" ? `${value.toFixed(1)}%` : "-";
+        }
       },
       {
         accessorKey: "beta_balancer_score",

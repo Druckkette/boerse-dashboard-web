@@ -461,7 +461,7 @@ def compute_fundamental_enrichment(
         annual_revenue_history=[
             _annual_growth_point_payload(point, prefix="revenue") for point in annual_revenue_growth[:3]
         ],
-        roe_history=[_roe_point_payload(point) for point in roe_history[:3]],
+        roe_history=[_roe_point_payload(point) for point in roe_history[:5]],
         metadata={
             "ticker": ticker.upper(),
             "notes": notes,
@@ -476,7 +476,7 @@ def compute_fundamental_enrichment(
             "annual_revenue_history": [
                 _annual_growth_point_payload(point, prefix="revenue") for point in annual_revenue_growth[:3]
             ],
-            "roe_history": [_roe_point_payload(point) for point in roe_history[:3]],
+            "roe_history": [_roe_point_payload(point) for point in roe_history[:5]],
             "eps_growth": [_growth_point_payload(point, prefix="eps") for point in eps_growth],
             "annual_eps_growth": [_annual_growth_point_payload(point, prefix="eps") for point in annual_eps_growth],
             "revenue_growth": [_growth_point_payload(point, prefix="revenue") for point in revenue_growth],
@@ -575,7 +575,7 @@ def annual_roe_history(raw: QuarterlyRaw) -> list[GrowthPoint]:
     income_by_year = _year_value_map(income_series)
     equity_by_year = _year_value_map(equity_series)
     points: list[GrowthPoint] = []
-    for year in sorted(income_by_year.keys() & equity_by_year.keys(), reverse=True)[:3]:
+    for year in sorted(income_by_year.keys() & equity_by_year.keys(), reverse=True)[:5]:
         income = income_by_year.get(year)
         equity = equity_by_year.get(year)
         if income is None or equity in (None, 0):
@@ -1191,9 +1191,13 @@ def _latest_numeric_growth(points: list[GrowthPoint]) -> float | None:
 
 
 def _is_accelerating(points: list[GrowthPoint]) -> bool | None:
-    rates = [point.growth_pct for point in points if point.growth_pct is not None and point.flag is None]
-    if len(rates) < 2:
+    latest_three = points[:3]
+    if (
+        len(latest_three) < 3
+        or any(point.growth_pct is None or point.flag is not None for point in latest_three)
+    ):
         return None
+    rates = [float(point.growth_pct) for point in latest_three if point.growth_pct is not None]
     return all(rates[index] > rates[index + 1] for index in range(len(rates) - 1))
 
 

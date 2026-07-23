@@ -33,6 +33,31 @@ def test_relative_strength_returns_empty_without_benchmark() -> None:
     assert ratings == []
 
 
+def test_relative_strength_excludes_tickers_with_stale_latest_bar() -> None:
+    benchmark = _series(0.0010)
+    series = {
+        "SPY": benchmark,
+        "CURRENT": _series(0.0020),
+        "STALE": _series(0.0030)[:-10],
+    }
+
+    ratings = compute_relative_strength_ratings(series, benchmark_ticker="SPY")
+
+    assert [item.ticker for item in ratings] == ["CURRENT"]
+
+
+def test_relative_strength_does_not_compare_partial_window_history() -> None:
+    series = {
+        "SPY": _series(0.0010),
+        "FULL": _series(0.0020),
+        "SHORT": _series(0.0030, days=120),
+    }
+
+    ratings = compute_relative_strength_ratings(series, benchmark_ticker="SPY")
+
+    assert [item.ticker for item in ratings] == ["FULL"]
+
+
 def _series(daily_growth: float, *, days: int = 320) -> list[ClosePoint]:
     start = date(2025, 1, 1)
     price = 100.0

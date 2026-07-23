@@ -41,13 +41,11 @@ class MarketRegimeResult:
 
 
 def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResult:
-    pct_50 = regime_input.pct_above_50sma or 0
-    pct_200 = regime_input.pct_above_200sma or 0
     volatility_regime = regime_input.volatility_regime or "Nicht berechnet"
     warning_count = _count_warnings(regime_input, volatility_regime=volatility_regime)
     phase = _phase_from_warnings(
-        pct_above_50sma=pct_50,
-        pct_above_200sma=pct_200,
+        pct_above_50sma=regime_input.pct_above_50sma,
+        pct_above_200sma=regime_input.pct_above_200sma,
         warning_count=warning_count,
     )
     # Kept for the existing API field. The real public breadth_mode is filled
@@ -125,8 +123,12 @@ def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResul
 
 def _count_warnings(regime_input: MarketRegimeInput, *, volatility_regime: str) -> int:
     warning_count = 0
-    warning_count += int((regime_input.pct_above_50sma or 0) < 45)
-    warning_count += int((regime_input.pct_above_200sma or 0) < 45)
+    warning_count += int(
+        regime_input.pct_above_50sma is not None and regime_input.pct_above_50sma < 45
+    )
+    warning_count += int(
+        regime_input.pct_above_200sma is not None and regime_input.pct_above_200sma < 45
+    )
     warning_count += int(regime_input.mcclellan < 0)
     warning_count += int(regime_input.decliners > regime_input.advancers)
     warning_count += int(regime_input.new_lows > regime_input.new_highs)
@@ -138,10 +140,12 @@ def _count_warnings(regime_input: MarketRegimeInput, *, volatility_regime: str) 
 
 def _phase_from_warnings(
     *,
-    pct_above_50sma: float,
-    pct_above_200sma: float,
+    pct_above_50sma: float | None,
+    pct_above_200sma: float | None,
     warning_count: int,
 ) -> MarketPhase:
+    if pct_above_50sma is None or pct_above_200sma is None:
+        return "neutral"
     if warning_count >= 4 or (pct_above_50sma < 40 and pct_above_200sma < 40):
         return "rot"
     if warning_count >= 2 or pct_above_50sma < 50:

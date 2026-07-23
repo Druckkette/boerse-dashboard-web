@@ -865,8 +865,8 @@ class PortfolioPosition(BaseModel):
     market_value: float
     pnl_pct: float
     weight_pct: float
-    atr_pct: float
-    beta: float
+    atr_pct: float | None = None
+    beta: float | None = None
     beta_balancer_score: float | None = None
     risk_contribution: float | None = None
     position_loss_risk: float | None = None
@@ -1118,9 +1118,9 @@ class PortfolioSnapshotResponse(BaseModel):
     invested_value: float
     cash_balance: float
     cash_ratio_pct: float
-    portfolio_atr_pct: float
+    portfolio_atr_pct: float | None = None
     market_atr_pct: float | None = None
-    beta_balancer: float
+    beta_balancer: float | None = None
     max_depot_loss_abs: float | None = None
     max_depot_loss_available: bool = False
     max_depot_loss_pct: float

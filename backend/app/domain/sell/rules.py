@@ -857,7 +857,13 @@ def _detect_offensive_features(
         detail=f"20T-Hoch {_fmt_price(high20)}; Abstand wird laufend mitgeführt.",
         signal_date=as_of if peak_active else "",
         contribution_percent=25,
-        setup={"unit": peak_unit, "value": peak_value},
+        setup={
+            "unit": peak_unit,
+            "value": peak_value,
+            "distance_pct": peak_pct,
+            "distance_abs": peak_abs,
+            "atr": atr,
+        },
     ))
 
     # 4. MA extension anchors: threshold first, sell feature after anchor close is undercut.
@@ -1110,8 +1116,7 @@ def _biggest_gain_feature(
     value = _safe_float(setup.get("biggest_gain_value"), 10.0) or 10.0
     lookback = max(2, _safe_int(setup.get("biggest_gain_lookback"), 20))
     multiplier = _safe_float(setup.get("biggest_gain_multiplier"), 1.5) or 1.5
-    high = _series(daily, "high")
-    low = _series(daily, "low")
+    close = _series(daily, "close")
     recent_pct = pct_change.tail(lookback).dropna()
     if recent_pct.empty:
         return _feature(
@@ -1137,7 +1142,10 @@ def _biggest_gain_feature(
         higher_volume = bool(vol is not None and ((prev_vol is not None and vol > prev_vol) or (avg_vol is not None and vol > avg_vol)))
         day_abs = None
         if unit == "atr" and atr and atr > 0:
-            day_abs = _safe_float(high.loc[idx]) - _safe_float(low.loc[idx]) if _safe_float(high.loc[idx]) is not None and _safe_float(low.loc[idx]) is not None else None
+            previous_close = _safe_float(close.shift(1).loc[idx])
+            current_close = _safe_float(close.loc[idx])
+            if previous_close is not None and current_close is not None:
+                day_abs = current_close - previous_close
         crossed = _threshold_crossed(distance_pct=float(pct), distance_abs=day_abs, atr=atr, unit=unit, value=value)
         multiplier_hit = previous_max > 0 and float(pct) >= previous_max * multiplier
         if pct > 0 and higher_volume and (crossed or multiplier_hit):
@@ -1210,13 +1218,23 @@ def _detect_defensive_features(
 
     ma_days = max(1, _safe_int(setup.get("ma_break_reclaim_days"), 3))
     ma_specs = [
-        ("10", "10-SMA", _sma(close, 10), 25),
-        ("21", "21-EMA", _ema(close, 21), 33),
-        ("50", "50-SMA", _sma(close, 50), 50),
-        ("200", "200-SMA", _sma(close, 200), 100),
+        ("10", "10-SMA", _sma(close, 10), ma_days, 25),
+        ("21", "21-EMA", _ema(close, 21), ma_days, 33),
+        ("50", "50-SMA", _sma(close, 50), ma_days, 50),
+        ("200", "200-SMA", _sma(close, 200), 1, 100),
     ]
-    for key, label, ma_series, contribution in ma_specs:
-        features.append(_ma_break_feature(key, label, close, ma_series, ma_days, as_of, contribution))
+    for key, label, ma_series, reclaim_days_for_line, contribution in ma_specs:
+        features.append(
+            _ma_break_feature(
+                key,
+                label,
+                close,
+                ma_series,
+                reclaim_days_for_line,
+                as_of,
+                contribution,
+            )
+        )
 
     loss_weeks = max(1, _safe_int(setup.get("loss_weeks_count"), 3))
     require_volume = _safe_bool(setup.get("loss_weeks_require_rising_volume"))
@@ -1458,6 +1476,7 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
     rs_ma50 = _metric(metrics, "rs_ma50")
     days21 = int(_metric(metrics, "days_under_rs_ma21", 0) or 0)
     days50 = int(_metric(metrics, "days_under_rs_ma50", 0) or 0)
+    lower_than_break_day = bool(metrics.get("rs_lower_than_break_day"))
     under21 = bool(rs_line is not None and rs_ma21 is not None and rs_line < rs_ma21)
     under50 = bool(rs_line is not None and rs_ma50 is not None and rs_line < rs_ma50)
     pct1 = _safe_int(setup.get("rs_tranche_1_pct"), 25)
@@ -1465,7 +1484,7 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
     pct3 = _safe_int(setup.get("rs_tranche_3_pct"), 50)
     return [
         _rec("rs_line_tranche_1", "1. Tranche: RS-Linie unter 21-EMA", active=under21, pct=pct1, detail=f"RS {rs_line or 0:.4f} vs. 21 {_safe_float(rs_ma21, 0) or 0:.4f}", trigger="RS schließt unter 21-EMA", feature_ids=[]),
-        _rec("rs_line_tranche_2", "2. Tranche: RS bestätigt Bruch", active=under21 and days21 >= 3, pct=pct2, detail=f"{days21} Tage unter RS-21-EMA", trigger="3 Tage unter 21-EMA oder tiefer als Bruchtag", feature_ids=[]),
+        _rec("rs_line_tranche_2", "2. Tranche: RS bestätigt Bruch", active=under21 and (days21 >= 3 or lower_than_break_day), pct=pct2, detail=f"{days21} Tage unter RS-21-EMA; {'tiefer als Bruchtag' if lower_than_break_day else 'Bruchtag nicht unterschritten'}", trigger="3 Tage unter 21-EMA oder tiefer als Bruchtag", feature_ids=[]),
         _rec("rs_line_tranche_3", "3. Tranche: RS-Linie unter 50-EMA", active=under50 or days50 > 0, pct=pct3, detail=f"{days50} Tage unter RS-50-EMA", trigger="RS schließt unter 50-EMA", feature_ids=[]),
         _emergency_rec(features_by_id),
     ]
@@ -1477,7 +1496,7 @@ def _ema21_risk_averse_strategy(setup: dict, metrics: dict, features_by_id: dict
     emergency = features_by_id.get("emergency_loss_limit")
     days = int(_metric(metrics, "days_under_ema21", 0) or 0)
     first = bool(ema_break and ema_break.active)
-    lower_next = bool(first and days >= 2)
+    lower_next = bool(first and days >= 2 and metrics.get("close_lower_than_previous_day"))
     third = bool(first and days >= 3)
     return [
         _rec("ema21_risk_first", "1/4 beim ersten deutlichen Schluss unter der 21-EMA", active=first, pct=_safe_int(setup.get("ema21_risk_averse_first_pct"), 25), detail=ema_break.detail if ema_break else "", trigger="21-EMA-Bruch", feature_ids=["offensive_ema21_break"]),
@@ -1505,9 +1524,31 @@ def _peak_drawdown_strategy(setup: dict, features_by_id: dict[str, RuleFeature])
     ma21 = features_by_id.get("defensive_ma_break_21")
     ma50 = features_by_id.get("defensive_ma_break_50")
     emergency = features_by_id.get("emergency_loss_limit")
+    peak_setup = peak.setup if peak else {}
+    distance_pct = _safe_float(peak_setup.get("distance_pct"))
+    distance_abs = _safe_float(peak_setup.get("distance_abs"))
+    atr = _safe_float(peak_setup.get("atr"))
+    first_unit = str(setup.get("peak_drawdown_first_unit") or "pct")
+    first_value = _safe_float(setup.get("peak_drawdown_first_value"), 8.0) or 8.0
+    second_unit = str(setup.get("peak_drawdown_second_unit") or "pct")
+    second_value = _safe_float(setup.get("peak_drawdown_second_value"), 15.0) or 15.0
+    first_active = _threshold_crossed(
+        distance_pct=distance_pct,
+        distance_abs=distance_abs,
+        atr=atr,
+        unit=first_unit,
+        value=first_value,
+    )
+    second_active = _threshold_crossed(
+        distance_pct=distance_pct,
+        distance_abs=distance_abs,
+        atr=atr,
+        unit=second_unit,
+        value=second_value,
+    )
     return [
-        _rec("peak_drawdown_first", "1/4 bei erster Rückgangsschwelle vom 20T-Hoch", active=bool(peak and peak.active), pct=_safe_int(setup.get("peak_drawdown_first_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(str(setup.get("peak_drawdown_first_unit") or "pct"), _safe_float(setup.get("peak_drawdown_first_value"), 8.0) or 8.0), feature_ids=["offensive_peak_drop"]),
-        _rec("peak_drawdown_second", "1/4 bei zweiter Rückgangsschwelle vom 20T-Hoch", active=bool(peak and peak.active and ("15" in peak.threshold or (_safe_float(str(peak.value).replace('%', '').split()[0], 0.0) or 0.0) >= 15)), pct=_safe_int(setup.get("peak_drawdown_second_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(str(setup.get("peak_drawdown_second_unit") or "pct"), _safe_float(setup.get("peak_drawdown_second_value"), 15.0) or 15.0), feature_ids=["offensive_peak_drop"]),
+        _rec("peak_drawdown_first", "1/4 bei erster Rückgangsschwelle vom 20T-Hoch", active=first_active, pct=_safe_int(setup.get("peak_drawdown_first_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(first_unit, first_value), feature_ids=["offensive_peak_drop"]),
+        _rec("peak_drawdown_second", "1/4 bei zweiter Rückgangsschwelle vom 20T-Hoch", active=second_active, pct=_safe_int(setup.get("peak_drawdown_second_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(second_unit, second_value), feature_ids=["offensive_peak_drop"]),
         _rec("peak_drawdown_trend_break", "Weitere Tranche bei 21/50-Linienbruch", active=bool((ma21 and ma21.active) or (ma50 and ma50.active)), pct=25, detail="Trendbruch nach Peak-Rückgang.", trigger="21-EMA oder 50-SMA drei Tage darunter", feature_ids=["defensive_ma_break_21", "defensive_ma_break_50"]),
         _rec("peak_drawdown_final", "Finale Tranche beim Nothalt", active=bool(emergency and emergency.active), pct=100, detail="Nothalt erreicht.", trigger="Nothalt", feature_ids=["emergency_loss_limit"]),
     ]
@@ -1520,7 +1561,7 @@ def _buy_day_low_strategy(setup: dict, features_by_id: dict[str, RuleFeature]) -
     return [
         _rec("buy_day_low_warning", "Warnung: Kauftag-Tief unterschritten", active=bool(buy_low and buy_low.signal_date), pct=0, detail=buy_low.detail if buy_low else "", trigger="Kauftag-Tief", feature_ids=["defensive_buy_day_low"]),
         _rec("buy_day_low_tranche", "Verkaufstranche, wenn Kauftag-Tief nicht zurückerobert wird", active=bool(buy_low and buy_low.active), pct=50, detail=buy_low.detail if buy_low else "", trigger="kein Reclaim in 3 Tagen", feature_ids=["defensive_buy_day_low"]),
-        _rec("buy_day_low_previous", "Zusatzwarnung: Tief vor dem Kauftag unterschritten", active=bool(previous and previous.active), pct=25, detail=previous.detail if previous else "", trigger="Vortagestief vor Kauf", feature_ids=["defensive_previous_day_low"]),
+        _rec("buy_day_low_previous", "Zusatzwarnung: Tief vor dem Kauftag unterschritten", active=bool(previous and previous.active), pct=0, detail=previous.detail if previous else "", trigger="Vortagestief vor Kauf", feature_ids=["defensive_previous_day_low"]),
         _rec("buy_day_low_final", "Komplettverkauf beim Nothalt", active=bool(emergency and emergency.active), pct=100, detail="Nothalt erreicht.", trigger="Nothalt", feature_ids=["emergency_loss_limit"]),
     ]
 
@@ -1550,11 +1591,11 @@ def _emergency_rec(features_by_id: dict[str, RuleFeature]) -> StrategyRecommenda
 
 def _build_strategy_result(strategy_key: str, recommendations: list[StrategyRecommendation]) -> dict[str, Any]:
     active_recs = [rec for rec in recommendations if rec.active and rec.tranche_percent > 0]
-    recommendation_percent = max((rec.tranche_percent for rec in active_recs), default=0)
-    # If multiple active custom steps fire, their intended tranche sizes add up to a
-    # target total, capped at 100. Predefined strategies keep the highest active stage.
-    if strategy_key == "custom":
-        recommendation_percent = min(100, sum(rec.tranche_percent for rec in active_recs))
+    recommendation_percent = (
+        100
+        if any(rec.tranche_percent >= 100 for rec in active_recs)
+        else min(100, sum(rec.tranche_percent for rec in active_recs))
+    )
     return {
         "strategy_key": strategy_key,
         "label": SELL_STRATEGY_LABELS.get(strategy_key, SELL_STRATEGY_LABELS["custom"]),

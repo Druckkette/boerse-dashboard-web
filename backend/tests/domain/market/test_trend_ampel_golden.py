@@ -178,6 +178,31 @@ def test_uptrend_falls_back_to_green_when_ema21_loses_sma50() -> None:
     assert latest.ema21 < latest.sma50
 
 
+def test_uptrend_does_not_restart_anchor_search_on_drawdown_alone() -> None:
+    bars = _green_to_uptrend_bars()
+    bars.append(
+        _bar(
+            240,
+            open_price=171.0,
+            close=153.0,
+            high=171.0,
+            low=152.0,
+            volume=1_500_000,
+        )
+    )
+
+    latest = compute_trend_ampel(bars)[-1]
+
+    assert latest.high_52w is not None
+    assert latest.close is not None
+    assert latest.startschuss_low is not None
+    assert latest.sma200 is not None
+    assert (latest.close / latest.high_52w - 1) * 100 < -10
+    assert latest.close > latest.startschuss_low
+    assert latest.close > latest.sma200
+    assert latest.phase == "aufwaertstrend"
+
+
 def test_ampel_turns_red_when_close_breaks_sma200() -> None:
     points = compute_trend_ampel(_green_breaks_sma200_without_breaking_startschuss_low_bars())
     previous = points[-2]

@@ -270,6 +270,16 @@ def test_eps_acceleration_bonus_uses_last_three_quarter_growth_rates() -> None:
     assert "Bonus erfüllt" in accel_check.detail
 
 
+def test_eps_acceleration_bonus_requires_three_complete_quarters() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {"eps_quarter_history": _eps_history([40.0, 25.0])}
+    )
+
+    accel_check = _check(checks, "Bonus: EPS-Beschleunigung letzte 3 Quartale")
+    assert accel_check.passed is False
+    assert "nicht auswertbar" in accel_check.detail
+
+
 def test_revenue_three_quarter_rule_passes_only_when_all_three_quarters_clear_threshold() -> None:
     checks, score, available = evaluate_fundamentals_context(
         {"revenue_quarter_history": _revenue_history([32.4, 27.1, 45.8])}
@@ -394,6 +404,27 @@ def test_revenue_acceleration_bonus_uses_last_three_quarter_growth_rates() -> No
     accel_check = _check(checks, "Bonus: Umsatz-Beschleunigung letzte 3 Quartale")
     assert accel_check.passed is True
     assert "Bonus erfüllt" in accel_check.detail
+
+
+def test_revenue_acceleration_bonus_requires_three_complete_quarters() -> None:
+    checks, _, _ = evaluate_fundamentals_context(
+        {"revenue_quarter_history": _revenue_history([40.0, 25.0])}
+    )
+
+    accel_check = _check(checks, "Bonus: Umsatz-Beschleunigung letzte 3 Quartale")
+    assert accel_check.passed is False
+    assert "nicht auswertbar" in accel_check.detail
+
+
+def test_roe_score_rewards_additional_years_above_threshold() -> None:
+    _, score_three_years, _ = evaluate_fundamentals_context(
+        {"roe_history": _roe_history([28.0, 21.0, 18.0])}
+    )
+    _, score_five_years, _ = evaluate_fundamentals_context(
+        {"roe_history": _roe_history([28.0, 21.0, 18.0, 19.0, 20.0])}
+    )
+
+    assert score_five_years > score_three_years
 
 
 def test_roe_three_year_rule_scores_each_year_over_threshold() -> None:

@@ -11,7 +11,13 @@ import pytest
 
 from app.data_sources.yfinance_client import FetchedAfterHoursQuote
 from app.domain.sell import service as sell_service
-from app.domain.sell.rules import LEGACY_CUSTOM_STRATEGY_STEPS
+from app.domain.sell.rules import (
+    LEGACY_CUSTOM_STRATEGY_STEPS,
+    RuleFeature,
+    StrategyRecommendation,
+    _build_strategy_result,
+    _peak_drawdown_strategy,
+)
 from app.domain.sell.schemas import SellEvaluationRequest, SellManualInput, SnoozeRequest, TrancheLogEntry
 from app.domain.sell.service import (
     clear_sell_engine_state,
@@ -151,6 +157,87 @@ def test_custom_strategy_uses_configured_tranche_percent() -> None:
 
     assert evaluation.strategy.recommendation_percent == 33
     assert evaluation.sell_now_percent == 33
+
+
+def test_predefined_strategy_stages_are_cumulative() -> None:
+    strategy = _build_strategy_result(
+        "rs_line",
+        [
+            StrategyRecommendation(
+                id="one",
+                label="Erste",
+                active=True,
+                tranche_percent=25,
+                detail="",
+                trigger="",
+            ),
+            StrategyRecommendation(
+                id="two",
+                label="Zweite",
+                active=True,
+                tranche_percent=25,
+                detail="",
+                trigger="",
+            ),
+        ],
+    )
+
+    assert strategy["recommendation_percent"] == 50
+
+
+def test_full_exit_stage_caps_cumulative_strategy_at_100_percent() -> None:
+    strategy = _build_strategy_result(
+        "ma_breaks",
+        [
+            StrategyRecommendation(
+                id="partial",
+                label="Teilverkauf",
+                active=True,
+                tranche_percent=50,
+                detail="",
+                trigger="",
+            ),
+            StrategyRecommendation(
+                id="final",
+                label="Final",
+                active=True,
+                tranche_percent=100,
+                detail="",
+                trigger="",
+            ),
+        ],
+    )
+
+    assert strategy["recommendation_percent"] == 100
+
+
+def test_peak_drawdown_strategy_uses_numeric_second_threshold() -> None:
+    peak = RuleFeature(
+        id="offensive_peak_drop",
+        category="offensive",
+        label="Peak",
+        active=True,
+        severity="tranche",
+        value="16.0% unter 20T-Hoch",
+        threshold="8%",
+        detail="",
+        signal_date="",
+        contribution_percent=25,
+        setup={"distance_pct": 16.0, "distance_abs": 16.0, "atr": 2.0},
+    )
+
+    recommendations = _peak_drawdown_strategy(
+        {
+            "peak_drawdown_first_unit": "pct",
+            "peak_drawdown_first_value": 8,
+            "peak_drawdown_second_unit": "pct",
+            "peak_drawdown_second_value": 15,
+        },
+        {"offensive_peak_drop": peak},
+    )
+
+    assert recommendations[0].active is True
+    assert recommendations[1].active is True
 
 
 def test_old_default_custom_strategy_steps_switch_to_rs_default() -> None:

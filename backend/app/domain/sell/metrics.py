@@ -461,6 +461,16 @@ def build_sell_decision_metrics_payload(
     rs_latest = _last_float(rs_line)
     rs21_latest = _last_float(rs_ma21)
     rs50_latest = _last_float(rs_ma50)
+    rs_break_21_value = None
+    rs_lower_than_break_day = False
+    if days_under_rs_ma21 > 0 and len(rs_line.dropna()) >= days_under_rs_ma21:
+        rs_break_21_value = _safe_float(rs_line.dropna().iloc[-days_under_rs_ma21])
+        rs_lower_than_break_day = bool(
+            days_under_rs_ma21 >= 2
+            and rs_latest is not None
+            and rs_break_21_value is not None
+            and rs_latest < rs_break_21_value
+        )
     rs_line_rising_5 = bool(len(rs_line.dropna()) >= 6 and rs_line.dropna().iloc[-1] > rs_line.dropna().iloc[-6])
     negative_market_divergence = bool(
         rs_latest is not None
@@ -565,11 +575,17 @@ def build_sell_decision_metrics_payload(
         "weekly_rs_ma25": _last_float(weekly_rs_ma25),
         "days_under_rs_ma21": days_under_rs_ma21,
         "days_under_rs_ma50": days_under_rs_ma50,
+        "rs_break_21_value": rs_break_21_value,
+        "rs_lower_than_break_day": rs_lower_than_break_day,
         "consecutive_loss_weeks_rising_volume": consecutive_loss_weeks_rising_volume,
         "three_loss_weeks_rising_volume": consecutive_loss_weeks_rising_volume >= 3,
         "high_since_buy": high_since_buy,
         "drawdown_from_high_since_buy_pct": drawdown_from_high_since_buy_pct,
         "days_under_ema21": under_ema21_days,
+        "previous_close": _safe_float(close.iloc[-2]) if len(close.dropna()) >= 2 else None,
+        "close_lower_than_previous_day": bool(
+            len(close.dropna()) >= 2 and close.dropna().iloc[-1] < close.dropna().iloc[-2]
+        ),
         "days_under_sma50": under_sma50_days,
         "weekly_closes_under_10w": weekly_under_10w_count,
         "under_weekly_sma10_start_date": under_weekly_sma10_start_date,

@@ -1155,7 +1155,7 @@ def compute_breadth_series(
             ema_39 = _ema(rana, previous=ema_39, period=39)
         mcclellan = (ema_19 - ema_39) if ema_19 is not None and ema_39 is not None else 0.0
         covered_count = len(todays_points)
-        up_down_volume_ratio = up_volume / down_volume if down_volume > 0 else (up_volume if up_volume > 0 else None)
+        up_down_volume_ratio = up_volume / down_volume if down_volume > 0 else None
 
         computed.append(
             BreadthComputationPoint(
@@ -1170,7 +1170,7 @@ def compute_breadth_series(
                 pct_above_200sma=_pct(above_200, eligible_200),
                 new_highs=new_highs,
                 new_lows=new_lows,
-                coverage_ratio=loaded_universe / total_universe_size,
+                coverage_ratio=covered_count / total_universe_size,
                 universe_size=total_universe_size,
                 loaded_universe=loaded_universe,
                 covered_count=covered_count,
@@ -1559,10 +1559,24 @@ def _index_ad_confirmation(
     if len(bars) < 21 or len(points) < 21:
         return False, False, f"{index_name}- oder A/D-Historie im Cache zu kurz."
 
-    latest_close = bars[-1].close
-    previous_highs = [point.high for point in bars[:-1]][-20:]
-    previous_ad_values = [point.ad_line for point in points[:-1] if point.ad_line is not None][-20:]
-    latest_ad = points[-1].ad_line
+    bars_by_date = {point.date.isoformat(): point for point in bars}
+    breadth_by_date = {point.date: point for point in points if point.ad_line is not None}
+    common_dates = sorted(set(bars_by_date) & set(breadth_by_date))
+    if len(common_dates) < 21:
+        return False, False, f"{index_name}- und A/D-Historie haben zu wenige gemeinsame Handelstage."
+
+    latest_date = common_dates[-1]
+    previous_dates = common_dates[-21:-1]
+    latest_bar = bars_by_date[latest_date]
+    latest_breadth = breadth_by_date[latest_date]
+    latest_close = latest_bar.close
+    previous_highs = [bars_by_date[current_date].high for current_date in previous_dates]
+    previous_ad_values = [
+        float(breadth_by_date[current_date].ad_line)
+        for current_date in previous_dates
+        if breadth_by_date[current_date].ad_line is not None
+    ]
+    latest_ad = latest_breadth.ad_line
     if latest_ad is None or len(previous_highs) < 10 or len(previous_ad_values) < 10:
         return False, False, "A/D-Linie oder 20T-Referenzhoch nicht verfügbar."
 
@@ -1582,8 +1596,6 @@ def _index_ad_confirmation(
 def _safe_ratio(numerator: int, denominator: int) -> float | None:
     if denominator > 0:
         return numerator / denominator
-    if numerator > 0:
-        return float(numerator)
     return None
 
 
@@ -2945,7 +2957,7 @@ def _breadth_metadata_with_legacy_fallback(rows: Sequence) -> dict:
     except (TypeError, ValueError):
         requested = 0
     loaded = int(latest_meta.get("loaded_universe") or 0)
-    if requested and loaded and ("coverage_ratio" not in latest_meta or not latest_meta.get("coverage_ratio")):
+    if requested and loaded and "coverage_ratio" not in latest_meta:
         latest_meta["coverage_ratio"] = loaded / requested
     return latest_meta
 

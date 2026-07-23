@@ -40,7 +40,7 @@ from app.repositories import prices as prices_repository
 from app.repositories import sell_state as sell_state_repository
 from app.repositories.portfolio import PortfolioPositionRow, PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
-from app.services.fx import eur_to_usd, get_eur_usd_rate
+from app.services.fx import currency_to_usd, eur_to_usd, get_eur_usd_rate, yahoo_quote_currency
 
 
 _POSITION_MONITOR_REFERENCES = {"high_since_buy", "close_since_buy", "entry_price", "previous_close"}
@@ -678,7 +678,13 @@ def _portfolio_row_prices_for_sell(row: PortfolioPositionRow) -> tuple[float, fl
     if "trade republic" in str(row.broker or "").lower() and str(row.currency or "").upper() == "EUR":
         fx_rate = get_eur_usd_rate()
         entry_price = float(eur_to_usd(entry_price, rate=fx_rate) or entry_price)
-        if row.current_price_source != "price_cache":
+        if row.current_price_source == "price_cache":
+            converted_price = currency_to_usd(
+                current_price,
+                yahoo_quote_currency(row.ticker),
+            )
+            current_price = float(converted_price if converted_price is not None else entry_price)
+        else:
             current_price = float(eur_to_usd(current_price, rate=fx_rate) or current_price)
         currency = "USD"
     return entry_price, current_price, currency

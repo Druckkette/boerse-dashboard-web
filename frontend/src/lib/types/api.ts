@@ -466,8 +466,8 @@ export type PortfolioPosition = {
   market_value: number;
   pnl_pct: number;
   weight_pct: number;
-  atr_pct: number;
-  beta: number;
+  atr_pct?: number | null;
+  beta?: number | null;
   beta_balancer_score?: number | null;
   risk_contribution?: number | null;
   position_loss_risk?: number | null;
@@ -518,9 +518,9 @@ export type PortfolioSnapshot = {
   invested_value: number;
   cash_balance: number;
   cash_ratio_pct: number;
-  portfolio_atr_pct: number;
+  portfolio_atr_pct?: number | null;
   market_atr_pct?: number | null;
-  beta_balancer: number;
+  beta_balancer?: number | null;
   max_depot_loss_abs?: number | null;
   max_depot_loss_available?: boolean;
   max_depot_loss_pct: number;

@@ -236,7 +236,7 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             elif phase == "aufwaertstrend" and sma200_broken(index):
                 phase = "rot"
                 clear_state()
-            elif correction_detected(index):
+            elif phase == "neutral" and correction_detected(index):
                 phase = "rot"
                 clear_state()
             elif (

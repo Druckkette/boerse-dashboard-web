@@ -314,7 +314,7 @@ def evaluate_technicals(
         )
     )
 
-    ema21 = close.ewm(span=21).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
     sma10 = close.rolling(10, min_periods=10).mean()
     sma50 = close.rolling(50, min_periods=50).mean()
     sma200 = close.rolling(200, min_periods=200).mean()
@@ -471,7 +471,7 @@ def evaluate_chart_signs(
     pct = close.pct_change(fill_method=None)
     vol_avg_50 = volume.rolling(50).mean()
     sma10 = close.rolling(10, min_periods=10).mean()
-    ema21 = close.ewm(span=21).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
     sma50 = close.rolling(50, min_periods=50).mean()
     sma200 = close.rolling(200, min_periods=200).mean()
     signals: list[ChartSignal] = []
@@ -714,7 +714,7 @@ def _compute_metrics(
     high_52w = _safe_float(high.rolling(252, min_periods=50).max().iloc[-1])
     drawdown_52w_pct = (price / high_52w - 1) * 100 if price is not None and high_52w else None
     sma10 = close.rolling(10, min_periods=10).mean()
-    ema21 = close.ewm(span=21).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
     sma50 = close.rolling(50, min_periods=50).mean()
     sma200 = close.rolling(200, min_periods=200).mean()
     return StockAssessmentMetrics(
@@ -776,7 +776,7 @@ def _moving_average_score(df: pd.DataFrame) -> float:
     if price is None:
         return 0.0
     sma10 = _safe_float(close.rolling(10, min_periods=10).mean().iloc[-1])
-    ema21 = _safe_float(close.ewm(span=21).mean().iloc[-1])
+    ema21 = _safe_float(close.ewm(span=21, adjust=False).mean().iloc[-1])
     sma50 = _safe_float(close.rolling(50, min_periods=50).mean().iloc[-1])
     sma200 = _safe_float(close.rolling(200, min_periods=200).mean().iloc[-1])
     score = 0.0
@@ -1086,7 +1086,14 @@ def _roe_three_year_score(fundamentals_context: Mapping[str, Any], *, unit: floa
     if latest_three:
         values = [_safe_float(item.get("roe_pct")) for item in latest_three]
         passed_count = sum(1 for value in values if value is not None and value >= 17.0)
-        return unit * (passed_count / 3.0)
+        base_score = unit * (passed_count / 3.0)
+        additional_years = history[3:]
+        bonus_count = sum(
+            1
+            for item in additional_years
+            if (_safe_float(item.get("roe_pct")) or float("-inf")) >= 17.0
+        )
+        return base_score + unit * 0.25 * bonus_count
     current_roe = _safe_float(fundamentals_context.get("roe_pct"))
     return unit / 3.0 if current_roe is not None and current_roe >= 17.0 else 0.0
 
@@ -1208,7 +1215,7 @@ def _normalize_roe_history(value: Any) -> list[dict[str, Any]]:
                 "flag": item.get("flag"),
             }
         )
-    return history[:3]
+    return history[:5]
 
 
 def _computed_eps_growth_pct(current: float | None, previous: float | None) -> float | None:
@@ -1219,9 +1226,9 @@ def _computed_eps_growth_pct(current: float | None, previous: float | None) -> f
 
 def _eps_growth_accelerating(history: list[dict[str, Any]]) -> bool | None:
     values = [_safe_float(item.get("eps_growth_yoy_pct")) for item in history[:3]]
-    numeric = [value for value in values if value is not None]
-    if len(numeric) < 2:
+    if len(values) < 3 or any(value is None for value in values):
         return None
+    numeric = [float(value) for value in values if value is not None]
     return all(numeric[index] > numeric[index + 1] for index in range(len(numeric) - 1))
 
 
@@ -1238,9 +1245,9 @@ def _eps_acceleration_detail(value: bool | None, history: list[dict[str, Any]]) 
 
 def _revenue_growth_accelerating(history: list[dict[str, Any]]) -> bool | None:
     values = [_safe_float(item.get("revenue_growth_yoy_pct")) for item in history[:3]]
-    numeric = [value for value in values if value is not None]
-    if len(numeric) < 2:
+    if len(values) < 3 or any(value is None for value in values):
         return None
+    numeric = [float(value) for value in values if value is not None]
     return all(numeric[index] > numeric[index + 1] for index in range(len(numeric) - 1))
 
 

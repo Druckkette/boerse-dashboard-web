@@ -165,7 +165,9 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: 
     out["SPX_Ret_5d"] = spx_df["Close"].pct_change(5)
 
     if vix_df is not None and not vix_df.empty:
-        vix = vix_df.reindex(out.index).ffill()
+        # A short calendar mismatch is normal. Older volatility observations
+        # must not be presented as if they belonged to a current SPX bar.
+        vix = vix_df.reindex(out.index).ffill(limit=3)
         out["VIX_Close"] = vix["Close"]
         out["VIX_SMA10"] = vix.get("SMA10")
         out["VIX_EMA21"] = vix.get("EMA21")
@@ -175,7 +177,7 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: 
         out["VIX_Panic_Overextension"] = vix.get("Panic_Overextension", False).fillna(False)
         out["VIX_Is_Panic"] = vix.get("Is_Panic", False).fillna(False)
         out["VIX_Is_Calm"] = vix.get("Is_Calm", False).fillna(False)
-        out["VIX_Regime"] = vix.get("VIX_Regime", "Neutral")
+        out["VIX_Regime"] = vix.get("VIX_Regime", pd.Series(index=out.index, dtype=object)).fillna("n/a")
     else:
         out["VIX_Close"] = np.nan
         out["VIX_SMA10"] = np.nan
@@ -189,13 +191,13 @@ def _build_dashboard(spx_df: pd.DataFrame, vix_df: pd.DataFrame | None, vxx_df: 
         out["VIX_Regime"] = "n/a"
 
     if vxx_df is not None and not vxx_df.empty:
-        vxx = vxx_df.reindex(out.index).ffill()
+        vxx = vxx_df.reindex(out.index).ffill(limit=3)
         out["VXX_Close"] = vxx["Close"]
         out["VXX_EMA21"] = vxx.get("EMA21")
         out["VXX_Ret_5d"] = vxx.get("Ret_5d")
         out["VXX_Stress_Confirmation"] = vxx.get("Stress_Confirmation", False).fillna(False)
         out["VXX_Carry_Decay"] = vxx.get("Carry_Decay", False).fillna(False)
-        out["VXX_State"] = vxx.get("VXX_State", "Gemischt")
+        out["VXX_State"] = vxx.get("VXX_State", pd.Series(index=out.index, dtype=object)).fillna("n/a")
     else:
         out["VXX_Close"] = np.nan
         out["VXX_EMA21"] = np.nan

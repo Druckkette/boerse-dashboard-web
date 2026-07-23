@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from app.domain.portfolio.trade_republic import parse_transaction_export_csv, reconstruct_open_positions
+from app.data_sources.yfinance_client import FetchedAfterHoursQuote
 from app.repositories.portfolio import PortfolioImportResult, TradeRepublicImportResult
 from app.repositories.portfolio import PortfolioPositionRow
 from app.schemas import PortfolioImportRequest, TradeRepublicTransactionImportRequest
@@ -116,18 +117,45 @@ def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch)
         )
     ]
     monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "get_cash_balance", lambda: 0.0)
     monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker: _price_bars())
 
     positions = portfolio_service.get_portfolio_positions()
     snapshot = portfolio_service.get_portfolio_snapshot()
 
     assert positions[0].atr_pct > 0
-    assert positions[0].beta == 1.0
-    assert positions[0].beta_balancer_score is not None
-    assert positions[0].risk_contribution is not None
+    assert positions[0].beta is None
+    assert positions[0].beta_balancer_score is None
+    assert positions[0].risk_contribution is None
     assert snapshot.portfolio_atr_pct == pytest.approx(positions[0].atr_pct)
     assert "Portfolio ATR" in {item.label for item in snapshot.kpis}
     assert "Portfolio Beta Balancer" in {item.label for item in snapshot.kpis}
+
+
+def test_portfolio_weights_include_cash_and_do_not_overstate_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [
+        PortfolioPositionRow(
+            ticker="AAPL",
+            name="Apple",
+            shares=5,
+            entry_price=80,
+            current_price=100,
+            currency="EUR",
+            buy_date=date(2025, 1, 15),
+            broker="Test",
+            account="Main",
+        )
+    ]
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "get_cash_balance", lambda: 500.0)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker: _price_bars())
+
+    position = portfolio_service.get_portfolio_positions()[0]
+
+    assert position.market_value == pytest.approx(500.0)
+    assert position.weight_pct == pytest.approx(50.0)
 
 
 def test_empty_portfolio_returns_empty_state_not_demo_positions(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,6 +314,86 @@ def test_trade_republic_stop_price_override_stays_usd(monkeypatch: pytest.Monkey
     assert normalized.entry_price == pytest.approx(110)
     assert normalized.current_price == pytest.approx(132)
     assert normalized.stop_price == 200
+
+
+def test_trade_republic_cached_listing_price_is_converted_from_quote_currency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_eur_usd_rate",
+        lambda: FxRate(pair="EUR/USD", rate=1.1, as_of=date(2026, 1, 1), source="test"),
+    )
+    monkeypatch.setattr(
+        portfolio_service,
+        "currency_to_usd",
+        lambda value, currency: float(value) * 1.1 if currency == "EUR" else float(value),
+    )
+    row = PortfolioPositionRow(
+        ticker="SIE.DE",
+        name="Siemens",
+        shares=2,
+        entry_price=100,
+        current_price=120,
+        currency="EUR",
+        buy_date=date(2026, 1, 1),
+        broker="Trade Republic",
+        account="Main",
+        current_price_source="price_cache",
+    )
+
+    normalized = portfolio_service._normalize_trade_republic_row_to_usd(row)
+
+    assert normalized.entry_price == pytest.approx(110)
+    assert normalized.current_price == pytest.approx(132)
+    assert normalized.currency == "USD"
+
+
+def test_after_hours_portfolio_converts_yahoo_quote_currency_to_usd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = PortfolioPositionRow(
+        ticker="SIE.DE",
+        name="Siemens",
+        shares=2,
+        entry_price=100,
+        current_price=130,
+        currency="USD",
+        buy_date=date(2026, 1, 1),
+        broker="Test",
+        account="Main",
+        current_price_source="price_cache",
+    )
+    quote = FetchedAfterHoursQuote(
+        ticker="SIE.DE",
+        regular_price=120,
+        after_hours_price=122,
+        after_hours_change=2,
+        after_hours_change_pct=1.6667,
+        currency="EUR",
+        market_state="POST",
+        source="test",
+        fetched_at=datetime(2026, 7, 23, tzinfo=UTC),
+    )
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: [row])
+    monkeypatch.setattr(portfolio_service, "fetch_after_hours_quotes", lambda tickers: {"SIE.DE": quote})
+    monkeypatch.setattr(
+        portfolio_service,
+        "get_currency_usd_rate",
+        lambda currency: FxRate(
+            pair=f"{currency}/USD",
+            rate=1.1,
+            as_of=date(2026, 7, 23),
+            source="test",
+        ),
+    )
+
+    result = portfolio_service.get_portfolio_after_hours()
+
+    assert result.positions[0].regular_price == pytest.approx(132)
+    assert result.positions[0].after_hours_price == pytest.approx(134.2)
+    assert result.positions[0].after_hours_value_change == pytest.approx(4.4)
+    assert result.total_after_hours_change == pytest.approx(4.4)
 
 
 def test_trade_republic_parser_handles_broker_edge_cases() -> None:

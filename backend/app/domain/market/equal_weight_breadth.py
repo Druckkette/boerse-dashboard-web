@@ -178,7 +178,7 @@ def missing_equal_weight_breadth_status(
     return EqualWeightBreadthStatus(
         mode="wachsam",
         candidate_mode="wachsam",
-        as_of=date.today().isoformat(),
+        as_of="",
         source="missing",
         tickers=clean_tickers,
         ticker_status=[],

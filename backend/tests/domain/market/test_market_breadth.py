@@ -10,7 +10,13 @@ from app.domain.market.equal_weight_breadth import compute_equal_weight_breadth_
 from app.domain.market.margin_debt import evaluate_margin_debt
 from app.domain.market.volatility import compute_volatility_dashboard, summarize_volatility_points
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
-from app.services.market import build_market_snapshot, compute_breadth_series, compute_sector_ranking, get_breadth
+from app.services.market import (
+    _breadth_metadata_with_legacy_fallback,
+    build_market_snapshot,
+    compute_breadth_series,
+    compute_sector_ranking,
+    get_breadth,
+)
 
 
 def test_compute_breadth_series_is_reproducible() -> None:
@@ -37,7 +43,7 @@ def test_compute_breadth_series_is_reproducible() -> None:
     assert latest.mcclellan == pytest.approx(0.0)
 
 
-def test_breadth_coverage_tracks_loaded_universe_not_only_latest_day() -> None:
+def test_breadth_coverage_tracks_the_actual_daily_sample() -> None:
     start = date(2025, 1, 2)
     series = {
         "AAA": _series("AAA", start, [100 + index for index in range(80)]),
@@ -49,7 +55,7 @@ def test_breadth_coverage_tracks_loaded_universe_not_only_latest_day() -> None:
 
     assert latest.loaded_universe == 3
     assert latest.covered_count == 2
-    assert latest.coverage_ratio == pytest.approx(1.0)
+    assert latest.coverage_ratio == pytest.approx(2 / 3)
 
 
 def test_breadth_response_exposes_streamlit_coverage_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -94,6 +100,23 @@ def test_breadth_response_exposes_streamlit_coverage_metadata(monkeypatch: pytes
     assert "letzter Tag 2" in response.message
 
 
+def test_legacy_coverage_fallback_does_not_overwrite_an_explicit_zero() -> None:
+    rows = [
+        SimpleNamespace(
+            metadata_json={
+                "coverage_ratio": 0.0,
+                "universe_size": 5000,
+                "loaded_universe": 5000,
+                "covered_count": 0,
+            }
+        )
+    ]
+
+    metadata = _breadth_metadata_with_legacy_fallback(rows)
+
+    assert metadata["coverage_ratio"] == 0.0
+
+
 def test_breadth_uses_streamlit_rana_and_intraday_new_high_low_rules() -> None:
     start = date(2025, 1, 2)
     series = {
@@ -125,6 +148,20 @@ def test_breadth_tracks_up_down_volume_ratio() -> None:
     assert latest.up_volume == pytest.approx(2_000_000)
     assert latest.down_volume == pytest.approx(1_000_000)
     assert latest.up_down_volume_ratio == pytest.approx(2.0)
+
+
+def test_breadth_does_not_invent_ratio_without_down_volume() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "AAA": _ohlcv_series("AAA", start, [100, 101, 102], volume=2_000_000),
+        "BBB": _ohlcv_series("BBB", start, [100, 101, 102], volume=1_000_000),
+    }
+
+    latest = compute_breadth_series(series, universe="test_universe", universe_size=2)[-1]
+
+    assert latest.up_volume == pytest.approx(3_000_000)
+    assert latest.down_volume is None
+    assert latest.up_down_volume_ratio is None
 
 
 def test_market_snapshot_classifies_constructive_breadth() -> None:
@@ -250,6 +287,22 @@ def test_volatility_dashboard_keeps_neutral_vix_neutral() -> None:
     assert points[-1].vix_panic_overextension is False
     assert vix_card["status"] == "Neutral"
     assert vix_card["tone"] == "neutral"
+
+
+def test_volatility_dashboard_does_not_forward_fill_stale_vix_and_vxx_forever() -> None:
+    start = date(2025, 1, 2)
+    series = {
+        "SPY": _series("SPY", start, [400 + index * 0.1 for index in range(280)]),
+        "^VIX": _series("^VIX", start, [17] * 270),
+        "VXX": _series("VXX", start, [10] * 270),
+    }
+
+    latest = compute_volatility_dashboard(series, limit=1)[-1]
+
+    assert latest.vix_close is None
+    assert latest.vix_regime == "n/a"
+    assert latest.vxx_close is None
+    assert latest.vxx_state == "n/a"
 
 
 def test_volatility_dashboard_reports_vix_panic_overextension_above_10sma() -> None:

@@ -37,6 +37,7 @@ def compute_relative_strength_ratings(
     benchmark_ticker: str = "SPY",
     windows: tuple[tuple[int, float], ...] = DEFAULT_RS_WINDOWS,
     min_common_points: int = 80,
+    max_staleness_days: int = 4,
 ) -> list[RelativeStrengthRating]:
     """Compute universe-percentile RS ratings from cached close series.
 
@@ -49,6 +50,11 @@ def compute_relative_strength_ratings(
     benchmark_close = _coerce_close_series(series.get(clean_benchmark) or [])
     if benchmark_close.empty:
         return []
+    benchmark_as_of = benchmark_close.index[-1]
+    required_common_points = max(
+        min_common_points,
+        max((lookback for lookback, _weight in windows), default=0) + 1,
+    )
 
     scored_rows: list[dict[str, Any]] = []
     for raw_ticker, points in series.items():
@@ -58,7 +64,9 @@ def compute_relative_strength_ratings(
 
         stock_close = _coerce_close_series(points)
         raw_rs = _build_relative_strength_line(stock_close, benchmark_close, normalize_to=None)
-        if raw_rs is None or len(raw_rs) < min_common_points:
+        if raw_rs is None or len(raw_rs) < required_common_points:
+            continue
+        if (benchmark_as_of - raw_rs.index[-1]).days > max(0, max_staleness_days):
             continue
 
         score = _weighted_rs_score(raw_rs, windows=windows)
