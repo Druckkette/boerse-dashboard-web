@@ -3,6 +3,10 @@
 import { MarketAmpelPanel } from "@/features/market/market-ampel-panel";
 import { MarketBreadthOverviewPanel } from "@/features/market/market-breadth-overview-panel";
 import {
+  MarketCategorySection,
+  type MarketCategoryTone
+} from "@/features/market/market-category-section";
+import {
   MarketRiskSectionsPanel,
   MarketSentimentPositioningPanel
 } from "@/features/market/market-risk-sections-panel";
@@ -24,12 +28,16 @@ export default function MarketPage() {
       <MarketAmpelPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
       <MarketRiskSectionsPanel ticker={ticker} />
       <MarketArea
+        marker="03"
+        tone="breadth"
         title="Marktbreite"
         description="Russell-vs-S&P, Equal-Weight-ETFs, A/D, Volumen, McClellan, NH/NL, MA-Teilnahme und Deemer Ratio."
       >
         <MarketBreadthOverviewPanel ticker={ticker} />
       </MarketArea>
       <MarketArea
+        marker="04"
+        tone="sentiment"
         title="Stimmungs- und Positionierungsindikatoren"
         description="VIX, VXX und Margin Debt als separate Sentiment- und Positionierungsprüfung."
       >
@@ -42,19 +50,19 @@ export default function MarketPage() {
 function MarketArea({
   children,
   description,
+  marker,
+  tone,
   title
 }: {
   children: ReactNode;
   description: string;
+  marker: string;
+  tone: MarketCategoryTone;
   title: string;
 }) {
   return (
-    <section className="space-y-2.5">
-      <div>
-        <h2 className="text-base font-semibold text-[#172033]">{title}</h2>
-        <p className="mt-0.5 max-w-4xl text-xs leading-5 text-[#687386]">{description}</p>
-      </div>
+    <MarketCategorySection description={description} marker={marker} title={title} tone={tone}>
       {children}
-    </section>
+    </MarketCategorySection>
   );
 }

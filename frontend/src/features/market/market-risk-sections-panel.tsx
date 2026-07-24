@@ -17,6 +17,7 @@ import type {
   Tone
 } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
+import { MarketCategorySection } from "./market-category-section";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
 export function MarketRiskSectionsPanel({
@@ -72,6 +73,8 @@ export function MarketRiskSectionsPanel({
       </div>
 
       <RiskSection
+        marker="01"
+        tone="early"
         title="Frühwarnzeichen"
         description="Erste Hinweise auf nachlassende Marktqualität: Umkehrungen, defensive Rotation, schwache Schlussbereiche und MA-Abstände."
       >
@@ -84,6 +87,8 @@ export function MarketRiskSectionsPanel({
       </RiskSection>
 
       <RiskSection
+        marker="02"
+        tone="warning"
         title="Warnzeichen"
         description="Kritischere Signale: Bruch wichtiger gleitender Durchschnitte, Distribution, Stau-Tage und Intermarket-Divergenzen."
       >
@@ -224,15 +229,23 @@ function WarningSigns({ data, intermarket }: { data: MarketAmpel; intermarket: M
   );
 }
 
-function RiskSection({ children, description, title }: { children: ReactNode; description: string; title: string }) {
+function RiskSection({
+  children,
+  description,
+  marker,
+  title,
+  tone
+}: {
+  children: ReactNode;
+  description: string;
+  marker: string;
+  title: string;
+  tone: "early" | "warning";
+}) {
   return (
-    <section className="space-y-2.5">
-      <div>
-        <h2 className="text-base font-semibold text-[#172033]">{title}</h2>
-        <p className="mt-0.5 max-w-4xl text-xs leading-5 text-[#687386]">{description}</p>
-      </div>
+    <MarketCategorySection description={description} marker={marker} title={title} tone={tone}>
       {children}
-    </section>
+    </MarketCategorySection>
   );
 }
 
