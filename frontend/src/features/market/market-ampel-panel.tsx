@@ -76,105 +76,18 @@ export function MarketAmpelPanel({
 
   return (
     <section className="space-y-4">
-      <div
-        className={clsx(
-          "relative overflow-hidden rounded-[32px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.09)] sm:p-6",
-          heroToneClasses(data.hero.tone)
-        )}
-      >
-        <div className={clsx("absolute inset-y-6 left-0 w-1 rounded-r-full", cycleAccentClass(data.hero.tone))} />
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.48fr)]">
-          <div className="min-w-0">
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              <StatusChip tone={data.hero.tone}>{data.hero.mode}</StatusChip>
-              <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
-              <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
-            </div>
-            <div className="flex min-w-0 items-start gap-4">
-              <StatusEmblem tone={data.hero.tone} />
-              <div className="min-w-0">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#64748b]">Marktampel</div>
-                <h1 className={clsx("mt-2 break-words text-4xl font-semibold leading-tight tracking-normal md:text-5xl", toneText(data.hero.tone))}>
-                  {data.hero.mode}
-                </h1>
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.62fr)]">
-              <div className="rounded-[24px] border border-white/75 bg-white/72 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">
-                  <ShieldAlert size={14} />
-                  Handlung
-                </div>
-                <p className="max-w-3xl text-sm font-semibold leading-7 text-[#0f172a]">{data.hero.action}</p>
-              </div>
-              <TrendReasonCard reason={heroReasons[0]} tone={data.phase_info.tone} />
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-white/75 bg-white/72 p-4 shadow-[0_16px_38px_rgba(15,23,42,0.06)] backdrop-blur">
-            <div className="space-y-4">
-              <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Index</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {indexes.map((item) => (
-                    <button
-                      key={item.ticker}
-                      aria-pressed={ticker === item.ticker}
-                      className={clsx(
-                        "min-h-[58px] rounded-2xl border px-3 py-2 text-left text-sm font-semibold transition duration-200 focus:outline-none focus:ring-2 focus:ring-[#0f766e]/30",
-                        ticker === item.ticker
-                          ? "border-[#0f766e] bg-[#0f766e] text-white shadow-[0_12px_28px_rgba(15,118,110,0.20)]"
-                          : "border-[#e2e8f0] bg-[#f8fafc] text-[#0f172a] hover:-translate-y-0.5 hover:border-[#cbd5e1] hover:bg-white hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
-                      )}
-                      type="button"
-                      onClick={() => onTickerChange?.(item.ticker)}
-                    >
-                      <span className="block leading-5">{item.label}</span>
-                      <span className={clsx("mt-0.5 block text-xs font-medium", ticker === item.ticker ? "text-white/75" : "text-[#64748b]")}>
-                        {item.ticker}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Zeitraum</div>
-                <div className="flex flex-wrap gap-2">
-                  {dayOptions.map((option) => (
-                    <button
-                      key={option}
-                      aria-pressed={days === option}
-                      className={clsx(
-                        "rounded-full border px-3.5 py-2 text-sm font-semibold transition duration-200 focus:outline-none focus:ring-2 focus:ring-[#2563eb]/25",
-                        days === option
-                          ? "border-[#2563eb] bg-[#eff6ff] text-[#1d4ed8] shadow-[0_10px_22px_rgba(37,99,235,0.10)]"
-                          : "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b] hover:-translate-y-0.5 hover:border-[#cbd5e1] hover:bg-white"
-                      )}
-                      type="button"
-                      onClick={() => setDays(option)}
-                    >
-                      {option}T
-                    </button>
-                  ))}
-                  <button
-                    aria-label="Marktampel aktualisieren"
-                    className="inline-flex items-center gap-2 rounded-full border border-[#e2e8f0] bg-white px-3.5 py-2 text-sm font-semibold text-[#0f172a] shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#0f766e] hover:shadow-[0_10px_22px_rgba(15,23,42,0.07)] focus:outline-none focus:ring-2 focus:ring-[#0f766e]/25"
-                    type="button"
-                    onClick={() => query.refetch()}
-                  >
-                    <RotateCw size={15} className={query.isFetching ? "animate-spin text-[#0f766e]" : "text-[#64748b]"} />
-                    Aktualisieren
-                  </button>
-                </div>
-              </div>
-
-              {todayCard ? <TodayIndexCard card={todayCard} /> : null}
-            </div>
-          </div>
-        </div>
-      </div>
+      <CompactMarketAmpel
+        data={data}
+        days={days}
+        heroReason={heroReasons[0]}
+        indexes={indexes}
+        isFetching={query.isFetching}
+        onDaysChange={setDays}
+        onRefresh={() => query.refetch()}
+        onTickerChange={onTickerChange}
+        ticker={ticker}
+        todayCard={todayCard}
+      />
 
       {changeCards.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -183,10 +96,6 @@ export function MarketAmpelPanel({
           ))}
         </div>
       ) : null}
-
-      <div>
-        <TrafficLightPanel data={data} />
-      </div>
 
       <LineChartCard
         title={`${data.name} Trendwende-Ampel`}
@@ -215,36 +124,189 @@ export function MarketAmpelPanel({
   );
 }
 
+function CompactMarketAmpel({
+  data,
+  days,
+  heroReason,
+  indexes,
+  isFetching,
+  onDaysChange,
+  onRefresh,
+  onTickerChange,
+  ticker,
+  todayCard
+}: {
+  data: MarketAmpel;
+  days: (typeof dayOptions)[number];
+  heroReason?: string;
+  indexes: readonly MarketIndexOption[];
+  isFetching: boolean;
+  onDaysChange: (days: (typeof dayOptions)[number]) => void;
+  onRefresh: () => void;
+  onTickerChange?: (ticker: MarketIndexTicker) => void;
+  ticker: MarketIndexTicker;
+  todayCard?: MarketAmpelChangeCard;
+}) {
+  return (
+    <div className="overflow-hidden rounded-[22px] border border-[#dfe5ec] bg-white shadow-[0_12px_34px_rgba(15,23,42,0.065)]">
+      <div className="flex flex-col gap-3 border-b border-[#e7ebf0] bg-[#fbfcfe] px-4 py-3.5 xl:flex-row xl:items-center xl:justify-between sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h1 className="mr-1 text-base font-semibold text-[#0f172a]">Marktampel</h1>
+          <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
+          <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-2.5 lg:flex-row lg:items-center">
+          <div aria-label="Index auswählen" className="grid min-w-0 grid-cols-3 rounded-xl border border-[#dfe5ec] bg-white p-1">
+            {indexes.map((item) => (
+              <button
+                key={item.ticker}
+                aria-pressed={ticker === item.ticker}
+                className={clsx(
+                  "min-w-0 rounded-lg px-3 py-1.5 text-left transition duration-200 focus:outline-none focus:ring-2 focus:ring-[#0f766e]/25",
+                  ticker === item.ticker
+                    ? "bg-[#e8f4f2] text-[#0f766e]"
+                    : "text-[#64748b] hover:bg-[#f4f7f9] hover:text-[#0f172a]"
+                )}
+                type="button"
+                onClick={() => onTickerChange?.(item.ticker)}
+              >
+                <span className="block truncate text-xs font-semibold">{item.label}</span>
+                <span className="mt-0.5 block text-[10px] font-medium opacity-70">{item.ticker}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 rounded-xl border border-[#dfe5ec] bg-white p-1">
+            {dayOptions.map((option) => (
+              <button
+                key={option}
+                aria-pressed={days === option}
+                className={clsx(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#2563eb]/20",
+                  days === option
+                    ? "bg-[#eef5ff] text-[#1d4ed8]"
+                    : "text-[#64748b] hover:bg-[#f4f7f9] hover:text-[#0f172a]"
+                )}
+                type="button"
+                onClick={() => onDaysChange(option)}
+              >
+                {option}T
+              </button>
+            ))}
+            <button
+              aria-label="Marktampel aktualisieren"
+              className="grid size-8 place-items-center rounded-lg text-[#64748b] transition hover:bg-[#e8f4f2] hover:text-[#0f766e] focus:outline-none focus:ring-2 focus:ring-[#0f766e]/25"
+              title="Marktampel aktualisieren"
+              type="button"
+              onClick={onRefresh}
+            >
+              <RotateCw size={15} className={isFetching ? "animate-spin" : ""} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 sm:p-5">
+        <div className={clsx("grid gap-4", todayCard && "xl:grid-cols-[minmax(0,1fr)_310px]")}>
+          <div className={clsx("relative overflow-hidden rounded-2xl border px-4 py-4", compactStatusClass(data.hero.tone))}>
+            <div className={clsx("absolute inset-y-0 left-0 w-1", cycleAccentClass(data.hero.tone))} />
+            <div className="flex min-w-0 items-start gap-3">
+              <StatusEmblem tone={data.hero.tone} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#64748b]">Aktuelle Marktphase</div>
+                <div className={clsx("mt-1 text-2xl font-semibold leading-tight sm:text-[28px]", toneText(data.hero.tone))}>
+                  {data.hero.mode}
+                </div>
+                <div className="mt-2 flex items-start gap-2 text-sm font-medium leading-6 text-[#172033]">
+                  <ShieldAlert className="mt-1 shrink-0 text-[#64748b]" size={14} />
+                  <span>{data.hero.action}</span>
+                </div>
+              </div>
+            </div>
+            {heroReason ? <TrendReasonCard reason={heroReason} tone={data.phase_info.tone} /> : null}
+          </div>
+
+          {todayCard ? <TodayIndexCard card={todayCard} /> : null}
+        </div>
+
+        <div className="mt-4 border-t border-[#e7ebf0] pt-4">
+          <PhaseStepper lights={data.lights} />
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <InfoBlock title="Definition" text={data.phase_info.reason} />
+          <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+          <CycleMetric
+            label="Ankertag"
+            value={data.cycle.anchor_date ?? "-"}
+            tone="neutral"
+            freshness={cycleFreshness(data.cycle.anchor_date, data.cycle.anchor_current)}
+          />
+          <CycleMetric
+            label="Bodenmarke"
+            value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
+            tone={distanceTone(data.cycle.floor_distance_pct)}
+            freshness={cycleFreshness(data.cycle.floor_mark, data.cycle.floor_current)}
+          />
+          <CycleMetric
+            label="Startschuss-Tief"
+            value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
+            tone={distanceTone(data.cycle.startschuss_distance_pct)}
+            freshness={cycleFreshness(data.cycle.startschuss_low, data.cycle.startschuss_current)}
+          />
+          <CycleMetric
+            label="MA-Ordnung"
+            value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
+            tone={data.cycle.ma_order ? "good" : "bad"}
+          />
+        </div>
+
+        {data.cycle.diagnostics.length > 0 ? (
+          <div className="mt-2.5 text-xs leading-5 text-[#64748b]">{data.cycle.diagnostics.join(" · ")}</div>
+        ) : null}
+
+        <RuleDefinitions lights={data.lights} />
+        <MovingAverageDistanceSummary tiles={data.distance_tiles} />
+      </div>
+    </div>
+  );
+}
+
 function TrendReasonCard({ reason, tone }: { reason?: string; tone: Tone }) {
   if (!reason) return null;
   const parsed = parseTrendReason(reason);
   return (
-    <div className={clsx("relative overflow-hidden rounded-[24px] border bg-white/72 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]", phasePillClass(tone))}>
-      <div className={clsx("absolute inset-y-4 left-0 w-1 rounded-r-full", cycleAccentClass(tone))} />
-      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{parsed.label}</div>
-      <div className={clsx("mt-2 text-lg font-semibold leading-6", toneText(tone))}>{parsed.value}</div>
-      {parsed.detail ? <div className="mt-1 text-sm leading-6 text-[#475569]">{parsed.detail}</div> : null}
+    <div className="mt-3 flex flex-col gap-1 border-t border-black/5 pt-3 sm:flex-row sm:items-baseline sm:gap-3">
+      <div className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.13em] text-[#64748b]">{parsed.label}</div>
+      <div className="min-w-0 text-sm leading-5 text-[#475569]">
+        <span className={clsx("font-semibold", toneText(tone))}>{parsed.value}</span>
+        {parsed.detail ? <span> · {parsed.detail}</span> : null}
+      </div>
     </div>
   );
 }
 
 function TodayIndexCard({ card }: { card: MarketAmpelChangeCard }) {
   return (
-    <div className="rounded-[24px] border border-[#e2e8f0] bg-white p-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className="rounded-2xl border border-[#e2e8f0] bg-[#fbfcfe] px-4 py-3.5">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{card.title}</div>
-          <div className="mt-2 flex items-center gap-2 text-3xl font-semibold tracking-normal text-[#0f172a]">
-            {card.arrow === "up" && <ArrowUp className="text-[#059669]" size={21} />}
-            {card.arrow === "down" && <ArrowDown className="text-[#dc2626]" size={21} />}
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#64748b]">{card.title}</div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-2xl font-semibold tracking-normal text-[#0f172a]">
+            {card.arrow === "up" && <ArrowUp className="text-[#059669]" size={18} />}
+            {card.arrow === "down" && <ArrowDown className="text-[#dc2626]" size={18} />}
             <span className={toneText(card.tone)}>{card.value}</span>
           </div>
         </div>
-        <span className={clsx("rounded-full border px-2.5 py-1 text-xs font-semibold", phasePillClass(card.tone))}>
+        <span className={clsx("rounded-full border px-2 py-0.5 text-[10px] font-semibold", phasePillClass(card.tone))}>
           {card.quality ?? card.tone}
         </span>
       </div>
-      <div className="space-y-1 text-sm leading-6 text-[#475569]">
+      <div className="mt-2 space-y-0.5 text-xs leading-5 text-[#475569]">
         <div>{card.detail}</div>
         {card.detail2 ? <div>{card.detail2}</div> : null}
         {card.detail3 ? <div>{card.detail3}</div> : null}
@@ -264,107 +326,24 @@ function parseTrendReason(reason: string) {
   };
 }
 
-function TrafficLightPanel({ data }: { data: MarketAmpel }) {
-  return (
-    <div className="overflow-hidden rounded-[28px] border border-[#e2e8f0] bg-white p-5 shadow-[0_18px_42px_rgba(15,23,42,0.07)] sm:p-6">
-      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Trendwende-Ampel</div>
-          <h2 className="mt-1 text-xl font-semibold tracking-normal text-[#0f172a]">Marktphase</h2>
-        </div>
-        <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
-      </div>
-
-      <PhaseStepper lights={data.lights} />
-
-      <div className={clsx("mt-5 rounded-[28px] border p-5 shadow-[0_20px_52px_rgba(15,23,42,0.08)] sm:p-6", phaseCardClass(data.phase_info.tone))}>
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 items-start gap-4">
-            <StatusEmblem tone={data.phase_info.tone} />
-            <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Aktuelle Ampelphase</div>
-              <h3
-                className={clsx(
-                  "mt-2 break-words text-3xl font-semibold leading-tight tracking-normal sm:text-4xl",
-                  toneText(data.phase_info.tone)
-                )}
-              >
-                {data.phase_info.label}
-              </h3>
-            </div>
-          </div>
-          <span
-            className={clsx(
-              "inline-flex w-fit shrink-0 items-center rounded-full border px-3 py-1 text-xs font-semibold shadow-sm",
-              phasePillClass(data.phase_info.tone)
-            )}
-          >
-            {data.phase_info.label}
-          </span>
-        </div>
-
-        <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-          <InfoBlock title="Definition" text={data.phase_info.reason} />
-          <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
-        </div>
-
-        <div className="mt-6 border-t border-white/65 pt-5">
-          <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">Letzter Startschuss und Zykluswerte</div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <CycleMetric
-              label="Ankertag"
-              value={data.cycle.anchor_date ?? "-"}
-              tone="neutral"
-              freshness={cycleFreshness(data.cycle.anchor_date, data.cycle.anchor_current)}
-            />
-            <CycleMetric
-              label="Bodenmarke"
-              value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
-              tone={distanceTone(data.cycle.floor_distance_pct)}
-              freshness={cycleFreshness(data.cycle.floor_mark, data.cycle.floor_current)}
-            />
-            <CycleMetric
-              label="Startschuss-Tief"
-              value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
-              tone={distanceTone(data.cycle.startschuss_distance_pct)}
-              freshness={cycleFreshness(data.cycle.startschuss_low, data.cycle.startschuss_current)}
-            />
-            <CycleMetric
-              label="MA-Ordnung"
-              value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
-              tone={data.cycle.ma_order ? "good" : "bad"}
-            />
-          </div>
-          {data.cycle.diagnostics.length > 0 ? (
-            <div className="mt-3 text-xs leading-5 text-[#64748b]">{data.cycle.diagnostics.join(" · ")}</div>
-          ) : null}
-        </div>
-      </div>
-
-      <RuleDefinitions lights={data.lights} />
-      <MovingAverageDistanceSummary tiles={data.distance_tiles} />
-    </div>
-  );
-}
-
 function InfoBlock({ emphasis = false, text, title }: { emphasis?: boolean; text: string; title: string }) {
   return (
     <div
       className={clsx(
-        "min-w-0 rounded-[22px] border bg-white/72 p-4 shadow-[0_8px_22px_rgba(15,23,42,0.04)]",
-        emphasis ? "border-[#cbd5e1]" : "border-white/70"
+        "min-w-0 rounded-xl border px-3.5 py-3",
+        emphasis ? "border-[#c9dedb] bg-[#f3faf8]" : "border-[#e2e8f0] bg-[#fbfcfe]"
       )}
     >
-      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{title}</div>
-      <p className={clsx("mt-2 text-sm leading-7", emphasis ? "font-semibold text-[#0f172a]" : "text-[#475569]")}>{text}</p>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#64748b]">{title}</div>
+      <p className={clsx("mt-1.5 text-sm leading-6", emphasis ? "font-semibold text-[#0f172a]" : "text-[#475569]")}>{text}</p>
     </div>
   );
 }
 
 function PhaseStepper({ lights }: { lights: MarketAmpelLight[] }) {
   return (
-    <div className="relative grid grid-cols-2 gap-3 md:grid-cols-4">
-      <div className="pointer-events-none absolute left-10 right-10 top-[31px] hidden h-px bg-[#e2e8f0] md:block" />
+    <div className="relative grid grid-cols-2 gap-x-3 gap-y-2 md:grid-cols-4">
+      <div className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-3 hidden h-px bg-[#dfe5ec] md:block" />
       {lights.map((light) => (
         <PhaseStep key={light.key} light={light} />
       ))}
@@ -377,24 +356,26 @@ function PhaseStep({ light }: { light: MarketAmpelLight }) {
     <div
       aria-current={light.active ? "step" : undefined}
       className={clsx(
-        "relative z-10 min-w-0 rounded-[22px] border p-3 transition duration-200",
+        "relative z-10 min-w-0 rounded-xl px-2 py-1.5 transition duration-200",
         light.active
-          ? clsx("scale-[1.01] shadow-[0_14px_34px_rgba(15,23,42,0.10)]", phaseStepClass(light.tone))
-          : "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b]"
+          ? clsx("bg-white shadow-[0_5px_16px_rgba(15,23,42,0.08)] ring-1", phaseStepRingClass(light.tone))
+          : "text-[#64748b]"
       )}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <span
           className={clsx(
-            "grid size-9 shrink-0 place-items-center rounded-full border transition duration-200",
-            light.active ? activeLightClass(light.tone, light.key) : "border-[#cbd5e1] bg-white text-[#94a3b8]"
+            "grid size-6 shrink-0 place-items-center rounded-full border-[3px] border-white transition duration-200",
+            light.active
+              ? activeLightClass(light.tone, light.key)
+              : "bg-[#cbd5e1] text-white shadow-[0_0_0_1px_#cbd5e1]"
           )}
         >
-          <CircleDot size={18} />
+          <span className="size-1.5 rounded-full bg-current" />
         </span>
         <span
           className={clsx(
-            "min-w-0 break-words text-xs font-semibold uppercase leading-5 tracking-[0.08em] [overflow-wrap:anywhere]",
+            "min-w-0 break-words text-[11px] font-semibold uppercase leading-4 tracking-[0.06em] [overflow-wrap:anywhere]",
             light.active ? toneText(light.tone) : "text-[#64748b]"
           )}
         >
@@ -409,24 +390,24 @@ function StatusEmblem({ tone }: { tone: Tone }) {
   return (
     <span
       className={clsx(
-        "grid size-12 shrink-0 place-items-center rounded-2xl border shadow-[0_12px_28px_rgba(15,23,42,0.08)]",
+        "grid size-9 shrink-0 place-items-center rounded-xl border shadow-[0_8px_20px_rgba(15,23,42,0.08)]",
         activeLightClass(tone)
       )}
     >
-      <CircleDot size={24} />
+      <CircleDot size={18} />
     </span>
   );
 }
 
 function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
   return (
-    <details className="group mt-4 overflow-hidden rounded-[20px] border border-[#e3e8ef] bg-[#f9fbfd]">
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3">
+    <details className="group mt-3 overflow-hidden rounded-xl border border-[#e3e8ef] bg-[#fbfcfe]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-3.5 py-2.5">
         <span>
-          <span className="block text-base font-semibold text-[#172033]">Regeldefinitionen</span>
-          <span className="mt-1 block text-sm leading-6 text-[#687386]">Ampelphasen aus der Streamlit-Logik.</span>
+          <span className="block text-sm font-semibold text-[#172033]">Regeldefinitionen</span>
+          <span className="mt-0.5 block text-xs leading-5 text-[#687386]">Logik und Bedingungen der vier Ampelphasen.</span>
         </span>
-        <span className="mt-1 shrink-0 rounded-full border border-[#d8e1ea] bg-white px-3 py-1 text-xs font-semibold text-[#687386] group-open:text-[#0f766e]">
+        <span className="shrink-0 rounded-full border border-[#d8e1ea] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#687386] group-open:text-[#0f766e]">
           Details
         </span>
       </summary>
@@ -451,13 +432,13 @@ function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
 function MovingAverageDistanceSummary({ tiles }: { tiles: MarketAmpelDistanceTile[] }) {
   if (!tiles.length) return null;
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-3 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
       {tiles.map((tile) => (
-        <div key={tile.label} className={clsx("rounded-2xl border bg-white p-4", tileBorder(tile.tone))}>
-          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{tile.label}</div>
-          <div className={clsx("mt-2 text-xl font-semibold tabular-nums", toneText(tile.tone))}>{tile.value}</div>
-          <div className="mt-1 text-sm text-[#4b5565]">{tile.indicator}</div>
-          <div className="mt-1 text-xs leading-5 text-[#687386]">{tile.detail}</div>
+        <div key={tile.label} className={clsx("rounded-xl border px-3 py-2.5", tileBorder(tile.tone))}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#687386]">{tile.label}</div>
+          <div className={clsx("mt-1 text-lg font-semibold tabular-nums", toneText(tile.tone))}>{tile.value}</div>
+          <div className="mt-0.5 text-xs font-medium text-[#4b5565]">{tile.indicator}</div>
+          <div className="mt-0.5 text-[11px] leading-4 text-[#687386]">{tile.detail}</div>
         </div>
       ))}
     </div>
@@ -495,17 +476,17 @@ function CycleMetric({
   tone?: Tone;
 }) {
   return (
-    <div className="relative min-h-[118px] overflow-hidden rounded-[22px] border border-white/70 bg-white/82 p-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
-      <div className={clsx("absolute inset-x-0 top-0 h-1", cycleAccentClass(tone))} />
+    <div className="relative min-h-[86px] overflow-hidden rounded-xl border border-[#e2e8f0] bg-[#fbfcfe] px-3 py-2.5">
+      <div className={clsx("absolute inset-y-2.5 left-0 w-0.5 rounded-r-full", cycleAccentClass(tone))} />
       <div className="flex items-start justify-between gap-2">
-        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">{label}</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.11em] text-[#64748b]">{label}</div>
         {freshness ? (
-          <span className={clsx("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]", cycleFreshnessClass(freshness))}>
+          <span className={clsx("shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.05em]", cycleFreshnessClass(freshness))}>
             {cycleFreshnessLabel(freshness)}
           </span>
         ) : null}
       </div>
-      <div className={clsx("mt-4 break-words text-xl font-semibold leading-7 tracking-normal tabular-nums", toneText(tone))}>{value}</div>
+      <div className={clsx("mt-2 break-words text-base font-semibold leading-5 tracking-normal tabular-nums sm:text-lg", toneText(tone))}>{value}</div>
     </div>
   );
 }
@@ -527,18 +508,11 @@ function cycleFreshnessClass(value: "current" | "old" | "missing") {
   return "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b]";
 }
 
-function heroToneClasses(tone: Tone) {
-  if (tone === "good") return "border-[#bbf7d0] bg-[linear-gradient(135deg,#ffffff_0%,#f0fdf4_55%,#ecfdf5_100%)]";
-  if (tone === "bad") return "border-[#fecaca] bg-[linear-gradient(135deg,#ffffff_0%,#fff7f7_52%,#fef2f2_100%)]";
-  if (tone === "warning") return "border-[#fed7aa] bg-[linear-gradient(135deg,#ffffff_0%,#fffaf0_54%,#fffbeb_100%)]";
-  return "border-[#bfdbfe] bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_54%,#eff6ff_100%)]";
-}
-
-function phaseCardClass(tone: Tone) {
-  if (tone === "good") return "border-[#bbf7d0] bg-[linear-gradient(135deg,#ffffff_0%,#ecfdf5_100%)]";
-  if (tone === "bad") return "border-[#fecaca] bg-[linear-gradient(135deg,#ffffff_0%,#fff1f2_100%)]";
-  if (tone === "warning") return "border-[#fed7aa] bg-[linear-gradient(135deg,#ffffff_0%,#fffbeb_100%)]";
-  return "border-[#bfdbfe] bg-[linear-gradient(135deg,#ffffff_0%,#eff6ff_100%)]";
+function compactStatusClass(tone: Tone) {
+  if (tone === "good") return "border-[#cce9dc] bg-[#f4fbf7]";
+  if (tone === "bad") return "border-[#f1d2d0] bg-[#fff8f7]";
+  if (tone === "warning") return "border-[#f2dfb7] bg-[#fffbf3]";
+  return "border-[#cdddf8] bg-[#f7faff]";
 }
 
 function activeLightClass(tone: Tone, key?: MarketAmpelLight["key"]) {
@@ -570,11 +544,11 @@ function toneText(tone: Tone) {
   return "text-[#2563eb]";
 }
 
-function phaseStepClass(tone: Tone) {
-  if (tone === "good") return "border-[#bbf7d0] bg-[#ecfdf5]";
-  if (tone === "bad") return "border-[#fecaca] bg-[#fff1f2]";
-  if (tone === "warning") return "border-[#fed7aa] bg-[#fffbeb]";
-  return "border-[#bfdbfe] bg-[#eff6ff]";
+function phaseStepRingClass(tone: Tone) {
+  if (tone === "good") return "ring-[#9bd7bd]";
+  if (tone === "bad") return "ring-[#efb2ae]";
+  if (tone === "warning") return "ring-[#e8c98d]";
+  return "ring-[#a9c6f8]";
 }
 
 function phasePillClass(tone: Tone) {
