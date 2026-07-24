@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CircleAlert, CircleCheck, RotateCw } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleCheck, RotateCw } from "lucide-react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -214,7 +214,7 @@ function WarningSigns({ data, intermarket }: { data: MarketAmpel; intermarket: M
   const stalls = findCheck(data.warning_checks, "Stau-Tage");
   const lossGain = findCheck(data.warning_checks, "Verlusttage/Gewinntage");
   return (
-    <div className="grid gap-3 xl:grid-cols-4">
+    <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4">
       <MovingAverageBreaksCard checks={movingAverageChecks} latest={latest} />
       <CheckSignalCard title="Verstärkte Distribution im Index" check={distribution} fallback="Keine Distributionstage im Cache." />
       <CheckSignalCard title="Stau-Tage" check={stalls} fallback="Keine Stau-Tage im Cache." />
@@ -286,44 +286,77 @@ function MovingAverageBreaksCard({
   const active = checks.filter((check) => check.active_warning);
   const trendChecks = latest ? movingAverageTrendChecks(latest) : [];
   return (
-    <div className={clsx("rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(active.length ? "warning" : "good"))}>
-      <div className="mb-2.5 flex items-start justify-between gap-3">
-        <div>
-          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">
+    <div
+      className={clsx(
+        "self-start rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)] md:col-span-2 xl:col-span-2",
+        cardClass(active.length ? "warning" : "good")
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="break-words text-xs font-semibold uppercase tracking-[0.04em] text-[#687386] [overflow-wrap:anywhere]">
             Bruch wichtiger gleitender Durchschnitte
           </div>
-          <div className={clsx("mt-1.5 text-xl font-semibold", active.length ? "text-amber-100" : "text-emerald-200")}>
-            {active.length ? `${active.length} aktiv` : "OK"}
+          <div className="mt-1 text-[11px] leading-4 text-[#687386]">
+            {checks.length} Bruchsignale · {trendChecks.length} ergänzende Trendprüfungen
           </div>
         </div>
         <StatusChip tone={active.length ? "warning" : "good"}>{active.length ? "Warnung" : "OK"}</StatusChip>
       </div>
-      <div className="space-y-1.5 text-xs leading-5 text-[#d8dde6]">
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
         {checks.length ? checks.map((check) => (
-          <div key={check.label} className="flex items-start gap-2">
-            {check.active_warning ? <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={16} /> : <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={16} />}
-            <span>{check.label}: {check.detail}</span>
+          <div
+            key={check.label}
+            className={clsx(
+              "min-w-0 rounded-[9px] border px-2.5 py-2",
+              check.active_warning
+                ? "border-[#f0d18b] bg-[#fff8e7]"
+                : "border-[#cce5da] bg-[#f2faf6]"
+            )}
+          >
+            <div className="flex items-center gap-1.5">
+              {check.active_warning ? (
+                <CircleAlert className="shrink-0 text-[#b7791f]" size={14} />
+              ) : (
+                <CircleCheck className="shrink-0 text-[#138a57]" size={14} />
+              )}
+              <span className="truncate text-[11px] font-semibold text-[#172033]" title={check.label}>
+                {check.label}
+              </span>
+            </div>
+            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-[#687386]">{check.detail}</div>
           </div>
-        )) : <div className="text-[#a0a7b4]">Keine MA-Bruchdaten im Cache.</div>}
+        )) : (
+          <div className="text-xs text-[#687386]">Keine MA-Bruchdaten im Cache.</div>
+        )}
       </div>
+
       {trendChecks.length > 0 && (
-        <div className="mt-3 border-t border-[#e3e8ef] pt-2.5">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-normal text-[#77808f]">Trendprüfung</div>
-          <div className="grid gap-2">
+        <details className="group mt-2.5 rounded-[9px] border border-[#e3e8ef] bg-white/70">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold text-[#475569] transition hover:bg-white [&::-webkit-details-marker]:hidden">
+            <span>Trendprüfung im Detail</span>
+            <span className="flex items-center gap-1.5 text-[11px] font-medium text-[#687386]">
+              {trendChecks.filter((check) => check.passed).length}/{trendChecks.length} erfüllt
+              <ChevronDown className="transition-transform group-open:rotate-180" size={14} />
+            </span>
+          </summary>
+          <div className="grid gap-1.5 border-t border-[#e3e8ef] p-2.5 sm:grid-cols-2 xl:grid-cols-3">
             {trendChecks.map((check) => (
-              <div key={check.label} className="flex items-start gap-2 text-xs leading-5 text-[#c9d0da]">
+              <div key={check.label} className="flex min-w-0 items-start gap-1.5 rounded-[8px] bg-[#f8fafc] px-2 py-1.5 text-[11px] leading-4 text-[#475569]">
                 {check.passed ? (
-                  <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={14} />
+                  <CircleCheck className="mt-0.5 shrink-0 text-[#138a57]" size={13} />
                 ) : (
-                  <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={14} />
+                  <CircleAlert className="mt-0.5 shrink-0 text-[#b7791f]" size={13} />
                 )}
-                <span>
-                  {check.label}: {check.detail}
+                <span className="min-w-0">
+                  <span className="font-medium text-[#172033]">{check.label}</span>
+                  <span className="text-[#687386]"> · {check.detail}</span>
                 </span>
               </div>
             ))}
           </div>
-        </div>
+        </details>
       )}
     </div>
   );
