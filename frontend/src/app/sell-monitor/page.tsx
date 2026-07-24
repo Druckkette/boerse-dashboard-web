@@ -154,14 +154,20 @@ export default function SellMonitorPage() {
     rows.length > 0 ? rows.reduce((sum, row) => sum + row.health_score, 0) / rows.length : 0;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#172033]">Verkaufsmonitor</h1>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)] lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[#687386]">Datenstand</span>
+          <StatusChip tone={data?.source === "snapshot" ? "good" : "warning"}>
+            {data?.source === "snapshot" ? "Worker Snapshot" : "Live Fallback"}
+          </StatusChip>
+          <span className="text-xs text-[#687386]">
+            {data?.generated_at ? new Date(data.generated_at).toLocaleString("de-DE") : "noch nicht vorberechnet"}
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
-            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d8e1ea] bg-white px-4 text-sm font-medium text-[#172033] shadow-sm transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-55"
+            className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d8e1ea] bg-white px-3 text-sm font-medium text-[#172033] transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-55"
             type="button"
             disabled={monitorMutation.isPending}
             onClick={() => monitorMutation.mutate()}
@@ -175,28 +181,14 @@ export default function SellMonitorPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">Ranking-Quelle</div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <StatusChip tone={data?.source === "snapshot" ? "good" : "warning"}>
-              {data?.source === "snapshot" ? "Worker Snapshot" : "Live Fallback"}
-            </StatusChip>
-            <span className="text-sm text-[#172033]">
-              {data?.generated_at ? new Date(data.generated_at).toLocaleString("de-DE") : "noch nicht vorcomputet"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard item={{ label: "Verkaufen", value: String(sellCount), detail: "aktive Exit-Fälle", tone: sellCount > 0 ? "bad" : "good" }} />
         <KpiCard item={{ label: "Beobachten", value: String(watchCount), detail: "Review nötig", tone: watchCount > 0 ? "warning" : "neutral" }} />
         <KpiCard item={{ label: "Max Empfehlung", value: `${maxRecommendation}%`, detail: "höchste aktuelle Tranche", tone: maxRecommendation >= 75 ? "bad" : "warning" }} />
         <KpiCard item={{ label: "Ø Health", value: averageHealth.toFixed(1), detail: "Score über Ranking", tone: averageHealth >= 65 ? "good" : averageHealth >= 40 ? "warning" : "bad" }} />
       </div>
 
-      <div className="overflow-hidden rounded-[24px] border border-[#e3e8ef] bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+      <div className="overflow-hidden rounded-[14px] border border-[#e3e8ef] bg-white shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div ref={scrollParentRef} className="max-h-[560px] overflow-auto">
           <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead className="sticky top-0 bg-[#f6f8fb] text-left text-xs uppercase text-[#687386]">

@@ -43,19 +43,19 @@ export function StockSearchPanel() {
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+    <section className="rounded-[14px] border border-[#dce5eb] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-base font-semibold">Aktie bewerten</h2>
-          <p className="mt-1 text-sm leading-5 text-[#a0a7b4]">
+          <h2 className="text-base font-semibold text-[#172033]">Aktie bewerten</h2>
+          <p className="mt-0.5 text-xs leading-5 text-[#687386]">
             Ticker oder Firmenname eingeben und direkt in den Bewertungsscreen springen.
           </p>
         </div>
-        <div className="text-xs uppercase tracking-[0.18em] text-[#77808f]">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#687386]">
           {ranking.isLoading ? "Suche lädt" : `${ranking.data?.rows.length ?? 0} Werte`}
         </div>
       </div>
-      <form className="flex flex-col gap-3 md:flex-row" onSubmit={submit}>
+      <form className="flex flex-col gap-2 md:flex-row" onSubmit={submit}>
         <label className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#77808f]" size={17} />
           <input
@@ -69,25 +69,25 @@ export function StockSearchPanel() {
           />
         </label>
         <button
-          className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/50 bg-emerald-300 px-4 py-2 text-sm font-semibold text-[#111419] transition hover:bg-emerald-200"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-[10px] bg-[#0f766e] px-4 text-sm font-semibold text-white transition hover:bg-[#0b655f]"
           type="submit"
         >
           Bewertung öffnen
           <ArrowRight size={16} />
         </button>
       </form>
-      {message && <div className="mt-3 text-sm text-amber-200">{message}</div>}
+      {message && <div className="mt-2 text-sm text-[#b7791f]">{message}</div>}
       {trimmed && suggestions.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {suggestions.map((item) => (
             <button
-              className="rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-left text-sm transition hover:border-emerald-300/60"
+              className="rounded-[9px] border border-[#e3e8ef] bg-[#f9fbfd] px-2.5 py-1.5 text-left text-sm transition hover:border-[#9ccfc6] hover:bg-[#f3faf8]"
               key={item.ticker}
               type="button"
               onClick={() => router.push(`/stocks/${encodeURIComponent(item.ticker.toUpperCase())}`)}
             >
-              <span className="font-semibold text-[#f2f5f9]">{item.ticker}</span>
-              <span className="ml-2 text-[#a0a7b4]">{item.name}</span>
+              <span className="font-semibold text-[#172033]">{item.ticker}</span>
+              <span className="ml-2 text-[#687386]">{item.name}</span>
             </button>
           ))}
         </div>

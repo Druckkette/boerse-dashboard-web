@@ -15,7 +15,7 @@ export function StatusChip({
   tone?: keyof typeof tones;
 }) {
   return (
-    <span className={clsx("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", tones[tone])}>
+    <span className={clsx("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-4", tones[tone])}>
       {children}
     </span>
   );

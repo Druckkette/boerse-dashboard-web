@@ -15,16 +15,16 @@ export function PortfolioCurvePanel() {
   });
   const curve = query.data;
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-3 rounded border border-[#2d333d] bg-[#171a20] p-4 md:flex-row md:items-end md:justify-between">
+    <div className="space-y-2.5">
+      <div className="flex flex-col gap-2.5 rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)] md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-base font-semibold">Depotkurve</h2>
-          <p className="mt-1 text-sm leading-5 text-[#a0a7b4]">
+          <p className="mt-0.5 text-xs leading-5 text-[#687386]">
             Depot und S&P 500 werden ab dem Basistag gemeinsam auf 100 gesetzt. Standard ist der 01.01. des laufenden Jahres.
           </p>
         </div>
         <label className="w-full text-sm md:w-56">
-          <span className="mb-1 block text-[#a0a7b4]">Startdatum</span>
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Startdatum</span>
           <input
             className="input-dark"
             type="date"

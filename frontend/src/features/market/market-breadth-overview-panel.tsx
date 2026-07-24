@@ -34,11 +34,11 @@ export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: stri
   }
 
   return (
-    <section className="space-y-4">
-      <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <section className="space-y-3">
+      <div className="rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
               <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
               <StatusChip tone={coverageTone(data.coverage_ratio)}>
                 Coverage {(data.coverage_ratio * 100).toFixed(0)}%
@@ -51,12 +51,12 @@ export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: stri
                 <StatusChip tone="neutral">{data.loaded_universe} Titel</StatusChip>
               )}
             </div>
-            <h3 className="text-xl font-semibold tracking-normal">Signalübersicht</h3>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-[#687386]">{data.message}</p>
-            <p className="mt-2 text-xs font-medium text-[#687386]">Stand {data.as_of}</p>
+            <h3 className="text-base font-semibold text-[#172033]">Signalübersicht</h3>
+            <p className="mt-1 max-w-4xl text-xs leading-5 text-[#687386]">{data.message}</p>
+            <p className="mt-1 text-[11px] font-medium text-[#687386]">Stand {data.as_of}</p>
           </div>
           <button
-            className="inline-flex w-fit items-center gap-2 rounded-full border border-[#d8e1ea] bg-white px-4 py-2 text-sm font-medium text-[#172033] shadow-sm transition hover:border-[#0f766e]"
+            className="inline-flex h-9 w-fit items-center gap-2 rounded-[10px] border border-[#d8e1ea] bg-white px-3 text-sm font-medium text-[#172033] transition hover:border-[#0f766e]"
             type="button"
             onClick={() => query.refetch()}
           >
@@ -71,7 +71,7 @@ export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: stri
           Keine Marktbreite-Signale im Cache.
         </div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
           {data.signals.map((signal) => (
             <BreadthSignalCard key={signal.key} signal={signal} />
           ))}
@@ -83,18 +83,18 @@ export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: stri
 
 function BreadthSignalCard({ signal }: { signal: MarketBreadthSignal }) {
   return (
-    <div className={["min-h-[188px] rounded-[24px] border p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]", cardClass(signal.tone)].join(" ")}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className={["rounded-[12px] border p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(signal.tone)].join(" ")}>
+      <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#687386]">{signal.title}</div>
-          <div className={["mt-2 break-words text-2xl font-semibold leading-tight tracking-normal tabular-nums", toneText(signal.tone)].join(" ")}>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-[#687386]">{signal.title}</div>
+          <div className={["mt-1.5 break-words text-xl font-semibold leading-tight tabular-nums", toneText(signal.tone)].join(" ")}>
             {signal.value}
           </div>
         </div>
         <StatusChip tone={signal.tone}>{toneLabel(signal.tone)}</StatusChip>
       </div>
-      <div className="text-sm leading-6 text-[#172033]">{signal.detail}</div>
-      {signal.comment && <div className="mt-2 text-xs leading-5 text-[#687386]">{signal.comment}</div>}
+      <div className="text-xs leading-5 text-[#172033]">{signal.detail}</div>
+      {signal.comment && <div className="mt-1.5 text-[11px] leading-4 text-[#687386]">{signal.comment}</div>}
       {signal.key === "equal_weight_etfs" && <EqualWeightDetails signal={signal} />}
       {signal.key === "russell_vs_sp500" && <RussellDetails signal={signal} />}
     </div>

@@ -22,26 +22,21 @@ export function SectorRankingPanel() {
   const data = query.data;
 
   return (
-    <div className="space-y-5">
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <StatusChip tone={data ? toneForStatus(data.data_status) : "neutral"}>
-                {data ? labelForStatus(data.data_status) : "lädt"}
-              </StatusChip>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-normal md:text-3xl">Sektoranalyse</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-4">
+      <section className="rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <StatusChip tone={data ? toneForStatus(data.data_status) : "neutral"}>
+            {data ? labelForStatus(data.data_status) : "lädt"}
+          </StatusChip>
+          <div className="flex flex-wrap items-end gap-2">
             <div className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-wide text-[#77808f]">Zeitraum</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Zeitraum</span>
               <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
                 {(["daily", "weekly"] as const).map((item) => (
                   <button
                     key={item}
                     className={[
-                      "rounded px-3 py-2 text-sm transition",
+                      "rounded-[8px] px-3 py-1.5 text-xs font-semibold transition",
                       mode === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
                     ].join(" ")}
                     type="button"
@@ -53,13 +48,13 @@ export function SectorRankingPanel() {
               </div>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-wide text-[#77808f]">Anzeige</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Anzeige</span>
               <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
                 {(["return", "rank"] as const).map((item) => (
                   <button
                     key={item}
                     className={[
-                      "rounded px-3 py-2 text-sm transition",
+                      "rounded-[8px] px-3 py-1.5 text-xs font-semibold transition",
                       performanceView === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
                     ].join(" ")}
                     type="button"
@@ -71,7 +66,7 @@ export function SectorRankingPanel() {
               </div>
             </div>
             <button
-              className="mt-5 inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+              className="inline-flex h-8 items-center gap-2 rounded-[8px] border border-[#d8e1ea] bg-white px-3 text-xs font-semibold text-[#172033] transition hover:border-[#0f766e]"
               type="button"
               onClick={() => query.refetch()}
             >
@@ -99,12 +94,12 @@ export function SectorRankingPanel() {
       )}
       {data && data.rows.length > 0 && (
         <>
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-3 xl:grid-cols-2">
             <SectorSummary title="Top 3 Sektoren" rows={data.top} direction="up" />
             <SectorSummary title="Flop 3 Sektoren" rows={data.bottom} direction="down" />
           </div>
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+            <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="text-base font-semibold">Performance-Tabelle</h2>
                 <p className="text-sm text-[#a0a7b4]">Stand {data.as_of}</p>
@@ -131,14 +126,14 @@ function SectorSummary({
   const Icon = direction === "up" ? ArrowUpRight : ArrowDownRight;
   const tone = direction === "up" ? "text-emerald-300" : "text-rose-300";
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold">{title}</h2>
         <Icon className={tone} size={19} />
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
         {rows.map((row) => (
-          <div key={row.ticker} className="flex items-center justify-between gap-3 border-b border-[#242a33] pb-3 last:border-0 last:pb-0">
+          <div key={row.ticker} className="flex items-center justify-between gap-3 border-b border-[#eef2f6] pb-2 last:border-0 last:pb-0">
             <div>
               <div className="font-medium">{row.name}</div>
               <div className="text-xs text-[#77808f]">{row.ticker} · Rang {row.rank}</div>

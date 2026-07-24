@@ -621,16 +621,10 @@ export default function JobsPage() {
   }, [latestUniverseJob?.job_id, latestUniverseJob?.status, queryClient]);
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Jobs</h1>
-          <p className="mt-1 text-sm text-[#a0a7b4]">
-            Worker-Queue und Scheduler-Status; Polling ohne blockierende Oberfläche.
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
         <button
-          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+          className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d8e1ea] bg-white px-3 text-sm font-medium text-[#172033] transition hover:border-[#0f766e]"
           type="button"
           onClick={() => refetch()}
         >

@@ -22,8 +22,10 @@
   --red-soft: #fff0ef;
   --blue: #2563eb;
   --blue-soft: #eef5ff;
-  --shadow-soft: 0 18px 48px rgba(15, 23, 42, 0.08);
-  --shadow-card: 0 10px 28px rgba(15, 23, 42, 0.06);
+  --radius-panel: 14px;
+  --radius-control: 10px;
+  --shadow-soft: 0 14px 36px rgba(15, 23, 42, 0.07);
+  --shadow-card: 0 5px 18px rgba(15, 23, 42, 0.055);
 }
 
 * {
@@ -37,12 +39,10 @@ html {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 32rem),
-    linear-gradient(180deg, #fbfdff 0%, var(--background) 24rem),
-    var(--background);
+  background: var(--background);
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-rendering: geometricPrecision;
 }
 
@@ -61,10 +61,10 @@ textarea {
 .input-dark {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--text);
-  padding: 0.6rem 0.9rem;
+  padding: 0.55rem 0.75rem;
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
@@ -76,6 +76,64 @@ textarea {
 
 ::selection {
   background: rgba(45, 212, 191, 0.28);
+}
+
+/* Compact application surfaces. These rules normalize older feature panels
+   while their data and interaction contracts remain untouched. */
+.app-surface {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  box-shadow: var(--shadow-card);
+}
+
+.app-surface-subtle {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--panel-soft);
+}
+
+[class*="rounded-[28px]"],
+[class*="rounded-[24px]"] {
+  border-radius: var(--radius-panel) !important;
+}
+
+[class*="rounded-[22px]"],
+[class*="rounded-[20px]"],
+[class~="rounded-2xl"] {
+  border-radius: var(--radius-control) !important;
+}
+
+[class*="shadow-[0_24px"],
+[class*="shadow-[0_20px"],
+[class*="shadow-[0_18px"],
+[class*="shadow-[0_16px"],
+[class*="shadow-[0_14px"],
+[class*="shadow-[0_12px"],
+[class*="shadow-[0_10px"] {
+  box-shadow: var(--shadow-card) !important;
+}
+
+:is(section, div)[class*="border-[#2d333d]"][class*="bg-[#171a20]"] {
+  border-color: var(--border) !important;
+  border-radius: var(--radius-panel) !important;
+  background: var(--panel) !important;
+  box-shadow: var(--shadow-card);
+}
+
+:is(section, div)[class*="border-[#2d333d]"][class*="bg-[#171a20]"][class~="p-5"] {
+  padding: 1rem !important;
+}
+
+:is(section, div)[class*="border-[#2d333d]"][class*="bg-[#111419]"] {
+  border-color: var(--border) !important;
+  border-radius: var(--radius-control) !important;
+  background: var(--panel-soft) !important;
+}
+
+:is(section, div)[class*="rounded-[24px]"][class~="p-5"],
+:is(section, div)[class*="rounded-[28px]"][class~="p-6"] {
+  padding: 1rem !important;
 }
 
 /* Light-theme compatibility layer for legacy hard-coded dark Tailwind classes.

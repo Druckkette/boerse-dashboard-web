@@ -210,16 +210,15 @@ export function TradeJournalPage() {
     : null;
 
   return (
-    <div className="space-y-5">
-      <header className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <div className="space-y-4">
+      <header className="rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-sm text-[#a0a7b4]">
-              <BookOpenCheck className="size-4 text-[#8ea4c8]" />
-              Trading Review
+            <div className="flex items-center gap-2 text-sm font-semibold text-[#172033]">
+              <BookOpenCheck className="size-4 text-[#0f766e]" />
+              Entscheidung dokumentieren
             </div>
-            <h1 className="mt-1 text-3xl font-semibold">Handelstagebuch</h1>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+            <p className="mt-0.5 max-w-4xl text-xs leading-5 text-[#687386]">
               Kaufsituation, Verkaufsentscheidung, Marktumfeld und Checklisten werden beim Speichern als historischer Snapshot festgehalten.
             </p>
           </div>
@@ -227,13 +226,13 @@ export function TradeJournalPage() {
             <label className="sr-only" htmlFor="journal-ticker">Ticker</label>
             <input
               id="journal-ticker"
-              className="min-h-10 flex-1 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
+              className="h-9 flex-1 rounded-[9px] border border-[#d8e1ea] bg-white px-3 text-sm uppercase outline-none transition focus:border-[#0f766e]"
               value={tickerInput}
               placeholder="Ticker oder Symbol"
               onChange={(event) => setTickerInput(event.target.value.toUpperCase())}
             />
             <button
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-[9px] bg-[#0f766e] px-3 text-sm font-semibold text-white transition hover:bg-[#0b655f]"
               type="submit"
             >
               <Search size={15} />
@@ -261,7 +260,7 @@ export function TradeJournalPage() {
         </section>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
         <JournalForm
           defaults={defaultsQuery.data}
           draft={draft}

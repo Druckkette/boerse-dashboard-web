@@ -53,10 +53,10 @@ export function MarketRiskSectionsPanel({
   const diagnostics = diagnosticsQuery.data;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <button
-          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm text-[#d8dde6] transition hover:border-emerald-300/60"
+          className="inline-flex h-8 items-center gap-2 rounded-[9px] border border-[#d8e1ea] bg-white px-3 text-xs font-semibold text-[#172033] transition hover:border-[#0f766e]"
           type="button"
           onClick={() => {
             void ampelQuery.refetch();
@@ -226,10 +226,10 @@ function WarningSigns({ data, intermarket }: { data: MarketAmpel; intermarket: M
 
 function RiskSection({ children, description, title }: { children: ReactNode; description: string; title: string }) {
   return (
-    <section className="space-y-3">
+    <section className="space-y-2.5">
       <div>
-        <h2 className="text-lg font-semibold tracking-normal">{title}</h2>
-        <p className="mt-1 max-w-4xl text-sm leading-6 text-[#a0a7b4]">{description}</p>
+        <h2 className="text-base font-semibold text-[#172033]">{title}</h2>
+        <p className="mt-0.5 max-w-4xl text-xs leading-5 text-[#687386]">{description}</p>
       </div>
       {children}
     </section>
@@ -253,13 +253,13 @@ function CheckSignalCard({ check, fallback, title }: { check?: MarketAmpelWarnin
 
 function MovingAverageDistanceCard({ tiles }: { tiles: MarketAmpelDistanceTile[] }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className="rounded-[12px] border border-[#e3e8ef] bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
+      <div className="mb-2.5 flex items-start justify-between gap-3">
         <div>
           <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">
             Abstand Index zu gleitenden Durchschnitten
           </div>
-          <div className="mt-2 text-sm leading-5 text-[#d8dde6]">21-EMA, 10-SMA, 50-SMA und 200-SMA.</div>
+          <div className="mt-1.5 text-xs leading-5 text-[#4b5565]">21-EMA, 10-SMA, 50-SMA und 200-SMA.</div>
         </div>
         <StatusChip tone={worstTone(tiles.map((tile) => tile.tone))}>Abstand</StatusChip>
       </div>
@@ -286,19 +286,19 @@ function MovingAverageBreaksCard({
   const active = checks.filter((check) => check.active_warning);
   const trendChecks = latest ? movingAverageTrendChecks(latest) : [];
   return (
-    <div className={clsx("rounded border bg-[#171a20] p-4", cardClass(active.length ? "warning" : "good"))}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className={clsx("rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(active.length ? "warning" : "good"))}>
+      <div className="mb-2.5 flex items-start justify-between gap-3">
         <div>
           <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">
             Bruch wichtiger gleitender Durchschnitte
           </div>
-          <div className={clsx("mt-2 text-2xl font-semibold", active.length ? "text-amber-100" : "text-emerald-200")}>
+          <div className={clsx("mt-1.5 text-xl font-semibold", active.length ? "text-amber-100" : "text-emerald-200")}>
             {active.length ? `${active.length} aktiv` : "OK"}
           </div>
         </div>
         <StatusChip tone={active.length ? "warning" : "good"}>{active.length ? "Warnung" : "OK"}</StatusChip>
       </div>
-      <div className="space-y-2 text-sm text-[#d8dde6]">
+      <div className="space-y-1.5 text-xs leading-5 text-[#d8dde6]">
         {checks.length ? checks.map((check) => (
           <div key={check.label} className="flex items-start gap-2">
             {check.active_warning ? <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={16} /> : <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={16} />}
@@ -307,7 +307,7 @@ function MovingAverageBreaksCard({
         )) : <div className="text-[#a0a7b4]">Keine MA-Bruchdaten im Cache.</div>}
       </div>
       {trendChecks.length > 0 && (
-        <div className="mt-4 border-t border-white/10 pt-3">
+        <div className="mt-3 border-t border-[#e3e8ef] pt-2.5">
           <div className="mb-2 text-xs font-semibold uppercase tracking-normal text-[#77808f]">Trendprüfung</div>
           <div className="grid gap-2">
             {trendChecks.map((check) => (
@@ -378,17 +378,17 @@ function IntermarketDirectionCard({ items }: { items: MarketIntermarketItem[] })
   const mixed = positive > 0 && negative > 0;
   const value = !valid.length ? "n/a" : mixed ? "Divergenz" : "Gleichlauf";
   return (
-    <div className={clsx("rounded border bg-[#171a20] p-4", cardClass(!valid.length ? "neutral" : mixed ? "warning" : "good"))}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className={clsx("rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(!valid.length ? "neutral" : mixed ? "warning" : "good"))}>
+      <div className="mb-2.5 flex items-start justify-between gap-3">
         <div>
           <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">
             Intermarket-Divergenzen
           </div>
-          <div className={clsx("mt-2 text-2xl font-semibold", toneText(!valid.length ? "neutral" : mixed ? "warning" : "good"))}>{value}</div>
+          <div className={clsx("mt-1.5 text-xl font-semibold", toneText(!valid.length ? "neutral" : mixed ? "warning" : "good"))}>{value}</div>
         </div>
         <StatusChip tone={!valid.length ? "neutral" : mixed ? "warning" : "good"}>{mixed ? "gemischt" : "Richtung"}</StatusChip>
       </div>
-      <p className="text-sm leading-5 text-[#d8dde6]">
+      <p className="text-xs leading-5 text-[#d8dde6]">
         Prüft, ob S&P 500, Nasdaq, Dow Jones und Russell 2000 am Tag in die gleiche Richtung laufen.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -419,16 +419,16 @@ function SignalCard({
   value: string;
 }) {
   return (
-    <div className={clsx("rounded border bg-[#171a20] p-4", cardClass(tone))}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <div className={clsx("rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(tone))}>
+      <div className="mb-2.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">{title}</div>
-          <div className={clsx("mt-2 break-words text-2xl font-semibold leading-tight", toneText(tone))}>{value}</div>
+          <div className={clsx("mt-1.5 break-words text-xl font-semibold leading-tight", toneText(tone))}>{value}</div>
         </div>
         <StatusChip tone={tone}>{passed === false ? "aktiv" : toneLabel(tone)}</StatusChip>
       </div>
-      <div className="text-sm leading-5 text-[#d8dde6]">{detail}</div>
-      {comment && <div className="mt-2 text-xs leading-5 text-[#a0a7b4]">{comment}</div>}
+      <div className="text-xs leading-5 text-[#d8dde6]">{detail}</div>
+      {comment && <div className="mt-1.5 text-[11px] leading-4 text-[#a0a7b4]">{comment}</div>}
     </div>
   );
 }

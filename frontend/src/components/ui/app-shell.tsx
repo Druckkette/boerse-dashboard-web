@@ -60,18 +60,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const currentPageDescription = pageDescription(pathname);
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
-      <aside className="border-b border-[#e3e8ef] bg-white/92 shadow-[8px_0_28px_rgba(15,23,42,0.03)] backdrop-blur lg:min-h-screen lg:border-b-0 lg:border-r">
-        <div className="flex min-h-20 items-center gap-3 px-5">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-[#0f766e] text-white shadow-[0_12px_24px_rgba(15,118,110,0.24)]">
-            <LineChart size={20} strokeWidth={2.2} />
+    <div className="min-h-screen lg:grid lg:grid-cols-[236px_1fr]">
+      <aside className="border-b border-[#e3e8ef] bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+        <div className="flex min-h-16 items-center gap-2.5 px-4">
+          <div className="flex size-9 items-center justify-center rounded-[10px] bg-[#0f766e] text-white shadow-[0_6px_16px_rgba(15,118,110,0.18)]">
+            <LineChart size={18} strokeWidth={2.2} />
           </div>
           <div className="min-w-0">
-            <div className="truncate text-base font-semibold tracking-normal text-[#172033]">Börse ohne Bauchgefühl</div>
-            <div className="mt-0.5 text-xs font-medium text-[#687386]">Regelbasiert. Ruhig. Verständlich.</div>
+            <div className="truncate text-sm font-semibold text-[#172033]">Börse ohne Bauchgefühl</div>
+            <div className="mt-0.5 text-[11px] font-medium text-[#687386]">Regelbasiert. Ruhig. Verständlich.</div>
           </div>
         </div>
-        <nav className="flex gap-2 overflow-x-auto px-3 pb-4 lg:block lg:space-y-1.5 lg:overflow-visible lg:pb-0">
+        <nav className="flex gap-1.5 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href, item.exact);
@@ -80,21 +80,21 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={clsx(
-                  "group flex min-w-fit items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition",
+                  "group flex min-w-fit items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-sm font-medium transition",
                   active
-                    ? "bg-[#e6f5f2] text-[#0f766e] shadow-[inset_0_0_0_1px_rgba(15,118,110,0.13)]"
-                    : "text-[#687386] hover:bg-[#f2f7f8] hover:text-[#172033]"
+                    ? "bg-[#e8f4f2] text-[#0f766e]"
+                    : "text-[#687386] hover:bg-[#f3f6f8] hover:text-[#172033]"
                 )}
               >
                 <span
                   className={clsx(
-                    "grid size-8 shrink-0 place-items-center rounded-xl border transition",
+                    "grid size-7 shrink-0 place-items-center rounded-lg border transition",
                     active
-                      ? "border-[#b7ddd6] bg-white text-[#0f766e]"
-                      : "border-[#e3e8ef] bg-[#f9fbfd] text-[#687386] group-hover:border-[#cbd5e1] group-hover:text-[#172033]"
+                      ? "border-[#c8e2dd] bg-white text-[#0f766e]"
+                      : "border-transparent bg-[#f5f7f9] text-[#687386] group-hover:text-[#172033]"
                   )}
                 >
-                  <Icon size={16} />
+                  <Icon size={15} />
                 </span>
                 <span className="truncate">{item.label}</span>
               </Link>
@@ -103,30 +103,30 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </aside>
       <main className="min-w-0">
-        <header className="sticky top-0 z-10 border-b border-[#e3e8ef] bg-white/86 px-4 py-4 backdrop-blur md:px-7">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <header className="sticky top-0 z-10 border-b border-[#e3e8ef] bg-white/92 px-4 py-3 backdrop-blur md:px-6">
+          <div className="mx-auto flex max-w-[1680px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
-              <div className="text-2xl font-semibold tracking-normal text-[#172033]">{currentPageLabel}</div>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-[#687386]">{currentPageDescription}</p>
+              <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>
+              <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386] sm:text-sm">{currentPageDescription}</p>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-2">
               <Link
                 href="/stocks"
-                className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[#d8e1ea] bg-white px-4 text-sm font-medium text-[#172033] shadow-sm transition hover:border-[#b8c4d2] hover:bg-[#f9fbfd]"
+                className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d8e1ea] bg-white px-3 text-sm font-medium text-[#172033] transition hover:border-[#b8c4d2] hover:bg-[#f9fbfd]"
               >
-                <Search size={16} className="text-[#687386]" />
-                Ticker oder Firma suchen
+                <Search size={15} className="text-[#687386]" />
+                Aktie suchen
               </Link>
               <Link
                 href="/jobs"
-                className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#0f766e] px-5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(15,118,110,0.18)] transition hover:bg-[#0b655f]"
+                className="inline-flex h-9 items-center justify-center rounded-[10px] bg-[#0f766e] px-3.5 text-sm font-semibold text-white transition hover:bg-[#0b655f]"
               >
                 Datenstatus prüfen
               </Link>
             </div>
           </div>
         </header>
-        <div className="px-4 py-6 md:px-7">{children}</div>
+        <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">{children}</div>
       </main>
     </div>
   );

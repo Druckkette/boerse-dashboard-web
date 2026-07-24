@@ -99,21 +99,15 @@ export function WorkspacePanel() {
   );
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Workspace</h1>
-          <p className="mt-1 text-sm text-[#a0a7b4]">Persönliche Watchlist, Tagesplan und schneller Zugriff auf relevante Ticker.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-end gap-2">
           <StatusChip tone={workspace.source === "database" ? "good" : "warning"}>
             {workspace.source === "database" ? "Persistiert" : "DB-Fallback"}
           </StatusChip>
           {workspace.updated_at ? <StatusChip tone="neutral">Gespeichert {formatDateTime(workspace.updated_at)}</StatusChip> : null}
-        </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+      <div className="grid gap-3 xl:grid-cols-[1fr_0.9fr]">
         <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>

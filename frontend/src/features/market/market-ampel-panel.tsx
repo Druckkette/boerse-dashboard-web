@@ -447,19 +447,19 @@ function MovingAverageDistanceSummary({ tiles }: { tiles: MarketAmpelDistanceTil
 
 function ChangeCard({ card }: { card: MarketAmpelChangeCard }) {
   return (
-    <div className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-[#687386]">{card.title}</div>
+    <div className="rounded-[12px] border border-[#e3e8ef] bg-white px-3.5 py-3 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold uppercase tracking-[0.06em] text-[#687386]">{card.title}</div>
         <StatusChip tone={card.tone}>{card.quality ?? card.tone}</StatusChip>
       </div>
-      <div className="flex items-center gap-2 text-2xl font-semibold tracking-normal text-[#172033]">
-        {card.arrow === "up" && <ArrowUp className="text-[#138a57]" size={20} />}
-        {card.arrow === "down" && <ArrowDown className="text-[#c2413b]" size={20} />}
+      <div className="flex items-center gap-1.5 text-xl font-semibold text-[#172033]">
+        {card.arrow === "up" && <ArrowUp className="text-[#138a57]" size={17} />}
+        {card.arrow === "down" && <ArrowDown className="text-[#c2413b]" size={17} />}
         {card.value}
       </div>
-      <div className="mt-2 text-sm leading-6 text-[#687386]">{card.detail}</div>
-      {card.detail2 && <div className="mt-1 text-xs text-[#687386]">{card.detail2}</div>}
-      {card.detail3 && <div className="mt-1 text-xs text-[#687386]">{card.detail3}</div>}
+      <div className="mt-1.5 text-xs leading-5 text-[#687386]">{card.detail}</div>
+      {card.detail2 && <div className="mt-0.5 text-[11px] text-[#687386]">{card.detail2}</div>}
+      {card.detail3 && <div className="mt-0.5 text-[11px] text-[#687386]">{card.detail3}</div>}
     </div>
   );
 }

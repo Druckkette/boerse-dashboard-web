@@ -241,7 +241,7 @@ export function LineChartCard({
   }
 
   return (
-    <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+    <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className={hideTextHeader ? "mb-3 flex justify-end" : "mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
         {!hideTextHeader && (
           <div>

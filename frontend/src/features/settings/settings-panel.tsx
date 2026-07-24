@@ -109,32 +109,22 @@ export function SettingsPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Settings</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
-              Änderungen wirken lokal sofort und werden debounced in Postgres gespeichert.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <StatusChip tone={mutation.isPending ? "warning" : dirty ? "neutral" : "good"}>
-              {mutation.isPending ? "speichert" : dirty ? "lokal geändert" : "persistiert"}
-            </StatusChip>
-            <SlidersHorizontal className="text-emerald-300" size={22} />
-          </div>
-        </div>
-      </section>
+    <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <StatusChip tone={mutation.isPending ? "warning" : dirty ? "neutral" : "good"}>
+          {mutation.isPending ? "speichert" : dirty ? "lokal geändert" : "persistiert"}
+        </StatusChip>
+        <SlidersHorizontal className="text-[#0f766e]" size={18} />
+      </div>
 
       <SettingsWorkflowLinks />
 
-      <details className="group rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <details className="group rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <summary className="cursor-pointer list-none">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-base font-semibold">13F CUSIP-Mapping</h2>
-              <p className="mt-1 text-sm leading-5 text-[#a0a7b4]">
+              <p className="mt-0.5 text-xs leading-5 text-[#687386]">
                 SEC-CUSIPs auf Ticker mappen, damit institutionelle 13F-Trends korrekt Aktien zugeordnet werden.
               </p>
             </div>

@@ -47,7 +47,7 @@ export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string
   const passedChecks = data.checks.filter((check) => check.passed).length;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link className="inline-flex items-center gap-2 text-sm text-[#a0a7b4] hover:text-white" href={`/portfolio/buy-strength?weeks=${weeks}`}>
           <ArrowLeft size={16} />
@@ -75,16 +75,16 @@ export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string
         </div>
       </div>
 
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm text-[#a0a7b4]">Stärke nach Kauf Bewertung</div>
-            <h1 className="mt-1 text-2xl font-semibold">{data.ticker}</h1>
-            <p className="mt-2 max-w-3xl text-sm text-[#c7ccd6]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#687386]">Stärke nach Kauf</div>
+            <h1 className="mt-1 text-xl font-semibold text-[#172033]">{data.ticker}</h1>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-[#687386]">
               {data.message} Auswertungsfenster: {windowLabel} ab Kaufdatum.
             </p>
           </div>
-          <div className="grid min-w-[280px] grid-cols-2 gap-2">
+          <div className="grid min-w-[280px] grid-cols-2 gap-1.5">
             <Metric label="Kaufdatum" value={data.buy_date ?? "-"} />
             <Metric label="Alter" value={data.age_days !== null && data.age_days !== undefined ? `${data.age_days} Tage` : "-"} />
             <Metric label="Fenster" value={`${data.window_days} Tage`} />
@@ -94,14 +94,14 @@ export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string
         </div>
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-4">
+      <div className="grid gap-2.5 lg:grid-cols-4">
         <InfoTile icon={<ShieldCheck size={18} />} label="Positive Checks" value={`${passedChecks}/${data.checks.length}`} tone="good" />
         <InfoTile icon={<ShieldAlert size={18} />} label="Aktive Warnzeichen" value={`${activeWarnings}/${data.warnings.length}`} tone={activeWarnings ? "bad" : "good"} />
         <InfoTile icon={<LineChart size={18} />} label="Letzter Schluss" value={money(data.latest_close)} />
         <InfoTile icon={<CalendarDays size={18} />} label="Kauftag-Tief" value={money(data.buy_day_low)} />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-3 xl:grid-cols-2">
         <CheckSection
           title="Positive Zeichen"
           subtitle="Diese Signale sollen bestätigen, dass der Kauf zügig getragen wird."

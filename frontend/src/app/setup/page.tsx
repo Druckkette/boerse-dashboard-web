@@ -74,16 +74,15 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-4">
+      <section className="rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-sm text-emerald-200">
+            <div className="flex items-center gap-2 text-sm font-semibold text-[#172033]">
               <Rocket size={18} />
-              First Run
+              Erstinstallation
             </div>
-            <h1 className="text-2xl font-semibold">Setup</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+            <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386]">
               Erststart ohne Shell-Befehle: Depot importieren, Kursdaten laden, Marktanalyse vorbereiten,
               RS-Ratings berechnen und den ATR-Monitor anstoßen.
             </p>

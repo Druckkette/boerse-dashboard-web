@@ -86,11 +86,11 @@ export default function PortfolioImportsPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col justify-between gap-4 rounded border border-[#2d333d] bg-[#171a20] p-5 md:flex-row md:items-start">
+    <div className="space-y-4">
+      <div className="flex flex-col justify-between gap-3 rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)] md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-semibold">Portfolio Imports</h1>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+          <div className="text-sm font-semibold text-[#172033]">Importquelle auswählen</div>
+          <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386]">
             Daten direkt im Browser hochladen. Es wird keine Datei auf der NAS manuell abgelegt.
           </p>
         </div>

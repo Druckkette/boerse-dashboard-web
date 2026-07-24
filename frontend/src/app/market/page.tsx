@@ -20,7 +20,7 @@ export default function MarketPage() {
   const [ticker, setTicker] = useState<MarketIndexTicker>("^GSPC");
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <MarketAmpelPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} />
       <MarketRiskSectionsPanel ticker={ticker} />
       <MarketArea
@@ -49,10 +49,10 @@ function MarketArea({
   title: string;
 }) {
   return (
-    <section className="space-y-3">
+    <section className="space-y-2.5">
       <div>
-        <h2 className="text-lg font-semibold tracking-normal">{title}</h2>
-        <p className="mt-1 max-w-4xl text-sm leading-6 text-[#a0a7b4]">{description}</p>
+        <h2 className="text-base font-semibold text-[#172033]">{title}</h2>
+        <p className="mt-0.5 max-w-4xl text-xs leading-5 text-[#687386]">{description}</p>
       </div>
       {children}
     </section>

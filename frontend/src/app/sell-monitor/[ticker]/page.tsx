@@ -179,13 +179,13 @@ export default function SellMonitorTickerPage() {
   const rsTrend = metrics.data?.rs_trend ?? health?.rs_trend;
 
   return (
-    <div className="space-y-5">
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-4">
+      <div className="rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-sm text-[#a0a7b4]">Verkaufsmonitor</div>
-            <h1 className="text-3xl font-semibold">{ticker}</h1>
-            <div className="mt-2 text-sm text-[#a0a7b4]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#687386]">Verkaufsmonitor</div>
+            <h1 className="mt-0.5 text-2xl font-semibold text-[#172033]">{ticker}</h1>
+            <div className="mt-1 text-xs leading-5 text-[#687386]">
               {evaluation.data?.explanation_short ?? "Evaluation wird geladen."}
             </div>
           </div>
@@ -200,7 +200,7 @@ export default function SellMonitorTickerPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6">
         <KpiCard item={{ label: "Health Score", value: health ? health.health_score.toFixed(1) : "-", detail: health?.status ?? "Status", tone: health ? toneByStatus[health.status] : "neutral" }} />
         <KpiCard item={{ label: "Empfehlung", value: `${evaluation.data?.sell_now_percent ?? 0}%`, detail: evaluation.data?.regime ?? "Regime", tone: recommendationTone }} />
         <KpiCard item={{ label: "P&L", value: formatPct(metrics.data?.pnl_pct), detail: "seit Kauf", tone: (metrics.data?.pnl_pct ?? 0) >= 0 ? "good" : "bad" }} />
@@ -218,7 +218,7 @@ export default function SellMonitorTickerPage() {
         title="Sell Context"
       />
 
-      <div className="grid gap-5 xl:grid-cols-3">
+      <div className="grid gap-3 xl:grid-cols-3">
         <SellFeatureSection
           description="Harter Schutz gegen definierte Verlusthöhe. Dieses Merkmal übersteuert alle anderen Strategien."
           features={evaluation.data?.emergency_features ?? []}
