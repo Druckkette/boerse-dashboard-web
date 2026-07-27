@@ -44,7 +44,7 @@ DEFAULT_SETTINGS = AppSettings(
     max_depot_loss_lower_pct=4.0,
     max_depot_loss_upper_pct=8.0,
     position_monitor_enabled=False,
-    position_monitor_interval_minutes=5,
+    position_monitor_interval_minutes=1,
     position_monitor_threshold_atr=1.5,
     position_monitor_atr_period=14,
     position_monitor_lookback_days=420,
@@ -698,12 +698,12 @@ def _env_bool(key: str, fallback: bool = False) -> bool:
 
 
 def _runtime_restart_services() -> list[str]:
-    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,scheduler,frontend,backend")
+    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,monitor,scheduler,frontend,backend")
     services = [item.strip() for item in raw.split(",") if item.strip()]
     ordered = [service for service in services if service != "backend"]
     if "backend" in services:
         ordered.append("backend")
-    return ordered or ["worker", "scheduler", "frontend", "backend"]
+    return ordered or ["worker", "monitor", "scheduler", "frontend", "backend"]
 
 
 def _nas_compose_project() -> str:
@@ -932,6 +932,9 @@ def get_data_diagnostics() -> DataDiagnosticsResponse:
 def _settings_from_values(values: dict) -> AppSettings:
     merged = DEFAULT_SETTINGS.model_dump()
     merged.update({key: value for key, value in values.items() if key in merged})
+    # The dedicated monitor queue has a fixed one-minute cadence. Keep the
+    # compatibility field truthful even for databases that still store ``5``.
+    merged["position_monitor_interval_minutes"] = 1
     runtime = get_settings()
     merged["pushover_configured"] = bool(
         (get_runtime_config_value("PUSHOVER_USER_KEY") or runtime.pushover_user_key)

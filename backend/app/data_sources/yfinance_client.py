@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from math import isnan
 from typing import Any
 
 import pandas as pd
+
+
+LIVE_QUOTE_MAX_AGE = timedelta(minutes=30)
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,17 @@ class FetchedAfterHoursQuote:
     after_hours_change_pct: float | None
     currency: str
     market_state: str
+    source: str
+    fetched_at: datetime
+    error_message: str = ""
+
+
+@dataclass(frozen=True)
+class FetchedLiveQuote:
+    ticker: str
+    price: float | None
+    quote_at: datetime | None
+    trade_date: date | None
     source: str
     fetched_at: datetime
     error_message: str = ""
@@ -167,6 +181,96 @@ def fetch_after_hours_quotes(symbols: list[str]) -> dict[str, FetchedAfterHoursQ
                 fetched_at=fetched_at,
                 error_message=f"{type(exc).__name__}: {exc}",
             )
+    return quotes
+
+
+def fetch_live_quotes_batch(
+    symbols: list[str],
+    *,
+    timeout: int = 10,
+) -> dict[str, FetchedLiveQuote]:
+    """Fetch the latest intraday price for all symbols in one Yahoo request.
+
+    The ATR monitor calls this frequently, so ticker-wise ``get_info`` requests
+    would be too slow and too easy to rate-limit. A quote from an older trading
+    date is marked unavailable instead of being mistaken for a current price.
+    """
+    import yfinance as yf
+
+    clean_symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()))
+    if not clean_symbols:
+        return {}
+
+    fetched_at = datetime.now(UTC)
+    try:
+        frame = yf.download(
+            clean_symbols,
+            period="1d",
+            interval="1m",
+            prepost=True,
+            auto_adjust=False,
+            progress=False,
+            threads=True,
+            timeout=max(3, int(timeout)),
+            group_by="column",
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed batch is retried by the next monitor tick
+        error = f"{type(exc).__name__}: {exc}"
+        return {
+            symbol: FetchedLiveQuote(
+                ticker=symbol,
+                price=None,
+                quote_at=None,
+                trade_date=None,
+                source="yfinance_intraday_batch",
+                fetched_at=fetched_at,
+                error_message=error,
+            )
+            for symbol in clean_symbols
+        }
+
+    quotes: dict[str, FetchedLiveQuote] = {}
+    for symbol in clean_symbols:
+        normalized = _normalize_download_frame(frame, symbol)
+        close = (
+            pd.to_numeric(normalized["Close"], errors="coerce").dropna()
+            if isinstance(normalized, pd.DataFrame) and "Close" in normalized.columns
+            else pd.Series(dtype=float)
+        )
+        if close.empty:
+            quotes[symbol] = FetchedLiveQuote(
+                ticker=symbol,
+                price=None,
+                quote_at=None,
+                trade_date=None,
+                source="yfinance_intraday_batch",
+                fetched_at=fetched_at,
+                error_message="Yahoo liefert keinen aktuellen Intraday-Kurs.",
+            )
+            continue
+
+        timestamp = pd.Timestamp(close.index[-1])
+        trade_date = timestamp.date()
+        quote_at = timestamp.to_pydatetime()
+        if quote_at.tzinfo is None:
+            quote_at = quote_at.replace(tzinfo=UTC)
+        else:
+            quote_at = quote_at.astimezone(UTC)
+        quote_age = fetched_at - quote_at
+        is_fresh = -timedelta(minutes=5) <= quote_age <= LIVE_QUOTE_MAX_AGE
+        quotes[symbol] = FetchedLiveQuote(
+            ticker=symbol,
+            price=_float_or_none(close.iloc[-1]) if is_fresh else None,
+            quote_at=quote_at,
+            trade_date=trade_date,
+            source="yfinance_intraday_batch",
+            fetched_at=fetched_at,
+            error_message=(
+                ""
+                if is_fresh
+                else f"Letzter Yahoo-Intraday-Kurs ist {max(0, int(quote_age.total_seconds() // 60))} Minuten alt."
+            ),
+        )
     return quotes
 
 

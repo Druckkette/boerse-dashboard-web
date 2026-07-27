@@ -29,7 +29,7 @@ def test_position_atr_monitor_skips_scheduler_when_disabled(monkeypatch: pytest.
     monkeypatch.setattr(monitor_module, "get_app_settings", lambda: settings)
     monkeypatch.setattr(
         monitor_module,
-        "monitor_open_positions",
+        "monitor_open_position_atr",
         lambda *args, **kwargs: pytest.fail("scheduler run should be skipped"),
     )
     job = job_repository.create_job("position_atr_monitor", {"source": "scheduler"})
@@ -62,7 +62,7 @@ def test_position_atr_monitor_allows_manual_run_when_disabled(monkeypatch: pytes
         return {"ok": True, "records_seen": 1, "records_written": 1, "items": []}
 
     monkeypatch.setattr(monitor_module, "get_app_settings", lambda: settings)
-    monkeypatch.setattr(monitor_module, "monitor_open_positions", fake_monitor)
+    monkeypatch.setattr(monitor_module, "monitor_open_position_atr", fake_monitor)
     job = job_repository.create_job(
         "position_atr_monitor",
         {"tickers": ["NVDA"], "monitor_settings": {"position_monitor_threshold_atr": 1.25}},
@@ -266,3 +266,120 @@ def test_position_monitor_allows_new_trade_day_when_reference_changes(monkeypatc
     assert result["alerts"][0]["ticker"] == "AAPL"
     assert result["alerts"][0]["reason"] == "new_trade_day"
     assert written["tickers"]["AAPL"]["reference_price"] == 96.0
+
+
+def test_failed_delivery_does_not_consume_atr_alert(monkeypatch: pytest.MonkeyPatch) -> None:
+    written: dict = {}
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda values: written.update(values) or values,
+    )
+    result = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": True,
+                        "distance_atr": 1.8,
+                        "threshold_atr": 1.5,
+                        "reference": "previous_close",
+                        "reference_price": 100.0,
+                        "current_price": 96.4,
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
+        persist_state=False,
+    )
+
+    monitor_module._finalize_monitor_state(
+        result,
+        alert_delivery={"sent": 0, "failed": 1, "skipped": 0, "sent_tickers": []},
+    )
+
+    assert "_pending_monitor_state" not in result
+    assert "AAPL" not in written["tickers"]
+    assert written["last_summary"]["delivery_failed"] == 1
+
+
+def test_confirmed_delivery_consumes_atr_alert(monkeypatch: pytest.MonkeyPatch) -> None:
+    written: dict = {}
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda values: written.update(values) or values,
+    )
+    result = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": True,
+                        "distance_atr": 1.8,
+                        "threshold_atr": 1.5,
+                        "reference": "previous_close",
+                        "reference_price": 100.0,
+                        "current_price": 96.4,
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
+        persist_state=False,
+    )
+
+    monitor_module._finalize_monitor_state(
+        result,
+        alert_delivery={"sent": 1, "failed": 0, "skipped": 0, "sent_tickers": ["AAPL"]},
+    )
+
+    assert written["tickers"]["AAPL"]["trade_day"] == "2026-06-18"
+    assert written["last_summary"]["sent"] == 1
+
+
+def test_pushover_delivery_uses_high_priority(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+    app_settings = SimpleNamespace(pushover_enabled=True)
+    monkeypatch.setattr(
+        monitor_module,
+        "get_runtime_config_value",
+        lambda key: "user" if "USER" in key else "token",
+    )
+    monkeypatch.setattr(monitor_module, "get_runtime_config_bool", lambda *args: False)
+
+    def fake_send(**kwargs):
+        captured.update(kwargs)
+        return {"status": 1, "request": "test"}
+
+    monkeypatch.setattr(monitor_module, "_send_pushover_message", fake_send)
+    delivery = monitor_module._deliver_monitor_alerts(
+        [
+            {
+                "ticker": "AAPL",
+                "distance_atr": 1.6,
+                "threshold_atr": 1.5,
+                "reference": "previous_close",
+                "current_price": 96.8,
+                "reference_price": 100.0,
+                "reason": "new_trade_day",
+            }
+        ],
+        app_settings=app_settings,
+    )
+
+    assert delivery["sent"] == 1
+    assert delivery["sent_tickers"] == ["AAPL"]
+    assert captured["priority"] == 1
+    assert captured["title"] == "ATR-Alarm AAPL"

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from app.data_sources.yfinance_client import FetchedAfterHoursQuote, fetch_after_hours_quotes
+from app.data_sources.yfinance_client import FetchedLiveQuote, fetch_live_quotes_batch
 from app.domain.sell.metrics import build_sell_decision_metrics_payload
 from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision, normalize_sell_setup_payload
 from app.domain.sell.schemas import (
@@ -282,8 +282,11 @@ def monitor_open_positions(
             metrics,
             settings,
             current_price_override=live_price,
-            current_price_source="yfinance_live" if live_price is not None else "price_cache",
+            current_price_source=quote.source if quote and live_price is not None else "live_quote_unavailable",
+            current_trade_date=quote.trade_date if quote and live_price is not None else None,
         )
+        monitor_state["live_quote_at"] = quote.quote_at.isoformat() if quote and quote.quote_at else None
+        monitor_state["live_quote_error"] = quote.error_message if quote else "Kein Yahoo-Live-Kurs empfangen."
         ranking_items.append(
             SellPositionRankingItem(
                 ticker=row.ticker,
@@ -330,6 +333,70 @@ def monitor_open_positions(
         "records_seen": len(portfolio_rows),
         "records_written": len(items),
         "ranking_snapshot_written": snapshot_count,
+        "items": items,
+    }
+
+
+def monitor_open_position_atr(
+    tickers: list[str] | None = None,
+    monitor_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the lightweight live ATR path without evaluating the full sell engine."""
+
+    settings = monitor_settings or {}
+    allowed = {_clean_ticker(ticker) for ticker in tickers or [] if _clean_ticker(ticker)}
+    portfolio_rows = [
+        row for row in _portfolio_positions()
+        if not allowed or _clean_ticker(row.ticker) in allowed
+    ]
+    if not portfolio_rows:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Keine offenen importierten Positionen gefunden.",
+            "records_seen": 0,
+            "records_written": 0,
+            "items": [],
+        }
+
+    live_quotes = _position_monitor_live_quotes(portfolio_rows)
+    items: list[dict[str, Any]] = []
+    live_quotes_available = 0
+    for row in portfolio_rows:
+        quote = live_quotes.get(_clean_ticker(row.ticker))
+        live_price = _position_monitor_live_price(quote)
+        if live_price is not None:
+            live_quotes_available += 1
+        daily_frame = _price_frame_from_cache(row.ticker).rename(columns=lambda value: str(value).lower())
+        monitor_state = _monitor_state_from_frame(
+            row,
+            daily_frame,
+            settings,
+            current_price_override=live_price,
+            current_price_source=quote.source if quote and live_price is not None else "live_quote_unavailable",
+            current_trade_date=quote.trade_date if quote and live_price is not None else None,
+        )
+        monitor_state["live_quote_at"] = quote.quote_at.isoformat() if quote and quote.quote_at else None
+        monitor_state["live_quote_error"] = quote.error_message if quote else "Kein Yahoo-Live-Kurs empfangen."
+        items.append(
+            {
+                "ticker": row.ticker,
+                "name": row.name,
+                "as_of": (
+                    daily_frame.index[-1].date().isoformat()
+                    if not daily_frame.empty and hasattr(daily_frame.index[-1], "date")
+                    else None
+                ),
+                "monitor": monitor_state,
+            }
+        )
+
+    return {
+        "ok": True,
+        "records_seen": len(portfolio_rows),
+        "records_written": len(items),
+        "live_quotes_requested": len(portfolio_rows),
+        "live_quotes_available": live_quotes_available,
         "items": items,
     }
 
@@ -401,25 +468,48 @@ def _monitor_state_from_metrics(
     settings: dict[str, Any],
     *,
     current_price_override: float | None = None,
-    current_price_source: str = "price_cache",
+    current_price_source: str = "live_quote_unavailable",
+    current_trade_date: date | None = None,
+) -> dict[str, Any]:
+    daily_frame = metrics.raw_payload.ohlc_frames.get("daily_since_buy")
+    return _monitor_state_from_frame(
+        row,
+        daily_frame,
+        settings,
+        current_price_override=current_price_override,
+        current_price_source=current_price_source,
+        current_trade_date=current_trade_date,
+        fallback_atr=metrics.atr14,
+    )
+
+
+def _monitor_state_from_frame(
+    row: PortfolioPositionRow,
+    daily_frame: Any,
+    settings: dict[str, Any],
+    *,
+    current_price_override: float | None,
+    current_price_source: str,
+    current_trade_date: date | None,
+    fallback_atr: float | None = None,
 ) -> dict[str, Any]:
     atr_period = int(_finite_float(settings.get("position_monitor_atr_period"), 14) or 14)
     threshold_atr = float(_finite_float(settings.get("position_monitor_threshold_atr"), 1.5) or 1.5)
     lookback_days = int(_finite_float(settings.get("position_monitor_lookback_days"), 420) or 420)
-    reference_mode = str(settings.get("position_monitor_reference") or "high_since_buy")
+    reference_mode = str(settings.get("position_monitor_reference") or "previous_close")
     if reference_mode not in _POSITION_MONITOR_REFERENCES:
-        reference_mode = "high_since_buy"
+        reference_mode = "previous_close"
 
-    daily_frame = metrics.raw_payload.ohlc_frames.get("daily_since_buy")
-    current_price = _finite_float(current_price_override, metrics.current_price)
+    current_price = _finite_float(current_price_override)
     reference_price = _monitor_reference_price(
         daily_frame=daily_frame,
         row=row,
         current_price=current_price,
         reference_mode=reference_mode,
         lookback_days=lookback_days,
+        current_trade_date=current_trade_date,
     )
-    atr_value = _monitor_atr(daily_frame, atr_period) or metrics.atr14
+    atr_value = _monitor_atr(daily_frame, atr_period) or fallback_atr
     distance_atr = None
     threshold_crossed = False
     if reference_price is not None and atr_value is not None and atr_value > 0 and current_price is not None:
@@ -442,20 +532,20 @@ def _monitor_state_from_metrics(
     }
 
 
-def _position_monitor_live_quotes(rows: list[PortfolioPositionRow]) -> dict[str, FetchedAfterHoursQuote]:
+def _position_monitor_live_quotes(rows: list[PortfolioPositionRow]) -> dict[str, FetchedLiveQuote]:
     symbols = [_clean_ticker(row.ticker) for row in rows if _clean_ticker(row.ticker)]
     if not symbols:
         return {}
     try:
-        return fetch_after_hours_quotes(symbols)
+        return fetch_live_quotes_batch(symbols)
     except Exception:
         return {}
 
 
-def _position_monitor_live_price(quote: FetchedAfterHoursQuote | None) -> float | None:
+def _position_monitor_live_price(quote: FetchedLiveQuote | None) -> float | None:
     if quote is None:
         return None
-    return _finite_float(quote.after_hours_price, quote.regular_price)
+    return _finite_float(quote.price)
 
 
 def _strategy_hub(signals: list[SellSignal]) -> list[SellStrategyDiagnostic]:
@@ -911,6 +1001,7 @@ def _monitor_reference_price(
     current_price: float | None,
     reference_mode: str,
     lookback_days: int,
+    current_trade_date: date | None = None,
 ) -> float | None:
     if reference_mode == "entry_price":
         return _finite_float(row.entry_price, current_price)
@@ -923,6 +1014,12 @@ def _monitor_reference_price(
         if "close" not in frame:
             return _finite_float(current_price, row.entry_price)
         closes = pd.to_numeric(frame["close"], errors="coerce").dropna()
+        if current_trade_date is not None:
+            closes_before_trade = closes[
+                [pd.Timestamp(index).date() < current_trade_date for index in closes.index]
+            ]
+            if not closes_before_trade.empty:
+                return _finite_float(closes_before_trade.iloc[-1], row.entry_price)
         if len(closes) >= 2:
             return _finite_float(closes.iloc[-2], current_price)
         return _finite_float(row.entry_price, current_price)

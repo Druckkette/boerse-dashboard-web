@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from app.data_sources.yfinance_client import FetchedAfterHoursQuote
+from app.data_sources.yfinance_client import FetchedLiveQuote
 from app.domain.sell import service as sell_service
 from app.domain.sell.rules import (
     LEGACY_CUSTOM_STRATEGY_STEPS,
@@ -419,16 +419,14 @@ def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pyte
         sell_service,
         "_position_monitor_live_quotes",
         lambda rows: {
-            "AAPL": FetchedAfterHoursQuote(
+            "AAPL": FetchedLiveQuote(
                 ticker="AAPL",
-                regular_price=65,
-                after_hours_price=None,
-                after_hours_change=None,
-                after_hours_change_pct=None,
-                currency="USD",
-                market_state="REGULAR",
+                price=65,
+                quote_at=datetime(2026, 6, 18, tzinfo=UTC),
+                trade_date=date(2026, 6, 18),
                 source="test",
                 fetched_at=datetime(2026, 6, 18, tzinfo=UTC),
+                error_message="",
             )
         },
     )
@@ -449,6 +447,73 @@ def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pyte
     assert monitor["atr_period"] == 21
     assert monitor["threshold_crossed"] is True
     assert monitor["distance_atr"] >= 1.0
+
+
+def test_lightweight_atr_monitor_avoids_full_sell_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        PortfolioPositionRow(
+            ticker="AAPL",
+            name="Apple",
+            shares=3,
+            entry_price=100,
+            current_price=100,
+            currency="USD",
+            buy_date=date(2025, 1, 15),
+            broker="Test",
+            account="Main",
+        )
+    ]
+    dates = pd.date_range("2026-05-01", periods=40, freq="D")
+    closes = pd.Series([100.0 + offset * 0.1 for offset in range(40)], index=dates)
+    frame = pd.DataFrame(
+        {
+            "Open": closes,
+            "High": closes + 1.0,
+            "Low": closes - 1.0,
+            "Close": closes,
+            "Volume": 1_000_000,
+        },
+        index=dates,
+    )
+    live_trade_date = dates[-1].date() + timedelta(days=1)
+    live_price = float(closes.iloc[-1] - 3.0)
+    monkeypatch.setattr(sell_service, "_portfolio_positions", lambda: rows)
+    monkeypatch.setattr(sell_service, "_price_frame_from_cache", lambda ticker: frame)
+    monkeypatch.setattr(
+        sell_service,
+        "_position_monitor_live_quotes",
+        lambda rows: {
+            "AAPL": FetchedLiveQuote(
+                ticker="AAPL",
+                price=live_price,
+                quote_at=datetime.combine(live_trade_date, datetime.min.time(), UTC),
+                trade_date=live_trade_date,
+                source="test_live_batch",
+                fetched_at=datetime.combine(live_trade_date, datetime.min.time(), UTC),
+            )
+        },
+    )
+    monkeypatch.setattr(
+        sell_service,
+        "get_sell_metrics_for_position",
+        lambda *args, **kwargs: pytest.fail("lightweight ATR monitor must not run the full sell engine"),
+    )
+
+    result = sell_service.monitor_open_position_atr(
+        monitor_settings={
+            "position_monitor_enabled": True,
+            "position_monitor_reference": "previous_close",
+            "position_monitor_threshold_atr": 1.0,
+            "position_monitor_atr_period": 14,
+            "position_monitor_lookback_days": 90,
+        }
+    )
+
+    monitor = result["items"][0]["monitor"]
+    assert result["live_quotes_available"] == 1
+    assert monitor["current_price_source"] == "test_live_batch"
+    assert monitor["reference_price"] == round(float(closes.iloc[-1]), 2)
+    assert monitor["threshold_crossed"] is True
 
 
 def test_monitor_reference_price_uses_previous_close() -> None:
@@ -477,6 +542,36 @@ def test_monitor_reference_price_uses_previous_close() -> None:
             lookback_days=420,
         )
         == 101.5
+    )
+
+
+def test_monitor_reference_price_uses_latest_cached_close_before_live_trade_date() -> None:
+    row = PortfolioPositionRow(
+        ticker="AAPL",
+        name="Apple",
+        shares=3,
+        entry_price=95,
+        current_price=88,
+        currency="USD",
+        buy_date=date(2025, 1, 15),
+        broker="Test",
+        account="Main",
+    )
+    frame = pd.DataFrame(
+        {"high": [103.0, 94.0], "low": [99.0, 88.0], "close": [101.5, 90.0]},
+        index=pd.to_datetime(["2025-02-04", "2025-02-05"]),
+    )
+
+    assert (
+        sell_service._monitor_reference_price(
+            daily_frame=frame,
+            row=row,
+            current_price=88,
+            reference_mode="previous_close",
+            lookback_days=90,
+            current_trade_date=date(2025, 2, 6),
+        )
+        == 90.0
     )
 
 

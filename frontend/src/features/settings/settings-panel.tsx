@@ -32,7 +32,7 @@ const fallbackSettings: AppSettings = {
   max_depot_loss_lower_pct: 4,
   max_depot_loss_upper_pct: 8,
   position_monitor_enabled: false,
-  position_monitor_interval_minutes: 5,
+  position_monitor_interval_minutes: 1,
   position_monitor_threshold_atr: 1.5,
   position_monitor_atr_period: 14,
   position_monitor_lookback_days: 420,
@@ -139,7 +139,7 @@ export function SettingsPanel() {
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">
           <SettingCard
-            description="Positionsmonitor läuft im Worker/Scheduler. Der Scheduler prüft alle 5 Minuten und nutzt im Worker Live-Kurse, damit ATR-Verlustmeldungen nicht bis zum Tagescache warten."
+            description="Ein eigener Monitor-Worker prüft offene Positionen werktags jede Minute mit einem gemeinsamen Yahoo-Intraday-Abruf. Schwere Datenjobs können ATR-Alarme dadurch nicht mehr verzögern."
             title="Positionsmonitor"
             value={settings.position_monitor_enabled ? "aktiv" : "aus"}
           >
@@ -174,8 +174,9 @@ export function SettingsPanel() {
                 Bei Vortagesschluss wird nur der ATR-Verlust unter dem vorherigen Handelstagesschluss
                 bewertet. Der Cooldown wird an einem neuen Handelstag ab 07:30 Uhr deutscher Zeit
                 nur dann erneut ausgelöst, wenn die Referenz oder der Verlust wirklich neu ist.
-                Am selben Tag eskaliert der Monitor erneut bei 2x ATR-Schwelle.
-                Der Scheduler prüft fest alle 5 Minuten.
+                Am selben Tag eskaliert der Monitor erneut bei 2x ATR-Schwelle. Ein Alarm gilt
+                erst nach bestätigter Pushover-Zustellung als versendet. Der Scheduler prüft
+                an Handelstagen zwischen 08:00 und 02:00 Uhr inklusive US-Nachbörse jede Minute.
               </p>
               <NumberField
                 label="ATR Schwelle"
@@ -200,14 +201,6 @@ export function SettingsPanel() {
                 step={5}
                 value={settings.position_monitor_lookback_days}
                 onChange={(value) => updateNumber("position_monitor_lookback_days", value, 30, 740, 5)}
-              />
-              <NumberField
-                label="Cooldown Stunden"
-                max={168}
-                min={1}
-                step={1}
-                value={settings.position_monitor_cooldown_hours}
-                onChange={(value) => updateNumber("position_monitor_cooldown_hours", value, 1, 168, 1)}
               />
             </div>
           </SettingCard>
@@ -281,7 +274,7 @@ export function SettingsPanel() {
             <h2 className="text-base font-semibold">Runtime Status</h2>
             <div className="mt-4 space-y-3 text-sm">
               <InfoRow label="Monitor" value={settings.position_monitor_enabled ? "aktiv" : "aus"} tone={settings.position_monitor_enabled ? "good" : "neutral"} />
-              <InfoRow label="Scheduler-Takt" value="5 min" />
+              <InfoRow label="Scheduler-Takt" value="1 min · Handelstage 08–02 Uhr" />
               <InfoRow label="ATR Schwelle" value={`${settings.position_monitor_threshold_atr.toFixed(1)} ATR`} />
               <InfoRow label="RS Quelle" value={settings.rs_rating_source} />
               <InfoRow label="Pushover" value={settings.pushover_configured ? "konfiguriert" : "nicht konfiguriert"} tone={settings.pushover_configured ? "good" : "neutral"} />

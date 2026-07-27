@@ -72,13 +72,21 @@ def pushover_test(self, job_id: str | None = None, payload: dict | None = None) 
         raise
 
 
-def _send_pushover_message(*, user_key: str, app_token: str, message: str) -> dict:
+def _send_pushover_message(
+    *,
+    user_key: str,
+    app_token: str,
+    message: str,
+    title: str = "boerse-dashboard-web",
+    priority: int = 0,
+) -> dict:
     data = urllib.parse.urlencode(
         {
             "token": app_token,
             "user": user_key,
-            "title": "boerse-dashboard-web",
+            "title": title,
             "message": message,
+            "priority": max(-2, min(1, int(priority))),
         }
     ).encode("utf-8")
     request = urllib.request.Request(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,9 @@ _MEMORY_JOBS: dict[str, Job] = {}
 QUEUED_JOB_STALE_AFTER = timedelta(minutes=30)
 RUNNING_JOB_STALE_AFTER = timedelta(minutes=90)
 QUEUED_JOB_EXPIRES_SECONDS = int(QUEUED_JOB_STALE_AFTER.total_seconds())
+SCHEDULED_MONITOR_HISTORY_LIMIT = 20
+SCHEDULED_MONITOR_JOB_TYPE = "position_atr_monitor"
+SCHEDULER_REQUESTED_BY = "scheduler"
 
 
 def create_job(
@@ -42,6 +45,12 @@ def create_job(
     *,
     requested_by: str = "api",
 ) -> Job:
+    if str(job_type) == SCHEDULED_MONITOR_JOB_TYPE and requested_by == SCHEDULER_REQUESTED_BY:
+        prune_terminal_job_history(
+            job_type=SCHEDULED_MONITOR_JOB_TYPE,
+            requested_by=SCHEDULER_REQUESTED_BY,
+            keep=SCHEDULED_MONITOR_HISTORY_LIMIT,
+        )
     now = _utcnow()
     job = Job(
         job_id=f"job_{job_type}_{uuid4().hex[:12]}",
@@ -171,6 +180,23 @@ def reconcile_stale_jobs() -> int:
     return _with_db(_reconcile_stale_jobs_db, fallback=_reconcile_stale_jobs_memory)
 
 
+def prune_terminal_job_history(*, job_type: str, requested_by: str, keep: int = 20) -> int:
+    normalized_keep = max(1, int(keep))
+    return _with_db(
+        lambda db: _prune_terminal_job_history_db(
+            db,
+            job_type=job_type,
+            requested_by=requested_by,
+            keep=normalized_keep,
+        ),
+        fallback=lambda: _prune_terminal_job_history_memory(
+            job_type=job_type,
+            requested_by=requested_by,
+            keep=normalized_keep,
+        ),
+    )
+
+
 def clear_memory_jobs() -> None:
     _MEMORY_JOBS.clear()
 
@@ -214,7 +240,13 @@ def _list_jobs_db(db: Session, limit: int) -> list[Job]:
         select(JobModel).where(JobModel.status.in_(ACTIVE_JOB_STATUSES)).order_by(JobModel.created_at.desc())
     ).all()
     recent_rows = db.scalars(
-        select(JobModel).order_by(JobModel.created_at.desc()).limit(normalized_limit)
+        select(JobModel)
+        .where(
+            (JobModel.job_type != SCHEDULED_MONITOR_JOB_TYPE)
+            | (JobModel.requested_by != SCHEDULER_REQUESTED_BY)
+        )
+        .order_by(JobModel.created_at.desc())
+        .limit(normalized_limit)
     ).all()
     return _merge_active_and_recent(
         [_row_to_schema(row) for row in active_rows],
@@ -274,6 +306,32 @@ def _reconcile_stale_jobs_db(db: Session) -> int:
     return reconciled
 
 
+def _prune_terminal_job_history_db(
+    db: Session,
+    *,
+    job_type: str,
+    requested_by: str,
+    keep: int,
+) -> int:
+    obsolete_ids = list(
+        db.scalars(
+            select(JobModel.id)
+            .where(
+                JobModel.job_type == job_type,
+                JobModel.requested_by == requested_by,
+                JobModel.status.in_(TERMINAL_JOB_STATUSES),
+            )
+            .order_by(JobModel.created_at.desc())
+            .offset(keep)
+        ).all()
+    )
+    if not obsolete_ids:
+        return 0
+    db.execute(delete(JobModel).where(JobModel.id.in_(obsolete_ids)))
+    db.commit()
+    return len(obsolete_ids)
+
+
 def _store_memory(job: Job) -> Job:
     _MEMORY_JOBS[job.job_id] = job
     return job
@@ -283,7 +341,14 @@ def _list_jobs_memory(limit: int) -> list[Job]:
     normalized_limit = max(1, min(200, limit))
     jobs = sorted(_MEMORY_JOBS.values(), key=lambda job: job.created_at, reverse=True)
     active_jobs = [job for job in jobs if job.status in ACTIVE_JOB_STATUSES]
-    recent_jobs = jobs[:normalized_limit]
+    recent_jobs = [
+        job
+        for job in jobs
+        if not (
+            job.job_type == SCHEDULED_MONITOR_JOB_TYPE
+            and job.requested_by == SCHEDULER_REQUESTED_BY
+        )
+    ][:normalized_limit]
     return _merge_active_and_recent(active_jobs, recent_jobs)
 
 
@@ -347,6 +412,24 @@ def _reconcile_stale_jobs_memory() -> int:
         )
         reconciled += 1
     return reconciled
+
+
+def _prune_terminal_job_history_memory(*, job_type: str, requested_by: str, keep: int) -> int:
+    matches = sorted(
+        (
+            job
+            for job in _MEMORY_JOBS.values()
+            if job.job_type == job_type
+            and job.requested_by == requested_by
+            and job.status in TERMINAL_JOB_STATUSES
+        ),
+        key=lambda job: job.created_at,
+        reverse=True,
+    )
+    obsolete = matches[keep:]
+    for job in obsolete:
+        _MEMORY_JOBS.pop(job.job_id, None)
+    return len(obsolete)
 
 
 def _row_to_schema(row: JobModel) -> Job:

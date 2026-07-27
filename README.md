@@ -80,7 +80,7 @@ celery -A app.workers.celery_app.celery_app beat --loglevel=INFO
 - `ghcr.io/druckkette/boerse-dashboard-web-backend:latest`
 - `ghcr.io/druckkette/boerse-dashboard-web-frontend:latest`
 
-Worker, scheduler and migrations use the same backend image. Copy `infra/.env.nas.example` to
+Worker, dedicated ATR monitor, scheduler and migrations use the same backend image. Copy `infra/.env.nas.example` to
 `infra/.env.nas`, set secrets and run:
 
 ```bash
@@ -185,8 +185,13 @@ run yfinance or Pandas recomputes in the click path.
 `/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
 yet, they return explicit missing-data states rather than blocking the UI.
 
-The monitor evaluates open imported positions against cached bars, stores recommendation state and
-reports ATR/health/signal status through the Jobs page. It does not run yfinance in the request path.
+The dedicated ATR monitor loads all open position quotes in one Yahoo intraday batch every minute
+on trading days from 08:00 through 02:00 Europe/Berlin, including the US after-hours session. It compares the live quote with the configured
+reference and cached ATR without running the full Sell Engine. The separate `monitor` queue remains
+responsive while price, fundamentals or 13F jobs occupy the main NAS worker. An alert only enters
+cooldown after Pushover confirms delivery; failed or skipped deliveries are retried on the next tick.
+Completed scheduler checks are hidden from the normal job history and pruned to the latest runs so
+the one-minute cadence neither obscures manual jobs nor grows the NAS database without bounds.
 After a monitor run, `/sell-monitor` reads the precomputed ranking snapshot from Postgres and only
 falls back to live Sell-Engine evaluation when no snapshot exists yet.
 
@@ -208,13 +213,13 @@ After changing `.env.nas`, recreate the affected services so the new environment
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web/infra
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker monitor scheduler backend
 ```
 
 FMP, Pushover, Security/Basic Auth and Neon/Postgres credentials can also be entered and tested in `/setup`.
 Saving the Neon URL does not switch the running database. Use the database target controls to choose
 between local Postgres and Neon, then click **Dienste neu starten** so `frontend`, `backend`,
-`worker` and `scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
+`worker`, `monitor` and `scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
 hard-coded in the repository and are not shown as setup fields.
 
 The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
@@ -303,6 +308,7 @@ This prevents small controls, such as ATR threshold changes, from starting a ful
 ## NAS Performance Guardrails
 
 - `WORKER_CONCURRENCY=1` is the default.
+- The lightweight `monitor` worker uses a separate queue and Celery `solo` pool with concurrency 1.
 - The Jobs API rejects a second active heavy job.
 - SEC/13F jobs are freshness-gated in Smart Refresh and also scheduled monthly as a backup.
 - Smart refresh checks freshness first and only runs the required price, breadth, RS, 13F and monitor steps.

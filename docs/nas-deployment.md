@@ -139,7 +139,7 @@ recreate the containers that read the variable:
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web/infra
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker monitor scheduler backend
 ```
 
 Saving a Neon URL only stores and tests the candidate. It does not switch the app. Use the
@@ -149,15 +149,15 @@ Saving a Neon URL only stores and tests the candidate. It does not switch the ap
    `alembic upgrade head` against the selected target; the target is not changed if migration fails.
 2. Click **Dienste neu starten**.
 
-The button restarts `worker`, `scheduler`, `frontend` and then `backend` through the Docker socket. This replaces
+The button restarts `worker`, the dedicated `monitor`, `scheduler`, `frontend` and then `backend` through the Docker socket. This replaces
 running the following command manually for normal runtime database switches:
 
 ```bash
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker monitor scheduler backend
 ```
 
 For Neon/Postgres and Security/Basic Auth, the setup screen writes `/app/runtime/runtime.env` into
-the persistent `backend_runtime` volume. Backend, worker, scheduler and frontend mount that file so
+the persistent `backend_runtime` volume. Backend, worker, monitor, scheduler and frontend mount that file so
 saved runtime settings survive normal container pulls/recreates. A switch to an empty Neon database
 can still require re-entering values because the active database is the source of truth.
 
@@ -273,6 +273,7 @@ set `IMAGE_TAG=<commit-sha>` in `.env.nas`, run the restore command, then run `.
 
 ```bash
 docker compose --env-file .env.nas -f docker-compose.nas.yml stop worker
+docker compose --env-file .env.nas -f docker-compose.nas.yml stop monitor
 docker compose --env-file .env.nas -f docker-compose.nas.yml stop scheduler
 ```
 
@@ -283,6 +284,7 @@ The frontend and backend continue to run. The Jobs page will still show stored j
 ```bash
 docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f backend
 docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f worker
+docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f monitor
 docker compose --env-file .env.nas -f docker-compose.nas.yml logs -f scheduler
 ```
 
@@ -320,6 +322,8 @@ API_ACCESS_LOG_ENABLED=1
 ## NAS Performance Rules
 
 - Keep `WORKER_CONCURRENCY=1` on DS220+ until measured otherwise.
+- Keep the ATR monitor on its dedicated `monitor` queue. It uses one batched Yahoo request per
+  minute during the weekday monitoring window and does not execute the full Sell Engine.
 - Do not run multiple full refresh jobs in parallel; the API rejects a second active heavy job.
 - Keep 13F jobs freshness-gated. Smart Refresh starts them only when missing/stale; the monthly
   schedule remains a backup because the SEC artefacts are large.

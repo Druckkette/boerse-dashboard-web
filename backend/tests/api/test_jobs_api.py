@@ -103,6 +103,56 @@ def test_parallel_heavy_jobs_are_rejected(monkeypatch: pytest.MonkeyPatch) -> No
     assert second.status_code == 409
 
 
+def test_position_monitor_uses_dedicated_queue_and_bypasses_heavy_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.jobs as job_service
+
+    send_calls: list[dict] = []
+    monkeypatch.setattr(
+        job_service.celery_app,
+        "send_task",
+        lambda *args, **kwargs: send_calls.append({"args": args, "kwargs": kwargs})
+        or SimpleNamespace(id=f"celery-{len(send_calls)}"),
+    )
+
+    heavy = client.post("/api/v1/jobs", json={"type": "refresh_prices", "payload": {}})
+    monitor = client.post("/api/v1/jobs", json={"type": "position_atr_monitor", "payload": {}})
+
+    assert heavy.status_code == 202
+    assert monitor.status_code == 202
+    assert send_calls[0]["kwargs"]["queue"] == "default"
+    assert send_calls[1]["kwargs"]["queue"] == "monitor"
+
+
+def test_scheduled_monitor_history_does_not_hide_user_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(job_repository, "_with_db", lambda callback, fallback: fallback())
+    scheduled = job_repository.create_job(
+        "position_atr_monitor",
+        {"source": "scheduler"},
+        requested_by="scheduler",
+    )
+    job_repository.mark_done(scheduled.job_id)
+    manual = job_repository.create_job("refresh_prices", {"mode": "manual"}, requested_by="api")
+    job_repository.mark_done(manual.job_id)
+
+    jobs = job_repository.list_jobs(limit=3)
+
+    assert [job.job_id for job in jobs] == [manual.job_id]
+
+
+def test_active_scheduled_monitor_remains_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(job_repository, "_with_db", lambda callback, fallback: fallback())
+    scheduled = job_repository.create_job(
+        "position_atr_monitor",
+        {"source": "scheduler"},
+        requested_by="scheduler",
+    )
+    job_repository.mark_running(scheduled.job_id)
+
+    jobs = job_repository.list_jobs(limit=3)
+
+    assert [job.job_id for job in jobs] == [scheduled.job_id]
+
+
 def test_stale_running_jobs_are_reconciled_and_no_longer_block(monkeypatch: pytest.MonkeyPatch) -> None:
     active = job_repository.create_job("refresh_relative_strength", {"mode": "test"}, requested_by="test")
     old_started_at = datetime.now(UTC) - timedelta(days=2)

@@ -269,7 +269,7 @@ def get_job(job_id: str) -> Job | None:
 _settings = AppSettings(
     atr_threshold=1.5,
     position_monitor_enabled=False,
-    position_monitor_interval_minutes=5,
+    position_monitor_interval_minutes=1,
     rs_rating_source="csv_latest",
     data_jobs_enabled=True,
 )

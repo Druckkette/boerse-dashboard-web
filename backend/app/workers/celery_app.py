@@ -30,6 +30,10 @@ celery_app.conf.update(
     visibility_timeout=visibility_timeout,
     broker_connection_retry_on_startup=True,
     task_default_queue="default",
+    task_routes={
+        "position_atr_monitor": {"queue": "monitor"},
+        "pushover_test": {"queue": "monitor"},
+    },
     imports=(
         "app.workers.tasks.smart_refresh_market_data",
         "app.workers.tasks.bootstrap_market_data",

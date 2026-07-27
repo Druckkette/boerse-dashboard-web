@@ -6,7 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core_config import get_settings as get_runtime_settings
-from app.domain.sell.service import monitor_open_positions
+from app.domain.sell.service import monitor_open_position_atr
 from app.repositories import jobs as job_repository
 from app.repositories import settings as settings_repository
 from app.repositories.settings import SettingsRepositoryUnavailable
@@ -21,7 +21,7 @@ BERLIN_TZ = ZoneInfo("Europe/Berlin")
 MONITOR_RESET_TIME = time(7, 30)
 
 
-@celery_app.task(bind=True, name="position_atr_monitor")
+@celery_app.task(bind=True, name="position_atr_monitor", soft_time_limit=50, time_limit=55)
 def position_atr_monitor(self, job_id: str | None = None, payload: dict | None = None) -> dict:
     payload = payload or {}
     job = job_repository.get_job(job_id) if job_id else None
@@ -69,15 +69,16 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
         job_repository.update_progress(
             job.job_id,
             progress=55,
-            step="Sell-Engine ausführen",
-            message="ATR, Health Score und Verkaufssignale werden aus dem Price Cache berechnet.",
+            step="Live-ATR prüfen",
+            message="Yahoo-Live-Kurse werden gesammelt geladen und gegen den Cache-ATR geprüft.",
         )
-        result = monitor_open_positions(tickers=tickers or None, monitor_settings=monitor_settings)
+        result = monitor_open_position_atr(tickers=tickers or None, monitor_settings=monitor_settings)
         if result.get("skipped"):
             job_repository.mark_skipped(job.job_id, message=str(result.get("reason") or "Keine Positionen."), result=result)
             return result
-        result = _apply_cooldown_state(result, monitor_settings=monitor_settings)
+        result = _apply_cooldown_state(result, monitor_settings=monitor_settings, persist_state=False)
         alert_delivery = _deliver_monitor_alerts(result.get("alerts", []), app_settings=settings)
+        _finalize_monitor_state(result, alert_delivery=alert_delivery)
         result["alert_delivery"] = alert_delivery
         if isinstance(result.get("last_summary"), dict):
             result["last_summary"]["sent"] = alert_delivery.get("sent", 0)
@@ -86,8 +87,8 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
         job_repository.update_progress(
             job.job_id,
             progress=90,
-            step="Recommendation-State schreiben",
-            message=f"{result.get('records_written', 0)} Positionen aktualisiert.",
+            step="Monitor-State schreiben",
+            message=f"{result.get('records_written', 0)} Positionen live geprüft.",
             result=result,
         )
         job_repository.mark_done(job.job_id, result=result, message="Positionsmonitor aktualisiert.")
@@ -116,6 +117,7 @@ def _apply_cooldown_state(
     *,
     monitor_settings: dict[str, Any],
     now: datetime | None = None,
+    persist_state: bool = True,
 ) -> dict[str, Any]:
     now = now or datetime.now(UTC)
     trade_day = _monitor_trade_day(now)
@@ -165,10 +167,10 @@ def _apply_cooldown_state(
             "last_summary": summary,
         }
     )
-    try:
-        settings_repository.write_position_monitor_state(state)
-    except SettingsRepositoryUnavailable as exc:
-        result.setdefault("warnings", []).append(f"Positionsmonitor-State konnte nicht gespeichert werden: {exc}")
+    if persist_state:
+        _write_monitor_state(result, state)
+    else:
+        result["_pending_monitor_state"] = state
 
     result["alerts"] = alerts
     result["alerts_suppressed"] = suppressed
@@ -176,6 +178,42 @@ def _apply_cooldown_state(
     result["monitor_cooldown_reset_at"] = reset_at.isoformat()
     result["last_summary"] = summary
     return result
+
+
+def _finalize_monitor_state(result: dict[str, Any], *, alert_delivery: dict[str, Any]) -> None:
+    state = result.pop("_pending_monitor_state", None)
+    if not isinstance(state, dict):
+        return
+
+    sent_tickers = {
+        str(ticker).strip().upper()
+        for ticker in alert_delivery.get("sent_tickers", [])
+        if str(ticker).strip()
+    }
+    ticker_state = state.get("tickers") if isinstance(state.get("tickers"), dict) else {}
+    for alert in result.get("alerts", []):
+        ticker = str(alert.get("ticker") or "").strip().upper() if isinstance(alert, dict) else ""
+        if ticker and ticker not in sent_tickers:
+            ticker_state.pop(ticker, None)
+    state["tickers"] = ticker_state
+
+    summary = state.get("last_summary") if isinstance(state.get("last_summary"), dict) else {}
+    summary.update(
+        {
+            "sent": int(alert_delivery.get("sent") or 0),
+            "delivery_failed": int(alert_delivery.get("failed") or 0),
+            "delivery_skipped": int(alert_delivery.get("skipped") or 0),
+        }
+    )
+    state["last_summary"] = summary
+    _write_monitor_state(result, state)
+
+
+def _write_monitor_state(result: dict[str, Any], state: dict[str, Any]) -> None:
+    try:
+        settings_repository.write_position_monitor_state(state)
+    except SettingsRepositoryUnavailable as exc:
+        result.setdefault("warnings", []).append(f"Positionsmonitor-State konnte nicht gespeichert werden: {exc}")
 
 
 def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSettings) -> dict[str, Any]:
@@ -187,6 +225,7 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
         "sent": 0,
         "failed": 0,
         "skipped": 0,
+        "sent_tickers": [],
         "errors": [],
     }
     if not alerts:
@@ -210,12 +249,17 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
 
     for alert in alerts:
         try:
-            _send_pushover_message(
+            response = _send_pushover_message(
                 user_key=user_key,
                 app_token=app_token,
                 message=_format_monitor_alert_message(alert),
+                title=f"ATR-Alarm {alert.get('ticker', 'Position')}",
+                priority=1,
             )
+            if int(response.get("status") or 0) != 1:
+                raise RuntimeError(f"Pushover hat den Alarm nicht bestätigt: {response}")
             result["sent"] += 1
+            result["sent_tickers"].append(str(alert.get("ticker") or "").strip().upper())
         except Exception as exc:  # noqa: BLE001 - alert delivery must not crash the monitor job
             result["failed"] += 1
             result["errors"].append(f"{alert.get('ticker', 'UNKNOWN')}: {type(exc).__name__}: {exc}")
@@ -231,7 +275,7 @@ def _format_monitor_alert_message(alert: dict[str, Any]) -> str:
     current_price = alert.get("current_price")
     reference_price = alert.get("reference_price")
     reason = str(alert.get("reason") or "")
-    reason_text = "2x ATR Eskalation" if reason == "2x_atr_escalation" else "neuer Handelstag"
+    reason_text = "2x ATR Eskalation" if reason == "2x_atr_escalation" else "ATR-Schwelle neu überschritten"
     return (
         f"{ticker}: ATR-Abstand {distance:.2f} >= {threshold:.2f}\n"
         f"Referenz: {reference}\n"

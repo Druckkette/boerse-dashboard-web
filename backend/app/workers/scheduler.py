@@ -54,9 +54,15 @@ def get_beat_schedule() -> dict:
         },
         "position-atr-monitor": {
             "task": "position_atr_monitor",
-            "schedule": crontab(minute="*/5"),
+            "schedule": crontab(minute="*", hour="8-23", day_of_week="1-5"),
             "args": (None, {"mode": "open_positions", "source": "scheduler"}),
-            "options": {"expires": 4 * 60},
+            "options": {"expires": 50, "queue": "monitor"},
+        },
+        "position-atr-monitor-us-after-hours": {
+            "task": "position_atr_monitor",
+            "schedule": crontab(minute="*", hour="0-1", day_of_week="2-6"),
+            "args": (None, {"mode": "open_positions", "source": "scheduler"}),
+            "options": {"expires": 50, "queue": "monitor"},
         },
         "refresh-sec13f-monthly": {
             "task": "refresh_sec13f",

@@ -52,12 +52,22 @@ def test_sec13f_monthly_schedule_remains_as_backup() -> None:
     assert monthly["options"]["expires"] == 24 * 60 * 60
 
 
-def test_position_atr_monitor_runs_every_five_minutes() -> None:
+def test_position_atr_monitor_runs_every_minute_on_dedicated_queue() -> None:
     schedule = get_beat_schedule()
 
     monitor = schedule["position-atr-monitor"]
 
     assert monitor["task"] == "position_atr_monitor"
-    assert monitor["schedule"]._orig_minute == "*/5"
+    assert monitor["schedule"]._orig_minute == "*"
+    assert monitor["schedule"]._orig_hour == "8-23"
+    assert monitor["schedule"]._orig_day_of_week == "1-5"
     assert monitor["args"][1]["source"] == "scheduler"
-    assert monitor["options"]["expires"] == 4 * 60
+    assert monitor["options"]["expires"] == 50
+    assert monitor["options"]["queue"] == "monitor"
+
+    after_hours = schedule["position-atr-monitor-us-after-hours"]
+    assert after_hours["task"] == "position_atr_monitor"
+    assert after_hours["schedule"]._orig_minute == "*"
+    assert after_hours["schedule"]._orig_hour == "0-1"
+    assert after_hours["schedule"]._orig_day_of_week == "2-6"
+    assert after_hours["options"]["queue"] == "monitor"

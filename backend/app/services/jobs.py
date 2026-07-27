@@ -12,6 +12,12 @@ class JobConflictError(RuntimeError):
     pass
 
 
+LIGHTWEIGHT_JOB_QUEUES = {
+    "position_atr_monitor": "monitor",
+    "pushover_test": "monitor",
+}
+
+
 def list_jobs(limit: int = 50) -> list[Job]:
     return job_repository.list_jobs(limit=limit)
 
@@ -21,15 +27,21 @@ def get_job(job_id: str) -> Job | None:
 
 
 def start_job(payload: JobCreateRequest) -> Job:
-    if job_repository.active_job_exists():
+    job_type = str(payload.type)
+    active_heavy_jobs = [
+        job
+        for job in job_repository.list_active_jobs()
+        if str(job.job_type) not in LIGHTWEIGHT_JOB_QUEUES
+    ]
+    if job_type not in LIGHTWEIGHT_JOB_QUEUES and active_heavy_jobs:
         raise JobConflictError("Ein Job läuft bereits. Auf der NAS ist parallele Schwerarbeit gesperrt.")
 
     job = job_repository.create_job(payload.type, payload.payload, requested_by=payload.requested_by)
     try:
         async_result = celery_app.send_task(
-            str(payload.type),
+            job_type,
             args=[job.job_id, payload.payload],
-            queue="default",
+            queue=LIGHTWEIGHT_JOB_QUEUES.get(job_type, "default"),
             ignore_result=True,
             expires=job_repository.QUEUED_JOB_EXPIRES_SECONDS,
         )

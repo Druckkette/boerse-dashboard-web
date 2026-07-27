@@ -4,7 +4,12 @@ from datetime import date
 
 import pandas as pd
 
-from app.data_sources.yfinance_client import fetch_after_hours_quotes, fetch_daily_price_bars, fetch_daily_price_bars_batch
+from app.data_sources.yfinance_client import (
+    fetch_after_hours_quotes,
+    fetch_daily_price_bars,
+    fetch_daily_price_bars_batch,
+    fetch_live_quotes_batch,
+)
 
 
 def test_fetch_daily_price_bars_passes_explicit_timeout(monkeypatch) -> None:
@@ -132,3 +137,49 @@ def test_fetch_after_hours_quotes_uses_post_market_price(monkeypatch) -> None:
     assert quote.after_hours_change == 2.5
     assert quote.after_hours_change_pct == 2.5
     assert quote.market_state == "POST"
+
+
+def test_fetch_live_quotes_batch_uses_one_intraday_request(monkeypatch) -> None:
+    import yfinance as yf
+
+    seen: dict[str, object] = {}
+    columns = pd.MultiIndex.from_tuples([("Close", "AAPL"), ("Close", "MSFT")])
+    quote_at = pd.Timestamp.now(tz="UTC").floor("min")
+    frame = pd.DataFrame(
+        [[101.25, 412.5]],
+        columns=columns,
+        index=[quote_at],
+    )
+
+    def fake_download(symbols, **kwargs):
+        seen["symbols"] = symbols
+        seen.update(kwargs)
+        return frame
+
+    monkeypatch.setattr(yf, "download", fake_download)
+
+    quotes = fetch_live_quotes_batch(["AAPL", "MSFT"], timeout=7)
+
+    assert seen["symbols"] == ["AAPL", "MSFT"]
+    assert seen["interval"] == "1m"
+    assert seen["prepost"] is True
+    assert seen["timeout"] == 7
+    assert quotes["AAPL"].price == 101.25
+    assert quotes["MSFT"].price == 412.5
+    assert quotes["AAPL"].trade_date == quote_at.date()
+
+
+def test_fetch_live_quotes_batch_rejects_previous_day_bar(monkeypatch) -> None:
+    import yfinance as yf
+
+    stale_at = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=1)
+    frame = pd.DataFrame(
+        [{"Close": 99.5}],
+        index=[stale_at],
+    )
+    monkeypatch.setattr(yf, "download", lambda symbols, **kwargs: frame)
+
+    quote = fetch_live_quotes_batch(["AAPL"])["AAPL"]
+
+    assert quote.price is None
+    assert "Letzter Yahoo-Intraday-Kurs" in quote.error_message
