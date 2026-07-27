@@ -93,6 +93,14 @@ textarea {
   background: var(--panel-soft);
 }
 
+.dashboard-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  padding: 1rem;
+  box-shadow: var(--shadow-card);
+}
+
 [class*="rounded-[28px]"],
 [class*="rounded-[24px]"] {
   border-radius: var(--radius-panel) !important;

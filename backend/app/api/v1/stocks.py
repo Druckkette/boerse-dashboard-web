@@ -15,6 +15,8 @@ from app.schemas import (
     StockFundamentalsUpdateRequest,
     StockAssessmentRankingResponse,
     StockAssessmentResponse,
+    StockSearchResponse,
+    StockSignalChangesResponse,
 )
 from app.services.prices import PriceRange, get_price_history, refresh_and_get_price_history
 from app.services.relative_strength import get_relative_strength_for_ticker, get_relative_strength_ranking
@@ -29,11 +31,21 @@ from app.services.stocks import (
     get_stock_assessment_compare,
     get_stock_assessment_ranking,
     get_stock_fundamentals,
+    get_stock_signal_changes,
+    search_stocks,
     update_stock_fundamentals,
 )
 
 
 router = APIRouter()
+
+
+@router.get("/search", response_model=StockSearchResponse)
+def stock_search(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(default=8, ge=1, le=20),
+) -> StockSearchResponse:
+    return search_stocks(q, limit=limit)
 
 
 @router.get("/ratings/rs", response_model=RsRatingRankingResponse)
@@ -118,6 +130,11 @@ def stock_relative_strength(ticker: str) -> RsRatingDetailResponse:
 @router.get("/{ticker}/assessment", response_model=StockAssessmentResponse)
 def stock_assessment(ticker: str) -> StockAssessmentResponse:
     return get_stock_assessment(ticker)
+
+
+@router.get("/{ticker}/changes", response_model=StockSignalChangesResponse)
+def stock_signal_changes(ticker: str) -> StockSignalChangesResponse:
+    return get_stock_signal_changes(ticker)
 
 
 @router.get("/{ticker}/fundamentals", response_model=StockFundamentalsResponse)

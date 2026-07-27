@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { Sec13FMappingPanel } from "@/features/stocks/sec13f-mapping-panel";
 import { api } from "@/lib/api/client";
+import { qualityLabel } from "@/lib/format";
 import type {
   AppSettings,
   DataDiagnosticIssue,
@@ -270,25 +271,15 @@ export function SettingsPanel() {
             isLoading={readiness.isLoading}
             onRefresh={() => readiness.refetch()}
           />
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-            <h2 className="text-base font-semibold">Runtime Status</h2>
-            <div className="mt-4 space-y-3 text-sm">
-              <InfoRow label="Monitor" value={settings.position_monitor_enabled ? "aktiv" : "aus"} tone={settings.position_monitor_enabled ? "good" : "neutral"} />
-              <InfoRow label="Scheduler-Takt" value="1 min · Handelstage 08–02 Uhr" />
-              <InfoRow label="ATR Schwelle" value={`${settings.position_monitor_threshold_atr.toFixed(1)} ATR`} />
-              <InfoRow label="RS Quelle" value={settings.rs_rating_source} />
-              <InfoRow label="Pushover" value={settings.pushover_configured ? "konfiguriert" : "nicht konfiguriert"} tone={settings.pushover_configured ? "good" : "neutral"} />
-            </div>
-          </section>
-          <DataDiagnosticsPanel
-            data={dataDiagnostics.data}
-            isLoading={dataDiagnostics.isLoading}
-            startingKey={diagnosticJobMutation.isPending ? diagnosticJobMutation.variables?.key ?? null : null}
-            onRefresh={() => dataDiagnostics.refetch()}
-            onStartJob={(issue) => diagnosticJobMutation.mutate(issue)}
-          />
         </aside>
       </div>
+      <DataDiagnosticsPanel
+        data={dataDiagnostics.data}
+        isLoading={dataDiagnostics.isLoading}
+        startingKey={diagnosticJobMutation.isPending ? diagnosticJobMutation.variables?.key ?? null : null}
+        onRefresh={() => dataDiagnostics.refetch()}
+        onStartJob={(issue) => diagnosticJobMutation.mutate(issue)}
+      />
     </div>
   );
 }
@@ -416,23 +407,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function InfoRow({
-  label,
-  value,
-  tone = "neutral"
-}: {
-  label: string;
-  value: string;
-  tone?: "good" | "neutral" | "warning" | "bad";
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[#242a33] pb-3 last:border-b-0">
-      <span className="text-[#a0a7b4]">{label}</span>
-      <StatusChip tone={tone}>{value}</StatusChip>
-    </div>
-  );
-}
-
 function DataDiagnosticsPanel({
   data,
   isLoading,
@@ -448,59 +422,59 @@ function DataDiagnosticsPanel({
 }) {
   if (isLoading) {
     return (
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
-        Daten-Diagnose lädt...
+      <section id="data-quality" className="rounded-[14px] border border-[#e3e8ef] bg-white p-5 text-sm text-[#687386]">
+        Datenqualitätszentrum lädt...
       </section>
     );
   }
 
   if (!data) {
     return (
-      <section className="rounded border border-rose-300/30 bg-rose-300/10 p-5 text-sm text-rose-100">
-        Daten-Diagnose ist aktuell nicht erreichbar.
+      <section id="data-quality" className="rounded-[14px] border border-[#f0b9b5] bg-[#fff0ef] p-5 text-sm text-[#c2413b]">
+        Datenqualitätszentrum ist aktuell nicht erreichbar.
       </section>
     );
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section id="data-quality" className="scroll-mt-28 rounded-[14px] border border-[#e3e8ef] bg-white p-5 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <DatabaseZap className="text-emerald-300" size={18} />
-            <h2 className="text-base font-semibold">Daten-Diagnose</h2>
+            <DatabaseZap className="text-[#0f766e]" size={18} />
+            <h2 className="text-base font-semibold text-[#172033]">Datenqualitätszentrum</h2>
           </div>
-          <p className="mt-2 text-sm leading-5 text-[#a0a7b4]">{data.summary}</p>
+          <p className="mt-2 text-sm leading-5 text-[#687386]">{data.summary}</p>
         </div>
         <button
-          className="flex size-9 items-center justify-center rounded border border-[#2d333d] bg-[#111419] transition hover:border-emerald-300/60"
+          className="flex size-9 items-center justify-center rounded-[9px] border border-[#d8e1ea] bg-white text-[#687386] transition hover:border-[#0f766e] hover:text-[#0f766e]"
           type="button"
           onClick={onRefresh}
         >
           <RefreshCw size={15} />
         </button>
       </div>
-      <div className="grid gap-2 text-sm">
-        <InfoRow label="Offene Positionen" value={String(data.open_positions_count)} />
-        <InfoRow label="Price-Cache Ticker" value={String(data.price_cache_tickers_count)} />
-        <InfoRow label="Fehlende Kurse" value={String(data.missing_price_count)} tone={data.missing_price_count ? "bad" : "good"} />
-        <InfoRow label="Veraltete Kurse" value={String(data.stale_price_count)} tone={data.stale_price_count ? "warning" : "good"} />
-        <InfoRow label="ISIN-Mappings" value={String(data.isin_mappings_count)} />
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <QualityMetric label="Entscheidungsstatus" value={qualityLabel(data.decision_status)} tone={data.health_tone} />
+        <QualityMetric label="Stop-Abdeckung" value={`${Math.round(data.stop_coverage_pct)}%`} detail={`${data.stop_coverage_count}/${data.stop_coverage_total}`} tone={data.stop_coverage_pct >= 95 ? "good" : "warning"} />
+        <QualityMetric label="Fehlende/veraltete Kurse" value={`${data.missing_price_count}/${data.stale_price_count}`} tone={data.missing_price_count ? "bad" : data.stale_price_count ? "warning" : "good"} />
+        <QualityMetric label="Fundamentals fehlen" value={String(data.missing_fundamentals_count)} tone={data.missing_fundamentals_count ? "warning" : "good"} />
+        <QualityMetric label="Plausibilitätsfehler" value={String(data.implausible_position_count)} tone={data.implausible_position_count ? "bad" : "good"} />
       </div>
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
         {data.issues.map((issue) => (
-          <div key={issue.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
+          <div key={issue.key} className="rounded-[10px] border border-[#e3e8ef] bg-[#f9fbfd] p-3">
             <div className="mb-2 flex items-start justify-between gap-3">
               <div>
-                <div className="font-medium">{issue.label}</div>
-                <div className="mt-1 text-xs leading-5 text-[#77808f]">{issue.detail}</div>
+                <div className="font-medium text-[#172033]">{issue.label}</div>
+                <div className="mt-1 text-xs leading-5 text-[#687386]">{issue.detail}</div>
               </div>
-              <StatusChip tone={toneForSeverity(issue.severity)}>{issue.severity}</StatusChip>
+              <StatusChip tone={toneForSeverity(issue.severity)}>{severityLabel(issue.severity)}</StatusChip>
             </div>
             {issue.tickers.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-1">
                 {issue.tickers.slice(0, 10).map((ticker) => (
-                  <span key={ticker} className="rounded bg-[#242a33] px-2 py-1 text-xs text-[#d8dde6]">
+                  <span key={ticker} className="rounded-[7px] border border-[#d8e1ea] bg-white px-2 py-1 text-xs text-[#4b5565]">
                     {ticker}
                   </span>
                 ))}
@@ -508,7 +482,7 @@ function DataDiagnosticsPanel({
             )}
             {issue.job_type && (
               <button
-                className="inline-flex w-full items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-[#b7ddd6] bg-[#e8f4f2] px-3 py-2 text-sm font-semibold text-[#0f766e] transition hover:border-[#0f766e] disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={startingKey === issue.key}
                 type="button"
                 onClick={() => onStartJob(issue)}
@@ -521,6 +495,27 @@ function DataDiagnosticsPanel({
         ))}
       </div>
     </section>
+  );
+}
+
+function QualityMetric({
+  label,
+  value,
+  detail,
+  tone
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  tone: "good" | "neutral" | "warning" | "bad";
+}) {
+  const color = tone === "good" ? "text-[#138a57]" : tone === "bad" ? "text-[#c2413b]" : tone === "warning" ? "text-[#9a650f]" : "text-[#2563eb]";
+  return (
+    <div className="rounded-[10px] border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.07em] text-[#687386]">{label}</div>
+      <div className={`mt-1 text-lg font-semibold ${color}`}>{value}</div>
+      {detail ? <div className="mt-0.5 text-xs text-[#687386]">{detail}</div> : null}
+    </div>
   );
 }
 
@@ -595,7 +590,7 @@ function SystemCheckRow({ check }: { check: SystemReadinessCheck }) {
           <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
           {revision && <div className="mt-1 text-xs text-[#a0a7b4]">Revision {revision}</div>}
         </div>
-        <StatusChip tone={toneForSystemCheck(check.status)}>{check.status}</StatusChip>
+        <StatusChip tone={toneForSystemCheck(check.status)}>{systemStatusLabel(check.status)}</StatusChip>
       </div>
       <div className="mt-2 flex items-center justify-between text-xs text-[#77808f]">
         <span>{check.required ? "erforderlich" : "optional"}</span>
@@ -618,9 +613,17 @@ function toneForReadiness(status: SystemReadiness["status"]) {
 }
 
 function readinessLabel(status: SystemReadiness["status"]) {
-  if (status === "ready") return "ready";
-  if (status === "degraded") return "degraded";
-  return "not ready";
+  if (status === "ready") return "Bereit";
+  if (status === "degraded") return "Eingeschränkt";
+  return "Nicht bereit";
+}
+
+function severityLabel(severity: DataDiagnosticIssue["severity"]) {
+  return severity === "critical" ? "Kritisch" : severity === "warning" ? "Warnung" : "Hinweis";
+}
+
+function systemStatusLabel(status: SystemReadinessCheck["status"]) {
+  return ({ ok: "In Ordnung", warning: "Warnung", unknown: "Unbekannt", error: "Fehler" } as Record<string, string>)[status] ?? status;
 }
 
 function toneForSystemCheck(status: SystemReadinessCheck["status"]) {

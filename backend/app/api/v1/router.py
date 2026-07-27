@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import health, jobs, market, portfolio, sell, settings, setup, stocks, trade_journal, workspace
+from app.api.v1 import health, insights, jobs, market, portfolio, sell, settings, setup, stocks, trade_journal, workspace
 
 
 api_router = APIRouter()
@@ -14,3 +14,4 @@ api_router.include_router(settings.router, prefix="/settings", tags=["settings"]
 api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
 api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
 api_router.include_router(trade_journal.router, prefix="/trade-journal", tags=["trade-journal"])
+api_router.include_router(insights.router, prefix="/insights", tags=["insights"])

@@ -33,6 +33,7 @@ import type {
   PortfolioPositionWriteRequest,
   PortfolioSellRequest,
   PortfolioSnapshot,
+  PushoverDeliveryLog,
   PortfolioTransaction,
   RsRatingDetail,
   RsRatingRanking,
@@ -48,6 +49,8 @@ import type {
   StockAssessment,
   StockAssessmentCompare,
   StockAssessmentRanking,
+  StockSearchResponse,
+  StockSignalChanges,
   StockFundamentals,
   StockFundamentalsUpdate,
   SellEvaluation,
@@ -193,6 +196,9 @@ export const api = {
   rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),
   stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   stockAssessment: (ticker: string) => getJson<StockAssessment>(`/stocks/${ticker}/assessment`),
+  stockSearch: (query: string, limit = 8) =>
+    getJson<StockSearchResponse>(`/stocks/search?q=${encodeURIComponent(query)}&limit=${limit}`),
+  stockSignalChanges: (ticker: string) => getJson<StockSignalChanges>(`/stocks/${ticker}/changes`),
   stockAssessmentCompare: (tickers: string[], limit = 12) =>
     getJson<StockAssessmentCompare>(`/stocks/assessment/compare?tickers=${encodeURIComponent(tickers.join(","))}&limit=${limit}`),
   stockAssessmentRanking: (limit = 50) => getJson<StockAssessmentRanking>(`/stocks/assessment/ranking?limit=${limit}`),
@@ -320,6 +326,7 @@ export const api = {
   restartRuntimeServices: () =>
     postJson<RuntimeServicesRestartResponse>("/settings/runtime-services/restart"),
   dataDiagnostics: () => getJson<DataDiagnostics>("/settings/data-diagnostics"),
+  pushoverDeliveryLog: () => getJson<PushoverDeliveryLog>("/insights/notifications"),
   patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body),
   workspace: () => getJson<WorkspaceState>("/workspace"),
   patchWorkspace: (body: WorkspacePatch) => patchJson<WorkspaceState>("/workspace", body),

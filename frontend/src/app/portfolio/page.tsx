@@ -18,7 +18,7 @@ export default function PortfolioPage() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         {data?.kpis.map((item) => <KpiCard key={item.label} item={item} />)}
       </div>
       <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">

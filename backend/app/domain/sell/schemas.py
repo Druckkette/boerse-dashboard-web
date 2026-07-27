@@ -191,6 +191,8 @@ class SellPositionRankingItem(BaseModel):
     consecutive_days: int = 0
     snoozed_until: str = ""
     snoozed_pct: int = 0
+    data_quality_status: Literal["trusted", "limited", "blocked"] = "trusted"
+    data_quality_detail: str = ""
 
 
 class SellMetricsApiResponse(BaseModel):

@@ -6,7 +6,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { StockAssessment, StockAssessmentCheck, StockAssessmentSignal, Tone } from "@/lib/types/api";
 
-export function StockAssessmentPanel({ ticker }: { ticker: string }) {
+export function StockAssessmentPanel({ ticker, mode = "all" }: { ticker: string; mode?: "all" | "overview" | "technical" }) {
   const clean = ticker.toUpperCase();
   const query = useQuery({
     queryKey: ["stock-assessment", clean],
@@ -35,15 +35,16 @@ export function StockAssessmentPanel({ ticker }: { ticker: string }) {
     );
   }
 
-  return <AssessmentContent assessment={query.data} />;
+  return <AssessmentContent assessment={query.data} mode={mode} />;
 }
 
-function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
+function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; mode: "all" | "overview" | "technical" }) {
   const checksByCategory = groupChecks(assessment.checks);
   const signalsByCategory = groupSignals(assessment.chart_signals);
 
   return (
     <section className="space-y-4">
+      {mode !== "technical" ? <>
       <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -56,7 +57,7 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
             </div>
             <p className="mt-1.5 max-w-3xl text-sm leading-6 text-[#4b5565]">{assessment.verdict_text}</p>
             <p className="mt-1.5 text-[11px] font-medium text-[#687386]">
-              Stand {assessment.as_of} · {assessment.message}
+              Stand {assessment.as_of} · {friendlyAssessmentMessage(assessment.message)}
             </p>
           </div>
           <div className="flex min-w-[190px] items-center gap-3 rounded-[10px] border border-[#d7e8e4] bg-[#f3faf8] px-3 py-2.5">
@@ -105,10 +106,12 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
       )}
 
       <div className="grid gap-3 xl:grid-cols-2">
-        <ReasonList title="Treiber" tone="good" items={assessment.drivers} empty="Noch keine starken Treiber im Cache." />
+        <ReasonList title="Treiber" tone="good" items={assessment.drivers} empty="Noch keine starken Treiber." />
         <ReasonList title="Warnungen" tone="warning" items={assessment.warnings} empty="Keine harten Warnungen." />
       </div>
+      </> : null}
 
+      {mode !== "overview" ?
       <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -122,7 +125,7 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
             <CheckGroup title="Technisch" checks={checksByCategory.technical} />
             <CheckGroup title="Trend" checks={checksByCategory.trend} />
             <CheckGroup title="Überdehnung" checks={checksByCategory.risk} />
-            <CheckGroup title="Fundamental" checks={checksByCategory.fundamental} />
+            {mode === "all" ? <CheckGroup title="Fundamental" checks={checksByCategory.fundamental} /> : null}
           </div>
         </div>
 
@@ -139,6 +142,7 @@ function AssessmentContent({ assessment }: { assessment: StockAssessment }) {
           <SignalGroup title="Neutral" tone="neutral" signals={signalsByCategory.neutral} />
         </div>
       </div>
+      : null}
     </section>
   );
 }
@@ -320,7 +324,11 @@ function toneForScore(value: number): Tone {
 }
 
 function toneLabel(tone: Tone) {
-  return tone === "good" ? "stark" : tone === "warning" ? "watch" : tone === "bad" ? "schwach" : "neutral";
+  return tone === "good" ? "Stark" : tone === "warning" ? "Wachsam" : tone === "bad" ? "Schwach" : "Neutral";
+}
+
+function friendlyAssessmentMessage(message: string) {
+  return message.replaceAll("Price Cache", "Kursdaten").replaceAll("Price-Cache", "Kursdaten");
 }
 
 function barClass(tone: Tone) {

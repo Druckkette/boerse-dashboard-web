@@ -3,7 +3,15 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.schemas import PriceBarPoint, PriceHistoryResponse, PriceRefreshResponse
+from app.schemas import (
+    PriceBarPoint,
+    PriceHistoryResponse,
+    PriceRefreshResponse,
+    StockSearchItem,
+    StockSearchResponse,
+    StockSignalChange,
+    StockSignalChangesResponse,
+)
 
 
 client = TestClient(app)
@@ -70,3 +78,48 @@ def test_stock_price_refresh_contract(monkeypatch) -> None:
     assert payload["history"]["ticker"] == "NVDA"
     assert payload["history"]["last_date"] == "2026-06-18"
     assert payload["history"]["cache_updated_at"] == "2026-06-21T10:30:00Z"
+
+
+def test_stock_search_contract(monkeypatch) -> None:
+    from app.api.v1 import stocks as stocks_api
+
+    monkeypatch.setattr(
+        stocks_api,
+        "search_stocks",
+        lambda query, limit: StockSearchResponse(
+            query=query,
+            rows=[StockSearchItem(ticker="NVDA", name="NVIDIA Corporation", yahoo_symbol="NVDA")],
+        ),
+    )
+
+    response = client.get("/api/v1/stocks/search?q=nvidia")
+
+    assert response.status_code == 200
+    assert response.json()["rows"][0]["ticker"] == "NVDA"
+
+
+def test_stock_signal_changes_contract(monkeypatch) -> None:
+    from app.api.v1 import stocks as stocks_api
+
+    monkeypatch.setattr(
+        stocks_api,
+        "get_stock_signal_changes",
+        lambda ticker: StockSignalChangesResponse(
+            ticker=ticker,
+            current_as_of="2026-07-24",
+            previous_as_of="2026-07-23",
+            changes=[
+                StockSignalChange(
+                    kind="new",
+                    category="trend",
+                    label="21-EMA unterschritten",
+                    detail="Schlusskurs unter der Linie.",
+                )
+            ],
+        ),
+    )
+
+    response = client.get("/api/v1/stocks/NVDA/changes")
+
+    assert response.status_code == 200
+    assert response.json()["changes"][0]["kind"] == "new"

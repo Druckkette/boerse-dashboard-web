@@ -9,6 +9,7 @@ from app.db.session import SessionLocal
 SETTINGS_KEY = "runtime"
 RUNTIME_CONFIG_KEY = "runtime_config"
 POSITION_MONITOR_STATE_KEY = "position_monitor_state"
+PUSHOVER_DELIVERY_LOG_KEY = "pushover_delivery_log"
 
 
 class SettingsRepositoryUnavailable(RuntimeError):
@@ -65,6 +66,26 @@ def write_position_monitor_state(values: dict) -> dict:
         values,
         description="ATR position monitor cooldown and alert state.",
     )
+
+
+def read_pushover_delivery_log() -> list[dict]:
+    payload = _read_json_setting(PUSHOVER_DELIVERY_LOG_KEY)
+    entries = payload.get("entries")
+    return [dict(item) for item in entries if isinstance(item, dict)] if isinstance(entries, list) else []
+
+
+def append_pushover_delivery_log(entries: list[dict], *, limit: int = 100) -> list[dict]:
+    if not entries:
+        return read_pushover_delivery_log()
+    current = read_pushover_delivery_log()
+    merged = [*entries, *current][: max(1, min(limit, 500))]
+    stored = _write_json_setting(
+        PUSHOVER_DELIVERY_LOG_KEY,
+        {"entries": merged},
+        description="Bounded Pushover ATR-monitor delivery history.",
+    )
+    raw = stored.get("entries")
+    return [dict(item) for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
 
 
 def _read_json_setting(key: str) -> dict:

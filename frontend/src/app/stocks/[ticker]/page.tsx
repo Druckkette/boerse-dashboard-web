@@ -1,10 +1,5 @@
 import { StatusChip } from "@/components/ui/status-chip";
-import { Institutional13FPanel } from "@/features/stocks/institutional-13f-panel";
-import { StockAssessmentPanel } from "@/features/stocks/stock-assessment-panel";
-import { StockDetailActions } from "@/features/stocks/stock-detail-actions";
-import { StockFundamentalsPanel } from "@/features/stocks/stock-fundamentals-panel";
-import { StockPricePanel } from "@/features/stocks/stock-price-panel";
-import { StockRsPanel } from "@/features/stocks/stock-rs-panel";
+import { StockDetailTabs } from "@/features/stocks/stock-detail-tabs";
 
 export default async function StockDetailPage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;
@@ -20,12 +15,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
           <StatusChip tone="neutral">Bewertung</StatusChip>
         </div>
       </div>
-      <StockDetailActions ticker={clean} />
-      <StockAssessmentPanel ticker={clean} />
-      <StockFundamentalsPanel ticker={clean} />
-      <Institutional13FPanel ticker={clean} />
-      <StockPricePanel ticker={clean} title="Kurs" />
-      <StockRsPanel ticker={clean} />
+      <StockDetailTabs ticker={clean} />
     </div>
   );
 }

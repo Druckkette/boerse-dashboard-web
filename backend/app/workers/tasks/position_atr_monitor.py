@@ -233,6 +233,7 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
         return result
     if not app_settings.pushover_enabled:
         result.update(skipped=len(alerts), reason="Pushover ist in den Settings deaktiviert.")
+        _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
         return result
 
     runtime = get_runtime_settings()
@@ -242,11 +243,14 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
     result.update(configured=bool(user_key and app_token), dry_run=dry_run)
     if not user_key or not app_token:
         result.update(skipped=len(alerts), reason="PUSHOVER_USER_KEY oder PUSHOVER_APP_TOKEN fehlt.")
+        _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
         return result
     if dry_run:
         result.update(skipped=len(alerts), reason="PUSHOVER_DRY_RUN ist aktiv.")
+        _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
         return result
 
+    delivery_logs: list[dict[str, Any]] = []
     for alert in alerts:
         try:
             response = _send_pushover_message(
@@ -260,11 +264,40 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
                 raise RuntimeError(f"Pushover hat den Alarm nicht bestätigt: {response}")
             result["sent"] += 1
             result["sent_tickers"].append(str(alert.get("ticker") or "").strip().upper())
+            delivery_logs.append(_delivery_log_item(alert, status="sent", detail="Pushover hat den Alarm bestätigt."))
         except Exception as exc:  # noqa: BLE001 - alert delivery must not crash the monitor job
             result["failed"] += 1
-            result["errors"].append(f"{alert.get('ticker', 'UNKNOWN')}: {type(exc).__name__}: {exc}")
+            detail = f"{type(exc).__name__}: {exc}"
+            result["errors"].append(f"{alert.get('ticker', 'UNKNOWN')}: {detail}")
+            delivery_logs.append(_delivery_log_item(alert, status="failed", detail=detail))
+    _append_delivery_logs(delivery_logs)
     result["ok"] = result["failed"] == 0
     return result
+
+
+def _record_delivery_logs(alerts: list[dict[str, Any]], *, status: str, detail: str) -> None:
+    _append_delivery_logs([_delivery_log_item(alert, status=status, detail=detail) for alert in alerts])
+
+
+def _delivery_log_item(alert: dict[str, Any], *, status: str, detail: str) -> dict[str, Any]:
+    return {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "ticker": str(alert.get("ticker") or "").strip().upper(),
+        "status": status,
+        "detail": detail,
+        "distance_atr": _float_or_none(alert.get("distance_atr")),
+        "threshold_atr": _float_or_none(alert.get("threshold_atr")),
+        "reference_label": str(alert.get("reference_label") or alert.get("reference") or ""),
+    }
+
+
+def _append_delivery_logs(entries: list[dict[str, Any]]) -> None:
+    if not entries:
+        return
+    try:
+        settings_repository.append_pushover_delivery_log(entries)
+    except SettingsRepositoryUnavailable:
+        return
 
 
 def _format_monitor_alert_message(alert: dict[str, Any]) -> str:

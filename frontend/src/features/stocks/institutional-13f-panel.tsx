@@ -70,7 +70,7 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={item ? toneForTrend(item.trend) : "warning"}>{item?.trend ?? "missing"}</StatusChip>
+          <StatusChip tone={item ? toneForTrend(item.trend) : "warning"}>{item ? trendLabel(item.trend) : "Keine Daten"}</StatusChip>
           <button
             className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={refreshMutation.isPending || refreshRunning}
@@ -153,6 +153,10 @@ function toneForTrend(trend: Institutional13FTrendItem["trend"]): Tone {
   if (trend === "negative") return "bad";
   if (trend === "neutral") return "neutral";
   return "warning";
+}
+
+function trendLabel(trend: Institutional13FTrendItem["trend"]) {
+  return ({ positive: "Positiv", negative: "Negativ", neutral: "Neutral", new: "Neu", missing: "Keine Daten" } as Record<string, string>)[trend] ?? "Keine Daten";
 }
 
 function isTerminalJob(job: Job) {

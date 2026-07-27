@@ -111,7 +111,7 @@ function UniverseStatusPanel({
             <h2 className="text-base font-semibold">Aktienuniversum</h2>
             <StatusChip tone={source === "nasdaq_trader" ? "good" : "warning"}>{source}</StatusChip>
             <StatusChip tone={memberCount > 100 ? "good" : "neutral"}>{memberCount.toLocaleString("de-DE")} Ticker</StatusChip>
-            {latestJob && <StatusChip tone={statusTone[latestJob.status]}>{latestJob.status}</StatusChip>}
+            {latestJob && <StatusChip tone={statusTone[latestJob.status]}>{jobStatusLabel(latestJob.status)}</StatusChip>}
           </div>
           <div className="mt-1 text-sm text-[#a0a7b4]">
             {updatedAt ? `Aktualisiert ${new Date(updatedAt).toLocaleString("de-DE")}` : "Noch kein gespeichertes Live-Universe."}
@@ -433,7 +433,7 @@ function YahooDiagnosticsPanel({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">Yahoo-Diagnose & Auto-Rescue</h2>
-            {latestJob ? <StatusChip tone={statusTone[latestJob.status]}>{latestJob.status}</StatusChip> : null}
+            {latestJob ? <StatusChip tone={statusTone[latestJob.status]}>{jobStatusLabel(latestJob.status)}</StatusChip> : null}
             {failedTickers.length ? (
               <StatusChip tone="warning">{failedTickers.length.toLocaleString("de-DE")} Preisfehler</StatusChip>
             ) : (
@@ -841,7 +841,7 @@ function JobsSetupStatusPanel({
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">Betriebsstatus</h2>
             <StatusChip tone={setupStatus ? toneForSetupOverall(setupStatus.status) : "neutral"}>
-              {setupStatus?.status ?? "lädt"}
+              {setupStatus ? setupOverallLabel(setupStatus.status) : "Lädt"}
             </StatusChip>
             {activeJob ? <StatusChip tone="warning">läuft: {activeJob.job_type}</StatusChip> : null}
           </div>
@@ -913,7 +913,7 @@ function JobsSetupStatusPanel({
               <div className="font-medium">Nächste Aktion: {nextStep.label}</div>
               <div className="mt-1 text-xs leading-5 text-[#8e97a6]">{nextStep.detail}</div>
             </div>
-            <StatusChip tone={toneForSetupStep(nextStep.status)}>{nextStep.status}</StatusChip>
+            <StatusChip tone={toneForSetupStep(nextStep.status)}>{shortSetupStatus(nextStep.status)}</StatusChip>
           </div>
         </div>
       ) : null}
@@ -962,7 +962,7 @@ function MarketDataAssistantPanel({
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold">Marktdaten-Assistent</h2>
             <StatusChip tone={activeJob ? "warning" : "good"}>{activeJob ? `läuft: ${activeJob.job_type}` : "bereit"}</StatusChip>
-            {latestAssistantJob && <StatusChip tone={statusTone[latestAssistantJob.status]}>{latestAssistantJob.status}</StatusChip>}
+            {latestAssistantJob && <StatusChip tone={statusTone[latestAssistantJob.status]}>{jobStatusLabel(latestAssistantJob.status)}</StatusChip>}
           </div>
           <p className="text-sm leading-6 text-[#a0a7b4]">
             Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
@@ -1261,7 +1261,7 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">{job.job_type}</h2>
-            <StatusChip tone={statusTone[job.status]}>{job.status}</StatusChip>
+            <StatusChip tone={statusTone[job.status]}>{jobStatusLabel(job.status)}</StatusChip>
           </div>
           <div className="mt-1 text-sm text-[#a0a7b4]">{job.current_step || job.message}</div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#77808f]">
@@ -1657,4 +1657,12 @@ function shortSetupStatus(status: SetupStep["status"]) {
   if (status === "warning") return "prüfen";
   if (status === "blocked") return "blockiert";
   return "fehler";
+}
+
+function jobStatusLabel(status: JobStatus) {
+  return ({ queued: "Wartet", running: "Läuft", done: "Abgeschlossen", failed: "Fehlgeschlagen", skipped: "Übersprungen", cancelled: "Abgebrochen" } as const)[status];
+}
+
+function setupOverallLabel(status: SetupStatus["status"]) {
+  return ({ ready: "Bereit", running: "Läuft", blocked: "Blockiert", incomplete: "Unvollständig", error: "Fehler" } as Record<string, string>)[status] ?? status;
 }

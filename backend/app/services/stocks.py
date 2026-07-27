@@ -3,6 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.db.models import Instrument
+from app.db.session import SessionLocal
 from app.domain.stocks.assessment import StockAssessmentResult, compute_stock_assessment
 from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import prices as price_repository
@@ -30,7 +35,115 @@ from app.schemas import (
     StockFundamentalsItem,
     StockFundamentalsResponse,
     StockFundamentalsUpdateRequest,
+    StockSearchItem,
+    StockSearchResponse,
+    StockSignalChange,
+    StockSignalChangesResponse,
 )
+
+
+def search_stocks(query: str, *, limit: int = 8) -> StockSearchResponse:
+    clean = " ".join(query.strip().split())
+    if not clean:
+        return StockSearchResponse(query="", rows=[])
+    pattern = f"%{clean}%"
+    try:
+        with SessionLocal() as db:
+            rows = list(
+                db.scalars(
+                    select(Instrument)
+                    .where(or_(Instrument.ticker.ilike(pattern), Instrument.name.ilike(pattern)))
+                    .order_by(
+                        (Instrument.ticker.ilike(f"{clean}%")).desc(),
+                        Instrument.ticker.asc(),
+                    )
+                    .limit(max(1, min(limit, 20)))
+                ).all()
+            )
+    except SQLAlchemyError:
+        rows = []
+    return StockSearchResponse(
+        query=clean,
+        rows=[
+            StockSearchItem(
+                ticker=row.ticker,
+                name=row.name or row.ticker,
+                yahoo_symbol=row.yahoo_symbol or "",
+                exchange=row.exchange or "",
+            )
+            for row in rows
+        ],
+    )
+
+
+def get_stock_signal_changes(ticker: str) -> StockSignalChangesResponse:
+    clean = ticker.strip().upper()
+    try:
+        bars = price_repository.list_price_bars(clean)
+    except PriceRepositoryUnavailable:
+        bars = []
+    if len(bars) < 51:
+        return StockSignalChangesResponse(ticker=clean, current_as_of="", changes=[])
+    try:
+        rs_row = rs_repository.get_latest_rs_rating(clean, source="computed")
+    except RelativeStrengthRepositoryUnavailable:
+        rs_row = None
+    fundamentals = _fundamentals_context(_safe_latest_fundamentals(clean))
+    institutional = _institutional_context(_safe_latest_13f(clean))
+    current = compute_stock_assessment(
+        clean,
+        bars,
+        rs_context=_rs_context(rs_row),
+        fundamentals_context=fundamentals,
+        institutional_context=institutional,
+    )
+    previous = compute_stock_assessment(
+        clean,
+        bars[:-1],
+        rs_context=_rs_context(rs_row),
+        fundamentals_context=fundamentals,
+        institutional_context=institutional,
+    )
+    changes = _assessment_changes(current, previous)
+    return StockSignalChangesResponse(
+        ticker=clean,
+        current_as_of=current.as_of,
+        previous_as_of=previous.as_of,
+        changes=changes,
+    )
+
+
+def _assessment_changes(
+    current: StockAssessmentResult,
+    previous: StockAssessmentResult,
+) -> list[StockSignalChange]:
+    changes: list[StockSignalChange] = []
+    previous_checks = {check.label: check for check in previous.checks}
+    for check in current.checks:
+        old = previous_checks.get(check.label)
+        if old is None or old.passed == check.passed:
+            continue
+        changes.append(
+            StockSignalChange(
+                kind="resolved" if check.passed else "new",
+                category=check.category,
+                label=check.label,
+                detail=check.detail,
+            )
+        )
+    current_signals = {(signal.category, signal.label): signal for signal in current.chart_signals}
+    previous_signals = {(signal.category, signal.label): signal for signal in previous.chart_signals}
+    for key, signal in current_signals.items():
+        if key not in previous_signals:
+            changes.append(StockSignalChange(
+                kind="new", category=signal.category, label=signal.label, detail=signal.detail,
+            ))
+    for key, signal in previous_signals.items():
+        if key not in current_signals:
+            changes.append(StockSignalChange(
+                kind="resolved", category=signal.category, label=signal.label, detail=signal.detail,
+            ))
+    return changes[:20]
 
 def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
     clean = ticker.strip().upper()

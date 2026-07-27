@@ -41,6 +41,7 @@ from app.repositories import sell_state as sell_state_repository
 from app.repositories.portfolio import PortfolioPositionRow, PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.services.fx import currency_to_usd, eur_to_usd, get_eur_usd_rate, yahoo_quote_currency
+from app.services.data_quality import get_position_quality_by_ticker
 
 
 _POSITION_MONITOR_REFERENCES = {"high_since_buy", "close_since_buy", "entry_price", "previous_close"}
@@ -102,8 +103,9 @@ def evaluate_position_sell_decision(
 def get_sell_position_ranking() -> SellRankingResponse:
     snapshot_rows, generated_at, source_job_id = sell_state_repository.list_ranking_snapshot()
     if snapshot_rows:
+        quality_by_ticker = get_position_quality_by_ticker()
         return SellRankingResponse(
-            rows=snapshot_rows,
+            rows=[_with_data_quality(row, quality_by_ticker) for row in snapshot_rows],
             source="snapshot",
             generated_at=generated_at.isoformat() if generated_at else "",
             source_job_id=source_job_id,
@@ -115,6 +117,7 @@ def get_sell_position_ranking() -> SellRankingResponse:
 
 def _compute_sell_position_ranking_live() -> SellRankingResponse:
     rows: list[SellPositionRankingItem] = []
+    quality_by_ticker = get_position_quality_by_ticker()
     for context in _ranking_contexts():
         ticker = str(context["ticker"])
         metrics_request = context.get("metrics_request")
@@ -131,7 +134,8 @@ def _compute_sell_position_ranking_live() -> SellRankingResponse:
         primary_signal = _primary_signal_label(evaluation)
         state = evaluation.next_recommendation_state
         rows.append(
-            SellPositionRankingItem(
+            _with_data_quality(
+                SellPositionRankingItem(
                 ticker=ticker,
                 name=str(context["name"]),
                 pnl_pct=float(metrics_response.pnl_pct or 0.0),
@@ -145,6 +149,8 @@ def _compute_sell_position_ranking_live() -> SellRankingResponse:
                 consecutive_days=state.consecutive_days,
                 snoozed_until=state.snoozed_until,
                 snoozed_pct=state.snoozed_pct,
+                ),
+                quality_by_ticker,
             )
         )
     rows.sort(
@@ -158,6 +164,26 @@ def _compute_sell_position_ranking_live() -> SellRankingResponse:
         rows=rows,
         source="live",
         message="Live berechnet, weil noch kein Positionsmonitor-Snapshot vorhanden ist.",
+    )
+
+
+def _with_data_quality(
+    row: SellPositionRankingItem,
+    quality_by_ticker: dict[str, dict[str, str]],
+) -> SellPositionRankingItem:
+    quality = quality_by_ticker.get(row.ticker.upper())
+    if quality is None:
+        return row.model_copy(
+            update={
+                "data_quality_status": "limited",
+                "data_quality_detail": "Für diese Position liegt keine Datenqualitätsprüfung vor.",
+            }
+        )
+    return row.model_copy(
+        update={
+            "data_quality_status": quality["status"],
+            "data_quality_detail": quality["detail"],
+        }
     )
 
 

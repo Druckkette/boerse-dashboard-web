@@ -210,6 +210,12 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
     max_depot_loss_available = bool(positions) and all(value is not None for value in position_loss_values)
     max_depot_loss_abs = sum(float(value or 0.0) for value in position_loss_values) if max_depot_loss_available else None
     max_depot_loss_pct = max_depot_loss_abs / total * 100 if total and max_depot_loss_abs is not None else 0.0
+    stop_coverage_count = sum(position.stop_price is not None for position in positions)
+    stop_coverage_total = len(positions)
+    stop_coverage_pct = stop_coverage_count / stop_coverage_total * 100 if stop_coverage_total else 0.0
+    has_implausible_values = any(position.pnl_pct > 400 or position.pnl_pct < -75 for position in positions)
+    has_missing_risk_values = any(position.atr_pct is None or position.beta is None for position in positions)
+    data_quality_status = "blocked" if has_implausible_values else "limited" if has_missing_risk_values else "trusted"
     market_atr_pct = _market_atr_pct()
     total_pnl_abs = sum(position.pnl_abs for position in positions)
     cost_basis = sum(position.entry_price * position.shares for position in positions)
@@ -238,6 +244,12 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
             if portfolio_beta_balancer is not None
             else "warning",
         ),
+        KpiCard(
+            label="Stop-Abdeckung",
+            value=f"{stop_coverage_pct:.0f}%",
+            detail=f"{stop_coverage_count} von {stop_coverage_total} Positionen",
+            tone="good" if stop_coverage_pct >= 95 else "warning" if stop_coverage_pct >= 70 else "bad",
+        ),
     ]
     if max_depot_loss_available and max_depot_loss_abs is not None:
         kpis.append(
@@ -260,6 +272,10 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         max_depot_loss_abs=max_depot_loss_abs,
         max_depot_loss_available=max_depot_loss_available,
         max_depot_loss_pct=max_depot_loss_pct,
+        stop_coverage_count=stop_coverage_count,
+        stop_coverage_total=stop_coverage_total,
+        stop_coverage_pct=stop_coverage_pct,
+        data_quality_status=data_quality_status,
         kpis=kpis,
         positions=positions,
     )
@@ -980,6 +996,10 @@ def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
         max_depot_loss_abs=None,
         max_depot_loss_available=False,
         max_depot_loss_pct=0.0,
+        stop_coverage_count=0,
+        stop_coverage_total=0,
+        stop_coverage_pct=0.0,
+        data_quality_status="limited",
         kpis=[
             KpiCard(
                 label="Depotwert",

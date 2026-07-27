@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
+import { HeaderTools } from "@/components/ui/header-tools";
 
 const navItems = [
   { href: "/market", label: "Marktübersicht", icon: Gauge },
@@ -25,7 +26,7 @@ const navItems = [
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/trade-journal", label: "Handelstagebuch", icon: NotebookPen },
   { href: "/sell-monitor", label: "Verkaufsmonitor", icon: ChartCandlestick },
-  { href: "/workspace", label: "Workspace", icon: NotebookTabs },
+  { href: "/workspace", label: "Heute", icon: NotebookTabs },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
@@ -43,7 +44,7 @@ const pageDescriptions: Record<string, string> = {
   "/portfolio/buy-strength": "Frische Käufe systematisch gegen die Stärke-nach-Kauf-Regeln prüfen.",
   "/trade-journal": "Kauf- und Verkaufsentscheidungen dokumentieren und später auswerten.",
   "/sell-monitor": "Verkaufsregeln, Tranchensignale und Positionszustand kontrollieren.",
-  "/workspace": "Arbeitsbereich für Analysen, Notizen und vorbereitete Aktionen.",
+  "/workspace": "Markt, Datenqualität und Positionen mit Handlungsbedarf auf einen Blick.",
   "/jobs": "Datenaktualisierung, Worker-Status und laufende Jobs überwachen.",
   "/settings": "Setup, Schlüssel, Datenquellen und Systemkonfiguration verwalten."
 };
@@ -60,7 +61,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const currentPageDescription = pageDescription(pathname);
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[236px_1fr]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[268px_1fr]">
       <aside className="border-b border-[#e3e8ef] bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
         <div className="flex min-h-16 items-center gap-2.5 px-4">
           <div className="flex size-9 items-center justify-center rounded-[10px] bg-[#0f766e] text-white shadow-[0_6px_16px_rgba(15,118,110,0.18)]">
@@ -109,21 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>
               <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386] sm:text-sm">{currentPageDescription}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href="/stocks"
-                className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d8e1ea] bg-white px-3 text-sm font-medium text-[#172033] transition hover:border-[#b8c4d2] hover:bg-[#f9fbfd]"
-              >
-                <Search size={15} className="text-[#687386]" />
-                Aktie suchen
-              </Link>
-              <Link
-                href="/jobs"
-                className="inline-flex h-9 items-center justify-center rounded-[10px] bg-[#0f766e] px-3.5 text-sm font-semibold text-white transition hover:bg-[#0b655f]"
-              >
-                Datenstatus prüfen
-              </Link>
-            </div>
+            <HeaderTools />
           </div>
         </header>
         <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">{children}</div>

@@ -524,6 +524,10 @@ export type PortfolioSnapshot = {
   max_depot_loss_abs?: number | null;
   max_depot_loss_available?: boolean;
   max_depot_loss_pct: number;
+  stop_coverage_count: number;
+  stop_coverage_total: number;
+  stop_coverage_pct: number;
+  data_quality_status: "trusted" | "limited" | "blocked";
   kpis: KpiCard[];
   positions: PortfolioPosition[];
 };
@@ -1270,6 +1274,8 @@ export type SellRankingRow = {
   consecutive_days: number;
   snoozed_until: string;
   snoozed_pct: number;
+  data_quality_status: "trusted" | "limited" | "blocked";
+  data_quality_detail: string;
 };
 
 export type SellRankingResponse = {
@@ -1613,11 +1619,24 @@ export type DataDiagnosticIssue = {
   action_label: string;
   job_type?: JobType | null;
   job_payload: Record<string, unknown>;
+  category: "freshness" | "price" | "fundamental" | "mapping" | "portfolio" | "corporate_action" | "system";
+  blocks_decisions: boolean;
+};
+
+export type DataQualityEvent = {
+  ticker: string;
+  event_type: "split_candidate" | "dividend_candidate" | "ticker_mapping";
+  event_date: string;
+  label: string;
+  detail: string;
+  severity: "info" | "warning" | "critical";
 };
 
 export type DataDiagnostics = {
   as_of: string;
+  generated_at: string;
   health_tone: Tone;
+  decision_status: "trusted" | "limited" | "blocked";
   summary: string;
   open_positions_count: number;
   price_cache_tickers_count: number;
@@ -1625,7 +1644,55 @@ export type DataDiagnostics = {
   stale_price_count: number;
   missing_yahoo_symbol_count: number;
   isin_mappings_count: number;
+  stop_coverage_count: number;
+  stop_coverage_total: number;
+  stop_coverage_pct: number;
+  missing_fundamentals_count: number;
+  missing_risk_metrics_count: number;
+  implausible_position_count: number;
+  freshness: ServiceFreshness[];
+  corporate_events: DataQualityEvent[];
   issues: DataDiagnosticIssue[];
+};
+
+export type PushoverDeliveryLogItem = {
+  timestamp: string;
+  ticker: string;
+  status: "sent" | "failed" | "skipped";
+  detail: string;
+  distance_atr?: number | null;
+  threshold_atr?: number | null;
+  reference_label: string;
+};
+
+export type PushoverDeliveryLog = {
+  entries: PushoverDeliveryLogItem[];
+};
+
+export type StockSearchItem = {
+  ticker: string;
+  name: string;
+  yahoo_symbol: string;
+  exchange: string;
+};
+
+export type StockSearchResponse = {
+  query: string;
+  rows: StockSearchItem[];
+};
+
+export type StockSignalChange = {
+  kind: "new" | "resolved" | "unchanged";
+  category: string;
+  label: string;
+  detail: string;
+};
+
+export type StockSignalChanges = {
+  ticker: string;
+  current_as_of: string;
+  previous_as_of: string;
+  changes: StockSignalChange[];
 };
 
 export type WorkspaceState = {

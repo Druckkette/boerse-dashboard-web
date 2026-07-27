@@ -1124,6 +1124,10 @@ class PortfolioSnapshotResponse(BaseModel):
     max_depot_loss_abs: float | None = None
     max_depot_loss_available: bool = False
     max_depot_loss_pct: float
+    stop_coverage_count: int = 0
+    stop_coverage_total: int = 0
+    stop_coverage_pct: float = 0.0
+    data_quality_status: Literal["trusted", "limited", "blocked"] = "trusted"
     kpis: list[KpiCard]
     positions: list[PortfolioPosition]
 
@@ -1429,11 +1433,24 @@ class DataDiagnosticIssue(BaseModel):
     action_label: str = ""
     job_type: JobType | None = None
     job_payload: dict = Field(default_factory=dict)
+    category: Literal["freshness", "price", "fundamental", "mapping", "portfolio", "corporate_action", "system"] = "system"
+    blocks_decisions: bool = False
+
+
+class DataQualityEvent(BaseModel):
+    ticker: str
+    event_type: Literal["split_candidate", "dividend_candidate", "ticker_mapping"]
+    event_date: str = ""
+    label: str
+    detail: str
+    severity: Literal["info", "warning", "critical"] = "info"
 
 
 class DataDiagnosticsResponse(BaseModel):
     as_of: str
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     health_tone: Literal["good", "neutral", "warning", "bad"]
+    decision_status: Literal["trusted", "limited", "blocked"] = "trusted"
     summary: str
     open_positions_count: int = 0
     price_cache_tickers_count: int = 0
@@ -1441,7 +1458,55 @@ class DataDiagnosticsResponse(BaseModel):
     stale_price_count: int = 0
     missing_yahoo_symbol_count: int = 0
     isin_mappings_count: int = 0
+    stop_coverage_count: int = 0
+    stop_coverage_total: int = 0
+    stop_coverage_pct: float = 0.0
+    missing_fundamentals_count: int = 0
+    missing_risk_metrics_count: int = 0
+    implausible_position_count: int = 0
+    freshness: list[ServiceFreshness] = Field(default_factory=list)
+    corporate_events: list[DataQualityEvent] = Field(default_factory=list)
     issues: list[DataDiagnosticIssue] = Field(default_factory=list)
+
+
+class PushoverDeliveryLogItem(BaseModel):
+    timestamp: datetime
+    ticker: str = ""
+    status: Literal["sent", "failed", "skipped"]
+    detail: str = ""
+    distance_atr: float | None = None
+    threshold_atr: float | None = None
+    reference_label: str = ""
+
+
+class PushoverDeliveryLogResponse(BaseModel):
+    entries: list[PushoverDeliveryLogItem] = Field(default_factory=list)
+
+
+class StockSearchItem(BaseModel):
+    ticker: str
+    name: str = ""
+    yahoo_symbol: str = ""
+    exchange: str = ""
+
+
+class StockSearchResponse(BaseModel):
+    query: str
+    rows: list[StockSearchItem] = Field(default_factory=list)
+
+
+class StockSignalChange(BaseModel):
+    kind: Literal["new", "resolved", "unchanged"]
+    category: str
+    label: str
+    detail: str = ""
+
+
+class StockSignalChangesResponse(BaseModel):
+    ticker: str
+    current_as_of: str
+    previous_as_of: str = ""
+    changes: list[StockSignalChange] = Field(default_factory=list)
 
 
 class WorkspaceState(BaseModel):
