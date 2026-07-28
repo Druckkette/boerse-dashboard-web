@@ -203,7 +203,7 @@ export function SettingsPanel() {
                 onChange={(value) => updateNumber("position_monitor_atr_period", value, 5, 63, 1)}
               />
               <NumberField
-                label="Lookback Tage"
+                label="Fallback-Lookback Tage"
                 max={740}
                 min={30}
                 step={5}

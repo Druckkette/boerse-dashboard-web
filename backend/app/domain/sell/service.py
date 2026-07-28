@@ -1040,7 +1040,8 @@ def _monitor_reference_price(
     if reference_mode == "entry_price":
         return _finite_float(row.entry_price, current_price)
 
-    frame = _tail_ohlc_frame(daily_frame, lookback_days)
+    since_buy_mode = reference_mode in {"high_since_buy", "close_since_buy"} and row.buy_date is not None
+    frame = _tail_ohlc_frame(daily_frame, 0 if since_buy_mode else lookback_days)
     if frame.empty:
         return _finite_float(current_price, row.entry_price)
 

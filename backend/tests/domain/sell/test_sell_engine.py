@@ -628,6 +628,38 @@ def test_entry_reference_converts_portfolio_currency_to_usd(monkeypatch: pytest.
     assert monitor["threshold_crossed"] is True
 
 
+def test_high_since_buy_is_not_truncated_by_fallback_lookback() -> None:
+    row = PortfolioPositionRow(
+        ticker="AAPL",
+        name="Apple",
+        shares=3,
+        entry_price=95,
+        current_price=90,
+        currency="USD",
+        buy_date=date(2025, 2, 5),
+        broker="Test",
+        account="Main",
+    )
+    frame = pd.DataFrame(
+        {
+            "high": [180.0, 125.0, 112.0, 94.0],
+            "low": [170.0, 115.0, 104.0, 88.0],
+            "close": [175.0, 120.0, 109.0, 90.0],
+        },
+        index=pd.to_datetime(["2025-02-04", "2025-02-05", "2025-06-06", "2025-06-09"]),
+    )
+
+    reference = sell_service._monitor_reference_price(
+        daily_frame=frame,
+        row=row,
+        current_price=90.0,
+        reference_mode="high_since_buy",
+        lookback_days=2,
+    )
+
+    assert reference == 125.0
+
+
 def test_monitor_reference_price_uses_latest_cached_close_before_live_trade_date() -> None:
     row = PortfolioPositionRow(
         ticker="AAPL",
