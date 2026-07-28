@@ -545,6 +545,89 @@ def test_monitor_reference_price_uses_previous_close() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("reference_mode", "expected"),
+    [
+        ("high_since_buy", 112.0),
+        ("close_since_buy", 109.0),
+        ("entry_price", 95.0),
+        ("previous_close", 109.0),
+    ],
+)
+def test_monitor_reference_modes_use_their_intended_price(
+    reference_mode: str,
+    expected: float,
+) -> None:
+    row = PortfolioPositionRow(
+        ticker="AAPL",
+        name="Apple",
+        shares=3,
+        entry_price=95,
+        current_price=90,
+        currency="USD",
+        buy_date=date(2025, 2, 5),
+        broker="Test",
+        account="Main",
+    )
+    frame = pd.DataFrame(
+        {
+            "high": [180.0, 108.0, 112.0, 94.0],
+            "low": [170.0, 98.0, 104.0, 88.0],
+            "close": [175.0, 105.0, 109.0, 90.0],
+        },
+        index=pd.to_datetime(["2025-02-04", "2025-02-05", "2025-02-06", "2025-02-07"]),
+    )
+
+    assert sell_service._monitor_reference_price(
+        daily_frame=frame,
+        row=row,
+        current_price=90.0,
+        reference_mode=reference_mode,
+        lookback_days=420,
+    ) == pytest.approx(expected)
+
+
+def test_entry_reference_converts_portfolio_currency_to_usd(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = PortfolioPositionRow(
+        ticker="AAPL",
+        name="Apple",
+        shares=3,
+        entry_price=100,
+        current_price=90,
+        currency="EUR",
+        buy_date=date(2025, 2, 5),
+        broker="Trade Republic",
+        account="Main",
+    )
+    monkeypatch.setattr(
+        sell_service,
+        "currency_to_usd",
+        lambda value, currency: None if value is None else float(value) * (1.1 if currency == "EUR" else 1.0),
+    )
+
+    monitor = sell_service._monitor_state_from_frame(
+        row,
+        pd.DataFrame(),
+        {
+            "position_monitor_reference": "entry_price",
+            "position_monitor_threshold_atr": 1.5,
+            "position_monitor_atr_period": 14,
+            "position_monitor_lookback_days": 420,
+        },
+        current_price_override=100.0,
+        current_price_source="test",
+        current_trade_date=date(2025, 2, 7),
+        fallback_atr=2.0,
+    )
+
+    assert monitor["value_currency"] == "USD"
+    assert monitor["reference_price"] == 110.0
+    assert monitor["current_price"] == 100.0
+    assert monitor["atr_value"] == 2.0
+    assert monitor["distance_atr"] == 5.0
+    assert monitor["threshold_crossed"] is True
+
+
 def test_monitor_reference_price_uses_latest_cached_close_before_live_trade_date() -> None:
     row = PortfolioPositionRow(
         ticker="AAPL",

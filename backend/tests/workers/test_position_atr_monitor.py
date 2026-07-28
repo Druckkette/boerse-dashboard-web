@@ -268,6 +268,125 @@ def test_position_monitor_allows_new_trade_day_when_reference_changes(monkeypatc
     assert written["tickers"]["AAPL"]["reference_price"] == 96.0
 
 
+def test_position_monitor_allows_changed_reference_mode_same_trade_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored_state = {
+        "tickers": {
+            "AAPL": {
+                "trade_day": "2026-06-18",
+                "last_distance_atr": 1.8,
+                "threshold_atr": 1.5,
+                "reference": "previous_close",
+                "reference_price": 100.0,
+                "threshold_crossed": True,
+                "escalated_2x": False,
+            }
+        }
+    }
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
+    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: values)
+
+    result = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": True,
+                        "distance_atr": 1.7,
+                        "threshold_atr": 1.5,
+                        "reference": "entry_price",
+                        "reference_label": "Vom Einstand",
+                        "reference_price": 100.0,
+                        "current_price": 96.6,
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
+    )
+
+    assert result["alerts"][0]["reason"] == "monitor_configuration_changed"
+    assert result["items"][0]["monitor"]["alert_allowed"] is True
+
+
+def test_position_monitor_rearms_after_real_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored_state = {
+        "tickers": {
+            "AAPL": {
+                "trade_day": "2026-06-18",
+                "last_distance_atr": 1.8,
+                "threshold_atr": 1.5,
+                "reference": "entry_price",
+                "reference_price": 100.0,
+                "threshold_crossed": True,
+                "escalated_2x": False,
+            }
+        }
+    }
+    written: dict = {}
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda values: written.update(values) or values,
+    )
+
+    recovery = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": False,
+                        "distance_atr": 1.2,
+                        "threshold_atr": 1.5,
+                        "reference": "entry_price",
+                        "reference_price": 100.0,
+                        "current_price": 97.6,
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
+    )
+
+    assert recovery["alerts"] == []
+    assert written["tickers"]["AAPL"]["threshold_crossed"] is False
+
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: written)
+    recross = monitor_module._apply_cooldown_state(
+        {
+            "ok": True,
+            "records_seen": 1,
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "monitor": {
+                        "threshold_crossed": True,
+                        "distance_atr": 1.6,
+                        "threshold_atr": 1.5,
+                        "reference": "entry_price",
+                        "reference_label": "Vom Einstand",
+                        "reference_price": 100.0,
+                        "current_price": 96.8,
+                    },
+                }
+            ],
+        },
+        monitor_settings={"position_monitor_threshold_atr": 1.5},
+        now=datetime(2026, 6, 18, 6, 5, tzinfo=UTC),
+    )
+
+    assert recross["alerts"][0]["reason"] == "threshold_recrossed"
+    assert recross["items"][0]["monitor"]["alert_allowed"] is True
+
+
 def test_failed_delivery_does_not_consume_atr_alert(monkeypatch: pytest.MonkeyPatch) -> None:
     written: dict = {}
     monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})

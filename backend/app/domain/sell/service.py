@@ -526,16 +526,23 @@ def _monitor_state_from_frame(
     if reference_mode not in _POSITION_MONITOR_REFERENCES:
         reference_mode = "previous_close"
 
-    current_price = _finite_float(current_price_override)
-    reference_price = _monitor_reference_price(
+    raw_current_price = _finite_float(current_price_override)
+    raw_reference_price = _monitor_reference_price(
         daily_frame=daily_frame,
         row=row,
-        current_price=current_price,
+        current_price=raw_current_price,
         reference_mode=reference_mode,
         lookback_days=lookback_days,
         current_trade_date=current_trade_date,
     )
-    atr_value = _monitor_atr(daily_frame, atr_period) or fallback_atr
+    raw_atr_value = _monitor_atr(daily_frame, atr_period) or fallback_atr
+    quote_currency = yahoo_quote_currency(row.ticker)
+    current_price = _monitor_value_usd(raw_current_price, quote_currency)
+    reference_price = _monitor_value_usd(
+        raw_reference_price,
+        row.currency if reference_mode == "entry_price" else quote_currency,
+    )
+    atr_value = _monitor_value_usd(raw_atr_value, quote_currency)
     distance_atr = None
     threshold_crossed = False
     if reference_price is not None and atr_value is not None and atr_value > 0 and current_price is not None:
@@ -549,6 +556,7 @@ def _monitor_state_from_frame(
         "reference_price": _round_metric(reference_price),
         "current_price": _round_metric(current_price),
         "current_price_source": current_price_source,
+        "value_currency": "USD",
         "atr_period": atr_period,
         "atr_value": _round_metric(atr_value),
         "threshold_atr": threshold_atr,
@@ -1050,6 +1058,13 @@ def _monitor_reference_price(
             return _finite_float(closes.iloc[-2], current_price)
         return _finite_float(row.entry_price, current_price)
 
+    if row.buy_date is not None:
+        frame = frame[
+            [pd.Timestamp(index).date() >= row.buy_date for index in frame.index]
+        ]
+        if frame.empty:
+            return _finite_float(current_price, row.entry_price)
+
     column = "close" if reference_mode == "close_since_buy" else "high"
     if column not in frame:
         return _finite_float(current_price, row.entry_price)
@@ -1058,6 +1073,13 @@ def _monitor_reference_price(
     if values.empty:
         return _finite_float(current_price, row.entry_price)
     return _finite_float(values.max(), current_price)
+
+
+def _monitor_value_usd(value: float | None, currency: str) -> float | None:
+    parsed = _finite_float(value)
+    if parsed is None:
+        return None
+    return _finite_float(currency_to_usd(parsed, currency))
 
 
 def _monitor_atr(daily_frame: Any, period: int) -> float | None:

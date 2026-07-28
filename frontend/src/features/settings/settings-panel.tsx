@@ -45,6 +45,13 @@ const fallbackSettings: AppSettings = {
   data_jobs_enabled: true
 };
 
+const monitorReferenceDescriptions: Record<AppSettings["position_monitor_reference"], string> = {
+  high_since_buy: "Misst den Rückgang vom höchsten Tageshoch seit dem Kaufdatum.",
+  close_since_buy: "Misst den Rückgang vom höchsten Tagesschluss seit dem Kaufdatum.",
+  entry_price: "Misst den Rückgang vom persönlichen Einstandskurs der Position.",
+  previous_close: "Misst ausschließlich den Rückgang gegenüber dem vorherigen Handelstagesschluss."
+};
+
 export function SettingsPanel() {
   const queryClient = useQueryClient();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -165,19 +172,19 @@ export function SettingsPanel() {
                     )
                   }
                 >
-                  <option value="high_since_buy">High seit Kauf</option>
-                  <option value="close_since_buy">Close seit Kauf</option>
+                  <option value="high_since_buy">Tageshoch seit Kauf</option>
+                  <option value="close_since_buy">Schlusskurs-Hoch seit Kauf</option>
                   <option value="entry_price">Einstand</option>
                   <option value="previous_close">Vortagesschluss</option>
                 </select>
               </Field>
               <p className="rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-xs leading-5 text-[#a0a7b4] md:col-span-2">
-                Bei Vortagesschluss wird nur der ATR-Verlust unter dem vorherigen Handelstagesschluss
-                bewertet. Der Cooldown wird an einem neuen Handelstag ab 07:30 Uhr deutscher Zeit
-                nur dann erneut ausgelöst, wenn die Referenz oder der Verlust wirklich neu ist.
-                Am selben Tag eskaliert der Monitor erneut bei 2x ATR-Schwelle. Ein Alarm gilt
-                erst nach bestätigter Pushover-Zustellung als versendet. Der Scheduler prüft
-                an Handelstagen zwischen 08:00 und 02:00 Uhr inklusive US-Nachbörse jede Minute.
+                {monitorReferenceDescriptions[settings.position_monitor_reference]} Alle Kurswerte
+                und der ATR werden vor dem Vergleich auf USD normalisiert. Für jede Referenz gilt
+                derselbe Pushover-Pfad: Prüfung jede Minute, erneuter Alarm nach einer echten
+                Erholung und erneutem Bruch sowie Eskalation bei 2x ATR-Schwelle. Ein Alarm gilt
+                erst nach bestätigter Zustellung als versendet. Der Tages-Cooldown wechselt um
+                07:30 Uhr deutscher Zeit, ohne den unveränderten Verlust des Vortags erneut zu melden.
               </p>
               <NumberField
                 label="ATR Schwelle"
