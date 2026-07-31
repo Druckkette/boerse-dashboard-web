@@ -19,6 +19,7 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
                 date(2026, 6, 16),
                 date(2026, 3, 31),
                 datetime(2026, 6, 16, 12, tzinfo=UTC),
+                "nasdaq",
             ]
 
         def __enter__(self):
@@ -90,5 +91,7 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
         "SPY": "2026-06-16",
     }
     assert services["fundamentals_tracked"].as_of == "2026-06-16"
+    assert services["earnings_calendar"].metadata["source"] == "nasdaq"
+    assert "(Nasdaq)" in services["earnings_calendar"].detail
     assert services["institutional_13f"].as_of == "2026-03-31"
     assert services["institutional_13f"].metadata["expected_interval"] == "quarterly"

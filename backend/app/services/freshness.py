@@ -65,6 +65,11 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             trend_benchmark = _trend_benchmark_freshness(db, now)
             tracked_fundamentals = _tracked_fundamentals_freshness(db, now)
             latest_earnings_calendar = db.scalar(select(func.max(EarningsEvent.fetched_at)))
+            latest_earnings_source = db.scalar(
+                select(EarningsEvent.source)
+                .order_by(EarningsEvent.fetched_at.desc())
+                .limit(1)
+            )
     except SQLAlchemyError:
         return [
             _missing("prices"),
@@ -95,8 +100,15 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             "earnings_calendar",
             latest_earnings_calendar,
             max_lag_minutes=26 * 60,
-            detail="FMP Earnings-Kalender für gezielte Fundamental-Updates rund um Berichtstermine.",
-            metadata={"expected_interval": "twice_daily"},
+            detail=(
+                "Earnings-Kalender"
+                + (f" ({_provider_label(latest_earnings_source)})" if latest_earnings_source else "")
+                + " für gezielte Fundamental-Updates rund um Berichtstermine."
+            ),
+            metadata={
+                "expected_interval": "twice_daily",
+                "source": latest_earnings_source or "",
+            },
         ),
         _date_freshness(
             now,
@@ -107,6 +119,10 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             metadata={"expected_interval": "quarterly", "max_lag_days": 120},
         ),
     ]
+
+
+def _provider_label(source: str) -> str:
+    return "FMP" if source.lower() == "fmp" else source.title()
 
 
 def _price_universe_freshness(
