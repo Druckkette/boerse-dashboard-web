@@ -82,7 +82,7 @@ def _parse_entry(row: dict[str, Any]) -> EarningsCalendarEntry | None:
         ticker=ticker,
         event_date=event_date,
         fiscal_date_ending=_parse_date(row.get("fiscalDateEnding")),
-        time=str(row.get("time") or "").strip().lower(),
+        time=_normalize_event_time(row.get("time")),
         eps_estimated=_float_or_none(row.get("epsEstimated")),
         eps_actual=_float_or_none(row.get("epsActual")),
         revenue_estimated=_float_or_none(row.get("revenueEstimated")),
@@ -177,7 +177,7 @@ def _parse_nasdaq_entry(
         ticker=ticker,
         event_date=event_date,
         fiscal_date_ending=_parse_nasdaq_fiscal_period(row.get("fiscalQuarterEnding")),
-        time=str(row.get("time") or "").strip().lower(),
+        time=_normalize_event_time(row.get("time")),
         eps_estimated=_float_or_none(row.get("epsForecast")),
         eps_actual=None,
         revenue_estimated=None,
@@ -222,6 +222,19 @@ def _parse_date(value: object) -> date | None:
         return date.fromisoformat(str(value or "").strip()[:10])
     except ValueError:
         return None
+
+
+def _normalize_event_time(value: object) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "time-after-hours": "amc",
+        "after market close": "amc",
+        "time-pre-market": "bmo",
+        "before market open": "bmo",
+        "time-not-supplied": "tbd",
+        "not supplied": "tbd",
+    }
+    return aliases.get(text, text[:16])
 
 
 def _float_or_none(value: object) -> float | None:

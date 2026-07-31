@@ -115,6 +115,7 @@ def test_nasdaq_earnings_calendar_parses_weekdays_and_skips_weekend() -> None:
     assert rows[0].event_date == date(2026, 7, 31)
     assert rows[0].fiscal_date_ending == date(2026, 6, 30)
     assert rows[0].eps_estimated == 1.88
+    assert rows[0].time == "amc"
     assert rows[0].source == "nasdaq"
 
 
