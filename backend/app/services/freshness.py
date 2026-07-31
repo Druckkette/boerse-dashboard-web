@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import (
@@ -126,42 +126,53 @@ def _price_universe_freshness(
         )
 
     membership_date = max(expected_session.date, now.date())
-    member_ids = (
-        select(UniverseMember.instrument_id.label("instrument_id"))
-        .where(
-            UniverseMember.universe_id == universe_id,
-            UniverseMember.valid_from <= membership_date,
-            (UniverseMember.valid_to.is_(None)) | (UniverseMember.valid_to >= membership_date),
-        )
-        .distinct()
-        .subquery()
+    active_member_filter = (
+        UniverseMember.universe_id == universe_id,
+        UniverseMember.valid_from <= membership_date,
+        (UniverseMember.valid_to.is_(None)) | (UniverseMember.valid_to >= membership_date),
     )
-    expected_count = int(db.scalar(select(func.count()).select_from(member_ids)) or 0)
-    current_count = int(
+    expected_count = int(
         db.scalar(
-            select(func.count(func.distinct(PriceBar.instrument_id))).where(
-                PriceBar.instrument_id.in_(select(member_ids.c.instrument_id)),
-                PriceBar.date >= expected_session.date,
-                PriceBar.close.is_not(None),
+            select(func.count(func.distinct(UniverseMember.instrument_id))).where(
+                *active_member_filter
             )
         )
         or 0
     )
-    latest = db.scalar(
-        select(func.max(PriceBar.date)).where(
-            PriceBar.instrument_id.in_(select(member_ids.c.instrument_id)),
-            PriceBar.close.is_not(None),
+    current_count = int(
+        db.scalar(
+            select(func.count(func.distinct(UniverseMember.instrument_id))).where(
+                *active_member_filter,
+                exists(
+                    select(PriceBar.id).where(
+                        PriceBar.instrument_id == UniverseMember.instrument_id,
+                        PriceBar.date >= expected_session.date,
+                        PriceBar.close.is_not(None),
+                    )
+                ),
+            )
         )
+        or 0
+    )
+    latest = (
+        expected_session.date
+        if current_count
+        else db.scalar(select(func.max(PriceBar.date)).where(PriceBar.close.is_not(None)))
     )
     coverage = current_count / expected_count if expected_count else 0.0
-    core_rows = db.execute(
-        select(Instrument.ticker, func.max(PriceBar.date))
-        .join(PriceBar, PriceBar.instrument_id == Instrument.id)
+    latest_price_date = (
+        select(func.max(PriceBar.date))
         .where(
-            Instrument.ticker.in_(REQUIRED_MARKET_HELPER_TICKERS),
+            PriceBar.instrument_id == Instrument.id,
             PriceBar.close.is_not(None),
         )
-        .group_by(Instrument.ticker)
+        .correlate(Instrument)
+        .scalar_subquery()
+    )
+    core_rows = db.execute(
+        select(Instrument.ticker, latest_price_date).where(
+            Instrument.ticker.in_(REQUIRED_MARKET_HELPER_TICKERS)
+        )
     ).all()
     core_dates = {str(ticker): value for ticker, value in core_rows if value is not None}
     missing_core = [

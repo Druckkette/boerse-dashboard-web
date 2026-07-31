@@ -157,6 +157,7 @@ class RsRating(Base):
     __table_args__ = (
         UniqueConstraint("instrument_id", "date", "source", name="uq_rs_rating"),
         Index("ix_rs_ratings_instrument_date", "instrument_id", "date"),
+        Index("ix_rs_ratings_source_date", "source", "date"),
     )
 
     id: Mapped[str] = uuid_pk()
