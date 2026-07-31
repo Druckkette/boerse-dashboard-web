@@ -85,7 +85,8 @@ once per Berlin calendar day. 13F data remains quarterly freshness-gated.
 The RS source is selectable in Settings. `computed` is the NAS-local calculation from cached prices
 and is the recommended default. `csv_latest` imports the daily `Fred6725/rs-log` GitHub CSV and
 derives its effective market date from the published GitHub update. A stale source file cannot
-make the dashboard appear current.
+make the dashboard appear current. The provider has its own universe, so it is validated by source
+date and a minimum of 4,000 ratings rather than against the local universe membership.
 Freshness-only repair runs at 18:45 and 01:15 retry missing stages after the two main windows; they
 do not force another complete universe refresh when the quality gates are already green.
 The market page itself only reads prepared Postgres snapshots and does not start live yfinance or

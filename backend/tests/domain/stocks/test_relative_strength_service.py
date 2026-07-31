@@ -60,6 +60,24 @@ def test_refresh_relative_strength_uses_cached_prices_and_persists(monkeypatch: 
     assert stored[0].metadata_json["rs_sma50_last"] is not None
 
 
+def test_external_rs_refresh_uses_provider_universe(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    def fake_external(*, tickers=None, url=service.DEFAULT_RS_CSV_URL):
+        captured["tickers"] = tickers
+        return {"ok": True, "source": "csv_latest", "ratings_count": 5910}
+
+    monkeypatch.setattr(service, "refresh_external_relative_strength_ratings", fake_external)
+
+    result = service.refresh_selected_relative_strength_ratings(
+        tickers=["NVDA", "MSFT"],
+        source="csv_latest",
+    )
+
+    assert result["ratings_count"] == 5910
+    assert captured["tickers"] is None
+
+
 def _series(daily_growth: float, *, days: int = 320) -> list[ClosePoint]:
     start = date(2025, 1, 1)
     price = 100.0

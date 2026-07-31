@@ -41,7 +41,7 @@ def refresh_selected_relative_strength_ratings(
 ) -> dict:
     selected_source = str(source or configured_rs_source()).strip().lower()
     if selected_source == "csv_latest":
-        return refresh_external_relative_strength_ratings(tickers=tickers)
+        return refresh_external_relative_strength_ratings(tickers=None)
     return refresh_relative_strength_ratings(
         tickers=tickers,
         benchmark_ticker=benchmark_ticker,

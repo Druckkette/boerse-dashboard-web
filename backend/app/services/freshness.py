@@ -36,6 +36,7 @@ from app.services.market_calendar import ExpectedMarketSession, expected_us_mark
 MIN_PRICE_COVERAGE = 0.95
 MIN_BREADTH_COVERAGE = 0.95
 MIN_RS_COVERAGE = 0.95
+MIN_EXTERNAL_RS_RATINGS = 4000
 REQUIRED_MARKET_HELPER_TICKERS = list(
     dict.fromkeys([*MARKET_CORE_PRICE_TICKERS, *VOLATILITY_TICKERS, *SECTOR_ETF_TICKERS])
 )
@@ -281,21 +282,40 @@ def _relative_strength_freshness(
         or 0
     )
     expected_count = _active_universe_count(db, expected_session.date)
-    coverage = min(1.0, count / expected_count) if expected_count else 0.0
-    status = (
-        "fresh"
-        if latest >= expected_session.date and coverage >= MIN_RS_COVERAGE
-        else "stale"
+    external_source = source == "csv_latest"
+    coverage = (
+        1.0
+        if external_source and count >= MIN_EXTERNAL_RS_RATINGS
+        else min(1.0, count / expected_count)
+        if expected_count
+        else 0.0
     )
+    if external_source:
+        status = (
+            "fresh"
+            if latest >= expected_session.date and count >= MIN_EXTERNAL_RS_RATINGS
+            else "stale"
+        )
+        detail = (
+            f"Externe RS-Quelle {source}: {count} Ratings mit Datenstand "
+            f"{latest.isoformat()}."
+        )
+    else:
+        status = (
+            "fresh"
+            if latest >= expected_session.date and coverage >= MIN_RS_COVERAGE
+            else "stale"
+        )
+        detail = (
+            f"RS-Quelle {source}: {count}/{expected_count} Ratings, "
+            f"Coverage {coverage * 100:.1f}%."
+        )
     return ServiceFreshness(
         name="relative_strength",
         status=status,
         as_of=latest.isoformat(),
         lag_minutes=_date_lag_minutes(now, latest),
-        detail=(
-            f"RS-Quelle {source}: {count}/{expected_count} Ratings, "
-            f"Coverage {coverage * 100:.1f}%."
-        ),
+        detail=detail,
         metadata={
             **_session_metadata(expected_session),
             "source": source,
@@ -303,6 +323,7 @@ def _relative_strength_freshness(
             "expected_count": expected_count,
             "coverage_ratio": coverage,
             "minimum_coverage_ratio": MIN_RS_COVERAGE,
+            "minimum_external_ratings": MIN_EXTERNAL_RS_RATINGS,
         },
     )
 

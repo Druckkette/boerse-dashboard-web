@@ -169,7 +169,8 @@ For the NAS, "current" is implemented by data class rather than by reloading eve
 - The RS source in Settings is effective end to end: `computed` derives RS from the current local
   Price Cache; `csv_latest` imports the daily `Fred6725/rs-log` GitHub CSV. Its GitHub update
   timestamp is mapped to the preceding US trading day. An old external file is deliberately
-  reported as stale.
+  reported as stale. Because this provider maintains its own universe, external RS freshness
+  requires at least 4,000 dated ratings instead of local-universe coverage.
 - At 15:50 and 22:20 the FMP Earnings Calendar is refreshed when an FMP key is configured.
   Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window, while tickers
   reporting from three days ago through tomorrow are forced to the front of the next batch.
