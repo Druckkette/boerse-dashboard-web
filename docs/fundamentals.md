@@ -55,9 +55,10 @@ Revenue uses the same multi-period structure and thresholds, but without a trail
 
 ## Earnings-driven refresh
 
-With `FMP_API_KEY` configured, `earnings_events` stores the FMP stable
-`/earnings-calendar` response for the window from five days ago through 120 days ahead. The
-scheduler refreshes this calendar at 15:50 and 22:20 Europe/Berlin. Tickers with an event from
+`earnings_events` stores the FMP stable `/earnings-calendar` response for the window from five days
+ago through 120 days ahead. If the FMP key is missing, the plan limit is reached or FMP fails, the
+same job automatically stores the official Nasdaq calendar for the rolling next 35 days instead.
+The scheduler refreshes this calendar at 15:50 and 22:20 Europe/Berlin. Tickers with an event from
 three days ago through tomorrow are forced to the front of the next incremental fundamentals
 batch. This catches newly published quarterly data without downloading statements for the entire
 universe twice per day. The per-ticker FMP stable `/earnings` call remains the fallback for a stock

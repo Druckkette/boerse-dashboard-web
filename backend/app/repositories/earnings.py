@@ -70,6 +70,7 @@ def replace_earnings_window(
     start_date: date,
     end_date: date,
     source: str = "fmp",
+    replace_sources: tuple[str, ...] | None = None,
 ) -> int:
     deduplicated = {
         (item.ticker.strip().upper(), item.event_date, item.source): item
@@ -78,9 +79,10 @@ def replace_earnings_window(
     }
     try:
         with SessionLocal() as db:
+            sources = replace_sources or (source,)
             db.execute(
                 delete(EarningsEvent).where(
-                    EarningsEvent.source == source,
+                    EarningsEvent.source.in_(sources),
                     EarningsEvent.event_date >= start_date,
                     EarningsEvent.event_date <= end_date,
                 )

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.data_sources.earnings_client import fetch_fmp_earnings_calendar
+from app.data_sources.earnings_client import (
+    fetch_fmp_earnings_calendar,
+    fetch_nasdaq_earnings_calendar,
+)
 from app.repositories import earnings as earnings_repository
 from app.repositories.earnings import EarningsEventWrite
 
@@ -16,13 +19,34 @@ def refresh_earnings_calendar(
     today = date.today()
     effective_start = start_date or today - timedelta(days=5)
     effective_end = end_date or today + timedelta(days=120)
-    entries = fetch_fmp_earnings_calendar(
-        api_key=api_key,
-        start_date=effective_start,
-        end_date=effective_end,
-    )
+    entries = []
+    source = "fmp"
+    fallback_reason = ""
+    if api_key.strip():
+        try:
+            entries = fetch_fmp_earnings_calendar(
+                api_key=api_key,
+                start_date=effective_start,
+                end_date=effective_end,
+            )
+        except RuntimeError as exc:
+            fallback_reason = str(exc)
+    else:
+        fallback_reason = "FMP_API_KEY ist nicht gesetzt."
+
     if not entries:
-        raise RuntimeError("FMP Earnings-Kalender enthält für das angefragte Fenster keine Termine.")
+        source = "nasdaq"
+        fallback_end = min(effective_end, today + timedelta(days=35))
+        entries = fetch_nasdaq_earnings_calendar(
+            start_date=effective_start,
+            end_date=fallback_end,
+        )
+        effective_end = fallback_end
+    if not entries:
+        raise RuntimeError(
+            "Earnings-Kalender enthält für das angefragte Fenster keine Termine."
+            + (f" FMP: {fallback_reason}" if fallback_reason else "")
+        )
     writes = [
         EarningsEventWrite(
             ticker=item.ticker,
@@ -33,6 +57,7 @@ def refresh_earnings_calendar(
             eps_actual=item.eps_actual,
             revenue_estimated=item.revenue_estimated,
             revenue_actual=item.revenue_actual,
+            source=item.source,
             raw_json=item.raw,
         )
         for item in entries
@@ -41,16 +66,20 @@ def refresh_earnings_calendar(
         writes,
         start_date=effective_start,
         end_date=effective_end,
+        replace_sources=("fmp", "nasdaq"),
     )
-    return {
+    result = {
         "ok": True,
         "job_type": "refresh_earnings_calendar",
-        "source": "fmp",
+        "source": source,
         "from": effective_start.isoformat(),
         "to": effective_end.isoformat(),
         "records_seen": len(entries),
         "records_written": written,
     }
+    if fallback_reason:
+        result["fallback_reason"] = fallback_reason
+    return result
 
 
 def earnings_priority_tickers(*, today: date | None = None) -> list[str]:

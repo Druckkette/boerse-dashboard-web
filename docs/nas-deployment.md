@@ -74,13 +74,16 @@ The freshness check follows the NYSE calendar and requires at least 95% current 
 plus the complete set of index, volatility, equal-weight and sector helper symbols. If this quality
 gate fails, Breadth and locally computed RS are not rebuilt from a partial price set.
 
-When `FMP_API_KEY` is configured, the Earnings Calendar runs at 15:50 and 22:20, immediately before
-the two main refreshes. Fundamentals are different from market prices: the NAS processes at most
-250 oldest or missing snapshots per run and rotates the full universe over a 14-day freshness
-window. Companies with earnings from three days ago through tomorrow are refreshed first, even if
-their snapshot would otherwise still be considered fresh. Opening a stock checks its price once
-per expected NYSE session in the browser and refreshes stale/missing fundamentals for that ticker
-once per Berlin calendar day. 13F data remains quarterly freshness-gated.
+The Earnings Calendar runs at 15:50 and 22:20, immediately before the two main refreshes. FMP is
+the primary provider when its configured plan permits the stable calendar endpoint. Without a key,
+after quota exhaustion or on a provider error, the worker automatically uses Nasdaq's public
+calendar for a rolling 35-day window. Fundamentals are different from market prices: the NAS
+processes at most 250 oldest or missing snapshots per run and rotates the full universe over a
+14-day freshness window. Companies with earnings from three days ago through tomorrow are
+refreshed first, even if their snapshot would otherwise still be considered fresh. Opening a stock
+checks its price once per expected NYSE session in the browser and refreshes stale/missing
+fundamentals for that ticker once per Berlin calendar day. 13F data remains quarterly
+freshness-gated.
 
 The RS source is selectable in Settings. `computed` is the NAS-local calculation from cached prices
 and is the recommended default. `csv_latest` imports the daily `Fred6725/rs-log` GitHub CSV and

@@ -17,6 +17,17 @@ class _Response:
         return self._payload
 
 
+class _Session:
+    def __init__(self, responses: dict[str, _Response]) -> None:
+        self.responses = responses
+        self.headers = {}
+        self.calls = []
+
+    def get(self, url, *, params, timeout):
+        self.calls.append({"url": url, "params": params, "timeout": timeout})
+        return self.responses[params["date"]]
+
+
 def test_fmp_earnings_calendar_uses_stable_endpoint_and_date_window(monkeypatch) -> None:
     captured = {}
 
@@ -50,6 +61,7 @@ def test_fmp_earnings_calendar_uses_stable_endpoint_and_date_window(monkeypatch)
     }
     assert rows[0].ticker == "NVDA"
     assert rows[0].event_date == date(2026, 8, 20)
+    assert rows[0].source == "fmp"
 
 
 def test_fmp_earnings_calendar_preserves_error_body(monkeypatch) -> None:
@@ -64,4 +76,58 @@ def test_fmp_earnings_calendar_preserves_error_body(monkeypatch) -> None:
             api_key="test-key",
             start_date=date(2026, 7, 31),
             end_date=date(2026, 8, 31),
+        )
+
+
+def test_nasdaq_earnings_calendar_parses_weekdays_and_skips_weekend() -> None:
+    session = _Session(
+        {
+            "2026-07-31": _Response(
+                200,
+                {
+                    "data": {
+                        "rows": [
+                            {
+                                "symbol": "AAPL",
+                                "time": "time-after-hours",
+                                "fiscalQuarterEnding": "Jun/2026",
+                                "epsForecast": "$1.88",
+                            }
+                        ]
+                    }
+                },
+            ),
+            "2026-08-03": _Response(200, {"data": {"rows": []}}),
+        }
+    )
+
+    rows = earnings_client.fetch_nasdaq_earnings_calendar(
+        start_date=date(2026, 7, 31),
+        end_date=date(2026, 8, 3),
+        session=session,
+    )
+
+    assert [call["params"]["date"] for call in session.calls] == [
+        "2026-07-31",
+        "2026-08-03",
+    ]
+    assert rows[0].ticker == "AAPL"
+    assert rows[0].event_date == date(2026, 7, 31)
+    assert rows[0].fiscal_date_ending == date(2026, 6, 30)
+    assert rows[0].eps_estimated == 1.88
+    assert rows[0].source == "nasdaq"
+
+
+def test_nasdaq_earnings_calendar_reports_provider_error() -> None:
+    session = _Session(
+        {
+            "2026-07-31": _Response(403, {}, "request blocked"),
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="HTTP 403.*request blocked"):
+        earnings_client.fetch_nasdaq_earnings_calendar(
+            start_date=date(2026, 7, 31),
+            end_date=date(2026, 7, 31),
+            session=session,
         )

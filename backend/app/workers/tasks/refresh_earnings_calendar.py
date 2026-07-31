@@ -21,14 +21,6 @@ def refresh_earnings_calendar(self, job_id: str | None = None, payload: dict | N
     try:
         raise_if_cancelled(job.job_id)
         api_key = get_runtime_config_value("FMP_API_KEY")
-        if not api_key:
-            result = {
-                "ok": False,
-                "skipped": True,
-                "reason": "FMP_API_KEY fehlt; Earnings-Kalender wurde übersprungen.",
-            }
-            job_repository.mark_skipped(job.job_id, message=result["reason"], result=result)
-            return result
         result = refresh_calendar(api_key=api_key)
         job_repository.mark_done(
             job.job_id,

@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import requests
 
 from app.data_sources.fmp_client import FMP_EARNINGS_CALENDAR_URL, compact_fmp_response_body
+
+
+NASDAQ_EARNINGS_CALENDAR_URL = "https://api.nasdaq.com/api/calendar/earnings"
+NASDAQ_REQUEST_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://www.nasdaq.com",
+    "Referer": "https://www.nasdaq.com/",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 Chrome/126 Safari/537.36"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -19,6 +31,7 @@ class EarningsCalendarEntry:
     eps_actual: float | None
     revenue_estimated: float | None
     revenue_actual: float | None
+    source: str
     raw: dict[str, Any]
 
 
@@ -74,8 +87,134 @@ def _parse_entry(row: dict[str, Any]) -> EarningsCalendarEntry | None:
         eps_actual=_float_or_none(row.get("epsActual")),
         revenue_estimated=_float_or_none(row.get("revenueEstimated")),
         revenue_actual=_float_or_none(row.get("revenueActual")),
+        source="fmp",
         raw=row,
     )
+
+
+def fetch_nasdaq_earnings_calendar(
+    *,
+    start_date: date,
+    end_date: date,
+    timeout: int = 20,
+    session: requests.Session | None = None,
+) -> list[EarningsCalendarEntry]:
+    """Fetch the public Nasdaq calendar one weekday at a time.
+
+    Nasdaq does not expose a date-range parameter. Callers should therefore pass
+    a deliberately short rolling window; weekends are skipped locally.
+    """
+    if end_date < start_date:
+        raise ValueError("Das Ende des Earnings-Fensters liegt vor dem Start.")
+
+    client = session or requests.Session()
+    client.headers.update(NASDAQ_REQUEST_HEADERS)
+    entries: list[EarningsCalendarEntry] = []
+    failures: list[str] = []
+    successful_dates = 0
+    current = start_date
+    while current <= end_date:
+        if current.weekday() >= 5:
+            current += timedelta(days=1)
+            continue
+        try:
+            response = client.get(
+                NASDAQ_EARNINGS_CALENDAR_URL,
+                params={"date": current.isoformat()},
+                timeout=timeout,
+            )
+        except requests.exceptions.Timeout:
+            failures.append(f"{current.isoformat()}: Timeout")
+            current += timedelta(days=1)
+            continue
+        except requests.exceptions.ConnectionError as exc:
+            failures.append(f"{current.isoformat()}: Verbindung fehlgeschlagen ({exc})")
+            current += timedelta(days=1)
+            continue
+        if response.status_code != 200:
+            body = str(getattr(response, "text", "") or "").strip()[:300]
+            failures.append(
+                f"{current.isoformat()}: HTTP {response.status_code}"
+                + (f" ({body})" if body else "")
+            )
+            current += timedelta(days=1)
+            continue
+        try:
+            payload = response.json()
+        except ValueError:
+            failures.append(f"{current.isoformat()}: ungültiges JSON")
+            current += timedelta(days=1)
+            continue
+        successful_dates += 1
+        data = payload.get("data") if isinstance(payload, dict) else None
+        rows = data.get("rows") if isinstance(data, dict) else None
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            parsed = _parse_nasdaq_entry(row, event_date=current)
+            if parsed is not None:
+                entries.append(parsed)
+        current += timedelta(days=1)
+
+    if successful_dates == 0:
+        detail = "; ".join(failures[:3])
+        raise RuntimeError(
+            "Nasdaq Earnings-Kalender konnte für keinen Handelstag geladen werden"
+            + (f": {detail}" if detail else ".")
+        )
+    return entries
+
+
+def _parse_nasdaq_entry(
+    row: dict[str, Any],
+    *,
+    event_date: date,
+) -> EarningsCalendarEntry | None:
+    ticker = str(row.get("symbol") or "").strip().upper()
+    if not ticker:
+        return None
+    return EarningsCalendarEntry(
+        ticker=ticker,
+        event_date=event_date,
+        fiscal_date_ending=_parse_nasdaq_fiscal_period(row.get("fiscalQuarterEnding")),
+        time=str(row.get("time") or "").strip().lower(),
+        eps_estimated=_float_or_none(row.get("epsForecast")),
+        eps_actual=None,
+        revenue_estimated=None,
+        revenue_actual=None,
+        source="nasdaq",
+        raw=row,
+    )
+
+
+def _parse_nasdaq_fiscal_period(value: object) -> date | None:
+    text = str(value or "").strip()
+    if "/" not in text:
+        return None
+    month_text, year_text = text.split("/", maxsplit=1)
+    months = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "may": 5,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
+    month = months.get(month_text.strip().lower()[:3])
+    try:
+        year = int(year_text)
+    except ValueError:
+        return None
+    if month is None:
+        return None
+    next_month = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+    return next_month - timedelta(days=1)
 
 
 def _parse_date(value: object) -> date | None:
@@ -86,7 +225,13 @@ def _parse_date(value: object) -> date | None:
 
 
 def _float_or_none(value: object) -> float | None:
+    text = str(value).strip() if value is not None else ""
+    if not text or text.lower() in {"n/a", "na", "none", "-"}:
+        return None
+    negative = text.startswith("(") and text.endswith(")")
+    clean = text.strip("()").replace("$", "").replace(",", "").replace("%", "")
     try:
-        return float(value) if value is not None else None
+        parsed = float(clean)
+        return -parsed if negative else parsed
     except (TypeError, ValueError):
         return None

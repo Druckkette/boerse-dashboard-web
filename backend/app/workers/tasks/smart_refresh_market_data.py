@@ -396,7 +396,7 @@ def build_smart_refresh_plan(
             )
         )
 
-    if include_fundamentals and earnings_freshness is not None and get_runtime_config_value("FMP_API_KEY") and (
+    if include_fundamentals and earnings_freshness is not None and (
         force_market_refresh
         or _is_missing(earnings_freshness)
         or _is_stale(earnings_freshness)
@@ -406,7 +406,7 @@ def build_smart_refresh_plan(
                 key="refresh_earnings_calendar",
                 job_type="refresh_earnings_calendar",
                 label="Earnings-Kalender aktualisieren",
-                reason="FMP-Termine priorisieren Fundamental-Updates rund um Quartalsberichte.",
+                reason="Earnings-Termine priorisieren Fundamental-Updates rund um Quartalsberichte.",
                 payload={"mode": "smart", "source": "smart_refresh"},
             )
         )
@@ -518,8 +518,6 @@ def _run_action(
         )
     if action.job_type == "refresh_earnings_calendar":
         api_key = get_runtime_config_value("FMP_API_KEY")
-        if not api_key:
-            return {"ok": False, "skipped": True, "reason": "FMP_API_KEY fehlt."}
         try:
             return refresh_earnings_calendar(api_key=api_key)
         except RuntimeError as exc:

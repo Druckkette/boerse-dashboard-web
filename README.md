@@ -171,7 +171,9 @@ For the NAS, "current" is implemented by data class rather than by reloading eve
   timestamp is mapped to the preceding US trading day. An old external file is deliberately
   reported as stale. Because this provider maintains its own universe, external RS freshness
   requires at least 4,000 dated ratings instead of local-universe coverage.
-- At 15:50 and 22:20 the FMP Earnings Calendar is refreshed when an FMP key is configured.
+- At 15:50 and 22:20 the Earnings Calendar is refreshed. FMP is used when the configured plan
+  permits the stable calendar endpoint; on missing keys, quota exhaustion or provider errors the
+  app automatically falls back to Nasdaq's public calendar for the rolling next 35 days.
   Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window, while tickers
   reporting from three days ago through tomorrow are forced to the front of the next batch.
   A stock opened in the UI gets a targeted daily fundamentals check and an immediate incremental
