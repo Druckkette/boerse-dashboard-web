@@ -15,6 +15,7 @@ from app.repositories import earnings as earnings_repository
 from app.repositories import prices as price_repository
 from app.repositories import relative_strength as rs_repository
 from app.repositories import sec13f as sec13f_repository
+from app.repositories import stock_assessments as stock_assessment_repository
 from app.repositories.fundamentals import (
     FundamentalSnapshotRow,
     FundamentalSnapshotWrite,
@@ -24,6 +25,10 @@ from app.repositories.market import MarketRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.repositories.relative_strength import RelativeStrengthRepositoryUnavailable, RsRatingRow
 from app.repositories.sec13f import Institutional13FTrendRow, Sec13FRepositoryUnavailable
+from app.repositories.stock_assessments import (
+    StockAssessmentRepositoryUnavailable,
+    StockAssessmentSnapshotWrite,
+)
 from app.services.relative_strength import configured_rs_source
 from app.schemas import (
     StockEarningsWarning,
@@ -204,6 +209,59 @@ def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAsses
 
 
 def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingResponse:
+    clean_limit = max(1, min(500, limit))
+    try:
+        snapshot_rows = stock_assessment_repository.list_snapshots(limit=clean_limit)
+        total_count = stock_assessment_repository.count_snapshots()
+    except StockAssessmentRepositoryUnavailable:
+        snapshot_rows = []
+        total_count = 0
+    if not snapshot_rows:
+        return StockAssessmentRankingResponse(
+            as_of=date.today().isoformat(),
+            source="missing",
+            total_count=0,
+            limit=clean_limit,
+            rows=[],
+        )
+    rows = [StockAssessmentRankingItem.model_validate(row.item_json) for row in snapshot_rows]
+    return StockAssessmentRankingResponse(
+        as_of=max(row.as_of for row in snapshot_rows).isoformat(),
+        source="database",
+        total_count=total_count,
+        limit=clean_limit,
+        rows=rows,
+    )
+
+
+def refresh_stock_assessment_snapshots(
+    *,
+    limit: int = 120,
+    source_job_id: str = "",
+) -> dict[str, Any]:
+    ranking = _compute_stock_assessment_ranking(limit=limit)
+    writes = [
+        StockAssessmentSnapshotWrite(
+            ticker=item.ticker,
+            name=item.name,
+            as_of=date.fromisoformat(item.as_of),
+            overall_score=item.overall_score,
+            technical_score=item.technical_score,
+            item_json=item.model_dump(mode="json"),
+        )
+        for item in ranking.rows
+    ]
+    written = stock_assessment_repository.replace_snapshots(writes, source_job_id=source_job_id)
+    return {
+        "ok": True,
+        "as_of": ranking.as_of,
+        "records_seen": len(ranking.rows),
+        "records_written": written,
+        "source_job_id": source_job_id,
+    }
+
+
+def _compute_stock_assessment_ranking(*, limit: int = 120) -> StockAssessmentRankingResponse:
     clean_limit = max(1, min(500, limit))
     try:
         source = configured_rs_source()

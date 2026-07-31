@@ -17,6 +17,7 @@ from app.services.relative_strength import (
     DEFAULT_RS_BENCHMARK_TICKER,
     refresh_selected_relative_strength_ratings as refresh_relative_strength_ratings,
 )
+from app.services.stocks import refresh_stock_assessment_snapshots
 from app.services.universes import (
     refresh_us_common_stock_universe,
     resolve_universe_price_symbols,
@@ -187,6 +188,22 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
             result["relative_strength"] = _compact_step_result(rs_result)
             result["steps"].append("relative_strength")
             completed_steps.add("relative_strength")
+
+        raise_if_cancelled(job.job_id)
+        if "stock_assessments" in completed_steps and result.get("stock_assessments"):
+            assessment_result = dict(result["stock_assessments"])
+        else:
+            job_repository.update_progress(
+                job.job_id,
+                progress=93,
+                step="Aktienranking vorbereiten",
+                message="Aktienbewertungen werden außerhalb des Website-Aufrufs vorberechnet.",
+                result=result,
+            )
+            assessment_result = refresh_stock_assessment_snapshots(limit=120, source_job_id=job.job_id)
+            result["stock_assessments"] = _compact_step_result(assessment_result)
+            result["steps"].append("stock_assessments")
+            completed_steps.add("stock_assessments")
 
         raise_if_cancelled(job.job_id)
         if "position_monitor" in completed_steps and result.get("position_monitor"):

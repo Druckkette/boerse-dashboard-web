@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 from app.domain.stocks.assessment import StockAssessmentBar
 from app.repositories.relative_strength import RsRatingRow
@@ -68,12 +69,30 @@ def test_assessment_ranking_loads_related_data_in_batches(monkeypatch) -> None:
         "list_price_bars",
         lambda ticker: (_ for _ in ()).throw(AssertionError("tickerweise Kursabfrage")),
     )
+    stored = []
+    monkeypatch.setattr(
+        service.stock_assessment_repository,
+        "replace_snapshots",
+        lambda rows, source_job_id="": stored.extend(rows) or len(rows),
+    )
 
-    result = service.get_stock_assessment_ranking(limit=60)
+    result = service.refresh_stock_assessment_snapshots(limit=60)
 
-    assert result.source == "database"
-    assert result.rows[0].ticker == "NVDA"
+    assert result["records_written"] == 1
+    assert stored[0].ticker == "NVDA"
     assert calls == {"prices": 1, "fundamentals": 1, "institutional": 1, "computed_rs": 1}
+
+    monkeypatch.setattr(
+        service.stock_assessment_repository,
+        "list_snapshots",
+        lambda limit: [SimpleNamespace(as_of=stored[0].as_of, item_json=stored[0].item_json)],
+    )
+    monkeypatch.setattr(service.stock_assessment_repository, "count_snapshots", lambda: 1)
+
+    cached = service.get_stock_assessment_ranking(limit=60)
+
+    assert cached.source == "database"
+    assert cached.rows[0].ticker == "NVDA"
 
 
 def _bars() -> list[StockAssessmentBar]:

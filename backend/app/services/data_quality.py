@@ -351,11 +351,12 @@ def _build_issues(
 def _detect_corporate_action_candidates(tickers: list[str]) -> list[DataQualityEvent]:
     events: list[DataQualityEvent] = []
     start = date.today() - timedelta(days=150)
+    try:
+        bars_by_ticker = price_repository.list_price_bars_for_tickers(tickers, start_date=start)
+    except PriceRepositoryUnavailable:
+        bars_by_ticker = {}
     for ticker in tickers:
-        try:
-            bars = price_repository.list_price_bars(ticker, start_date=start)
-        except PriceRepositoryUnavailable:
-            continue
+        bars = bars_by_ticker.get(ticker, [])
         ticker_events: list[DataQualityEvent] = []
         for previous, current in zip(bars, bars[1:]):
             if not previous.close or not current.close or previous.close <= 0:

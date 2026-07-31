@@ -366,6 +366,25 @@ class SellRankingSnapshot(Base):
     item_json: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
+class StockAssessmentSnapshot(Base):
+    __tablename__ = "stock_assessment_snapshots"
+    __table_args__ = (
+        UniqueConstraint("ticker", name="uq_stock_assessment_snapshot_ticker"),
+        Index("ix_stock_assessment_snapshots_score", "overall_score", "technical_score"),
+        Index("ix_stock_assessment_snapshots_generated_at", "generated_at"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    overall_score: Mapped[int] = mapped_column(Integer, default=0)
+    technical_score: Mapped[float] = mapped_column(Float, default=0)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    source_job_id: Mapped[str] = mapped_column(String(96), default="", index=True)
+    item_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
 class TrancheLog(Base):
     __tablename__ = "tranche_log"
     __table_args__ = (Index("ix_tranche_log_ticker_date", "ticker", "date"),)

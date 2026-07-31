@@ -9,8 +9,13 @@ from app.workers.tasks import bootstrap_market_data as bootstrap_module
 
 
 @pytest.fixture(autouse=True)
-def reset_jobs() -> None:
+def reset_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     job_repository.clear_memory_jobs()
+    monkeypatch.setattr(
+        bootstrap_module,
+        "refresh_stock_assessment_snapshots",
+        lambda **kwargs: {"ok": True, "records_written": 2},
+    )
 
 
 def test_bootstrap_resumes_completed_steps_after_redelivery(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -76,7 +81,14 @@ def test_bootstrap_resumes_completed_steps_after_redelivery(monkeypatch: pytest.
 
     assert result["ok"] is True
     assert result["resumed"] is True
-    assert result["steps"] == ["universe", "prices", "breadth", "relative_strength", "position_monitor"]
+    assert result["steps"] == [
+        "universe",
+        "prices",
+        "breadth",
+        "relative_strength",
+        "stock_assessments",
+        "position_monitor",
+    ]
     assert called == ["rs", "monitor"]
     assert updated is not None
     assert updated.status == "done"

@@ -50,6 +50,32 @@ def list_price_bars(ticker: str, *, start_date: date | None = None) -> list[Pric
         raise PriceRepositoryUnavailable(str(exc)) from exc
 
 
+def list_price_bars_for_tickers(
+    tickers: Iterable[str],
+    *,
+    start_date: date | None = None,
+) -> dict[str, list[PriceBar]]:
+    clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
+    if not clean_tickers:
+        return {}
+    try:
+        with SessionLocal() as db:
+            query = (
+                select(Instrument.ticker, PriceBar)
+                .join(PriceBar, PriceBar.instrument_id == Instrument.id)
+                .where(Instrument.ticker.in_(clean_tickers))
+            )
+            if start_date is not None:
+                query = query.where(PriceBar.date >= start_date)
+            rows = db.execute(query.order_by(Instrument.ticker.asc(), PriceBar.date.asc())).all()
+            result: dict[str, list[PriceBar]] = {ticker: [] for ticker in clean_tickers}
+            for ticker, row in rows:
+                result.setdefault(str(ticker).upper(), []).append(row)
+            return {ticker: values for ticker, values in result.items() if values}
+    except SQLAlchemyError as exc:
+        raise PriceRepositoryUnavailable(str(exc)) from exc
+
+
 def get_latest_price_bar_date(ticker: str) -> date | None:
     clean = ticker.strip().upper()
     if not clean:

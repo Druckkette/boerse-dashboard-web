@@ -1373,6 +1373,7 @@ JobType = Literal[
     "refresh_prices",
     "refresh_breadth",
     "refresh_relative_strength",
+    "refresh_stock_assessments",
     "refresh_fundamentals",
     "refresh_earnings_calendar",
     "refresh_stock_detail",

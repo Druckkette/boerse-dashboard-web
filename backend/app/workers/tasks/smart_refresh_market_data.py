@@ -16,6 +16,7 @@ from app.domain.sell.service import monitor_open_positions
 from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import jobs as job_repository
 from app.repositories import portfolio as portfolio_repository
+from app.repositories import stock_assessments as stock_assessment_repository
 from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFreshness, UniverseStatusResponse
 from app.services.earnings import earnings_priority_tickers, refresh_earnings_calendar
 from app.services.freshness import get_freshness
@@ -28,6 +29,7 @@ from app.services.relative_strength import (
     refresh_selected_relative_strength_ratings as refresh_relative_strength_ratings,
 )
 from app.services.sec13f import refresh_institutional_13f_from_sec
+from app.services.stocks import refresh_stock_assessment_snapshots
 from app.services.settings import get_data_diagnostics, get_runtime_config_value
 from app.services.universes import (
     get_universe_status,
@@ -463,6 +465,29 @@ def build_smart_refresh_plan(
             )
         )
 
+    try:
+        assessment_snapshot_missing = stock_assessment_repository.latest_generated_at() is None
+    except stock_assessment_repository.StockAssessmentRepositoryUnavailable:
+        assessment_snapshot_missing = True
+    assessment_dependencies = {
+        "refresh_prices",
+        "refresh_relative_strength",
+        "refresh_fundamentals",
+        "refresh_sec13f",
+    }
+    if assessment_snapshot_missing or force_market_refresh or any(
+        action.job_type in assessment_dependencies for action in actions
+    ):
+        actions.append(
+            SmartRefreshAction(
+                key="refresh_stock_assessments",
+                job_type="refresh_stock_assessments",
+                label="Aktienranking vorbereiten",
+                reason="Aktienbewertungen werden nach Kurs-, RS-, Fundamental- oder 13F-Änderungen im Worker erneuert.",
+                payload={"mode": "smart", "source": "smart_refresh", "limit": 120},
+            )
+        )
+
     prices_refreshed = any(action.job_type == "refresh_prices" for action in actions)
     if include_position_monitor and diagnostics.open_positions_count > 0:
         if prices_refreshed or _is_missing(sell_ranking_freshness) or _is_stale(sell_ranking_freshness):
@@ -515,6 +540,11 @@ def _run_action(
             benchmark_ticker=str(action.payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER),
             lookback_days=int(action.payload.get("lookback_days") or 430),
             source=str(action.payload.get("rating_source") or configured_rs_source()),
+        )
+    if action.job_type == "refresh_stock_assessments":
+        return refresh_stock_assessment_snapshots(
+            limit=int(action.payload.get("limit") or 120),
+            source_job_id=job_id,
         )
     if action.job_type == "refresh_earnings_calendar":
         api_key = get_runtime_config_value("FMP_API_KEY")

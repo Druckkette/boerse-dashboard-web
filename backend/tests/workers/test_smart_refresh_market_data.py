@@ -16,8 +16,18 @@ from app.workers.tasks import smart_refresh_market_data as smart_module
 
 
 @pytest.fixture(autouse=True)
-def reset_jobs() -> None:
+def reset_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     job_repository.clear_memory_jobs()
+    monkeypatch.setattr(
+        smart_module.stock_assessment_repository,
+        "latest_generated_at",
+        lambda: datetime.now(UTC),
+    )
+    monkeypatch.setattr(
+        smart_module,
+        "refresh_stock_assessment_snapshots",
+        lambda **kwargs: {"ok": True, "records_seen": 2, "records_written": 2},
+    )
 
 
 def test_smart_plan_is_empty_when_everything_is_current() -> None:
@@ -52,7 +62,11 @@ def test_smart_plan_refreshes_only_missing_position_prices_and_monitor() -> None
         payload={"universe": "us_common_stocks"},
     )
 
-    assert [action.key for action in plan] == ["refresh_missing_position_prices", "position_monitor"]
+    assert [action.key for action in plan] == [
+        "refresh_missing_position_prices",
+        "refresh_stock_assessments",
+        "position_monitor",
+    ]
     assert plan[0].payload["tickers"] == ["NVDA", "MSFT"]
     assert plan[0].payload["range"] == "1y"
 
@@ -74,6 +88,7 @@ def test_smart_plan_refreshes_market_dependencies_after_stale_prices() -> None:
         "refresh_market_prices",
         "refresh_breadth",
         "refresh_relative_strength",
+        "refresh_stock_assessments",
         "position_monitor",
     ]
 
@@ -96,6 +111,7 @@ def test_smart_plan_refreshes_market_dependencies_after_stale_trend_benchmark() 
         "refresh_market_prices",
         "refresh_breadth",
         "refresh_relative_strength",
+        "refresh_stock_assessments",
         "position_monitor",
     ]
     assert plan[0].payload["include_market_helpers"] is True
@@ -115,7 +131,7 @@ def test_smart_plan_refreshes_stale_tracked_fundamentals() -> None:
         payload={"universe": "us_common_stocks"},
     )
 
-    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert [action.key for action in plan] == ["refresh_fundamentals", "refresh_stock_assessments"]
     assert plan[0].payload["fundamental_universe"] == "tracked"
     assert plan[0].payload["incremental"] is True
 
@@ -139,7 +155,7 @@ def test_smart_plan_can_force_incremental_all_fundamentals() -> None:
         },
     )
 
-    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert [action.key for action in plan] == ["refresh_fundamentals", "refresh_stock_assessments"]
     assert plan[0].payload["fundamental_universe"] == "all"
     assert plan[0].payload["fundamental_limit"] == 5000
     assert plan[0].payload["fundamental_max_refresh_count"] == 250
@@ -165,7 +181,7 @@ def test_smart_plan_allows_custom_fundamental_batch_limit() -> None:
         },
     )
 
-    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert [action.key for action in plan] == ["refresh_fundamentals", "refresh_stock_assessments"]
     assert plan[0].payload["fundamental_limit"] == 5000
     assert plan[0].payload["fundamental_max_refresh_count"] == 40
 
@@ -186,7 +202,7 @@ def test_smart_plan_repairs_incomplete_current_fundamentals(monkeypatch: pytest.
         payload={"universe": "us_common_stocks"},
     )
 
-    assert [action.key for action in plan] == ["refresh_fundamentals"]
+    assert [action.key for action in plan] == ["refresh_fundamentals", "refresh_stock_assessments"]
     assert plan[0].payload["tickers"] == ["BE"]
     assert plan[0].payload["repair_incomplete_histories"] is True
     assert "unvollständig" in plan[0].reason
@@ -206,7 +222,7 @@ def test_smart_plan_refreshes_missing_13f_trends() -> None:
         payload={"universe": "us_common_stocks"},
     )
 
-    assert [action.key for action in plan] == ["refresh_sec13f"]
+    assert [action.key for action in plan] == ["refresh_sec13f", "refresh_stock_assessments"]
     assert plan[0].payload["universe"] == "tracked"
     assert plan[0].payload["limit_universe"] == 500
 
@@ -229,16 +245,18 @@ def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> 
         "refresh_breadth",
         "refresh_relative_strength",
         "refresh_fundamentals",
+        "refresh_stock_assessments",
     ]
     assert plan[0].payload["incremental"] is True
     assert plan[0].payload["price_provider_timeout_seconds"] == 15
     assert plan[0].payload["price_action_max_seconds"] == 7200
     assert plan[0].payload["price_batch_size"] == 50
     assert plan[0].payload["price_overlap_days"] == 1
-    assert plan[-1].payload["fundamental_universe"] == "all"
-    assert plan[-1].payload["fundamental_limit"] == 10000
-    assert plan[-1].payload["fundamental_max_refresh_count"] == 250
-    assert plan[-1].payload["fundamental_action_max_seconds"] == 2700
+    fundamentals_action = next(action for action in plan if action.key == "refresh_fundamentals")
+    assert fundamentals_action.payload["fundamental_universe"] == "all"
+    assert fundamentals_action.payload["fundamental_limit"] == 10000
+    assert fundamentals_action.payload["fundamental_max_refresh_count"] == 250
+    assert fundamentals_action.payload["fundamental_action_max_seconds"] == 2700
     assert "Geplanter Smart-Refresh" in plan[0].reason
 
 
@@ -262,6 +280,7 @@ def test_scheduled_smart_plan_adds_13f_only_when_stale() -> None:
         "refresh_relative_strength",
         "refresh_fundamentals",
         "refresh_sec13f",
+        "refresh_stock_assessments",
     ]
 
 
