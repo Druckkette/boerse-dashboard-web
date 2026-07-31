@@ -162,13 +162,14 @@ For the NAS, "current" is implemented by data class rather than by reloading eve
   batches. Existing symbols use a one-trading-day overlap, so only changed/new bars are upserted.
 - Freshness uses the NYSE trading calendar. During an open session the current session is expected;
   before the open, on exchange holidays and weekends the latest completed session is expected.
-  Prices require at least 98% universe coverage plus all market helper symbols before dependent
+  Prices require at least 95% universe coverage plus all market helper symbols before dependent
   Breadth/RS snapshots are published.
 - Breadth and RS are recomputed completely after the price stage. All rows of an RS run share one
   snapshot date, so rankings never collapse to a partially refreshed subset.
 - The RS source in Settings is effective end to end: `computed` derives RS from the current local
-  Price Cache; `csv_latest` imports the external GitHub CSV and preserves its own `as_of_date`.
-  An old external file is deliberately reported as stale.
+  Price Cache; `csv_latest` imports the daily `Fred6725/rs-log` GitHub CSV. Its GitHub update
+  timestamp is mapped to the preceding US trading day. An old external file is deliberately
+  reported as stale.
 - At 15:50 and 22:20 the FMP Earnings Calendar is refreshed when an FMP key is configured.
   Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window, while tickers
   reporting from three days ago through tomorrow are forced to the front of the next batch.

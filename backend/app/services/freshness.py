@@ -33,8 +33,8 @@ from app.schemas import FreshnessResponse, ServiceFreshness
 from app.services.market_calendar import ExpectedMarketSession, expected_us_market_session
 
 
-MIN_PRICE_COVERAGE = 0.98
-MIN_BREADTH_COVERAGE = 0.98
+MIN_PRICE_COVERAGE = 0.95
+MIN_BREADTH_COVERAGE = 0.95
 MIN_RS_COVERAGE = 0.95
 REQUIRED_MARKET_HELPER_TICKERS = list(
     dict.fromkeys([*MARKET_CORE_PRICE_TICKERS, *VOLATILITY_TICKERS, *SECTOR_ETF_TICKERS])

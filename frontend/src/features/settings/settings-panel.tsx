@@ -231,7 +231,7 @@ export function SettingsPanel() {
                   onChange={(event) => update("rs_rating_source", event.target.value as AppSettings["rs_rating_source"])}
                 >
                   <option value="computed">Aus aktuellem Price-Cache berechnen</option>
-                  <option value="csv_latest">Externe GitHub-CSV übernehmen</option>
+                  <option value="csv_latest">Externe RS-Quelle (Fred GitHub)</option>
                 </select>
               </Field>
               <p className="text-xs leading-5 text-[#687386] md:col-span-2">

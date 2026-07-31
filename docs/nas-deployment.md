@@ -70,7 +70,7 @@ rebuilt even if the generic freshness window still marks yesterday's data as fre
 Each run resolves the complete stored US common-stock universe (up to 10,000 members), fetches only
 the missing trading days in yfinance batches, and then computes one complete Breadth and RS
 snapshot. A single-stock page refresh never overwrites this universe-wide RS percentile.
-The freshness check follows the NYSE calendar and requires at least 98% current universe coverage
+The freshness check follows the NYSE calendar and requires at least 95% current universe coverage
 plus the complete set of index, volatility, equal-weight and sector helper symbols. If this quality
 gate fails, Breadth and locally computed RS are not rebuilt from a partial price set.
 
@@ -83,8 +83,9 @@ per expected NYSE session in the browser and refreshes stale/missing fundamental
 once per Berlin calendar day. 13F data remains quarterly freshness-gated.
 
 The RS source is selectable in Settings. `computed` is the NAS-local calculation from cached prices
-and is the recommended default. `csv_latest` imports the published GitHub CSV; its embedded
-`as_of_date` is authoritative, so a stale source file cannot make the dashboard appear current.
+and is the recommended default. `csv_latest` imports the daily `Fred6725/rs-log` GitHub CSV and
+derives its effective market date from the published GitHub update. A stale source file cannot
+make the dashboard appear current.
 Freshness-only repair runs at 18:45 and 01:15 retry missing stages after the two main windows; they
 do not force another complete universe refresh when the quality gates are already green.
 The market page itself only reads prepared Postgres snapshots and does not start live yfinance or
