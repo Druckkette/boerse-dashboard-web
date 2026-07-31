@@ -17,6 +17,7 @@ def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     assert afternoon["task"] == "smart_refresh_market_data"
     assert afternoon["schedule"]._orig_hour == 16
     assert afternoon["schedule"]._orig_minute == 0
+    assert afternoon["schedule"]._orig_day_of_week == "1-5"
     assert afternoon["args"][1]["scheduled_window"] == "afternoon"
     assert afternoon["args"][1]["mode"] == "scheduled"
     assert afternoon["args"][1]["source"] == "scheduler"
@@ -32,6 +33,7 @@ def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     assert evening["task"] == "smart_refresh_market_data"
     assert evening["schedule"]._orig_hour == 22
     assert evening["schedule"]._orig_minute == 30
+    assert evening["schedule"]._orig_day_of_week == "1-5"
     assert evening["args"][1]["scheduled_window"] == "evening"
     assert evening["args"][1]["mode"] == "scheduled"
     assert evening["args"][1]["source"] == "scheduler"
@@ -40,6 +42,23 @@ def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     assert evening["args"][1]["fundamental_limit"] == 10000
     assert evening["args"][1]["fundamental_max_refresh_count"] == 250
     assert evening["options"]["expires"] == 6 * 60 * 60
+
+    earnings_afternoon = schedule["earnings-calendar-before-afternoon-refresh"]
+    earnings_evening = schedule["earnings-calendar-before-evening-refresh"]
+    assert earnings_afternoon["task"] == "refresh_earnings_calendar"
+    assert earnings_afternoon["schedule"]._orig_hour == 15
+    assert earnings_afternoon["schedule"]._orig_minute == 50
+    assert earnings_evening["schedule"]._orig_hour == 22
+    assert earnings_evening["schedule"]._orig_minute == 20
+
+    afternoon_repair = schedule["smart-market-refresh-afternoon-repair"]
+    evening_repair = schedule["smart-market-refresh-evening-repair"]
+    assert afternoon_repair["args"][1]["mode"] == "repair"
+    assert afternoon_repair["schedule"]._orig_hour == 18
+    assert afternoon_repair["schedule"]._orig_minute == 45
+    assert evening_repair["args"][1]["mode"] == "repair"
+    assert evening_repair["schedule"]._orig_hour == 1
+    assert evening_repair["schedule"]._orig_day_of_week == "2-6"
 
 
 def test_sec13f_monthly_schedule_remains_as_backup() -> None:

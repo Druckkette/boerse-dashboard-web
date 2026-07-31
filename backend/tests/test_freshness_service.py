@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from app.services import freshness
 
@@ -17,10 +17,8 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
         def __init__(self) -> None:
             self.scalar_values = [
                 date(2026, 6, 16),
-                date(2026, 6, 16),
-                date(2026, 6, 16),
-                date(2026, 6, 16),
                 date(2026, 3, 31),
+                datetime(2026, 6, 16, 12, tzinfo=UTC),
             ]
 
         def __enter__(self):
@@ -37,6 +35,38 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
 
     monkeypatch.setattr(freshness, "SessionLocal", FakeSession)
     monkeypatch.setattr(freshness.job_repository, "list_jobs", lambda limit=80: [])
+    expected_session = freshness.ExpectedMarketSession(date=date(2026, 6, 16), phase="closed")
+    monkeypatch.setattr(freshness, "expected_us_market_session", lambda now=None: expected_session)
+    monkeypatch.setattr(
+        freshness,
+        "_price_universe_freshness",
+        lambda db, now, expected: freshness.ServiceFreshness(
+            name="prices",
+            status="fresh",
+            as_of="2026-06-16",
+            lag_minutes=60,
+        ),
+    )
+    monkeypatch.setattr(
+        freshness,
+        "_breadth_freshness",
+        lambda db, now, expected: freshness.ServiceFreshness(
+            name="market_breadth",
+            status="fresh",
+            as_of="2026-06-16",
+            lag_minutes=60,
+        ),
+    )
+    monkeypatch.setattr(
+        freshness,
+        "_relative_strength_freshness",
+        lambda db, now, expected: freshness.ServiceFreshness(
+            name="relative_strength",
+            status="fresh",
+            as_of="2026-06-16",
+            lag_minutes=60,
+        ),
+    )
     monkeypatch.setattr(
         freshness,
         "_tracked_fundamentals_freshness",

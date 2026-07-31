@@ -10,6 +10,7 @@ from app.db.models import Instrument
 from app.db.session import SessionLocal
 from app.domain.stocks.assessment import StockAssessmentResult, compute_stock_assessment
 from app.repositories import fundamentals as fundamentals_repository
+from app.repositories import earnings as earnings_repository
 from app.repositories import prices as price_repository
 from app.repositories import relative_strength as rs_repository
 from app.repositories import sec13f as sec13f_repository
@@ -21,6 +22,7 @@ from app.repositories.fundamentals import (
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.repositories.relative_strength import RelativeStrengthRepositoryUnavailable, RsRatingRow
 from app.repositories.sec13f import Institutional13FTrendRow, Sec13FRepositoryUnavailable
+from app.services.relative_strength import configured_rs_source
 from app.schemas import (
     StockEarningsWarning,
     StockAssessmentCheck,
@@ -85,7 +87,7 @@ def get_stock_signal_changes(ticker: str) -> StockSignalChangesResponse:
     if len(bars) < 51:
         return StockSignalChangesResponse(ticker=clean, current_as_of="", changes=[])
     try:
-        rs_row = rs_repository.get_latest_rs_rating(clean, source="computed")
+        rs_row = rs_repository.get_latest_rs_rating(clean, source=configured_rs_source())
     except RelativeStrengthRepositoryUnavailable:
         rs_row = None
     fundamentals = _fundamentals_context(_safe_latest_fundamentals(clean))
@@ -153,7 +155,7 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
         bars = []
 
     try:
-        rs_row = rs_repository.get_latest_rs_rating(clean, source="computed")
+        rs_row = rs_repository.get_latest_rs_rating(clean, source=configured_rs_source())
     except RelativeStrengthRepositoryUnavailable:
         rs_row = None
 
@@ -197,8 +199,9 @@ def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAsses
 def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingResponse:
     clean_limit = max(1, min(500, limit))
     try:
-        total_count = rs_repository.count_latest_rs_ratings(source="computed")
-        rs_rows = rs_repository.list_latest_rs_ratings(limit=clean_limit, source="computed")
+        source = configured_rs_source()
+        total_count = rs_repository.count_latest_rs_ratings(source=source)
+        rs_rows = rs_repository.list_latest_rs_ratings(limit=clean_limit, source=source)
     except RelativeStrengthRepositoryUnavailable:
         total_count = 0
         rs_rows = []
@@ -313,7 +316,14 @@ def update_stock_fundamentals(
 def _rs_context(row: RsRatingRow | None) -> dict:
     if row is None:
         return {}
-    metadata = row.metadata_json or {}
+    metadata = dict(row.metadata_json or {})
+    if row.source != "computed":
+        try:
+            computed = rs_repository.get_latest_rs_rating(row.ticker, source="computed")
+        except RelativeStrengthRepositoryUnavailable:
+            computed = None
+        if computed is not None:
+            metadata = {**dict(computed.metadata_json or {}), **metadata}
     return {
         "rating": row.rating,
         "percentile": row.percentile,
@@ -364,7 +374,7 @@ def _build_assessment_result(ticker: str) -> tuple[StockAssessmentResult, RsRati
         bars = []
 
     try:
-        rs_row = rs_repository.get_latest_rs_rating(clean, source="computed")
+        rs_row = rs_repository.get_latest_rs_rating(clean, source=configured_rs_source())
     except RelativeStrengthRepositoryUnavailable:
         rs_row = None
 
@@ -391,6 +401,7 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
     if not annual_revenue_history:
         annual_revenue_history = _single_annual_revenue_history(row.annual_revenue_growth_pct, row.as_of)
     roe_history = _roe_history_from_metadata(row.metadata_json)
+    next_earnings = _next_earnings_date(row)
     return {
         "ticker": row.ticker,
         "as_of": row.as_of.isoformat(),
@@ -405,7 +416,7 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
         "trailing_eps": row.trailing_eps,
         "quarterly_eps_accelerating": row.quarterly_eps_accelerating,
         "quarterly_revenue_accelerating": row.quarterly_revenue_accelerating,
-        "next_earnings_date": row.next_earnings_date.isoformat() if row.next_earnings_date else None,
+        "next_earnings_date": next_earnings.isoformat() if next_earnings else None,
         "beta": row.beta,
         "eps_quarter_history": eps_quarter_history,
         "annual_eps_history": annual_eps_history,
@@ -440,6 +451,7 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
     if not annual_revenue_history:
         annual_revenue_history = _single_annual_revenue_history(row.annual_revenue_growth_pct, row.as_of)
     roe_history = _roe_history_from_metadata(row.metadata_json)
+    next_earnings = _next_earnings_date(row)
     return StockFundamentalsItem(
         ticker=row.ticker,
         as_of=row.as_of.isoformat(),
@@ -454,7 +466,7 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
         trailing_eps=row.trailing_eps,
         quarterly_eps_accelerating=row.quarterly_eps_accelerating,
         quarterly_revenue_accelerating=row.quarterly_revenue_accelerating,
-        next_earnings_date=row.next_earnings_date.isoformat() if row.next_earnings_date else None,
+        next_earnings_date=next_earnings.isoformat() if next_earnings else None,
         beta=row.beta,
         eps_quarter_history=eps_quarter_history,
         annual_eps_history=annual_eps_history,
@@ -462,6 +474,15 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
         annual_revenue_history=annual_revenue_history,
         roe_history=roe_history,
     )
+
+
+def _next_earnings_date(row: FundamentalSnapshotRow) -> date | None:
+    if row.next_earnings_date is not None and row.next_earnings_date >= date.today():
+        return row.next_earnings_date
+    try:
+        return earnings_repository.next_earnings_date(row.ticker)
+    except earnings_repository.EarningsRepositoryUnavailable:
+        return row.next_earnings_date
 
 
 def _eps_history_from_metadata(metadata: dict | None) -> list[dict[str, Any]]:

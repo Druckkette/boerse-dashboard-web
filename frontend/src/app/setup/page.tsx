@@ -492,6 +492,8 @@ function freshnessLabel(name: string) {
     trend_benchmark: "Trend-Ampel Benchmark",
     market_breadth: "Marktbreite",
     relative_strength: "Relative Stärke",
+    fundamentals_tracked: "Fundamentaldaten",
+    earnings_calendar: "Earnings-Kalender",
     institutional_13f: "13F/SEC Trends",
     sell_ranking: "Positionsmonitor"
   };

@@ -230,10 +230,14 @@ export function SettingsPanel() {
                   value={settings.rs_rating_source}
                   onChange={(event) => update("rs_rating_source", event.target.value as AppSettings["rs_rating_source"])}
                 >
-                  <option value="computed">Computed aus Kursdaten</option>
-                  <option value="csv_latest">CSV Latest</option>
+                  <option value="computed">Aus aktuellem Price-Cache berechnen</option>
+                  <option value="csv_latest">Externe GitHub-CSV übernehmen</option>
                 </select>
               </Field>
+              <p className="text-xs leading-5 text-[#687386] md:col-span-2">
+                Die gewählte Quelle gilt für Worker, Rankings und Aktienbewertung. Bei der externen CSV
+                wird deren eigenes Datenstand-Datum übernommen; eine veraltete Datei wird nicht als aktuell markiert.
+              </p>
             </div>
           </SettingCard>
 

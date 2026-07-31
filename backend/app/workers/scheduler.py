@@ -42,15 +42,53 @@ def get_beat_schedule() -> dict:
     return {
         "smart-market-refresh-afternoon": {
             "task": "smart_refresh_market_data",
-            "schedule": crontab(hour=16, minute=0),
+            "schedule": crontab(hour=16, minute=0, day_of_week="1-5"),
             "args": (None, {**SMART_REFRESH_PAYLOAD, "scheduled_window": "afternoon"}),
             "options": {"expires": 6 * 60 * 60},
         },
         "smart-market-refresh-evening": {
             "task": "smart_refresh_market_data",
-            "schedule": crontab(hour=22, minute=30),
+            "schedule": crontab(hour=22, minute=30, day_of_week="1-5"),
             "args": (None, {**SMART_REFRESH_PAYLOAD, "scheduled_window": "evening"}),
             "options": {"expires": 6 * 60 * 60},
+        },
+        "earnings-calendar-before-afternoon-refresh": {
+            "task": "refresh_earnings_calendar",
+            "schedule": crontab(hour=15, minute=50, day_of_week="1-5"),
+            "args": (None, {"mode": "scheduled", "source": "scheduler"}),
+            "options": {"expires": 60 * 60},
+        },
+        "earnings-calendar-before-evening-refresh": {
+            "task": "refresh_earnings_calendar",
+            "schedule": crontab(hour=22, minute=20, day_of_week="1-5"),
+            "args": (None, {"mode": "scheduled", "source": "scheduler"}),
+            "options": {"expires": 60 * 60},
+        },
+        "smart-market-refresh-afternoon-repair": {
+            "task": "smart_refresh_market_data",
+            "schedule": crontab(hour=18, minute=45, day_of_week="1-5"),
+            "args": (
+                None,
+                {
+                    **SMART_REFRESH_PAYLOAD,
+                    "mode": "repair",
+                    "scheduled_window": "afternoon_repair",
+                },
+            ),
+            "options": {"expires": 4 * 60 * 60},
+        },
+        "smart-market-refresh-evening-repair": {
+            "task": "smart_refresh_market_data",
+            "schedule": crontab(hour=1, minute=15, day_of_week="2-6"),
+            "args": (
+                None,
+                {
+                    **SMART_REFRESH_PAYLOAD,
+                    "mode": "repair",
+                    "scheduled_window": "evening_repair",
+                },
+            ),
+            "options": {"expires": 4 * 60 * 60},
         },
         "position-atr-monitor": {
             "task": "position_atr_monitor",

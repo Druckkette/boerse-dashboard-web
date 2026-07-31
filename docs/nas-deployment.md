@@ -63,16 +63,30 @@ RS ratings, institutional 13F data and the ATR position monitor path where neede
 started when reports are missing or stale, so it is not downloaded on every daily market refresh.
 You do not have to copy CSV files into a container or run `curl` commands manually.
 
-The scheduler runs the same smart refresh automatically at 16:00 and 22:30 Europe/Berlin time.
+The scheduler runs the same smart refresh automatically at 16:00 and 22:30 Europe/Berlin time on
+US trading weekdays.
 Scheduled runs force the market-data path, so price cache, breadth snapshots and RS ratings are
 rebuilt even if the generic freshness window still marks yesterday's data as fresh.
 Each run resolves the complete stored US common-stock universe (up to 10,000 members), fetches only
 the missing trading days in yfinance batches, and then computes one complete Breadth and RS
 snapshot. A single-stock page refresh never overwrites this universe-wide RS percentile.
-Fundamentals are different from daily market data: the NAS processes at most 250 oldest or missing
-snapshots per run and rotates the full universe over a 14-day freshness window. Opening a stock
-checks its price once per browser session and refreshes stale/missing fundamentals for that ticker
+The freshness check follows the NYSE calendar and requires at least 98% current universe coverage
+plus the complete set of index, volatility, equal-weight and sector helper symbols. If this quality
+gate fails, Breadth and locally computed RS are not rebuilt from a partial price set.
+
+When `FMP_API_KEY` is configured, the Earnings Calendar runs at 15:50 and 22:20, immediately before
+the two main refreshes. Fundamentals are different from market prices: the NAS processes at most
+250 oldest or missing snapshots per run and rotates the full universe over a 14-day freshness
+window. Companies with earnings from three days ago through tomorrow are refreshed first, even if
+their snapshot would otherwise still be considered fresh. Opening a stock checks its price once
+per expected NYSE session in the browser and refreshes stale/missing fundamentals for that ticker
 once per Berlin calendar day. 13F data remains quarterly freshness-gated.
+
+The RS source is selectable in Settings. `computed` is the NAS-local calculation from cached prices
+and is the recommended default. `csv_latest` imports the published GitHub CSV; its embedded
+`as_of_date` is authoritative, so a stale source file cannot make the dashboard appear current.
+Freshness-only repair runs at 18:45 and 01:15 retry missing stages after the two main windows; they
+do not force another complete universe refresh when the quality gates are already green.
 The market page itself only reads prepared Postgres snapshots and does not start live yfinance or
 breadth recalculations while you open the dashboard.
 

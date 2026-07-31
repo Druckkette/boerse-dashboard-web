@@ -6,6 +6,7 @@ from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import jobs as job_repository
+from app.services.earnings import earnings_priority_tickers
 from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.workspace import get_workspace_state
 from app.services.universes import resolve_universe_tickers
@@ -36,12 +37,14 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
     )
     freshness_days = _normalize_freshness_days(payload.get("fundamental_freshness_days"))
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
+    priority_tickers = earnings_priority_tickers()
     selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
         tickers,
         latest_states=latest_states,
         incremental=incremental,
         max_refresh_count=max_refresh_count,
         freshness_days=freshness_days,
+        priority_tickers=priority_tickers,
     )
     fail_fast = bool(payload.get("fail_fast", False))
     result: dict = {
@@ -63,6 +66,9 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         "records_seen": 0,
         "records_written": 0,
         "items": [],
+        "earnings_priority_tickers": [
+            ticker for ticker in selected_tickers if ticker in set(priority_tickers)
+        ],
     }
 
     job_repository.mark_running(job.job_id, step="Fundamental-Refresh startet")
@@ -210,12 +216,18 @@ def _select_fundamental_work(
     incremental: bool,
     max_refresh_count: int,
     freshness_days: int,
+    priority_tickers: list[str] | None = None,
 ) -> tuple[list[str], int, int]:
     freshness_cutoff = date.today() - timedelta(days=max(0, freshness_days - 1))
     if not incremental:
         selected = tickers[:max_refresh_count]
         return selected, 0, max(0, len(tickers) - len(selected))
 
+    priority = {
+        ticker.strip().upper()
+        for ticker in (priority_tickers or [])
+        if ticker.strip()
+    }
     skipped_current_count = 0
     pending: list[str] = []
     for ticker in tickers:
@@ -226,13 +238,14 @@ def _select_fundamental_work(
             and latest_state.latest_date >= freshness_cutoff
             and latest_state.complete
         )
-        if is_current:
+        if is_current and ticker not in priority:
             skipped_current_count += 1
             continue
         pending.append(ticker)
 
     pending.sort(
         key=lambda ticker: (
+            0 if ticker in priority else 1,
             latest_states[ticker].latest_date
             if ticker in latest_states and latest_states[ticker].latest_date is not None
             else date.min,

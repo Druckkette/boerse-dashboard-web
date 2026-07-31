@@ -204,6 +204,27 @@ class FundamentalSnapshot(Base):
     )
 
 
+class EarningsEvent(Base):
+    __tablename__ = "earnings_events"
+    __table_args__ = (
+        UniqueConstraint("ticker", "event_date", "source", name="uq_earnings_event"),
+        Index("ix_earnings_events_date_ticker", "event_date", "ticker"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    event_date: Mapped[date] = mapped_column(Date, index=True)
+    fiscal_date_ending: Mapped[date | None] = mapped_column(Date)
+    time: Mapped[str] = mapped_column(String(16), default="")
+    eps_estimated: Mapped[float | None] = mapped_column(Float)
+    eps_actual: Mapped[float | None] = mapped_column(Float)
+    revenue_estimated: Mapped[float | None] = mapped_column(Float)
+    revenue_actual: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(32), default="fmp")
+    raw_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Position(Base):
     __tablename__ = "positions"
 

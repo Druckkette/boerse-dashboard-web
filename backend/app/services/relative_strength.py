@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.domain.stocks.relative_strength import compute_relative_strength_ratings
+from app.data_sources.rs_csv_client import DEFAULT_RS_CSV_URL, fetch_external_rs_ratings
 from app.repositories import market as market_repository
 from app.repositories import relative_strength as rs_repository
+from app.repositories import settings as settings_repository
 from app.repositories.relative_strength import (
     RelativeStrengthRepositoryUnavailable,
     RsRatingRow,
@@ -17,6 +20,88 @@ from app.schemas import RsLinePoint, RsRatingDetailResponse, RsRatingItem, RsRat
 DEFAULT_RS_BENCHMARK_TICKER = "SPY"
 DEFAULT_RS_SOURCE = "computed"
 DEFAULT_RS_LOOKBACK_DAYS = 430
+SUPPORTED_RS_SOURCES = {"computed", "csv_latest"}
+
+
+def configured_rs_source() -> str:
+    try:
+        value = settings_repository.read_settings().get("rs_rating_source")
+    except settings_repository.SettingsRepositoryUnavailable:
+        value = None
+    clean = str(value or DEFAULT_RS_SOURCE).strip().lower()
+    return clean if clean in SUPPORTED_RS_SOURCES else DEFAULT_RS_SOURCE
+
+
+def refresh_selected_relative_strength_ratings(
+    *,
+    tickers: list[str] | None = None,
+    benchmark_ticker: str = DEFAULT_RS_BENCHMARK_TICKER,
+    lookback_days: int = DEFAULT_RS_LOOKBACK_DAYS,
+    source: str | None = None,
+) -> dict:
+    selected_source = str(source or configured_rs_source()).strip().lower()
+    if selected_source == "csv_latest":
+        return refresh_external_relative_strength_ratings(tickers=tickers)
+    return refresh_relative_strength_ratings(
+        tickers=tickers,
+        benchmark_ticker=benchmark_ticker,
+        lookback_days=lookback_days,
+        source=DEFAULT_RS_SOURCE,
+    )
+
+
+def refresh_external_relative_strength_ratings(
+    *,
+    tickers: list[str] | None = None,
+    url: str = DEFAULT_RS_CSV_URL,
+) -> dict:
+    requested = set(_normalize_tickers(tickers or []))
+    rows = fetch_external_rs_ratings(url=url)
+    if requested:
+        rows = [row for row in rows if row.ticker in requested]
+    if not rows:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Die RS CSV enthält keine Ratings für das ausgewählte Universum.",
+            "source": "csv_latest",
+            "records_written": 0,
+        }
+
+    as_of = max(row.as_of for row in rows)
+    current = [row for row in rows if row.as_of == as_of]
+    universe_size = len(current)
+    writes = [
+        RsRatingWrite(
+            ticker=row.ticker,
+            date=row.as_of,
+            rating=row.rating,
+            score=row.score,
+            percentile=float(row.rating),
+            method="external_csv",
+            source="csv_latest",
+            universe_size=universe_size,
+            metadata_json={
+                "data_as_of": row.as_of.isoformat(),
+                "generated_at_utc": row.generated_at,
+                "external_source": row.source,
+                "external_universe": row.universe,
+                "url": url,
+            },
+        )
+        for row in current
+    ]
+    records_written = rs_repository.upsert_rs_ratings(writes)
+    return {
+        "ok": True,
+        "source": "csv_latest",
+        "as_of": as_of.isoformat(),
+        "universe_size": universe_size,
+        "ratings_count": len(writes),
+        "records_seen": len(rows),
+        "records_written": records_written,
+        "url": url,
+    }
 
 
 def refresh_relative_strength_ratings(
@@ -82,9 +167,10 @@ def refresh_relative_strength_ratings(
 
 def get_relative_strength_ranking(*, limit: int = 100) -> RsRatingRankingResponse:
     clean_limit = max(1, min(500, limit))
+    selected_source = configured_rs_source()
     try:
-        total_count = rs_repository.count_latest_rs_ratings(source=DEFAULT_RS_SOURCE)
-        rows = rs_repository.list_latest_rs_ratings(limit=clean_limit, source=DEFAULT_RS_SOURCE)
+        total_count = rs_repository.count_latest_rs_ratings(source=selected_source)
+        rows = rs_repository.list_latest_rs_ratings(limit=clean_limit, source=selected_source)
     except RelativeStrengthRepositoryUnavailable:
         total_count = 0
         rows = []
@@ -100,7 +186,7 @@ def get_relative_strength_ranking(*, limit: int = 100) -> RsRatingRankingRespons
 
     return RsRatingRankingResponse(
         as_of=rows[0].date.isoformat(),
-        source="database",
+        source=selected_source,
         total_count=total_count,
         limit=clean_limit,
         rows=[_row_to_schema(row, include_history=False) for row in rows],
@@ -108,14 +194,28 @@ def get_relative_strength_ranking(*, limit: int = 100) -> RsRatingRankingRespons
 
 
 def get_relative_strength_for_ticker(ticker: str) -> RsRatingDetailResponse:
+    selected_source = configured_rs_source()
     try:
-        row = rs_repository.get_latest_rs_rating(ticker, source=DEFAULT_RS_SOURCE)
+        row = rs_repository.get_latest_rs_rating(ticker, source=selected_source)
     except RelativeStrengthRepositoryUnavailable:
         row = None
 
     if row is None:
         return RsRatingDetailResponse(found=False, source="missing", item=None)
-    return RsRatingDetailResponse(found=True, source="database", item=_row_to_schema(row, include_history=True))
+    if row.source != DEFAULT_RS_SOURCE:
+        try:
+            computed = rs_repository.get_latest_rs_rating(ticker, source=DEFAULT_RS_SOURCE)
+        except RelativeStrengthRepositoryUnavailable:
+            computed = None
+        if computed is not None:
+            row = replace(
+                row,
+                metadata_json={
+                    **dict(computed.metadata_json or {}),
+                    **dict(row.metadata_json or {}),
+                },
+            )
+    return RsRatingDetailResponse(found=True, source=selected_source, item=_row_to_schema(row, include_history=True))
 
 
 def _row_to_schema(row: RsRatingRow, *, include_history: bool = False) -> RsRatingItem:

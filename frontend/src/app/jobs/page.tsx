@@ -24,6 +24,7 @@ const jobTypes: { type: JobType; label: string; description: string }[] = [
   { type: "refresh_breadth", label: "Market Breadth", description: "Marktbreite und Snapshot berechnen" },
   { type: "refresh_relative_strength", label: "RS Ratings", description: "Relative-Stärke-Ranking berechnen" },
   { type: "refresh_fundamentals", label: "Fundamentals", description: "Fundamentaldaten je Aktie laden" },
+  { type: "refresh_earnings_calendar", label: "Earnings-Kalender", description: "FMP-Berichtstermine laden und Aktien priorisieren" },
   { type: "refresh_stock_detail", label: "Stock Detail", description: "Eine Aktie vollständig aktualisieren" },
   { type: "refresh_universe", label: "Aktienuniversum", description: "US-Common-Stocks-Liste aktualisieren" },
   { type: "yahoo_symbol_diagnostics", label: "Yahoo Diagnose", description: "Ticker-Mapping nur prüfen" },
@@ -1553,6 +1554,7 @@ function defaultPayloadForJob(type: JobType): Record<string, unknown> {
     return { mode: "manual", lookback_days: 430, universe: "us_common_stocks", limit_universe: 10000 };
   }
   if (type === "refresh_fundamentals") return { mode: "manual", include_holders: true };
+  if (type === "refresh_earnings_calendar") return { mode: "manual", source: "dashboard" };
   if (type === "refresh_stock_detail") {
     return { ticker: "AAPL", source: "dashboard", range: "2y", benchmark_ticker: "SPY", include_13f: true };
   }

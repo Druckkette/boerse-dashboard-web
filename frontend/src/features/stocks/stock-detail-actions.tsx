@@ -18,7 +18,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   const [positionSaved, setPositionSaved] = useState(false);
   const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
   const handledRefreshJobId = useRef<string | null>(null);
-  const autoPriceRefreshTicker = useRef<string | null>(null);
+  const autoPriceRefreshKey = useRef<string | null>(null);
   const autoDetailRefreshKey = useRef<string | null>(null);
 
   const workspaceQuery = useQuery({ queryKey: workspaceKey, queryFn: api.workspace, staleTime: 30_000 });
@@ -147,7 +147,8 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
     mutationFn: () => api.refreshStockPrices(clean, "1y"),
     onSuccess: (payload) => {
       if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(`stock-detail-price-refresh:${clean}`, "1");
+        const expectedAsOf = payload.history.expected_as_of || berlinDate();
+        window.sessionStorage.setItem(`stock-detail-price-refresh:${clean}:${expectedAsOf}`, "1");
       }
       queryClient.setQueryData(["stock-prices", clean, "1y"], payload.history);
       void queryClient.invalidateQueries({ queryKey: ["stock-assessment", clean] });
@@ -169,13 +170,15 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   }, [clean, queryClient, refreshJobQuery.data]);
 
   useEffect(() => {
-    if (!clean || autoPriceRefreshTicker.current === clean || refreshPriceMutation.isPending) return;
+    if (!clean || priceQuery.isLoading || refreshPriceMutation.isPending) return;
     if (typeof window === "undefined") return;
-    const storageKey = `stock-detail-price-refresh:${clean}`;
+    const expectedAsOf = priceQuery.data?.expected_as_of || berlinDate();
+    const storageKey = `stock-detail-price-refresh:${clean}:${expectedAsOf}`;
     if (window.sessionStorage.getItem(storageKey)) return;
-    autoPriceRefreshTicker.current = clean;
+    if (autoPriceRefreshKey.current === storageKey) return;
+    autoPriceRefreshKey.current = storageKey;
     refreshPriceMutation.mutate();
-  }, [clean, refreshPriceMutation]);
+  }, [clean, priceQuery.data?.expected_as_of, priceQuery.isLoading, refreshPriceMutation]);
 
   const loadingPrice = assessmentQuery.isLoading || priceQuery.isLoading;
   const canSavePosition = Boolean(clean && positionDefaults.price && !savePositionMutation.isPending);

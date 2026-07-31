@@ -897,6 +897,8 @@ export type PriceHistory = {
   source: "database" | "missing";
   data_status: "fresh" | "stale" | "missing" | "fallback";
   as_of: string;
+  expected_as_of: string;
+  session_phase: "intraday" | "closed" | "fallback";
   first_date?: string | null;
   last_date?: string | null;
   cache_updated_at?: string | null;
@@ -1517,6 +1519,7 @@ export type JobType =
   | "refresh_breadth"
   | "refresh_relative_strength"
   | "refresh_fundamentals"
+  | "refresh_earnings_calendar"
   | "refresh_stock_detail"
   | "refresh_universe"
   | "refresh_sec13f"

@@ -485,6 +485,8 @@ class PriceHistoryResponse(BaseModel):
     source: Literal["database", "missing"]
     data_status: Literal["fresh", "stale", "missing", "fallback"]
     as_of: str
+    expected_as_of: str = ""
+    session_phase: Literal["intraday", "closed", "fallback"] = "closed"
     first_date: str | None = None
     last_date: str | None = None
     cache_updated_at: datetime | None = None
@@ -1372,6 +1374,7 @@ JobType = Literal[
     "refresh_breadth",
     "refresh_relative_strength",
     "refresh_fundamentals",
+    "refresh_earnings_calendar",
     "refresh_stock_detail",
     "refresh_universe",
     "refresh_sec13f",

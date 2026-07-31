@@ -41,6 +41,7 @@ celery_app.conf.update(
         "app.workers.tasks.refresh_breadth",
         "app.workers.tasks.refresh_relative_strength",
         "app.workers.tasks.refresh_fundamentals",
+        "app.workers.tasks.refresh_earnings_calendar",
         "app.workers.tasks.refresh_stock_detail",
         "app.workers.tasks.refresh_universe",
         "app.workers.tasks.refresh_sec13f",

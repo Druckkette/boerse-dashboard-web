@@ -14,6 +14,7 @@ from app.repositories.prices import (
     upsert_price_bars,
 )
 from app.schemas import PriceBarPoint, PriceHistoryResponse, PriceRefreshResponse
+from app.services.market_calendar import expected_us_market_session
 
 
 PriceRange = Literal["1m", "3m", "6m", "1y", "2y", "5y"]
@@ -410,14 +411,20 @@ def _build_response(
     if first_close and last_close:
         change_pct = (last_close / first_close - 1) * 100
 
+    expected_session = expected_us_market_session()
     as_of = points[-1].date if points else datetime.now(UTC).date().isoformat()
+    data_status = "missing"
+    if source != "missing":
+        data_status = "fresh" if points and points[-1].date >= expected_session.date.isoformat() else "stale"
     return PriceHistoryResponse(
         ticker=ticker,
         name=ticker,
         range=range_key,
         source=source,
-        data_status="missing" if source == "missing" else "fresh",
+        data_status=data_status,
         as_of=as_of,
+        expected_as_of=expected_session.date.isoformat(),
+        session_phase=expected_session.phase,
         first_date=points[0].date if points else None,
         last_date=points[-1].date if points else None,
         cache_updated_at=cache_updated_at,

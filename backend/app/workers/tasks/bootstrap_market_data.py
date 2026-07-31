@@ -13,7 +13,10 @@ from app.domain.sell.service import monitor_open_positions
 from app.repositories import jobs as job_repository
 from app.services.market import refresh_market_breadth
 from app.services.prices import PriceRange, PriceRefreshSymbol, refresh_price_cache_for_symbols
-from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
+from app.services.relative_strength import (
+    DEFAULT_RS_BENCHMARK_TICKER,
+    refresh_selected_relative_strength_ratings as refresh_relative_strength_ratings,
+)
 from app.services.universes import (
     refresh_us_common_stock_universe,
     resolve_universe_price_symbols,
@@ -179,7 +182,7 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
                 tickers=universe_tickers,
                 benchmark_ticker=benchmark_ticker,
                 lookback_days=rs_lookback_days,
-                source="computed",
+                source=payload.get("rating_source"),
             )
             result["relative_strength"] = _compact_step_result(rs_result)
             result["steps"].append("relative_strength")

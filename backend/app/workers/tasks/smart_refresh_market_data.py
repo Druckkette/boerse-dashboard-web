@@ -17,11 +17,16 @@ from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import jobs as job_repository
 from app.repositories import portfolio as portfolio_repository
 from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFreshness, UniverseStatusResponse
+from app.services.earnings import earnings_priority_tickers, refresh_earnings_calendar
 from app.services.freshness import get_freshness
 from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.market import refresh_market_breadth
 from app.services.prices import PriceRange, PriceRefreshSymbol, refresh_price_cache_for_symbols
-from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_ratings
+from app.services.relative_strength import (
+    DEFAULT_RS_BENCHMARK_TICKER,
+    configured_rs_source,
+    refresh_selected_relative_strength_ratings as refresh_relative_strength_ratings,
+)
 from app.services.sec13f import refresh_institutional_13f_from_sec
 from app.services.settings import get_data_diagnostics, get_runtime_config_value
 from app.services.universes import (
@@ -121,6 +126,17 @@ def smart_refresh_market_data(self, job_id: str | None = None, payload: dict | N
         total = max(1, len(actions))
         for index, action in enumerate(actions, start=1):
             raise_if_cancelled(job.job_id)
+            if _depends_on_publishable_prices(action) and not _price_result_publishable(result):
+                result["skipped"].append(
+                    {
+                        "key": action.key,
+                        "reason": (
+                            "Übersprungen: Der Price-Cache hat für den erwarteten Handelstag "
+                            "noch nicht die erforderliche Abdeckung erreicht."
+                        ),
+                    }
+                )
+                continue
             progress = min(92, 8 + int((index - 1) / total * 82))
             job_repository.update_progress(
                 job.job_id,
@@ -176,6 +192,7 @@ def build_smart_refresh_plan(
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
     breadth_lookback_days = _normalize_days(payload.get("breadth_lookback_days") or payload.get("lookback_days") or 550)
     rs_lookback_days = _normalize_days(payload.get("rs_lookback_days") or 430)
+    rating_source = str(payload.get("rating_source") or configured_rs_source()).strip().lower()
     price_range = _normalize_range(payload.get("range") or "6m")
     initial_price_range = _normalize_range(payload.get("initial_range") or payload.get("price_range") or "2y")
     price_provider_timeout_seconds = _normalize_seconds(
@@ -225,6 +242,7 @@ def build_smart_refresh_plan(
     rs_freshness = freshness_by_name.get("relative_strength")
     sell_ranking_freshness = freshness_by_name.get("sell_ranking")
     fundamentals_freshness = freshness_by_name.get("fundamentals_tracked")
+    earnings_freshness = freshness_by_name.get("earnings_calendar")
     sec13f_freshness = freshness_by_name.get("institutional_13f")
     issue_by_key = {issue.key: issue for issue in diagnostics.issues}
 
@@ -373,7 +391,23 @@ def build_smart_refresh_plan(
                     "limit_universe": limit_universe,
                     "lookback_days": rs_lookback_days,
                     "benchmark_ticker": benchmark_ticker,
+                    "rating_source": rating_source,
                 },
+            )
+        )
+
+    if include_fundamentals and earnings_freshness is not None and get_runtime_config_value("FMP_API_KEY") and (
+        force_market_refresh
+        or _is_missing(earnings_freshness)
+        or _is_stale(earnings_freshness)
+    ):
+        actions.append(
+            SmartRefreshAction(
+                key="refresh_earnings_calendar",
+                job_type="refresh_earnings_calendar",
+                label="Earnings-Kalender aktualisieren",
+                reason="FMP-Termine priorisieren Fundamental-Updates rund um Quartalsberichte.",
+                payload={"mode": "smart", "source": "smart_refresh"},
             )
         )
 
@@ -480,8 +514,21 @@ def _run_action(
             tickers=tickers,
             benchmark_ticker=str(action.payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER),
             lookback_days=int(action.payload.get("lookback_days") or 430),
-            source="computed",
+            source=str(action.payload.get("rating_source") or configured_rs_source()),
         )
+    if action.job_type == "refresh_earnings_calendar":
+        api_key = get_runtime_config_value("FMP_API_KEY")
+        if not api_key:
+            return {"ok": False, "skipped": True, "reason": "FMP_API_KEY fehlt."}
+        try:
+            return refresh_earnings_calendar(api_key=api_key)
+        except RuntimeError as exc:
+            return {
+                "ok": False,
+                "partial": True,
+                "error_message": str(exc),
+                "reason": "Earnings-Kalender konnte nicht aktualisiert werden; übrige Refresh-Schritte laufen weiter.",
+            }
     if action.job_type == "position_atr_monitor":
         return monitor_open_positions(tickers=None)
     if action.job_type == "refresh_fundamentals":
@@ -624,6 +671,12 @@ def _refresh_prices(
     price_result["partial"] = price_result["success_count"] > 0 and price_result["failure_count"] > 0
     if price_result["success_count"] == 0:
         raise RuntimeError("Smart Refresh konnte keine Kursdaten aktualisieren.")
+    freshness = get_freshness()
+    price_freshness = next((item for item in freshness.services if item.name == "prices"), None)
+    price_result["publishable"] = bool(price_freshness and price_freshness.status == "fresh")
+    price_result["freshness"] = _service_freshness_payload(price_freshness)
+    if not price_result["publishable"]:
+        price_result["partial"] = True
     return price_result
 
 
@@ -658,12 +711,14 @@ def _refresh_fundamentals(
         max_value=6 * 60 * 60,
     )
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
+    priority_tickers = earnings_priority_tickers()
     selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
         tickers,
         latest_states=latest_states,
         incremental=incremental,
         max_refresh_count=max_refresh_count,
         freshness_days=freshness_days,
+        priority_tickers=priority_tickers,
     )
     fundamental_result: dict[str, Any] = {
         "ok": False,
@@ -684,6 +739,9 @@ def _refresh_fundamentals(
         "records_seen": 0,
         "records_written": 0,
         "max_action_seconds": max_action_seconds,
+        "earnings_priority_tickers": [
+            ticker for ticker in selected_tickers if ticker in set(priority_tickers)
+        ],
     }
     total_tickers = max(1, len(selected_tickers))
     base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
@@ -766,12 +824,18 @@ def _select_fundamental_work(
     incremental: bool,
     max_refresh_count: int,
     freshness_days: int,
+    priority_tickers: list[str] | None = None,
 ) -> tuple[list[str], int, int]:
     freshness_cutoff = datetime.now(UTC).date() - timedelta(days=max(0, freshness_days - 1))
     if not incremental:
         selected = tickers[:max_refresh_count]
         return selected, 0, max(0, len(tickers) - len(selected))
 
+    priority = {
+        ticker.strip().upper()
+        for ticker in (priority_tickers or [])
+        if ticker.strip()
+    }
     skipped_current_count = 0
     pending: list[str] = []
     for ticker in tickers:
@@ -782,13 +846,14 @@ def _select_fundamental_work(
             and latest_state.latest_date >= freshness_cutoff
             and latest_state.complete
         )
-        if is_current:
+        if is_current and ticker not in priority:
             skipped_current_count += 1
             continue
         pending.append(ticker)
 
     pending.sort(
         key=lambda ticker: (
+            0 if ticker in priority else 1,
             latest_states[ticker].latest_date
             if ticker in latest_states and latest_states[ticker].latest_date is not None
             else date.min,
@@ -797,6 +862,35 @@ def _select_fundamental_work(
     )
     selected = pending[:max_refresh_count]
     return selected, skipped_current_count, max(0, len(pending) - len(selected))
+
+
+def _depends_on_publishable_prices(action: SmartRefreshAction) -> bool:
+    if action.job_type == "refresh_breadth":
+        return True
+    return (
+        action.job_type == "refresh_relative_strength"
+        and str(action.payload.get("rating_source") or "computed") == "computed"
+    )
+
+
+def _price_result_publishable(result: dict[str, Any]) -> bool:
+    price_results = [
+        item
+        for key, item in result.get("results", {}).items()
+        if key == "refresh_market_prices" and isinstance(item, dict)
+    ]
+    return not price_results or all(bool(item.get("publishable")) for item in price_results)
+
+
+def _service_freshness_payload(item: ServiceFreshness | None) -> dict[str, Any]:
+    if item is None:
+        return {"status": "missing"}
+    return {
+        "status": item.status,
+        "as_of": item.as_of,
+        "detail": item.detail,
+        "metadata": item.metadata,
+    }
 
 
 def _latest_fundamental_states(tickers: list[str]) -> dict[str, Any]:

@@ -5,7 +5,8 @@ from app.repositories import jobs as job_repository
 from app.services.relative_strength import (
     DEFAULT_RS_BENCHMARK_TICKER,
     DEFAULT_RS_LOOKBACK_DAYS,
-    refresh_relative_strength_ratings,
+    configured_rs_source,
+    refresh_selected_relative_strength_ratings,
 )
 from app.services.universes import resolve_universe_tickers
 from app.workers.celery_app import celery_app
@@ -31,7 +32,7 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
     )
     benchmark_ticker = str(payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
     lookback_days = int(payload.get("lookback_days") or DEFAULT_RS_LOOKBACK_DAYS)
-    source = str(payload.get("rating_source") or "computed").strip() or "computed"
+    source = str(payload.get("rating_source") or configured_rs_source()).strip() or "computed"
 
     job_repository.mark_running(job.job_id, step="RS-Refresh startet")
     try:
@@ -51,10 +52,14 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
         job_repository.update_progress(
             job.job_id,
             progress=55,
-            step="RS-Scores berechnen",
-            message="Relative-Staerke-Linien und Universe-Percentiles werden aus gecachten Kursen berechnet.",
+            step="RS-Daten aktualisieren",
+            message=(
+                "Relative-Staerke-Linien und Percentiles werden aus gecachten Kursen berechnet."
+                if source == "computed"
+                else "Die ausgewählte externe RS CSV wird importiert."
+            ),
         )
-        result = refresh_relative_strength_ratings(
+        result = refresh_selected_relative_strength_ratings(
             tickers=tickers,
             benchmark_ticker=benchmark_ticker,
             lookback_days=lookback_days,

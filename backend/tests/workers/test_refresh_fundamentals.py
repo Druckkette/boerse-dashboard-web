@@ -247,6 +247,42 @@ def test_incremental_fundamentals_prioritize_missing_and_oldest_snapshots() -> N
     assert deferred == 1
 
 
+def test_incremental_fundamentals_force_due_earnings_to_front() -> None:
+    state = refresh_fundamentals_module.fundamentals_repository.FundamentalRefreshState
+    today = date.today()
+    selected, skipped, deferred = refresh_fundamentals_module._select_fundamental_work(
+        ["CURRENT", "DUE", "OLD"],
+        latest_states={
+            "CURRENT": state(
+                ticker="CURRENT",
+                latest_date=today,
+                complete=True,
+                missing_history_keys=[],
+            ),
+            "DUE": state(
+                ticker="DUE",
+                latest_date=today,
+                complete=True,
+                missing_history_keys=[],
+            ),
+            "OLD": state(
+                ticker="OLD",
+                latest_date=today - timedelta(days=30),
+                complete=True,
+                missing_history_keys=[],
+            ),
+        },
+        incremental=True,
+        max_refresh_count=1,
+        freshness_days=14,
+        priority_tickers=["DUE"],
+    )
+
+    assert selected == ["DUE"]
+    assert skipped == 1
+    assert deferred == 1
+
+
 def test_refresh_fundamentals_continues_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_refresh(ticker: str, *, include_holders: bool) -> dict:
         if ticker == "BAD":

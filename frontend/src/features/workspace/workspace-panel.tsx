@@ -271,5 +271,5 @@ function marketTone(phase?: string): Tone {
 }
 
 function freshnessLabel(name: string) {
-  return ({ prices: "Kurse", market_snapshot: "Marktstatus", trend_benchmark: "Trend-Benchmark", market_breadth: "Marktbreite", relative_strength: "Relative Stärke", fundamentals_tracked: "Fundamentaldaten", institutional_13f: "13F-Daten", sell_ranking: "Verkaufsmonitor" } as Record<string, string>)[name] ?? name;
+  return ({ prices: "Kurse", market_snapshot: "Marktstatus", trend_benchmark: "Trend-Benchmark", market_breadth: "Marktbreite", relative_strength: "Relative Stärke", fundamentals_tracked: "Fundamentaldaten", earnings_calendar: "Earnings-Kalender", institutional_13f: "13F-Daten", sell_ranking: "Verkaufsmonitor" } as Record<string, string>)[name] ?? name;
 }

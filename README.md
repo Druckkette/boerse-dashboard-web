@@ -151,19 +151,31 @@ The older individual jobs remain available under the expert tools section for di
 The setup and jobs pages store only UI preferences in the browser. The market data itself is stored
 in the Postgres Docker volume. You only need to repeat the full bootstrap when the database volume
 is empty, after a deliberate reset, or when you want to load a different universe or longer history.
-Normal updates should be handled by scheduler/worker jobs. The scheduler runs the smart refresh
-path at 16:00 and 22:30 Europe/Berlin time. Scheduled runs force the market-data path so price
-cache, breadth snapshots and RS ratings are rebuilt instead of being skipped by the normal
-freshness window.
+Normal updates should be handled by scheduler/worker jobs. On US trading weekdays the scheduler
+runs the smart refresh path at 16:00 and 22:30 Europe/Berlin time. Scheduled runs force the
+market-data path so price cache, breadth snapshots and RS ratings are rebuilt instead of being
+skipped by a generic age window.
 
 For the NAS, "current" is implemented by data class rather than by reloading every history:
 
 - At 16:00 and 22:30 Europe/Berlin, all members of the stored US universe are checked in yfinance
   batches. Existing symbols use a one-trading-day overlap, so only changed/new bars are upserted.
+- Freshness uses the NYSE trading calendar. During an open session the current session is expected;
+  before the open, on exchange holidays and weekends the latest completed session is expected.
+  Prices require at least 98% universe coverage plus all market helper symbols before dependent
+  Breadth/RS snapshots are published.
 - Breadth and RS are recomputed completely after the price stage. All rows of an RS run share one
   snapshot date, so rankings never collapse to a partially refreshed subset.
-- Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window. A stock opened
-  in the UI gets a targeted daily fundamentals check and an immediate incremental price check.
+- The RS source in Settings is effective end to end: `computed` derives RS from the current local
+  Price Cache; `csv_latest` imports the external GitHub CSV and preserves its own `as_of_date`.
+  An old external file is deliberately reported as stale.
+- At 15:50 and 22:20 the FMP Earnings Calendar is refreshed when an FMP key is configured.
+  Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window, while tickers
+  reporting from three days ago through tomorrow are forced to the front of the next batch.
+  A stock opened in the UI gets a targeted daily fundamentals check and an immediate incremental
+  price check.
+- At 18:45 and 01:15 a lightweight repair run checks the same quality gates. It does nothing when
+  all services are current and otherwise retries only missing or stale stages.
 - 13F remains quarterly freshness-gated because SEC filings do not change daily.
 - Expired scheduler messages and worker jobs without a heartbeat are released automatically instead
   of blocking the next scheduled or manual refresh.

@@ -53,6 +53,16 @@ from older to newer quarters.
 
 Revenue uses the same multi-period structure and thresholds, but without a trailing revenue sum criterion.
 
+## Earnings-driven refresh
+
+With `FMP_API_KEY` configured, `earnings_events` stores the FMP stable
+`/earnings-calendar` response for the window from five days ago through 120 days ahead. The
+scheduler refreshes this calendar at 15:50 and 22:20 Europe/Berlin. Tickers with an event from
+three days ago through tomorrow are forced to the front of the next incremental fundamentals
+batch. This catches newly published quarterly data without downloading statements for the entire
+universe twice per day. The per-ticker FMP stable `/earnings` call remains the fallback for a stock
+detail refresh.
+
 Quarterly revenue history is stored in `fundamental_snapshots.metadata_json.revenue_quarter_history`:
 
 ```json
