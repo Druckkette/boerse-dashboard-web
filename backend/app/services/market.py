@@ -128,8 +128,12 @@ def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOvervi
     if snapshot is None:
         return _missing_market_overview()
 
-    metrics = snapshot.metrics_json or {}
     trend_ampel = _market_trend_ampel_for_ticker(clean_ticker, lookback_days=550)
+    return _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
+
+
+def _build_market_overview_response(clean_ticker, snapshot, trend_ampel) -> MarketOverviewResponse:
+    metrics = snapshot.metrics_json or {}
     if trend_ampel is None and clean_ticker == MARKET_TREND_BENCHMARK:
         trend_ampel = _trend_ampel_from_metrics(metrics)
     phase = trend_ampel.phase if trend_ampel else _normalize_phase(snapshot.ampel_phase)
@@ -167,7 +171,16 @@ def get_market_ampel(
     if not points:
         return _missing_market_ampel(clean_ticker)
 
-    overview = get_market_overview(ticker=clean_ticker)
+    try:
+        snapshot = market_repository.get_latest_market_snapshot()
+    except MarketRepositoryUnavailable:
+        snapshot = None
+    trend_ampel = MarketTrendAmpel.model_validate(_trend_ampel_metrics(points[-1], ticker=clean_ticker))
+    overview = (
+        _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
+        if snapshot is not None
+        else _missing_market_overview()
+    )
     volatility = get_volatility()
     intermarket = _cached_intermarket_divergence()
     rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
@@ -1477,8 +1490,14 @@ def _latest_margin_debt_summary() -> dict:
 
 def _cached_intermarket_divergence() -> list[MarketIntermarketItem]:
     start_date = date.today() - timedelta(days=120)
-    series: dict[str, list[MarketOhlcvPoint]] = {}
-    for ticker in INTERMARKET_INDEXES:
+    tickers = list(INTERMARKET_INDEXES)
+    try:
+        series = market_repository.load_cached_ohlcv_for_tickers(tickers, start_date=start_date)
+    except MarketRepositoryUnavailable:
+        series = {}
+    for ticker in tickers:
+        if ticker in series:
+            continue
         rows, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
         series[ticker] = rows
     return compute_intermarket_divergence(series)

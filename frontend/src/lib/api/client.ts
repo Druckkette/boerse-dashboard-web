@@ -132,13 +132,20 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 
 async function safeFetch(path: string, init: RequestInit): Promise<Response> {
   const url = `${getApiBaseUrl()}${path}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
   try {
-    return await fetch(url, init);
+    return await fetch(url, { ...init, signal: init.signal ?? controller.signal });
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`API-Zeitlimit nach 45 Sekunden. Der Dienst antwortet zu langsam. Pfad: ${path}`);
+    }
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `API-Netzwerkfehler: ${detail}. Prüfe, ob Frontend-Proxy und FastAPI-Backend erreichbar sind. Pfad: ${path}`
     );
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

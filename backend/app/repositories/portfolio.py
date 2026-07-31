@@ -224,26 +224,26 @@ def upsert_isin_mappings(mappings: dict[str, str], *, source: str = "manual") ->
 def list_open_positions() -> list[PortfolioPositionRow]:
     try:
         with SessionLocal() as db:
-            positions = db.scalars(
-                select(Position).where(Position.is_open.is_(True)).order_by(Position.ticker.asc())
+            latest_price = (
+                select(PriceBar.close)
+                .where(
+                    PriceBar.instrument_id == Position.instrument_id,
+                    PriceBar.close.is_not(None),
+                )
+                .order_by(PriceBar.date.desc())
+                .limit(1)
+                .correlate(Position)
+                .scalar_subquery()
+            )
+            position_rows = db.execute(
+                select(Position, Instrument, latest_price.label("latest_price"))
+                .outerjoin(Instrument, Instrument.id == Position.instrument_id)
+                .where(Position.is_open.is_(True))
+                .order_by(Position.ticker.asc())
             ).all()
             rows: list[PortfolioPositionRow] = []
-            for position in positions:
-                instrument = None
-                if position.instrument_id:
-                    instrument = db.get(Instrument, position.instrument_id)
-                if instrument is None:
-                    instrument = db.scalars(select(Instrument).where(Instrument.ticker == position.ticker)).first()
-
-                latest_price = None
-                if instrument is not None:
-                    latest_price = db.scalars(
-                        select(PriceBar.close)
-                        .where(PriceBar.instrument_id == instrument.id, PriceBar.close.is_not(None))
-                        .order_by(PriceBar.date.desc())
-                        .limit(1)
-                    ).first()
-                current_price_source = "price_cache" if latest_price is not None else "position_entry"
+            for position, instrument, latest_close in position_rows:
+                current_price_source = "price_cache" if latest_close is not None else "position_entry"
 
                 rows.append(
                     PortfolioPositionRow(
@@ -251,7 +251,7 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                         name=(instrument.name if instrument and instrument.name else position.ticker),
                         shares=float(position.shares),
                         entry_price=float(position.buy_price),
-                        current_price=float(latest_price or position.buy_price),
+                        current_price=float(latest_close or position.buy_price),
                         currency=position.currency or "EUR",
                         buy_date=position.buy_date,
                         pivot_tag=position.pivot_tag,

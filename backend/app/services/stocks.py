@@ -10,6 +10,7 @@ from app.db.models import Instrument
 from app.db.session import SessionLocal
 from app.domain.stocks.assessment import StockAssessmentResult, compute_stock_assessment
 from app.repositories import fundamentals as fundamentals_repository
+from app.repositories import market as market_repository
 from app.repositories import earnings as earnings_repository
 from app.repositories import prices as price_repository
 from app.repositories import relative_strength as rs_repository
@@ -19,6 +20,7 @@ from app.repositories.fundamentals import (
     FundamentalSnapshotWrite,
     FundamentalsRepositoryUnavailable,
 )
+from app.repositories.market import MarketRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.repositories.relative_strength import RelativeStrengthRepositoryUnavailable, RsRatingRow
 from app.repositories.sec13f import Institutional13FTrendRow, Sec13FRepositoryUnavailable
@@ -177,9 +179,14 @@ def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAsses
         raise ValueError("Bitte mindestens zwei Ticker für den Aktienvergleich angeben.")
 
     items: list[StockAssessmentCompareItem] = []
-    for ticker in requested:
-        result, rs_row, rs_context = _build_assessment_result(ticker)
-        items.append(_to_compare_item(result, name=rs_row.name if rs_row else ticker, rs_context=rs_context))
+    for result, rs_row, rs_context in _build_assessment_results(requested):
+        items.append(
+            _to_compare_item(
+                result,
+                name=rs_row.name if rs_row else result.ticker,
+                rs_context=rs_context,
+            )
+        )
 
     items.sort(key=lambda item: (item.overall_score, item.technical_score, item.rs_rating or 0, item.ticker), reverse=True)
     ranked = [item.model_copy(update={"rank": index + 1}) for index, item in enumerate(items)]
@@ -215,23 +222,14 @@ def get_stock_assessment_ranking(*, limit: int = 50) -> StockAssessmentRankingRe
         )
 
     rows: list[StockAssessmentRankingItem] = []
-    for rs_row in rs_rows:
-        try:
-            bars = price_repository.list_price_bars(rs_row.ticker)
-        except PriceRepositoryUnavailable:
-            bars = []
-        fundamentals_row = _safe_latest_fundamentals(rs_row.ticker)
-        institutional_row = _safe_latest_13f(rs_row.ticker)
-        result = compute_stock_assessment(
-            rs_row.ticker,
-            bars,
-            rs_context=_rs_context(rs_row),
-            fundamentals_context=_fundamentals_context(fundamentals_row),
-            institutional_context=_institutional_context(institutional_row),
-        )
+    assessment_rows = _build_assessment_results(
+        [row.ticker for row in rs_rows],
+        primary_rs_rows={row.ticker: row for row in rs_rows},
+    )
+    for result, rs_row, _rs_context_data in assessment_rows:
         if result.source != "database":
             continue
-        rows.append(_to_ranking_item(result, rs_row.name))
+        rows.append(_to_ranking_item(result, rs_row.name if rs_row else result.ticker))
 
     rows.sort(key=lambda item: (item.overall_score, item.technical_score, item.rs_rating or 0), reverse=True)
     return StockAssessmentRankingResponse(
@@ -313,17 +311,22 @@ def update_stock_fundamentals(
     return StockFundamentalsResponse(ticker=clean, source="database", item=_fundamental_item(row))
 
 
-def _rs_context(row: RsRatingRow | None) -> dict:
+def _rs_context(
+    row: RsRatingRow | None,
+    *,
+    computed_row: RsRatingRow | None = None,
+    load_computed: bool = True,
+) -> dict:
     if row is None:
         return {}
     metadata = dict(row.metadata_json or {})
-    if row.source != "computed":
+    if row.source != "computed" and computed_row is None and load_computed:
         try:
-            computed = rs_repository.get_latest_rs_rating(row.ticker, source="computed")
+            computed_row = rs_repository.get_latest_rs_rating(row.ticker, source="computed")
         except RelativeStrengthRepositoryUnavailable:
-            computed = None
-        if computed is not None:
-            metadata = {**dict(computed.metadata_json or {}), **metadata}
+            computed_row = None
+    if row.source != "computed" and computed_row is not None:
+        metadata = {**dict(computed_row.metadata_json or {}), **metadata}
     return {
         "rating": row.rating,
         "percentile": row.percentile,
@@ -387,6 +390,68 @@ def _build_assessment_result(ticker: str) -> tuple[StockAssessmentResult, RsRati
         institutional_context=_institutional_context(_safe_latest_13f(clean)),
     )
     return result, rs_row, rs_context
+
+
+def _build_assessment_results(
+    tickers: list[str],
+    *,
+    primary_rs_rows: dict[str, RsRatingRow] | None = None,
+) -> list[tuple[StockAssessmentResult, RsRatingRow | None, dict]]:
+    clean_tickers = list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))
+    if not clean_tickers:
+        return []
+
+    try:
+        bars_by_ticker = market_repository.load_cached_ohlcv_for_tickers(
+            clean_tickers,
+            start_date=date(1900, 1, 1),
+        )
+    except MarketRepositoryUnavailable:
+        bars_by_ticker = {}
+    try:
+        fundamentals_by_ticker = fundamentals_repository.get_latest_fundamentals_for_tickers(clean_tickers)
+    except FundamentalsRepositoryUnavailable:
+        fundamentals_by_ticker = {}
+    try:
+        institutional_by_ticker = sec13f_repository.get_latest_trends_for_tickers(clean_tickers)
+    except Sec13FRepositoryUnavailable:
+        institutional_by_ticker = {}
+
+    selected_source = configured_rs_source()
+    if primary_rs_rows is None:
+        try:
+            primary_rs_rows = rs_repository.get_latest_rs_ratings_for_tickers(
+                clean_tickers,
+                source=selected_source,
+            )
+        except RelativeStrengthRepositoryUnavailable:
+            primary_rs_rows = {}
+    try:
+        computed_rs_rows = (
+            primary_rs_rows
+            if selected_source == "computed"
+            else rs_repository.get_latest_rs_ratings_for_tickers(clean_tickers, source="computed")
+        )
+    except RelativeStrengthRepositoryUnavailable:
+        computed_rs_rows = {}
+
+    results: list[tuple[StockAssessmentResult, RsRatingRow | None, dict]] = []
+    for ticker in clean_tickers:
+        rs_row = primary_rs_rows.get(ticker)
+        rs_context = _rs_context(
+            rs_row,
+            computed_row=computed_rs_rows.get(ticker),
+            load_computed=False,
+        )
+        result = compute_stock_assessment(
+            ticker,
+            bars_by_ticker.get(ticker, []),
+            rs_context=rs_context,
+            fundamentals_context=_fundamentals_context(fundamentals_by_ticker.get(ticker)),
+            institutional_context=_institutional_context(institutional_by_ticker.get(ticker)),
+        )
+        results.append((result, rs_row, rs_context))
+    return results
 
 
 def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:

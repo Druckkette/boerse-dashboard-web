@@ -946,7 +946,7 @@ export type RsRatingItem = {
 
 export type RsRatingRanking = {
   as_of: string;
-  source: "database" | "missing";
+  source: "computed" | "csv_latest" | "database" | "missing";
   total_count: number;
   limit: number;
   rows: RsRatingItem[];
@@ -954,7 +954,7 @@ export type RsRatingRanking = {
 
 export type RsRatingDetail = {
   found: boolean;
-  source: "database" | "missing";
+  source: "computed" | "csv_latest" | "database" | "missing";
   item?: RsRatingItem | null;
 };
 

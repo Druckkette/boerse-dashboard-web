@@ -146,7 +146,7 @@ export function StockAssessmentRankingPanel() {
 
       {query.isLoading ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Aktienbewertung-Ranking lädt...</div>
-      ) : rows.length === 0 ? (
+      ) : query.isError ? null : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">
           Die Tabelle wird gefüllt, sobald Kursdaten und RS Ratings vorhanden sind.
         </div>

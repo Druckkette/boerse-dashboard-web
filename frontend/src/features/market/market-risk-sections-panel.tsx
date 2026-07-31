@@ -28,7 +28,6 @@ export function MarketRiskSectionsPanel({
   const ampelQuery = useQuery({
     queryKey: ["market-risk-sections-ampel", ticker],
     queryFn: () => api.marketAmpel(ticker, 90),
-    placeholderData: (previous) => previous,
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });

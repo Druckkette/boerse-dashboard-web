@@ -118,7 +118,11 @@ def test_portfolio_positions_include_cached_atr(monkeypatch: pytest.MonkeyPatch)
     ]
     monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
     monkeypatch.setattr(portfolio_service.portfolio_repository, "get_cash_balance", lambda: 0.0)
-    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker: _price_bars())
+    monkeypatch.setattr(
+        portfolio_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, start_date=None: _price_bars(),
+    )
 
     positions = portfolio_service.get_portfolio_positions()
     snapshot = portfolio_service.get_portfolio_snapshot()
@@ -150,7 +154,11 @@ def test_portfolio_weights_include_cash_and_do_not_overstate_risk(
     ]
     monkeypatch.setattr(portfolio_service.portfolio_repository, "list_open_positions", lambda: rows)
     monkeypatch.setattr(portfolio_service.portfolio_repository, "get_cash_balance", lambda: 500.0)
-    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker: _price_bars())
+    monkeypatch.setattr(
+        portfolio_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, start_date=None: _price_bars(),
+    )
 
     position = portfolio_service.get_portfolio_positions()[0]
 

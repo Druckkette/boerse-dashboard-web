@@ -458,7 +458,9 @@ function DataDiagnosticsPanel({
           <p className="mt-2 text-sm leading-5 text-[#687386]">{data.summary}</p>
         </div>
         <button
+          aria-label="Datenqualität aktualisieren"
           className="flex size-9 items-center justify-center rounded-[9px] border border-[#d8e1ea] bg-white text-[#687386] transition hover:border-[#0f766e] hover:text-[#0f766e]"
+          title="Datenqualität aktualisieren"
           type="button"
           onClick={onRefresh}
         >
@@ -541,7 +543,7 @@ function SystemReadinessPanel({
 }) {
   if (isLoading) {
     return (
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+      <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-5 text-sm text-[#687386] shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         Systemstatus lädt...
       </section>
     );
@@ -549,28 +551,30 @@ function SystemReadinessPanel({
 
   if (!data) {
     return (
-      <section className="rounded border border-rose-300/30 bg-rose-300/10 p-5 text-sm text-rose-100">
+      <section className="rounded-[14px] border border-[#f0b9b5] bg-[#fff0ef] p-5 text-sm text-[#c2413b]">
         Systemstatus ist aktuell nicht erreichbar.
       </section>
     );
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-5 text-[#172033] shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <ServerCog className="text-sky-300" size={18} />
+            <ServerCog className="text-[#2563eb]" size={18} />
             <h2 className="text-base font-semibold">Systemstatus</h2>
           </div>
-          <p className="mt-2 text-sm leading-5 text-[#a0a7b4]">
+          <p className="mt-2 text-sm leading-5 text-[#687386]">
             DB, Migrationen und Redis werden ohne Seitenblockade geprüft.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <StatusChip tone={toneForReadiness(data.status)}>{readinessLabel(data.status)}</StatusChip>
           <button
-            className="flex size-9 items-center justify-center rounded border border-[#2d333d] bg-[#111419] transition hover:border-emerald-300/60"
+            aria-label="Systemstatus aktualisieren"
+            className="flex size-9 items-center justify-center rounded-[9px] border border-[#d8e1ea] bg-white text-[#687386] transition hover:border-[#0f766e] hover:text-[#0f766e]"
+            title="Systemstatus aktualisieren"
             type="button"
             onClick={onRefresh}
           >
@@ -594,16 +598,16 @@ function SystemCheckRow({ check }: { check: SystemReadinessCheck }) {
       : "";
 
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+    <div className="rounded-[10px] border border-[#e3e8ef] bg-[#f9fbfd] p-3 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-medium">{systemCheckLabel(check.name)}</div>
-          <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
-          {revision && <div className="mt-1 text-xs text-[#a0a7b4]">Revision {revision}</div>}
+          <div className="mt-1 text-xs leading-5 text-[#687386]">{check.detail}</div>
+          {revision && <div className="mt-1 text-xs text-[#687386]">Revision {revision}</div>}
         </div>
         <StatusChip tone={toneForSystemCheck(check.status)}>{systemStatusLabel(check.status)}</StatusChip>
       </div>
-      <div className="mt-2 flex items-center justify-between text-xs text-[#77808f]">
+      <div className="mt-2 flex items-center justify-between text-xs text-[#687386]">
         <span>{check.required ? "erforderlich" : "optional"}</span>
         <span>{check.latency_ms === null || check.latency_ms === undefined ? "-" : `${check.latency_ms} ms`}</span>
       </div>

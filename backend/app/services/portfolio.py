@@ -11,6 +11,7 @@ from app.data_sources.yfinance_client import fetch_after_hours_quotes
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import prices as prices_repository
 from app.repositories import fundamentals as fundamentals_repository
+from app.repositories import market as market_repository
 from app.repositories import relative_strength as relative_strength_repository
 from app.domain.portfolio.trade_republic import (
     TradeRepublicPosition as DomainTradeRepublicPosition,
@@ -27,6 +28,7 @@ from app.domain.portfolio.trade_republic import (
 from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.repositories.fundamentals import FundamentalsRepositoryUnavailable
+from app.repositories.market import MarketRepositoryUnavailable
 from app.repositories.relative_strength import RelativeStrengthRepositoryUnavailable
 from app.services.fx import (
     FxRate,
@@ -116,28 +118,56 @@ DEFAULT_BUY_STRENGTH_WEEKS = 3
 DEFAULT_PORTFOLIO_CURVE_DAYS = 370
 
 
-def get_portfolio_positions() -> list[PortfolioPosition]:
-    try:
-        rows = portfolio_repository.list_open_positions()
-    except PortfolioRepositoryUnavailable:
-        rows = []
+def get_portfolio_positions(
+    rows: list[portfolio_repository.PortfolioPositionRow] | None = None,
+) -> list[PortfolioPosition]:
+    if rows is None:
+        try:
+            rows = portfolio_repository.list_open_positions()
+        except PortfolioRepositoryUnavailable:
+            rows = []
     if not rows:
         return []
 
-    rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
+    tr_fx_rate = (
+        get_eur_usd_rate()
+        if any(
+            "trade republic" in str(row.broker or "").lower()
+            and str(row.currency or "").upper() == "EUR"
+            for row in rows
+        )
+        else None
+    )
+    rows = [_normalize_trade_republic_row_to_usd(row, fx_rate=tr_fx_rate) for row in rows]
     invested = sum(row.current_price * row.shares for row in rows)
     cash = _cash_balance_for_normalized_rows(rows)
     allocation_base = invested + cash
     if allocation_base <= 0:
         allocation_base = invested
-    market_atr_pct = _market_atr_pct()
+    tickers = list(dict.fromkeys([*(row.ticker for row in rows), "^GSPC", "SPY"]))
+    start_date = date.today() - timedelta(days=120)
+    try:
+        price_series = market_repository.load_cached_ohlcv_for_tickers(tickers, start_date=start_date)
+    except MarketRepositoryUnavailable:
+        price_series = {}
+    atr_by_ticker = {
+        ticker: _atr_pct_from_rows(points)
+        for ticker, points in price_series.items()
+    }
+    market_atr_pct = atr_by_ticker.get("^GSPC") or atr_by_ticker.get("SPY") or _market_atr_pct()
+    try:
+        fundamentals_by_ticker = fundamentals_repository.get_latest_fundamentals_for_tickers(tickers)
+    except FundamentalsRepositoryUnavailable:
+        fundamentals_by_ticker = {}
     positions: list[PortfolioPosition] = []
     for row in rows:
         market_value = row.current_price * row.shares
         pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
         pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
-        atr_pct = _atr_pct_for_ticker(row.ticker)
-        beta = _beta_for_ticker(row.ticker)
+        atr_pct = atr_by_ticker.get(row.ticker) or _atr_pct_for_ticker(row.ticker)
+        snapshot = fundamentals_by_ticker.get(row.ticker)
+        beta_value = _finite_float(snapshot.beta) if snapshot is not None else None
+        beta = round(beta_value, 4) if beta_value is not None and beta_value > 0 else _beta_for_ticker(row.ticker)
         weight_pct = market_value / allocation_base * 100 if allocation_base else 0
         beta_balancer_score = _beta_balancer_score(beta=beta, atr_pct=atr_pct, market_atr_pct=market_atr_pct)
         risk_contribution = _risk_contribution(weight_pct=weight_pct, beta_balancer_score=beta_balancer_score)
@@ -185,7 +215,7 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
     if not rows:
         return _empty_portfolio_snapshot()
 
-    positions = get_portfolio_positions()
+    positions = get_portfolio_positions(rows)
     invested = sum(position.market_value for position in positions)
     try:
         cash = portfolio_repository.get_cash_balance()
@@ -2103,9 +2133,16 @@ def _status_for_position(pnl_pct: float, atr_pct: float | None) -> str:
 
 def _atr_pct_for_ticker(ticker: str) -> float | None:
     try:
-        rows = prices_repository.list_price_bars(ticker)
+        rows = prices_repository.list_price_bars(
+            ticker,
+            start_date=date.today() - timedelta(days=120),
+        )
     except PriceRepositoryUnavailable:
         rows = []
+    return _atr_pct_from_rows(rows)
+
+
+def _atr_pct_from_rows(rows: list) -> float | None:
     if len(rows) < 15:
         return None
 

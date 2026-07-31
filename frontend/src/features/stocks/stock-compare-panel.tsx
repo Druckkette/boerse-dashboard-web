@@ -170,7 +170,7 @@ export function StockComparePanel() {
 
       {compareQuery.isLoading ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Aktienvergleich lädt...</div>
-      ) : tickers.length < 2 ? (
+      ) : compareQuery.isError ? null : tickers.length < 2 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Bitte mindestens zwei Ticker auswählen.</div>
       ) : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Noch keine Vergleichsdaten. Lade zuerst Prices und RS Ratings.</div>

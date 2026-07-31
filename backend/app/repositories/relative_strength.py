@@ -160,6 +160,36 @@ def get_latest_rs_rating(ticker: str, *, source: str | None = None) -> RsRatingR
         raise RelativeStrengthRepositoryUnavailable(str(exc)) from exc
 
 
+def get_latest_rs_ratings_for_tickers(
+    tickers: list[str],
+    *,
+    source: str | None = None,
+) -> dict[str, RsRatingRow]:
+    clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
+    if not clean_tickers:
+        return {}
+
+    try:
+        with SessionLocal() as db:
+            query = (
+                select(RsRating, Instrument)
+                .join(Instrument, Instrument.id == RsRating.instrument_id)
+                .where(Instrument.ticker.in_(clean_tickers))
+                .order_by(Instrument.ticker.asc(), RsRating.date.desc())
+            )
+            if source:
+                query = query.where(RsRating.source == source)
+            rows = db.execute(query).all()
+            latest: dict[str, RsRatingRow] = {}
+            for rating, instrument in rows:
+                ticker = str(instrument.ticker or "").upper()
+                if ticker and ticker not in latest:
+                    latest[ticker] = _row_to_dataclass(rating, instrument)
+            return latest
+    except SQLAlchemyError as exc:
+        raise RelativeStrengthRepositoryUnavailable(str(exc)) from exc
+
+
 def _row_to_dataclass(row: RsRating, instrument: Instrument) -> RsRatingRow:
     return RsRatingRow(
         ticker=instrument.ticker,

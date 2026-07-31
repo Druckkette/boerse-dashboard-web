@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { RsRatingItem } from "@/lib/types/api";
+import type { RsRatingItem, RsRatingRanking } from "@/lib/types/api";
 
 export function RsRankingPanel() {
   const router = useRouter();
@@ -32,6 +32,7 @@ export function RsRankingPanel() {
   const ranking = query.data;
   const rows = ranking?.rows ?? [];
   const totalCount = ranking?.total_count ?? 0;
+  const hasRanking = Boolean(ranking && ranking.source !== "missing");
   const startMutation = useMutation({
     mutationFn: () =>
       api.startJob({
@@ -112,11 +113,11 @@ export function RsRankingPanel() {
       onOpenChange={setOpen}
       summary={
         <>
-          <StatusChip tone={!query.isFetched ? "neutral" : ranking?.source === "database" ? "good" : "warning"}>
-            {!query.isFetched ? "nicht geladen" : ranking?.source === "database" ? "aktuell" : "Cache fehlt"}
+          <StatusChip tone={!query.isFetched ? "neutral" : hasRanking ? "good" : "warning"}>
+            {!query.isFetched ? "nicht geladen" : hasRanking ? sourceLabel(ranking?.source) : "Cache fehlt"}
           </StatusChip>
           <StatusChip tone="neutral">
-            {ranking?.source === "database" ? `${rows.length}/${totalCount || rows.length}` : `${limit} Limit`}
+            {hasRanking ? `${rows.length}/${totalCount || rows.length}` : `${limit} Limit`}
           </StatusChip>
         </>
       }
@@ -124,8 +125,8 @@ export function RsRankingPanel() {
       <div className="flex flex-col gap-3 border-b border-[#2d333d] p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="mt-1 text-sm text-[#a0a7b4]">
-            {ranking?.source === "database"
-              ? `${rows.length} angezeigt von ${totalCount || rows.length} aktuellen RS-Ratings · Stand ${ranking.as_of}`
+            {hasRanking
+              ? `${rows.length} angezeigt von ${totalCount || rows.length} aktuellen RS-Ratings · Stand ${ranking?.as_of ?? "-"}`
               : "Noch keine gespeicherten RS-Ratings. Erst Prices aktualisieren, dann RS Ratings starten."}
             <div className="mt-1 text-xs text-[#77808f]">
               Das Limit ist {limit}; die Datenbank kann mehr Ratings enthalten.
@@ -166,7 +167,7 @@ export function RsRankingPanel() {
 
       {query.isLoading ? (
         <div className="p-5 text-sm text-[#a0a7b4]">Relative-Stärke-Ranking lädt...</div>
-      ) : rows.length === 0 ? (
+      ) : query.isError ? null : rows.length === 0 ? (
         <div className="p-5 text-sm text-[#a0a7b4]">
           Die Tabelle wird gefüllt, sobald Prices und danach RS Ratings erfolgreich gelaufen sind.
         </div>
@@ -234,4 +235,11 @@ function toneForRating(value?: number | null): "good" | "neutral" | "warning" | 
   if (value >= 60) return "neutral";
   if (value >= 40) return "warning";
   return "bad";
+}
+
+function sourceLabel(source?: RsRatingRanking["source"]) {
+  if (source === "csv_latest") return "RS-Datenquelle CSV";
+  if (source === "computed") return "intern berechnet";
+  if (source === "database") return "aktuell";
+  return "Cache fehlt";
 }

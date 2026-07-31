@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import FundamentalSnapshot, Instrument, IsinMapping, PriceBar
@@ -32,20 +32,39 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
     missing_yahoo_tickers: list[str] = []
     ticker_mapping_events: list[DataQualityEvent] = []
     isin_mappings_count = 0
+    price_cache_tickers_count = 0
     try:
         with SessionLocal() as db:
-            latest_price_rows = db.execute(
-                select(Instrument.ticker, func.max(PriceBar.date))
-                .join(PriceBar, PriceBar.instrument_id == Instrument.id)
-                .where(PriceBar.close.is_not(None))
-                .group_by(Instrument.ticker)
-            ).all()
-            latest_by_ticker = {
-                str(ticker).upper(): price_date
-                for ticker, price_date in latest_price_rows
-                if ticker and price_date is not None
-            }
+            price_cache_tickers_count = int(
+                db.scalar(
+                    select(func.count())
+                    .select_from(Instrument)
+                    .where(
+                        exists(
+                            select(1).where(
+                                PriceBar.instrument_id == Instrument.id,
+                                PriceBar.close.is_not(None),
+                            )
+                        )
+                    )
+                )
+                or 0
+            )
             if open_tickers:
+                latest_price_rows = db.execute(
+                    select(Instrument.ticker, func.max(PriceBar.date))
+                    .join(PriceBar, PriceBar.instrument_id == Instrument.id)
+                    .where(
+                        Instrument.ticker.in_(open_tickers),
+                        PriceBar.close.is_not(None),
+                    )
+                    .group_by(Instrument.ticker)
+                ).all()
+                latest_by_ticker = {
+                    str(ticker).upper(): price_date
+                    for ticker, price_date in latest_price_rows
+                    if ticker and price_date is not None
+                }
                 fundamental_rows = db.execute(
                     select(FundamentalSnapshot.ticker, func.max(FundamentalSnapshot.as_of))
                     .where(FundamentalSnapshot.ticker.in_(open_tickers))
@@ -143,7 +162,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
         decision_status=decision_status,
         summary=_summary(decision_status, len(open_tickers), critical_count, warning_count),
         open_positions_count=len(open_tickers),
-        price_cache_tickers_count=len(latest_by_ticker),
+        price_cache_tickers_count=price_cache_tickers_count,
         missing_price_count=len(missing_price_tickers),
         stale_price_count=len(stale_price_tickers),
         missing_yahoo_symbol_count=len(missing_yahoo_tickers),

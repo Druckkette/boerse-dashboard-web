@@ -78,6 +78,34 @@ def test_external_rs_refresh_uses_provider_universe(monkeypatch: pytest.MonkeyPa
     assert captured["tickers"] is None
 
 
+def test_external_rs_ranking_accepts_configured_csv_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = RsRatingRow(
+        ticker="NVDA",
+        name="NVIDIA",
+        date=date(2026, 7, 30),
+        rating=99,
+        score=98.2,
+        percentile=99.0,
+        method="external_csv",
+        source="csv_latest",
+        universe_size=5910,
+        metadata_json={},
+    )
+    monkeypatch.setattr(service, "configured_rs_source", lambda: "csv_latest")
+    monkeypatch.setattr(service.rs_repository, "count_latest_rs_ratings", lambda source: 5910)
+    monkeypatch.setattr(
+        service.rs_repository,
+        "list_latest_rs_ratings",
+        lambda limit, source: [row],
+    )
+
+    result = service.get_relative_strength_ranking(limit=120)
+
+    assert result.source == "csv_latest"
+    assert result.total_count == 5910
+    assert result.rows[0].ticker == "NVDA"
+
+
 def _series(daily_growth: float, *, days: int = 320) -> list[ClosePoint]:
     start = date(2025, 1, 1)
     price = 100.0

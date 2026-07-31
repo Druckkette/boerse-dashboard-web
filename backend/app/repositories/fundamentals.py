@@ -84,6 +84,32 @@ def get_latest_fundamentals(ticker: str) -> FundamentalSnapshotRow | None:
         raise FundamentalsRepositoryUnavailable(str(exc)) from exc
 
 
+def get_latest_fundamentals_for_tickers(tickers: list[str]) -> dict[str, FundamentalSnapshotRow]:
+    clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
+    if not clean_tickers:
+        return {}
+
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(FundamentalSnapshot)
+                .where(FundamentalSnapshot.ticker.in_(clean_tickers))
+                .order_by(
+                    FundamentalSnapshot.ticker.asc(),
+                    FundamentalSnapshot.as_of.desc(),
+                    FundamentalSnapshot.updated_at.desc(),
+                )
+            ).all()
+            latest: dict[str, FundamentalSnapshotRow] = {}
+            for row in rows:
+                ticker = str(row.ticker or "").upper()
+                if ticker and ticker not in latest:
+                    latest[ticker] = _to_row(row)
+            return latest
+    except SQLAlchemyError as exc:
+        raise FundamentalsRepositoryUnavailable(str(exc)) from exc
+
+
 def latest_fundamental_dates(tickers: list[str]) -> dict[str, date]:
     clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
     if not clean_tickers:

@@ -34,7 +34,6 @@ export function MarketAmpelPanel({
   const query = useQuery({
     queryKey: ["market-ampel", ticker, days],
     queryFn: () => api.marketAmpel(ticker, days),
-    placeholderData: (previous) => previous,
     staleTime: 60_000,
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });

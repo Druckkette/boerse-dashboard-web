@@ -134,6 +134,33 @@ def get_latest_trend_for_ticker(ticker: str) -> Institutional13FTrendRow | None:
         raise Sec13FRepositoryUnavailable(str(exc)) from exc
 
 
+def get_latest_trends_for_tickers(tickers: list[str]) -> dict[str, Institutional13FTrendRow]:
+    clean_tickers = list(dict.fromkeys(str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()))
+    if not clean_tickers:
+        return {}
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(
+                select(Institutional13FTrend)
+                .where(
+                    Institutional13FTrend.ticker.in_(clean_tickers),
+                    Institutional13FTrend.manager_cik == "AGGREGATE",
+                )
+                .order_by(
+                    Institutional13FTrend.ticker.asc(),
+                    Institutional13FTrend.report_period.desc(),
+                )
+            ).all()
+            latest: dict[str, Institutional13FTrendRow] = {}
+            for row in rows:
+                ticker = str(row.ticker or "").upper()
+                if ticker and ticker not in latest:
+                    latest[ticker] = _to_row(row)
+            return latest
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
+
+
 def list_latest_trends(*, limit: int = 100) -> list[Institutional13FTrendRow]:
     try:
         with SessionLocal() as db:

@@ -536,7 +536,7 @@ class RsRatingItem(BaseModel):
 
 class RsRatingRankingResponse(BaseModel):
     as_of: str
-    source: Literal["database", "missing"]
+    source: Literal["computed", "csv_latest", "database", "missing"]
     total_count: int = 0
     limit: int = 100
     rows: list[RsRatingItem]
@@ -544,7 +544,7 @@ class RsRatingRankingResponse(BaseModel):
 
 class RsRatingDetailResponse(BaseModel):
     found: bool
-    source: Literal["database", "missing"]
+    source: Literal["computed", "csv_latest", "database", "missing"]
     item: RsRatingItem | None = None
 
 
