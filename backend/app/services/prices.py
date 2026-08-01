@@ -355,10 +355,17 @@ def _write_price_cache_result(
         for bar in fetched
     ]
     written = upsert_price_bars(ticker, writes, yahoo_symbol=yahoo_symbol)
+    expected_session = expected_us_market_session()
+    latest_available_date = fetched[-1].date if fetched else latest_cached_date
+    cache_is_recent = bool(
+        latest_available_date
+        and latest_available_date >= expected_session.date - timedelta(days=4)
+    )
+    ok = bool(fetched) or cache_is_recent
     result = {
         "ticker": ticker,
         "yahoo_symbol": yahoo_symbol,
-        "ok": True,
+        "ok": ok,
         "records_seen": len(fetched),
         "records_written": written,
         "first_date": fetched[0].date.isoformat() if fetched else None,
@@ -371,6 +378,10 @@ def _write_price_cache_result(
         "batch": batch,
         "source": "yfinance",
     }
+    if not ok:
+        result["error_message"] = (
+            "Yahoo lieferte keine Daily-Bars und der vorhandene Kurs-Cache ist veraltet."
+        )
     if batch_size is not None:
         result["batch_size"] = batch_size
     if batch_start_date is not None:

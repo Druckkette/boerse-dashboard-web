@@ -4,6 +4,7 @@ from datetime import date
 
 from app.data_sources.yfinance_client import FetchedPriceBar
 from app.services import prices as prices_service
+from app.services.market_calendar import ExpectedMarketSession
 
 
 def test_missing_price_history_does_not_generate_synthetic_market_data(monkeypatch) -> None:
@@ -106,6 +107,53 @@ def test_incremental_batch_allows_repair_overlap_override(monkeypatch) -> None:
 
     assert fetch_calls == [{"symbols": ["AAA"], "period": "1y", "start": date(2026, 6, 12)}]
     assert result[0]["overlap_days"] == 5
+
+
+def test_empty_price_response_fails_when_cached_bar_is_stale(monkeypatch) -> None:
+    monkeypatch.setattr(prices_service, "get_latest_price_bar_date", lambda ticker: date(2026, 6, 12))
+    monkeypatch.setattr(prices_service, "upsert_price_bars", lambda ticker, bars, **kwargs: 0)
+    monkeypatch.setattr(
+        prices_service,
+        "fetch_daily_price_bars_batch",
+        lambda symbols, **kwargs: {symbol: [] for symbol in symbols},
+    )
+    monkeypatch.setattr(
+        prices_service,
+        "expected_us_market_session",
+        lambda: ExpectedMarketSession(date=date(2026, 7, 31), phase="closed"),
+    )
+
+    result = prices_service.refresh_price_cache_for_symbols(
+        [prices_service.PriceRefreshSymbol(ticker="2318.HK", yahoo_symbol="2318.HK")],
+        range_key="6m",
+        incremental=True,
+    )
+
+    assert result[0]["ok"] is False
+    assert "keine Daily-Bars" in result[0]["error_message"]
+
+
+def test_empty_price_response_accepts_recent_cached_bar(monkeypatch) -> None:
+    monkeypatch.setattr(prices_service, "get_latest_price_bar_date", lambda ticker: date(2026, 7, 30))
+    monkeypatch.setattr(prices_service, "upsert_price_bars", lambda ticker, bars, **kwargs: 0)
+    monkeypatch.setattr(
+        prices_service,
+        "fetch_daily_price_bars_batch",
+        lambda symbols, **kwargs: {symbol: [] for symbol in symbols},
+    )
+    monkeypatch.setattr(
+        prices_service,
+        "expected_us_market_session",
+        lambda: ExpectedMarketSession(date=date(2026, 7, 31), phase="closed"),
+    )
+
+    result = prices_service.refresh_price_cache_for_symbols(
+        [prices_service.PriceRefreshSymbol(ticker="HOLIDAY.L", yahoo_symbol="HOLIDAY.L")],
+        range_key="6m",
+        incremental=True,
+    )
+
+    assert result[0]["ok"] is True
 
 
 def _bar(bar_date: date) -> FetchedPriceBar:

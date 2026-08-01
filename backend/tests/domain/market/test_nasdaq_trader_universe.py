@@ -159,3 +159,17 @@ def test_resolve_universe_price_symbols_prefers_explicit_payload() -> None:
 
     assert [item.source_ticker for item in resolved] == ["MSFT", "NVDA"]
     assert all(item.source == "payload" for item in resolved)
+
+
+def test_resolve_universe_price_symbols_preserves_exchange_suffixes() -> None:
+    resolved = resolve_universe_price_symbols(
+        explicit_tickers=["2318.HK", "ARKK.L"],
+        universe_key=None,
+        fallback=[],
+        limit=10,
+    )
+
+    assert [(item.source_ticker, item.yahoo_symbol) for item in resolved] == [
+        ("2318.HK", "2318.HK"),
+        ("ARKK.L", "ARKK.L"),
+    ]

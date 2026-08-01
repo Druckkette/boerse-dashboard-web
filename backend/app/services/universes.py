@@ -320,6 +320,8 @@ def _normalize_tickers(value: object) -> list[str]:
         raw = list(value)
     else:
         raw = []
-    return list(
-        dict.fromkeys(str(item).strip().upper().replace(".", "-") for item in raw if str(item).strip())
-    )
+    # Explicit Yahoo symbols may contain an exchange suffix (for example
+    # 2318.HK or ARKK.L). Nasdaq-universe class symbols are normalized when the
+    # universe is imported and must not force that conversion onto user or
+    # portfolio tickers.
+    return list(dict.fromkeys(str(item).strip().upper() for item in raw if str(item).strip()))
