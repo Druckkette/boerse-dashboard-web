@@ -19,7 +19,8 @@ LIGHTWEIGHT_JOB_QUEUES = {
 JOB_LIST_MAX_RESULT_ITEMS = 5
 JOB_LIST_MAX_RESULT_STRING_LENGTH = 500
 JOB_LIST_MAX_RESULT_DEPTH = 4
-JOB_LIST_PRESERVED_LIST_KEYS = {"failed_tickers", "items", "tickers"}
+JOB_LIST_MAX_FAILED_TICKERS = 24
+JOB_LIST_ITEM_JOB_TYPES = {"yahoo_symbol_diagnostics", "yahoo_symbol_rescue"}
 
 
 def list_jobs(limit: int = 50) -> list[Job]:
@@ -27,14 +28,34 @@ def list_jobs(limit: int = 50) -> list[Job]:
 
 
 def _job_list_summary(job: Job) -> Job:
-    compacted, truncated = _compact_result_value(job.result, preserve_list=True)
-    result = compacted if isinstance(compacted, dict) else {}
+    result: dict[str, object] = {}
+    truncated = False
+    for key, value in job.result.items():
+        if value is None or isinstance(value, (bool, int, float)):
+            result[str(key)] = value
+        elif isinstance(value, str):
+            compacted, value_truncated = _compact_result_value(value)
+            result[str(key)] = compacted
+            truncated = truncated or value_truncated
+        elif key == "failed_tickers" and isinstance(value, list):
+            result[key] = [str(item) for item in value[:JOB_LIST_MAX_FAILED_TICKERS]]
+            truncated = truncated or len(value) > JOB_LIST_MAX_FAILED_TICKERS
+        elif key == "items" and job.job_type in JOB_LIST_ITEM_JOB_TYPES and isinstance(value, list):
+            compacted, value_truncated = _compact_result_value(value, preserve_list=True)
+            result[key] = compacted
+            truncated = truncated or value_truncated
+        elif isinstance(value, list):
+            result[f"{key}_count"] = len(value)
+            truncated = True
+        elif isinstance(value, dict):
+            result[f"{key}_available"] = bool(value)
+            truncated = True
     if truncated:
         result = {
             **result,
             "_summary": "Große Ergebnislisten wurden für die Übersicht gekürzt. Vollständige Details beim Aufklappen laden.",
         }
-    return job.model_copy(update={"result": result})
+    return job.model_copy(update={"payload": {}, "result": result})
 
 
 def _compact_result_value(
@@ -50,14 +71,10 @@ def _compact_result_value(
         truncated = False
         for key, item in value.items():
             normalized_key = str(key)
-            if isinstance(item, list) and normalized_key not in JOB_LIST_PRESERVED_LIST_KEYS:
-                result[f"{normalized_key}_count"] = len(item)
-                truncated = True
-                continue
             compacted, item_truncated = _compact_result_value(
                 item,
                 depth=depth + 1,
-                preserve_list=normalized_key in JOB_LIST_PRESERVED_LIST_KEYS,
+                preserve_list=preserve_list,
             )
             result[normalized_key] = compacted
             truncated = truncated or item_truncated
