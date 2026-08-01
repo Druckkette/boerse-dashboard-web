@@ -16,8 +16,10 @@ LIGHTWEIGHT_JOB_QUEUES = {
     "position_atr_monitor": "monitor",
     "pushover_test": "monitor",
 }
-JOB_LIST_MAX_RESULT_ITEMS = 20
-JOB_LIST_MAX_RESULT_STRING_LENGTH = 2_000
+JOB_LIST_MAX_RESULT_ITEMS = 5
+JOB_LIST_MAX_RESULT_STRING_LENGTH = 500
+JOB_LIST_MAX_RESULT_DEPTH = 4
+JOB_LIST_PRESERVED_LIST_KEYS = {"failed_tickers", "items", "tickers"}
 
 
 def list_jobs(limit: int = 50) -> list[Job]:
@@ -25,7 +27,7 @@ def list_jobs(limit: int = 50) -> list[Job]:
 
 
 def _job_list_summary(job: Job) -> Job:
-    compacted, truncated = _compact_result_value(job.result)
+    compacted, truncated = _compact_result_value(job.result, preserve_list=True)
     result = compacted if isinstance(compacted, dict) else {}
     if truncated:
         result = {
@@ -35,23 +37,43 @@ def _job_list_summary(job: Job) -> Job:
     return job.model_copy(update={"result": result})
 
 
-def _compact_result_value(value: object, *, depth: int = 0) -> tuple[object, bool]:
-    if depth >= 7:
+def _compact_result_value(
+    value: object,
+    *,
+    depth: int = 0,
+    preserve_list: bool = False,
+) -> tuple[object, bool]:
+    if depth >= JOB_LIST_MAX_RESULT_DEPTH:
         return "Weitere verschachtelte Details gekürzt.", True
     if isinstance(value, dict):
         result: dict[str, object] = {}
         truncated = False
         for key, item in value.items():
-            compacted, item_truncated = _compact_result_value(item, depth=depth + 1)
-            result[str(key)] = compacted
+            normalized_key = str(key)
+            if isinstance(item, list) and normalized_key not in JOB_LIST_PRESERVED_LIST_KEYS:
+                result[f"{normalized_key}_count"] = len(item)
+                truncated = True
+                continue
+            compacted, item_truncated = _compact_result_value(
+                item,
+                depth=depth + 1,
+                preserve_list=normalized_key in JOB_LIST_PRESERVED_LIST_KEYS,
+            )
+            result[normalized_key] = compacted
             truncated = truncated or item_truncated
         return result, truncated
     if isinstance(value, list):
+        if not preserve_list:
+            return {"count": len(value)}, bool(value)
         selected = value[:JOB_LIST_MAX_RESULT_ITEMS]
         result = []
         truncated = len(value) > len(selected)
         for item in selected:
-            compacted, item_truncated = _compact_result_value(item, depth=depth + 1)
+            compacted, item_truncated = _compact_result_value(
+                item,
+                depth=depth + 1,
+                preserve_list=True,
+            )
             result.append(compacted)
             truncated = truncated or item_truncated
         return result, truncated

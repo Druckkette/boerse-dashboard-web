@@ -119,15 +119,48 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             },
         ),
         _institutional_13f_freshness(now, latest_13f),
-        _datetime_freshness(
+        _sell_ranking_freshness(
             now,
-            "sell_ranking",
             latest_sell_ranking,
-            max_lag_minutes=120,
-            detail=f"Vorberechneter Verkaufsmonitor-Snapshot für {sell_ranking_count} Positionen.",
-            metadata={"position_count": sell_ranking_count, "expected_interval_minutes": 1},
+            sell_ranking_count,
+            expected_session=expected_session,
         ),
     ]
+
+
+def _sell_ranking_freshness(
+    now: datetime,
+    latest: datetime | None,
+    position_count: int,
+    *,
+    expected_session: ExpectedMarketSession,
+) -> ServiceFreshness:
+    detail = f"Vorberechneter Verkaufsmonitor-Snapshot für {position_count} Positionen."
+    metadata = {
+        "position_count": position_count,
+        "expected_interval_minutes": 1,
+        **_session_metadata(expected_session),
+    }
+    if latest is None:
+        return _missing("sell_ranking", detail=detail, metadata=metadata)
+
+    generated_at = _as_utc(latest)
+    lag_minutes = _lag_minutes(now, generated_at)
+    if expected_session.phase == "intraday":
+        is_fresh = lag_minutes <= 5
+    elif expected_session.close_at is not None:
+        is_fresh = generated_at >= expected_session.close_at
+    else:
+        is_fresh = generated_at.date() >= expected_session.date
+
+    return ServiceFreshness(
+        name="sell_ranking",
+        status="fresh" if is_fresh else "stale",
+        as_of=generated_at.isoformat(),
+        lag_minutes=lag_minutes,
+        detail=detail,
+        metadata=metadata,
+    )
 
 
 def _provider_label(source: str) -> str:

@@ -115,3 +115,40 @@ def test_13f_freshness_respects_sec_filing_deadline() -> None:
     assert before_deadline.metadata["next_report_period"] == "2026-06-30"
     assert after_deadline.status == "stale"
     assert after_deadline.metadata["required_report_period"] == "2026-06-30"
+
+
+def test_sell_ranking_stays_fresh_after_latest_market_close() -> None:
+    session = freshness.ExpectedMarketSession(
+        date=date(2026, 7, 31),
+        phase="closed",
+        open_at=datetime(2026, 7, 31, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 31, 20, tzinfo=UTC),
+    )
+
+    result = freshness._sell_ranking_freshness(
+        datetime(2026, 8, 1, 14, tzinfo=UTC),
+        datetime(2026, 7, 31, 21, 32, tzinfo=UTC),
+        12,
+        expected_session=session,
+    )
+
+    assert result.status == "fresh"
+    assert result.metadata["expected_as_of"] == "2026-07-31"
+
+
+def test_sell_ranking_requires_recent_monitor_during_open_session() -> None:
+    session = freshness.ExpectedMarketSession(
+        date=date(2026, 7, 31),
+        phase="intraday",
+        open_at=datetime(2026, 7, 31, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 31, 20, tzinfo=UTC),
+    )
+
+    result = freshness._sell_ranking_freshness(
+        datetime(2026, 7, 31, 16, tzinfo=UTC),
+        datetime(2026, 7, 31, 15, 50, tzinfo=UTC),
+        12,
+        expected_session=session,
+    )
+
+    assert result.status == "stale"
