@@ -16,10 +16,48 @@ LIGHTWEIGHT_JOB_QUEUES = {
     "position_atr_monitor": "monitor",
     "pushover_test": "monitor",
 }
+JOB_LIST_MAX_RESULT_ITEMS = 20
+JOB_LIST_MAX_RESULT_STRING_LENGTH = 2_000
 
 
 def list_jobs(limit: int = 50) -> list[Job]:
-    return job_repository.list_jobs(limit=limit)
+    return [_job_list_summary(job) for job in job_repository.list_jobs(limit=limit)]
+
+
+def _job_list_summary(job: Job) -> Job:
+    compacted, truncated = _compact_result_value(job.result)
+    result = compacted if isinstance(compacted, dict) else {}
+    if truncated:
+        result = {
+            **result,
+            "_summary": "Große Ergebnislisten wurden für die Übersicht gekürzt. Vollständige Details beim Aufklappen laden.",
+        }
+    return job.model_copy(update={"result": result})
+
+
+def _compact_result_value(value: object, *, depth: int = 0) -> tuple[object, bool]:
+    if depth >= 7:
+        return "Weitere verschachtelte Details gekürzt.", True
+    if isinstance(value, dict):
+        result: dict[str, object] = {}
+        truncated = False
+        for key, item in value.items():
+            compacted, item_truncated = _compact_result_value(item, depth=depth + 1)
+            result[str(key)] = compacted
+            truncated = truncated or item_truncated
+        return result, truncated
+    if isinstance(value, list):
+        selected = value[:JOB_LIST_MAX_RESULT_ITEMS]
+        result = []
+        truncated = len(value) > len(selected)
+        for item in selected:
+            compacted, item_truncated = _compact_result_value(item, depth=depth + 1)
+            result.append(compacted)
+            truncated = truncated or item_truncated
+        return result, truncated
+    if isinstance(value, str) and len(value) > JOB_LIST_MAX_RESULT_STRING_LENGTH:
+        return value[:JOB_LIST_MAX_RESULT_STRING_LENGTH] + "...", True
+    return value, False
 
 
 def get_job(job_id: str) -> Job | None:

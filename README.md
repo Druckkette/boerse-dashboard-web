@@ -168,19 +168,22 @@ For the NAS, "current" is implemented by data class rather than by reloading eve
   snapshot date, so rankings never collapse to a partially refreshed subset.
 - The RS source in Settings is effective end to end: `computed` derives RS from the current local
   Price Cache; `csv_latest` imports the daily `Fred6725/rs-log` GitHub CSV. Its GitHub update
-  timestamp is mapped to the preceding US trading day. An old external file is deliberately
-  reported as stale. Because this provider maintains its own universe, external RS freshness
-  requires at least 4,000 dated ratings instead of local-universe coverage.
+  timestamp is mapped to the preceding US trading day. One US session of provider lag is accepted;
+  older files are reported as stale. Because this provider maintains its own universe, external RS
+  freshness requires at least 4,000 dated ratings instead of local-universe coverage.
 - At 15:50 and 22:20 the Earnings Calendar is refreshed. FMP is used when the configured plan
   permits the stable calendar endpoint; on missing keys, quota exhaustion or provider errors the
   app automatically falls back to Nasdaq's public calendar for the rolling next 35 days.
-  Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window, while tickers
-  reporting from three days ago through tomorrow are forced to the front of the next batch.
+  Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window. Open portfolio
+  positions, watchlist/recent tickers and companies reporting from three days ago through tomorrow
+  are forced to the front of the next batch.
   A stock opened in the UI gets a targeted daily fundamentals check and an immediate incremental
   price check.
 - At 18:45 and 01:15 a lightweight repair run checks the same quality gates. It does nothing when
   all services are current and otherwise retries only missing or stale stages.
-- 13F remains quarterly freshness-gated because SEC filings do not change daily.
+- 13F remains quarterly freshness-gated because SEC filings do not change daily. The next report
+  period is required only after the SEC filing deadline (45 days after quarter end), so a valid
+  prior-quarter dataset is not incorrectly marked stale before filings are due.
 - Expired scheduler messages and worker jobs without a heartbeat are released automatically instead
   of blocking the next scheduled or manual refresh.
 

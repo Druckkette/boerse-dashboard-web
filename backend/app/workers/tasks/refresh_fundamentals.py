@@ -37,7 +37,9 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
     )
     freshness_days = _normalize_freshness_days(payload.get("fundamental_freshness_days"))
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
-    priority_tickers = earnings_priority_tickers()
+    earnings_tickers = earnings_priority_tickers()
+    tracked_priority_tickers = _tracked_fundamental_tickers(limit=100)
+    priority_tickers = _dedupe_tickers([*tracked_priority_tickers, *earnings_tickers])
     selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
         tickers,
         latest_states=latest_states,
@@ -67,7 +69,10 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         "records_written": 0,
         "items": [],
         "earnings_priority_tickers": [
-            ticker for ticker in selected_tickers if ticker in set(priority_tickers)
+            ticker for ticker in selected_tickers if ticker in set(earnings_tickers)
+        ],
+        "tracked_priority_tickers": [
+            ticker for ticker in selected_tickers if ticker in set(tracked_priority_tickers)
         ],
     }
 
@@ -165,12 +170,14 @@ def resolve_fundamental_tickers(payload: dict | None = None) -> list[str]:
         if tracked:
             return tracked
 
-    return resolve_universe_tickers(
+    universe_tickers = resolve_universe_tickers(
         explicit_tickers=None,
         universe_key=payload.get("universe"),
         fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
         limit=limit,
     )
+    tracked = _tracked_fundamental_tickers(limit=min(100, limit))
+    return _dedupe_tickers([*tracked, *universe_tickers])[:limit]
 
 
 def _tracked_fundamental_tickers(*, limit: int) -> list[str]:
@@ -223,11 +230,12 @@ def _select_fundamental_work(
         selected = tickers[:max_refresh_count]
         return selected, 0, max(0, len(tickers) - len(selected))
 
-    priority = {
-        ticker.strip().upper()
-        for ticker in (priority_tickers or [])
+    priority_order = {
+        ticker.strip().upper(): index
+        for index, ticker in enumerate(priority_tickers or [])
         if ticker.strip()
     }
+    priority = set(priority_order)
     skipped_current_count = 0
     pending: list[str] = []
     for ticker in tickers:
@@ -246,6 +254,7 @@ def _select_fundamental_work(
     pending.sort(
         key=lambda ticker: (
             0 if ticker in priority else 1,
+            priority_order.get(ticker, len(priority_order)),
             latest_states[ticker].latest_date
             if ticker in latest_states and latest_states[ticker].latest_date is not None
             else date.min,

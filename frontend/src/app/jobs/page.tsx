@@ -1256,6 +1256,14 @@ function NumberField({
 
 function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void }) {
   const canCancel = job.status === "queued" || job.status === "running";
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailQuery = useQuery({
+    queryKey: ["job", job.job_id],
+    queryFn: () => api.job(job.job_id),
+    enabled: detailsOpen,
+    staleTime: 30_000
+  });
+  const detailedJob = detailQuery.data ?? job;
   return (
     <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
@@ -1291,15 +1299,26 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
       </div>
       <div className="mt-2 text-right text-xs tabular-nums text-[#a0a7b4]">{job.progress}%</div>
 
-      <details className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+      <details
+        className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm"
+        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+      >
         <summary className="cursor-pointer text-[#d8dde6]">Details</summary>
+        {detailsOpen && detailQuery.isLoading ? (
+          <div className="mt-3 text-sm text-[#687386]">Vollständige Details werden geladen...</div>
+        ) : null}
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <JsonBlock title="Payload" value={job.payload} />
-          <JsonBlock title="Result" value={job.result} />
+          <JsonBlock title="Payload" value={detailedJob.payload} />
+          <JsonBlock title="Result" value={detailedJob.result} />
         </div>
-        {job.error_message && (
+        {detailQuery.error ? (
           <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-rose-100">
-            {job.error_message}
+            Vollständige Jobdetails konnten nicht geladen werden.
+          </div>
+        ) : null}
+        {detailedJob.error_message && (
+          <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-rose-100">
+            {detailedJob.error_message}
           </div>
         )}
       </details>

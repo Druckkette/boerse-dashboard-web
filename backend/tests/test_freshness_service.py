@@ -20,6 +20,8 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
                 date(2026, 3, 31),
                 datetime(2026, 6, 16, 12, tzinfo=UTC),
                 "nasdaq",
+                datetime.now(UTC),
+                12,
             ]
 
         def __enter__(self):
@@ -35,7 +37,6 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
             return FakeResult()
 
     monkeypatch.setattr(freshness, "SessionLocal", FakeSession)
-    monkeypatch.setattr(freshness.job_repository, "list_jobs", lambda limit=80: [])
     expected_session = freshness.ExpectedMarketSession(date=date(2026, 6, 16), phase="closed")
     monkeypatch.setattr(freshness, "expected_us_market_session", lambda now=None: expected_session)
     monkeypatch.setattr(
@@ -95,3 +96,22 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
     assert "(Nasdaq)" in services["earnings_calendar"].detail
     assert services["institutional_13f"].as_of == "2026-03-31"
     assert services["institutional_13f"].metadata["expected_interval"] == "quarterly"
+    assert services["sell_ranking"].status == "fresh"
+    assert services["sell_ranking"].metadata["position_count"] == 12
+
+
+def test_13f_freshness_respects_sec_filing_deadline() -> None:
+    before_deadline = freshness._institutional_13f_freshness(
+        datetime(2026, 7, 31, 12, tzinfo=UTC),
+        date(2026, 3, 31),
+    )
+    after_deadline = freshness._institutional_13f_freshness(
+        datetime(2026, 8, 15, 12, tzinfo=UTC),
+        date(2026, 3, 31),
+    )
+
+    assert before_deadline.status == "fresh"
+    assert before_deadline.metadata["required_report_period"] == "2026-03-31"
+    assert before_deadline.metadata["next_report_period"] == "2026-06-30"
+    assert after_deadline.status == "stale"
+    assert after_deadline.metadata["required_report_period"] == "2026-06-30"

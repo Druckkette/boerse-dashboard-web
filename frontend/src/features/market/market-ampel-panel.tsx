@@ -38,7 +38,7 @@ export function MarketAmpelPanel({
     refetchInterval: MARKET_REFETCH_INTERVAL_MS
   });
 
-  if (query.isLoading) {
+  if (query.isLoading || (query.data && query.data.ticker !== ticker)) {
     return <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 text-sm text-[#687386] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">Marktampel lädt...</section>;
   }
 

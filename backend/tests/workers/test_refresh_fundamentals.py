@@ -85,6 +85,7 @@ def test_refresh_fundamentals_all_universe_uses_resolved_universe(monkeypatch: p
         "resolve_universe_tickers",
         lambda **kwargs: ["AAA", "BBB", "CCC"][: int(kwargs.get("limit") or 3)],
     )
+    monkeypatch.setattr(refresh_fundamentals_module, "_tracked_fundamental_tickers", lambda **kwargs: [])
 
     def fake_refresh(ticker: str, *, include_holders: bool) -> dict:
         seen.append(ticker)
@@ -99,6 +100,27 @@ def test_refresh_fundamentals_all_universe_uses_resolved_universe(monkeypatch: p
     assert result["ok"] is True
     assert result["tickers"] == ["AAA", "BBB"]
     assert seen == ["AAA", "BBB"]
+
+
+def test_refresh_fundamentals_prioritizes_tracked_tickers_in_full_universe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "resolve_universe_tickers",
+        lambda **kwargs: [] if kwargs.get("fallback") == [] else ["AAA", "BBB", "CCC"],
+    )
+    monkeypatch.setattr(
+        refresh_fundamentals_module,
+        "_tracked_fundamental_tickers",
+        lambda **kwargs: ["PORTFOLIO"],
+    )
+
+    tickers = refresh_fundamentals_module.resolve_fundamental_tickers(
+        {"fundamental_universe": "all", "fundamental_limit": 3}
+    )
+
+    assert tickers == ["PORTFOLIO", "AAA", "BBB"]
 
 
 def test_refresh_fundamentals_incremental_skips_current_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:

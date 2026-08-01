@@ -60,6 +60,27 @@ def expected_us_market_session(now: datetime | None = None) -> ExpectedMarketSes
     return ExpectedMarketSession(date=fallback, phase="fallback")
 
 
+def previous_us_market_session_date(session_date: date) -> date:
+    """Return the exchange session immediately before ``session_date``."""
+
+    calendar = _xnys_calendar()
+    session = pd.Timestamp(session_date)
+    try:
+        return calendar.previous_session(session).date()
+    except (KeyError, ValueError):
+        sessions = calendar.sessions_in_range(
+            pd.Timestamp(session_date - timedelta(days=10)),
+            pd.Timestamp(session_date - timedelta(days=1)),
+        )
+        if len(sessions):
+            return sessions[-1].date()
+
+    fallback = session_date - timedelta(days=1)
+    while fallback.weekday() >= 5:
+        fallback -= timedelta(days=1)
+    return fallback
+
+
 @lru_cache(maxsize=1)
 def _xnys_calendar():
     return xcals.get_calendar("XNYS")

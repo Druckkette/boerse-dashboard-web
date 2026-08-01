@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,6 +16,7 @@ from app.db.models import (
     Position,
     PriceBar,
     RsRating,
+    SellRankingSnapshot,
     Universe,
     UniverseMember,
 )
@@ -28,15 +29,19 @@ from app.domain.market.constants import (
     SECTOR_ETF_TICKERS,
 )
 from app.domain.market.volatility import VOLATILITY_TICKERS
-from app.repositories import jobs as job_repository
 from app.schemas import FreshnessResponse, ServiceFreshness
-from app.services.market_calendar import ExpectedMarketSession, expected_us_market_session
+from app.services.market_calendar import (
+    ExpectedMarketSession,
+    expected_us_market_session,
+    previous_us_market_session_date,
+)
 
 
 MIN_PRICE_COVERAGE = 0.95
 MIN_BREADTH_COVERAGE = 0.95
 MIN_RS_COVERAGE = 0.95
 MIN_EXTERNAL_RS_RATINGS = 4000
+MAX_TRACKED_FUNDAMENTAL_LAG_DAYS = 14
 REQUIRED_MARKET_HELPER_TICKERS = list(
     dict.fromkeys([*MARKET_CORE_PRICE_TICKERS, *VOLATILITY_TICKERS, *SECTOR_ETF_TICKERS])
 )
@@ -44,9 +49,7 @@ REQUIRED_MARKET_HELPER_TICKERS = list(
 
 def get_freshness() -> FreshnessResponse:
     now = datetime.now(UTC)
-    services = _cache_freshness(now)
-    services.append(_job_freshness(now, "sell_ranking", "position_atr_monitor", max_lag_minutes=120))
-    return FreshnessResponse(generated_at=now, services=services)
+    return FreshnessResponse(generated_at=now, services=_cache_freshness(now))
 
 
 def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
@@ -70,6 +73,10 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
                 .order_by(EarningsEvent.fetched_at.desc())
                 .limit(1)
             )
+            latest_sell_ranking = db.scalar(select(func.max(SellRankingSnapshot.generated_at)))
+            sell_ranking_count = int(
+                db.scalar(select(func.count()).select_from(SellRankingSnapshot)) or 0
+            )
     except SQLAlchemyError:
         return [
             _missing("prices"),
@@ -80,6 +87,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             _missing("fundamentals_tracked"),
             _missing("earnings_calendar"),
             _missing("institutional_13f"),
+            _missing("sell_ranking"),
         ]
 
     return [
@@ -110,13 +118,14 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
                 "source": latest_earnings_source or "",
             },
         ),
-        _date_freshness(
+        _institutional_13f_freshness(now, latest_13f),
+        _datetime_freshness(
             now,
-            "institutional_13f",
-            latest_13f,
-            max_lag_days=120,
-            detail="Letzter aggregierter SEC-Form-13F-Reportzeitraum. 13F-Daten werden quartalsweise veröffentlicht.",
-            metadata={"expected_interval": "quarterly", "max_lag_days": 120},
+            "sell_ranking",
+            latest_sell_ranking,
+            max_lag_minutes=120,
+            detail=f"Vorberechneter Verkaufsmonitor-Snapshot für {sell_ranking_count} Positionen.",
+            metadata={"position_count": sell_ranking_count, "expected_interval_minutes": 1},
         ),
     ]
 
@@ -307,9 +316,10 @@ def _relative_strength_freshness(
         else 0.0
     )
     if external_source:
+        accepted_date = previous_us_market_session_date(expected_session.date)
         status = (
             "fresh"
-            if latest >= expected_session.date and count >= MIN_EXTERNAL_RS_RATINGS
+            if latest >= accepted_date and count >= MIN_EXTERNAL_RS_RATINGS
             else "stale"
         )
         detail = (
@@ -340,6 +350,11 @@ def _relative_strength_freshness(
             "coverage_ratio": coverage,
             "minimum_coverage_ratio": MIN_RS_COVERAGE,
             "minimum_external_ratings": MIN_EXTERNAL_RS_RATINGS,
+            "accepted_external_as_of": (
+                previous_us_market_session_date(expected_session.date).isoformat()
+                if external_source
+                else expected_session.date.isoformat()
+            ),
         },
     )
 
@@ -368,35 +383,6 @@ def _configured_rs_source(db) -> str:
     return clean if clean in {"computed", "csv_latest"} else "computed"
 
 
-def _job_freshness(
-    now: datetime,
-    service_name: str,
-    job_type: str,
-    *,
-    max_lag_minutes: int,
-) -> ServiceFreshness:
-    latest_job = next(
-        (
-            job
-            for job in job_repository.list_jobs(limit=80)
-            if job.job_type == job_type and job.status in {"done", "skipped", "failed", "cancelled"}
-        ),
-        None,
-    )
-    if latest_job is None or latest_job.finished_at is None:
-        return _missing(service_name)
-
-    finished_at = _as_utc(latest_job.finished_at)
-    lag_minutes = _lag_minutes(now, finished_at)
-    status = "fresh" if latest_job.status in {"done", "skipped"} and lag_minutes <= max_lag_minutes else "stale"
-    return ServiceFreshness(
-        name=service_name,
-        status=status,
-        as_of=finished_at.isoformat(),
-        lag_minutes=lag_minutes,
-    )
-
-
 def _date_freshness(
     now: datetime,
     service_name: str,
@@ -417,6 +403,66 @@ def _date_freshness(
         lag_minutes=lag_minutes,
         detail=detail,
         metadata=metadata or {},
+    )
+
+
+def _institutional_13f_freshness(
+    now: datetime,
+    latest_period: date | None,
+) -> ServiceFreshness:
+    required_period, next_period, next_due_date = _required_13f_period(now.date())
+    detail = (
+        "Letzter aggregierter SEC-Form-13F-Reportzeitraum. Ein neues Quartal wird erst "
+        "nach Ablauf der gesetzlichen SEC-Einreichungsfrist erwartet."
+    )
+    metadata = {
+        "expected_interval": "quarterly",
+        "required_report_period": required_period.isoformat(),
+        "next_report_period": next_period.isoformat(),
+        "next_due_date": next_due_date.isoformat(),
+    }
+    if latest_period is None:
+        return _missing("institutional_13f", detail=detail, metadata=metadata)
+    return ServiceFreshness(
+        name="institutional_13f",
+        status="fresh" if latest_period >= required_period else "stale",
+        as_of=latest_period.isoformat(),
+        lag_minutes=_date_lag_minutes(now, latest_period),
+        detail=detail,
+        metadata=metadata,
+    )
+
+
+def _required_13f_period(today: date) -> tuple[date, date, date]:
+    completed_period = _latest_completed_quarter_end(today)
+    due_date = completed_period + timedelta(days=45)
+    required_period = (
+        completed_period
+        if today > due_date
+        else _previous_quarter_end(completed_period)
+    )
+    return required_period, completed_period, due_date
+
+
+def _latest_completed_quarter_end(today: date) -> date:
+    quarter = (today.month - 1) // 3 + 1
+    quarter_end_month = quarter * 3
+    quarter_end = date(
+        today.year,
+        quarter_end_month,
+        31 if quarter_end_month in {3, 12} else 30,
+    )
+    return quarter_end if today >= quarter_end else _previous_quarter_end(quarter_end)
+
+
+def _previous_quarter_end(period: date) -> date:
+    if period.month == 3:
+        return date(period.year - 1, 12, 31)
+    previous_month = period.month - 3
+    return date(
+        period.year,
+        previous_month,
+        31 if previous_month in {3, 12} else 30,
     )
 
 
@@ -513,7 +559,7 @@ def _tracked_fundamentals_freshness(db, now: datetime) -> ServiceFreshness:
             now,
             "fundamentals_tracked",
             latest_date,
-            max_lag_days=3,
+            max_lag_days=MAX_TRACKED_FUNDAMENTAL_LAG_DAYS,
             detail="Kein getracktes Aktien-Set; Datum über alle Fundamental-Snapshots.",
             metadata={"tracked_tickers": [], "missing_tickers": []},
         )
@@ -542,7 +588,7 @@ def _tracked_fundamentals_freshness(db, now: datetime) -> ServiceFreshness:
         now,
         "fundamentals_tracked",
         latest_date,
-        max_lag_days=3,
+        max_lag_days=MAX_TRACKED_FUNDAMENTAL_LAG_DAYS,
         detail=(
             "Fundamental-Cache für offene Positionen, Watchlist und zuletzt geöffnete Aktien. "
             f"Ältester aktueller Ticker: {oldest_fresh_ticker}."
