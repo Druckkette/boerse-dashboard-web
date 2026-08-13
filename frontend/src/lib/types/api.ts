@@ -1542,6 +1542,9 @@ export type AppSettings = {
   position_monitor_lookback_days: number;
   position_monitor_cooldown_hours: number;
   position_monitor_reference: "high_since_buy" | "close_since_buy" | "entry_price" | "previous_close";
+  position_monitor_ma_alerts_enabled: boolean;
+  position_monitor_assessment_alerts_enabled: boolean;
+  position_monitor_assessment_interval_minutes: number;
   pushover_enabled: boolean;
   pushover_configured: boolean;
   rs_rating_source: "csv_latest" | "computed";

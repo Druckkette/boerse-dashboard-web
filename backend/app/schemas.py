@@ -1572,6 +1572,9 @@ class AppSettings(BaseModel):
     position_monitor_lookback_days: int = 420
     position_monitor_cooldown_hours: int = 18
     position_monitor_reference: Literal["high_since_buy", "close_since_buy", "entry_price", "previous_close"] = "previous_close"
+    position_monitor_ma_alerts_enabled: bool = True
+    position_monitor_assessment_alerts_enabled: bool = True
+    position_monitor_assessment_interval_minutes: int = 15
     pushover_enabled: bool = False
     pushover_configured: bool = False
     rs_rating_source: Literal["csv_latest", "computed"]
@@ -1591,6 +1594,9 @@ class SettingsPatch(BaseModel):
     position_monitor_lookback_days: int | None = None
     position_monitor_cooldown_hours: int | None = None
     position_monitor_reference: Literal["high_since_buy", "close_since_buy", "entry_price", "previous_close"] | None = None
+    position_monitor_ma_alerts_enabled: bool | None = None
+    position_monitor_assessment_alerts_enabled: bool | None = None
+    position_monitor_assessment_interval_minutes: int | None = None
     pushover_enabled: bool | None = None
     rs_rating_source: Literal["csv_latest", "computed"] | None = None
     data_jobs_enabled: bool | None = None

@@ -502,3 +502,171 @@ def test_pushover_delivery_uses_high_priority(monkeypatch: pytest.MonkeyPatch) -
     assert delivery["sent_tickers"] == ["AAPL"]
     assert captured["priority"] == 1
     assert captured["title"] == "ATR-Alarm AAPL"
+
+
+def test_fresh_live_ema_break_creates_portfolio_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    written: dict = {}
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda values: written.update(values) or values,
+    )
+    result = {
+        "items": [
+            {
+                "ticker": "NVDA",
+                "as_of": "2026-08-13",
+                "trend_monitor": {
+                    "available": True,
+                    "as_of": "2026-08-13",
+                    "current_price": 180.0,
+                    "currency": "USD",
+                    "moving_averages": {
+                        "ema21": {
+                            "label": "21-EMA",
+                            "value": 181.5,
+                            "above": False,
+                            "previous_above": True,
+                            "distance_pct": -0.826,
+                        }
+                    },
+                },
+            }
+        ]
+    }
+
+    alerts = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings={
+            "position_monitor_ma_alerts_enabled": True,
+            "position_monitor_assessment_alerts_enabled": False,
+        },
+        now=datetime(2026, 8, 13, 15, 0, tzinfo=UTC),
+    )
+
+    assert alerts[0]["kind"] == "stock_signal"
+    assert alerts[0]["events"][0]["label"] == "Bruch der 21-EMA"
+    monitor_module._finalize_portfolio_signal_state(
+        result,
+        alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
+    )
+    assert written["signal_tickers"]["NVDA"]["moving_averages"]["ema21"]["above"] is False
+
+
+def test_unchanged_ma_break_is_not_repeated(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored = {
+        "signal_tickers": {
+            "NVDA": {
+                "moving_averages": {
+                    "ema21": {"label": "21-EMA", "value": 181.5, "above": False, "distance_pct": -0.8}
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
+    result = {
+        "items": [
+            {
+                "ticker": "NVDA",
+                "as_of": "2026-08-13",
+                "trend_monitor": {
+                    "available": True,
+                    "as_of": "2026-08-13",
+                    "current_price": 179.0,
+                    "currency": "USD",
+                    "moving_averages": {
+                        "ema21": {
+                            "label": "21-EMA",
+                            "value": 181.4,
+                            "above": False,
+                            "previous_above": True,
+                            "distance_pct": -1.323,
+                        }
+                    },
+                },
+            }
+        ]
+    }
+
+    alerts = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings={
+            "position_monitor_ma_alerts_enabled": True,
+            "position_monitor_assessment_alerts_enabled": False,
+        },
+        now=datetime(2026, 8, 13, 15, 1, tzinfo=UTC),
+    )
+
+    assert alerts == []
+
+
+def test_assessment_changes_report_new_and_resolved_warnings() -> None:
+    previous = {
+        "overall_score": 76,
+        "verdict_label": "Stark",
+        "verdict_tone": "good",
+        "checks": {
+            "CMF Rating A oder B": {"passed": True, "detail": "B"},
+            "MA-Ordnung (21>50>200)": {"passed": False, "detail": "nicht korrekt"},
+        },
+        "signals": {
+            "negative:Stau-Tage": {"category": "negative", "label": "Stau-Tage", "detail": "3 in 10T"}
+        },
+    }
+    current = {
+        "overall_score": 69,
+        "verdict_label": "Beobachten",
+        "verdict_tone": "warning",
+        "checks": {
+            "CMF Rating A oder B": {"passed": False, "detail": "D"},
+            "MA-Ordnung (21>50>200)": {"passed": True, "detail": "korrekt"},
+        },
+        "signals": {
+            "negative:Bearish Engulfing": {
+                "category": "negative",
+                "label": "Bearish Engulfing",
+                "detail": "1 in 15T",
+            }
+        },
+    }
+
+    events = monitor_module._assessment_events(previous, current)
+    labels = [event["label"] for event in events]
+
+    assert "Neues Warnzeichen: CMF Rating A oder B" in labels
+    assert "Kriterium wieder erfüllt: MA-Ordnung (21>50>200)" in labels
+    assert "Neues Warnzeichen: Bearish Engulfing" in labels
+    assert "Warnzeichen beendet: Stau-Tage" in labels
+    assert "Gesamtscore 76 → 69" in labels
+    assert "Bewertung: Stark → Beobachten" in labels
+
+
+def test_failed_signal_delivery_keeps_previous_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    previous = {"moving_averages": {"sma50": {"above": True}}}
+    written: dict = {}
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda values: written.update(values) or values,
+    )
+    result = {
+        "_pending_signal_state": {
+            "base_state": {},
+            "finished_at": "2026-08-13T15:00:00+00:00",
+            "tickers": {
+                "AAPL": {
+                    "previous": previous,
+                    "current": {"moving_averages": {"sma50": {"above": False}}},
+                    "alert_id": "stock-signal:AAPL:1",
+                }
+            },
+        }
+    }
+
+    monitor_module._finalize_portfolio_signal_state(
+        result,
+        alert_delivery={"sent_alert_ids": []},
+    )
+
+    assert written["signal_tickers"]["AAPL"] == previous

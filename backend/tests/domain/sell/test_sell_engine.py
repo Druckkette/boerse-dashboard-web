@@ -54,6 +54,24 @@ def test_sell_engine_imports_without_streamlit() -> None:
     assert "streamlit" not in sys.modules
 
 
+def test_live_trend_monitor_builds_all_moving_average_states() -> None:
+    index = pd.date_range("2025-10-01", periods=220, freq="B")
+    frame = pd.DataFrame({"close": [100.0] * len(index)}, index=index)
+
+    state = sell_service._position_trend_monitor_state(
+        frame,
+        current_price=95.0,
+        current_trade_date=date(2026, 8, 13),
+        currency="USD",
+    )
+
+    assert state["available"] is True
+    assert set(state["moving_averages"]) == {"sma10", "ema21", "sma50", "sma200"}
+    assert state["moving_averages"]["ema21"]["above"] is False
+    assert state["moving_averages"]["ema21"]["previous_above"] is True
+    assert state["moving_averages"]["sma200"]["distance_pct"] < 0
+
+
 @pytest.mark.parametrize(
     "fixture_name",
     [

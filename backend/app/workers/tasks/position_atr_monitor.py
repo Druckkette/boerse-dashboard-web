@@ -12,6 +12,7 @@ from app.repositories import settings as settings_repository
 from app.repositories.settings import SettingsRepositoryUnavailable
 from app.schemas import AppSettings
 from app.services.settings import get_app_settings, get_runtime_config_bool, get_runtime_config_value
+from app.services.stocks import get_stock_assessment
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 from app.workers.tasks.pushover_test import _send_pushover_message
@@ -82,6 +83,15 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
         result["alert_delivery"] = alert_delivery
         if isinstance(result.get("last_summary"), dict):
             result["last_summary"]["sent"] = alert_delivery.get("sent", 0)
+
+        signal_alerts = _apply_portfolio_signal_state(
+            result,
+            monitor_settings=monitor_settings,
+        )
+        signal_alert_delivery = _deliver_monitor_alerts(signal_alerts, app_settings=settings)
+        _finalize_portfolio_signal_state(result, alert_delivery=signal_alert_delivery)
+        result["signal_alerts"] = signal_alerts
+        result["signal_alert_delivery"] = signal_alert_delivery
 
         raise_if_cancelled(job.job_id)
         job_repository.update_progress(
@@ -227,10 +237,11 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
         "failed": 0,
         "skipped": 0,
         "sent_tickers": [],
+        "sent_alert_ids": [],
         "errors": [],
     }
     if not alerts:
-        result["reason"] = "Keine neuen ATR-Signale."
+        result["reason"] = "Keine neuen Positionssignale."
         return result
     if not app_settings.pushover_enabled:
         result.update(skipped=len(alerts), reason="Pushover ist in den Settings deaktiviert.")
@@ -258,13 +269,14 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
                 user_key=user_key,
                 app_token=app_token,
                 message=_format_monitor_alert_message(alert),
-                title=f"ATR-Alarm {alert.get('ticker', 'Position')}",
+                title=_monitor_alert_title(alert),
                 priority=1,
             )
             if int(response.get("status") or 0) != 1:
                 raise RuntimeError(f"Pushover hat den Alarm nicht bestätigt: {response}")
             result["sent"] += 1
             result["sent_tickers"].append(str(alert.get("ticker") or "").strip().upper())
+            result["sent_alert_ids"].append(str(alert.get("alert_id") or ""))
             delivery_logs.append(_delivery_log_item(alert, status="sent", detail="Pushover hat den Alarm bestätigt."))
         except Exception as exc:  # noqa: BLE001 - alert delivery must not crash the monitor job
             result["failed"] += 1
@@ -289,6 +301,8 @@ def _delivery_log_item(alert: dict[str, Any], *, status: str, detail: str) -> di
         "distance_atr": _float_or_none(alert.get("distance_atr")),
         "threshold_atr": _float_or_none(alert.get("threshold_atr")),
         "reference_label": str(alert.get("reference_label") or alert.get("reference") or ""),
+        "kind": str(alert.get("kind") or "atr"),
+        "alert_id": str(alert.get("alert_id") or ""),
     }
 
 
@@ -302,6 +316,8 @@ def _append_delivery_logs(entries: list[dict[str, Any]]) -> None:
 
 
 def _format_monitor_alert_message(alert: dict[str, Any]) -> str:
+    if str(alert.get("kind") or "atr") == "stock_signal":
+        return _format_stock_signal_alert_message(alert)
     ticker = str(alert.get("ticker") or "UNKNOWN")
     distance = _float_or_none(alert.get("distance_atr")) or 0.0
     threshold = _float_or_none(alert.get("threshold_atr")) or 0.0
@@ -321,6 +337,336 @@ def _format_monitor_alert_message(alert: dict[str, Any]) -> str:
         f"Aktueller Kurs: {current_price}; Referenzkurs: {reference_price}\n"
         f"Auslöser: {reason_text}"
     )
+
+
+def _monitor_alert_title(alert: dict[str, Any]) -> str:
+    ticker = str(alert.get("ticker") or "Position")
+    if str(alert.get("kind") or "atr") != "stock_signal":
+        return f"ATR-Alarm {ticker}"
+    events = alert.get("events") if isinstance(alert.get("events"), list) else []
+    has_warning = any(str(event.get("tone") or "") == "warning" for event in events if isinstance(event, dict))
+    return f"Depot-Warnung {ticker}" if has_warning else f"Depot-Update {ticker}"
+
+
+def _format_stock_signal_alert_message(alert: dict[str, Any]) -> str:
+    ticker = str(alert.get("ticker") or "UNKNOWN")
+    events = alert.get("events") if isinstance(alert.get("events"), list) else []
+    lines = [f"{ticker}: Aktienbewertung hat sich geändert"]
+    current_price = _float_or_none(alert.get("current_price"))
+    currency = str(alert.get("currency") or "USD")
+    if current_price is not None:
+        lines.append(f"Kurs: {current_price:.2f} {currency}")
+    for event in events[:8]:
+        if not isinstance(event, dict):
+            continue
+        prefix = "WARNUNG" if str(event.get("tone") or "") == "warning" else "ERHOLT" if str(event.get("tone") or "") == "good" else "BEWERTUNG"
+        lines.append(f"{prefix}: {str(event.get('label') or '').strip()}")
+        detail = str(event.get("detail") or "").strip()
+        if detail:
+            lines.append(detail)
+    as_of = str(alert.get("as_of") or "").strip()
+    if as_of:
+        lines.append(f"Datenstand: {as_of}")
+    return "\n".join(lines)[:1000]
+
+
+def _apply_portfolio_signal_state(
+    result: dict[str, Any],
+    *,
+    monitor_settings: dict[str, Any],
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Compare portfolio trend and assessment state without repeating alerts."""
+
+    now = now or datetime.now(UTC)
+    state = _read_monitor_state()
+    stored_tickers = state.get("signal_tickers") if isinstance(state.get("signal_tickers"), dict) else {}
+    pending: dict[str, dict[str, Any]] = {}
+    alerts: list[dict[str, Any]] = []
+    ma_enabled = bool(monitor_settings.get("position_monitor_ma_alerts_enabled", True))
+    assessment_enabled = bool(monitor_settings.get("position_monitor_assessment_alerts_enabled", True))
+    interval_minutes = max(
+        5,
+        min(120, int(_float_or_none(monitor_settings.get("position_monitor_assessment_interval_minutes")) or 15)),
+    )
+
+    for item in result.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        previous = stored_tickers.get(ticker) if isinstance(stored_tickers.get(ticker), dict) else {}
+        current = dict(previous)
+        events: list[dict[str, str]] = []
+
+        trend = item.get("trend_monitor") if isinstance(item.get("trend_monitor"), dict) else {}
+        current_ma = _normalized_ma_state(trend)
+        if current_ma:
+            if ma_enabled:
+                events.extend(_moving_average_events(previous.get("moving_averages"), trend))
+            current["moving_averages"] = current_ma
+            current["trend_as_of"] = str(trend.get("as_of") or "")
+            current["current_price"] = _float_or_none(trend.get("current_price"))
+            current["currency"] = str(trend.get("currency") or "USD")
+
+        prior_assessment = previous.get("assessment") if isinstance(previous.get("assessment"), dict) else {}
+        if assessment_enabled and _assessment_check_due(
+            previous,
+            price_as_of=str(item.get("as_of") or ""),
+            now=now,
+            interval_minutes=interval_minutes,
+        ):
+            try:
+                assessment = get_stock_assessment(ticker)
+                summary = _assessment_state(assessment.model_dump(mode="json"))
+                if summary.get("source") == "database":
+                    if prior_assessment:
+                        events.extend(_assessment_events(prior_assessment, summary))
+                    current["assessment"] = summary
+                    current["assessment_checked_at"] = now.isoformat()
+            except Exception as exc:  # noqa: BLE001 - one assessment must not stop live monitoring
+                item.setdefault("warnings", []).append(
+                    f"Aktienbewertung konnte nicht verglichen werden: {type(exc).__name__}: {exc}"
+                )
+
+        current["last_seen_at"] = now.isoformat()
+        alert_id = ""
+        if events:
+            alert_id = f"stock-signal:{ticker}:{int(now.timestamp())}"
+            alerts.append(
+                {
+                    "kind": "stock_signal",
+                    "alert_id": alert_id,
+                    "ticker": ticker,
+                    "current_price": current.get("current_price"),
+                    "currency": current.get("currency") or "USD",
+                    "as_of": current.get("trend_as_of") or item.get("as_of") or "",
+                    "events": events[:12],
+                }
+            )
+        pending[ticker] = {
+            "previous": previous,
+            "current": current,
+            "alert_id": alert_id,
+        }
+
+    result["_pending_signal_state"] = {
+        "base_state": state,
+        "tickers": pending,
+        "finished_at": now.isoformat(),
+    }
+    return alerts
+
+
+def _finalize_portfolio_signal_state(
+    result: dict[str, Any],
+    *,
+    alert_delivery: dict[str, Any],
+) -> None:
+    pending = result.pop("_pending_signal_state", None)
+    if not isinstance(pending, dict):
+        return
+    state = pending.get("base_state") if isinstance(pending.get("base_state"), dict) else {}
+    pending_tickers = pending.get("tickers") if isinstance(pending.get("tickers"), dict) else {}
+    sent_ids = {
+        str(value)
+        for value in alert_delivery.get("sent_alert_ids", [])
+        if str(value)
+    }
+    next_tickers: dict[str, Any] = {}
+    for ticker, transition in pending_tickers.items():
+        if not isinstance(transition, dict):
+            continue
+        alert_id = str(transition.get("alert_id") or "")
+        previous = transition.get("previous") if isinstance(transition.get("previous"), dict) else {}
+        current = transition.get("current") if isinstance(transition.get("current"), dict) else {}
+        if not alert_id or alert_id in sent_ids:
+            next_tickers[str(ticker)] = current
+        elif previous:
+            next_tickers[str(ticker)] = previous
+    state["signal_tickers"] = next_tickers
+    state["last_signal_finished_at"] = str(pending.get("finished_at") or "")
+    try:
+        settings_repository.write_position_monitor_state(state)
+    except SettingsRepositoryUnavailable as exc:
+        result.setdefault("warnings", []).append(f"Warnzeichen-State konnte nicht gespeichert werden: {exc}")
+
+
+def _normalized_ma_state(trend: dict[str, Any]) -> dict[str, Any]:
+    raw = trend.get("moving_averages") if isinstance(trend.get("moving_averages"), dict) else {}
+    normalized: dict[str, Any] = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict) or not isinstance(value.get("above"), bool):
+            continue
+        normalized[str(key)] = {
+            "label": str(value.get("label") or key),
+            "value": _float_or_none(value.get("value")),
+            "above": bool(value.get("above")),
+            "distance_pct": _float_or_none(value.get("distance_pct")),
+        }
+    return normalized
+
+
+def _moving_average_events(previous_value: Any, trend: dict[str, Any]) -> list[dict[str, str]]:
+    previous = previous_value if isinstance(previous_value, dict) else {}
+    raw = trend.get("moving_averages") if isinstance(trend.get("moving_averages"), dict) else {}
+    price = _float_or_none(trend.get("current_price"))
+    currency = str(trend.get("currency") or "USD")
+    events: list[dict[str, str]] = []
+    for key in ("sma10", "ema21", "sma50", "sma200"):
+        current = raw.get(key) if isinstance(raw.get(key), dict) else {}
+        if not isinstance(current.get("above"), bool):
+            continue
+        prior = previous.get(key) if isinstance(previous.get(key), dict) else {}
+        prior_above = prior.get("above") if isinstance(prior.get("above"), bool) else current.get("previous_above")
+        if not isinstance(prior_above, bool) or prior_above == current["above"]:
+            continue
+        label = str(current.get("label") or key)
+        average = _float_or_none(current.get("value"))
+        distance = _float_or_none(current.get("distance_pct"))
+        values = []
+        if price is not None:
+            values.append(f"Kurs {price:.2f} {currency}")
+        if average is not None:
+            values.append(f"{label} {average:.2f}")
+        if distance is not None:
+            values.append(f"Abstand {distance:+.2f}%")
+        events.append(
+            {
+                "tone": "good" if current["above"] else "warning",
+                "label": f"{label} zurückerobert" if current["above"] else f"Bruch der {label}",
+                "detail": " · ".join(values),
+            }
+        )
+    return events
+
+
+def _assessment_check_due(
+    previous: dict[str, Any],
+    *,
+    price_as_of: str,
+    now: datetime,
+    interval_minutes: int,
+) -> bool:
+    assessment = previous.get("assessment") if isinstance(previous.get("assessment"), dict) else {}
+    if not assessment or str(assessment.get("as_of") or "") != price_as_of:
+        return True
+    checked_at = _parse_datetime(previous.get("assessment_checked_at"))
+    return checked_at is None or now - checked_at >= timedelta(minutes=interval_minutes)
+
+
+def _assessment_state(raw: dict[str, Any]) -> dict[str, Any]:
+    checks: dict[str, Any] = {}
+    for item in raw.get("checks", []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        checks[label] = {
+            "passed": bool(item.get("passed")),
+            "category": str(item.get("category") or ""),
+            "severity": str(item.get("severity") or "info"),
+            "detail": str(item.get("detail") or ""),
+        }
+    signals: dict[str, Any] = {}
+    for item in raw.get("chart_signals", []):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        category = str(item.get("category") or "")
+        if label:
+            signals[f"{category}:{label}"] = {
+                "label": label,
+                "category": category,
+                "detail": str(item.get("detail") or ""),
+            }
+    scores = raw.get("scores") if isinstance(raw.get("scores"), dict) else {}
+    return {
+        "source": str(raw.get("source") or "missing"),
+        "as_of": str(raw.get("as_of") or ""),
+        "verdict_label": str(raw.get("verdict_label") or ""),
+        "verdict_tone": str(raw.get("verdict_tone") or ""),
+        "overall_score": int(_float_or_none(scores.get("overall")) or 0),
+        "checks": checks,
+        "signals": signals,
+    }
+
+
+def _assessment_events(previous: dict[str, Any], current: dict[str, Any]) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
+    previous_checks = previous.get("checks") if isinstance(previous.get("checks"), dict) else {}
+    current_checks = current.get("checks") if isinstance(current.get("checks"), dict) else {}
+    for label, check in current_checks.items():
+        if not isinstance(check, dict) or str(label).startswith("Kurs über "):
+            continue
+        old = previous_checks.get(label) if isinstance(previous_checks.get(label), dict) else None
+        if old is None or bool(old.get("passed")) == bool(check.get("passed")):
+            continue
+        events.append(
+            {
+                "tone": "good" if bool(check.get("passed")) else "warning",
+                "label": f"Kriterium wieder erfüllt: {label}" if bool(check.get("passed")) else f"Neues Warnzeichen: {label}",
+                "detail": str(check.get("detail") or ""),
+            }
+        )
+
+    previous_signals = previous.get("signals") if isinstance(previous.get("signals"), dict) else {}
+    current_signals = current.get("signals") if isinstance(current.get("signals"), dict) else {}
+    for key, signal in current_signals.items():
+        if not isinstance(signal, dict) or signal.get("category") != "negative" or key in previous_signals:
+            continue
+        events.append(
+            {
+                "tone": "warning",
+                "label": f"Neues Warnzeichen: {signal.get('label', '')}",
+                "detail": str(signal.get("detail") or ""),
+            }
+        )
+    for key, signal in previous_signals.items():
+        if not isinstance(signal, dict) or signal.get("category") != "negative" or key in current_signals:
+            continue
+        events.append(
+            {
+                "tone": "good",
+                "label": f"Warnzeichen beendet: {signal.get('label', '')}",
+                "detail": str(signal.get("detail") or ""),
+            }
+        )
+
+    old_score = int(_float_or_none(previous.get("overall_score")) or 0)
+    new_score = int(_float_or_none(current.get("overall_score")) or 0)
+    if old_score != new_score:
+        events.append(
+            {
+                "tone": "warning" if new_score < old_score else "good",
+                "label": f"Gesamtscore {old_score} → {new_score}",
+                "detail": f"Veränderung {new_score - old_score:+d} Punkte.",
+            }
+        )
+    old_verdict = str(previous.get("verdict_label") or "")
+    new_verdict = str(current.get("verdict_label") or "")
+    if old_verdict and new_verdict and old_verdict != new_verdict:
+        events.append(
+            {
+                "tone": "warning" if str(current.get("verdict_tone") or "") in {"warning", "bad"} else "good",
+                "label": f"Bewertung: {old_verdict} → {new_verdict}",
+                "detail": "Das zusammengefasste Aktienurteil hat sich geändert.",
+            }
+        )
+    return events[:12]
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 def _cooldown_decision(

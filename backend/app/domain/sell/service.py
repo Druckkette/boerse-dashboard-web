@@ -404,6 +404,12 @@ def monitor_open_position_atr(
         )
         monitor_state["live_quote_at"] = quote.quote_at.isoformat() if quote and quote.quote_at else None
         monitor_state["live_quote_error"] = quote.error_message if quote else "Kein Yahoo-Live-Kurs empfangen."
+        trend_monitor = _position_trend_monitor_state(
+            daily_frame,
+            current_price=live_price,
+            current_trade_date=quote.trade_date if quote and live_price is not None else None,
+            currency=yahoo_quote_currency(row.ticker),
+        )
         items.append(
             {
                 "ticker": row.ticker,
@@ -414,6 +420,7 @@ def monitor_open_position_atr(
                     else None
                 ),
                 "monitor": monitor_state,
+                "trend_monitor": trend_monitor,
             }
         )
 
@@ -580,6 +587,95 @@ def _position_monitor_live_price(quote: FetchedLiveQuote | None) -> float | None
     if quote is None:
         return None
     return _finite_float(quote.price)
+
+
+def _position_trend_monitor_state(
+    daily_frame: Any,
+    *,
+    current_price: float | None,
+    current_trade_date: date | None,
+    currency: str,
+) -> dict[str, Any]:
+    """Build lightweight live moving-average state from cached daily closes.
+
+    The current intraday quote replaces today's cached close or is appended as
+    today's provisional close. This keeps the one-minute monitor independent
+    from the heavy daily stock-assessment calculation.
+    """
+
+    price = _finite_float(current_price)
+    frame = _tail_ohlc_frame(daily_frame, 420)
+    if price is None or frame.empty or "close" not in frame:
+        return {
+            "available": False,
+            "current_price": _round_metric(price),
+            "currency": currency or "USD",
+            "moving_averages": {},
+        }
+
+    closes = pd.to_numeric(frame["close"], errors="coerce").dropna()
+    if closes.empty:
+        return {
+            "available": False,
+            "current_price": _round_metric(price),
+            "currency": currency or "USD",
+            "moving_averages": {},
+        }
+
+    historical = closes
+    if current_trade_date is not None:
+        historical = closes[
+            [pd.Timestamp(index).date() < current_trade_date for index in closes.index]
+        ]
+    previous_price = _finite_float(historical.iloc[-1]) if not historical.empty else None
+    live_index = pd.Timestamp(current_trade_date or date.today())
+    live_closes = pd.concat([historical, pd.Series([price], index=[live_index])])
+    live_closes = live_closes[~live_closes.index.duplicated(keep="last")].sort_index()
+
+    definitions = (
+        ("sma10", "10-SMA", 10, "sma"),
+        ("ema21", "21-EMA", 21, "ema"),
+        ("sma50", "50-SMA", 50, "sma"),
+        ("sma200", "200-SMA", 200, "sma"),
+    )
+    moving_averages: dict[str, Any] = {}
+    for key, label, period, kind in definitions:
+        current_average = _moving_average_value(live_closes, period=period, kind=kind)
+        previous_average = _moving_average_value(historical, period=period, kind=kind)
+        if current_average is None:
+            continue
+        moving_averages[key] = {
+            "label": label,
+            "value": _round_metric(current_average, 4),
+            "above": price >= current_average,
+            "distance_pct": _round_metric((price / current_average - 1) * 100, 3)
+            if current_average > 0
+            else None,
+            "previous_above": (
+                previous_price >= previous_average
+                if previous_price is not None and previous_average is not None
+                else None
+            ),
+        }
+
+    return {
+        "available": bool(moving_averages),
+        "as_of": (current_trade_date or date.today()).isoformat(),
+        "current_price": _round_metric(price, 4),
+        "previous_close": _round_metric(previous_price, 4),
+        "currency": currency or "USD",
+        "moving_averages": moving_averages,
+    }
+
+
+def _moving_average_value(series: pd.Series, *, period: int, kind: str) -> float | None:
+    clean = pd.to_numeric(series, errors="coerce").dropna()
+    if kind == "sma" and len(clean) < period:
+        return None
+    if clean.empty:
+        return None
+    average = clean.ewm(span=period, adjust=False).mean() if kind == "ema" else clean.rolling(period).mean()
+    return _finite_float(average.iloc[-1])
 
 
 def _strategy_hub(signals: list[SellSignal]) -> list[SellStrategyDiagnostic]:

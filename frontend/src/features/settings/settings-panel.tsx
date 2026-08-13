@@ -39,6 +39,9 @@ const fallbackSettings: AppSettings = {
   position_monitor_lookback_days: 420,
   position_monitor_cooldown_hours: 18,
   position_monitor_reference: "previous_close",
+  position_monitor_ma_alerts_enabled: true,
+  position_monitor_assessment_alerts_enabled: true,
+  position_monitor_assessment_interval_minutes: 15,
   pushover_enabled: false,
   pushover_configured: false,
   rs_rating_source: "computed",
@@ -210,6 +213,40 @@ export function SettingsPanel() {
                 value={settings.position_monitor_lookback_days}
                 onChange={(value) => updateNumber("position_monitor_lookback_days", value, 30, 740, 5)}
               />
+              <label className="flex items-center justify-between gap-3 rounded-[9px] border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2 text-sm text-[#172033]">
+                <span>MA-Brüche sofort melden</span>
+                <input
+                  checked={settings.position_monitor_ma_alerts_enabled}
+                  className="size-4 accent-[#0f766e]"
+                  type="checkbox"
+                  onChange={(event) => update("position_monitor_ma_alerts_enabled", event.target.checked)}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-[9px] border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2 text-sm text-[#172033]">
+                <span>Bewertungsänderungen melden</span>
+                <input
+                  checked={settings.position_monitor_assessment_alerts_enabled}
+                  className="size-4 accent-[#0f766e]"
+                  type="checkbox"
+                  onChange={(event) => update("position_monitor_assessment_alerts_enabled", event.target.checked)}
+                />
+              </label>
+              <NumberField
+                label="Bewertung prüfen (Min.)"
+                max={120}
+                min={5}
+                step={5}
+                value={settings.position_monitor_assessment_interval_minutes}
+                onChange={(value) =>
+                  updateNumber("position_monitor_assessment_interval_minutes", value, 5, 120, 5)
+                }
+              />
+              <p className="rounded-[9px] border border-[#d8e1ea] bg-[#f6f8fb] px-3 py-2 text-xs leading-5 text-[#687386] md:col-span-2">
+                Brüche und Rückeroberungen von 10-SMA, 21-EMA, 50-SMA und 200-SMA werden mit dem
+                Live-Kurs jede Minute geprüft. Die vollständige Aktienbewertung wird
+                ressourcenschonend alle {settings.position_monitor_assessment_interval_minutes} Minuten verglichen.
+                Nur Zustandsänderungen lösen eine Nachricht aus.
+              </p>
             </div>
           </SettingCard>
 
