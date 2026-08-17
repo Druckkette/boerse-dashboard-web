@@ -41,6 +41,7 @@ from app.schemas import (
     StockAssessmentResponse,
     StockAssessmentScores,
     StockAssessmentSignal,
+    StockAssessmentSignalState,
     StockFundamentalsItem,
     StockFundamentalsResponse,
     StockFundamentalsUpdateRequest,
@@ -137,22 +138,47 @@ def _assessment_changes(
                 kind="resolved" if check.passed else "new",
                 category=check.category,
                 label=check.label,
-                detail=check.detail,
+                detail=_signal_transition_detail(old.detail, check.detail),
             )
         )
     current_signals = {(signal.category, signal.label): signal for signal in current.chart_signals}
     previous_signals = {(signal.category, signal.label): signal for signal in previous.chart_signals}
     for key, signal in current_signals.items():
         if key not in previous_signals:
+            state = current.chart_signal_states.get(signal.label)
             changes.append(StockSignalChange(
-                kind="new", category=signal.category, label=signal.label, detail=signal.detail,
+                kind="new",
+                category=signal.category,
+                label=signal.label,
+                detail=state.detail if state is not None else signal.detail,
             ))
     for key, signal in previous_signals.items():
         if key not in current_signals:
+            state = current.chart_signal_states.get(signal.label)
+            if state is not None and (not state.available or state.active):
+                continue
             changes.append(StockSignalChange(
-                kind="resolved", category=signal.category, label=signal.label, detail=signal.detail,
+                kind="resolved",
+                category=signal.category,
+                label=signal.label,
+                detail=_signal_transition_detail(
+                    signal.detail,
+                    state.detail if state is not None else "Auslöseschwelle aktuell nicht mehr erfüllt.",
+                ),
             ))
     return changes[:20]
+
+
+def _signal_transition_detail(previous: str, current: str) -> str:
+    old = previous.strip()
+    new = current.strip()
+    if old and new and old != new:
+        return f"Vorher: {old} · Aktuell: {new}"
+    if new:
+        return f"Aktuell: {new}"
+    if old:
+        return f"Vorher: {old} · Aktuelle Auslöseschwelle nicht mehr erfüllt."
+    return "Aktuelle Auslöseschwelle nicht mehr erfüllt."
 
 def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
     clean = ticker.strip().upper()
@@ -1032,6 +1058,14 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
             )
             for signal in result.chart_signals
         ],
+        chart_signal_states={
+            label: StockAssessmentSignalState(
+                active=state.active,
+                available=state.available,
+                detail=state.detail,
+            )
+            for label, state in result.chart_signal_states.items()
+        },
         drivers=result.drivers,
         warnings=result.warnings,
     )

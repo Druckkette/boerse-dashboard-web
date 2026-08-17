@@ -547,6 +547,9 @@ def test_fresh_live_ema_break_creates_portfolio_warning(monkeypatch: pytest.Monk
 
     assert alerts[0]["kind"] == "stock_signal"
     assert alerts[0]["events"][0]["label"] == "Bruch der 21-EMA"
+    assert alerts[0]["events"][0]["detail"] == (
+        "Vorher: darüber · Aktuell: Kurs 180.00 USD · 21-EMA 181.50 · Abstand -0.83%"
+    )
     monitor_module._finalize_portfolio_signal_state(
         result,
         alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
@@ -629,6 +632,18 @@ def test_assessment_changes_report_new_and_resolved_warnings() -> None:
                 "detail": "1 in 15T",
             }
         },
+        "signal_states": {
+            "Stau-Tage": {
+                "active": False,
+                "available": True,
+                "detail": "1/10 Tage · Warnung ab 2",
+            },
+            "Bearish Engulfing": {
+                "active": True,
+                "available": True,
+                "detail": "1/15 Tage · Warnung ab 1",
+            },
+        },
     }
 
     events = monitor_module._assessment_events(previous, current)
@@ -640,6 +655,149 @@ def test_assessment_changes_report_new_and_resolved_warnings() -> None:
     assert "Warnzeichen beendet: Stau-Tage" in labels
     assert "Gesamtscore 76 → 69" in labels
     assert "Bewertung: Stark → Beobachten" in labels
+    resolved = next(event for event in events if event["label"] == "Warnzeichen beendet: Stau-Tage")
+    assert resolved["detail"] == "Vorher: 3 in 10T · Aktuell: 1/10 Tage · Warnung ab 2"
+
+
+def test_resolved_high_volume_drop_message_shows_previous_and_current_count() -> None:
+    previous = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "signals": {
+            "negative:Preisrückgänge bei hohem Vol.": {
+                "category": "negative",
+                "label": "Preisrückgänge bei hohem Vol.",
+                "detail": "5/15 Tage, Kurs <= -0.9%, Vol. > Vortag oder 50T",
+            }
+        },
+    }
+    current = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "signals": {},
+        "signal_states": {
+            "Preisrückgänge bei hohem Vol.": {
+                "active": False,
+                "available": True,
+                "detail": "4/15 Tage · Kurs <= -0,9% und Volumen > Vortag oder 50T · Warnung ab 5",
+            }
+        },
+    }
+
+    events = monitor_module._assessment_events(previous, current)
+
+    assert events == [
+        {
+            "tone": "good",
+            "label": "Warnzeichen beendet: Preisrückgänge bei hohem Vol.",
+            "detail": (
+                "Vorher: 5/15 Tage, Kurs <= -0.9%, Vol. > Vortag oder 50T · "
+                "Aktuell: 4/15 Tage · Kurs <= -0,9% und Volumen > Vortag oder 50T · Warnung ab 5"
+            ),
+        }
+    ]
+
+
+def test_missing_current_signal_data_is_not_reported_as_recovery() -> None:
+    previous = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "signals": {
+            "negative:Schwaches RS-Rating": {
+                "category": "negative",
+                "label": "Schwaches RS-Rating",
+                "detail": "RS 65",
+            }
+        },
+    }
+    current = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "signals": {},
+        "signal_states": {
+            "Schwaches RS-Rating": {
+                "active": False,
+                "available": False,
+                "detail": "RS-Rating nicht verfügbar",
+            }
+        },
+    }
+
+    events = monitor_module._assessment_events(previous, current)
+
+    assert events[0]["tone"] == "neutral"
+    assert events[0]["label"] == "Warnzeichen derzeit nicht bewertbar: Schwaches RS-Rating"
+
+
+def test_missing_check_data_is_reported_as_data_hint_instead_of_warning() -> None:
+    previous = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "checks": {
+            "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY": {
+                "passed": True,
+                "detail": "2025 +25,0%, 2024 +24,0%, 2023 +22,0% · alle >=20%",
+            }
+        },
+    }
+    current = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "checks": {
+            "EPS-Wachstum letzte 3 Jahre jeweils >=20% YoY": {
+                "passed": False,
+                "detail": "Nicht verfügbar: keine jährliche EPS-Historie gespeichert",
+            }
+        },
+    }
+
+    events = monitor_module._assessment_events(previous, current)
+
+    assert events[0]["tone"] == "neutral"
+    assert events[0]["label"].startswith("Kriterium derzeit nicht bewertbar:")
+
+
+def test_newly_available_failed_check_is_reported_as_warning() -> None:
+    label = "Institutionelle Unterstützung"
+    previous = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "checks": {label: {"passed": False, "detail": "Keine gespeicherten 13F-Trends"}},
+    }
+    current = {
+        "overall_score": 70,
+        "verdict_label": "Beobachten",
+        "checks": {label: {"passed": False, "detail": "Große Institutionen: 3 · Trend negative"}},
+    }
+
+    events = monitor_module._assessment_events(previous, current)
+
+    assert events[0]["tone"] == "warning"
+    assert events[0]["label"] == f"Kriterium jetzt bewertbar: {label}"
+
+
+def test_stock_signal_message_uses_clear_status_without_duplicate_wording() -> None:
+    message = monitor_module._format_stock_signal_alert_message(
+        {
+            "ticker": "NVDA",
+            "events": [
+                {
+                    "tone": "good",
+                    "label": "Warnzeichen beendet: Preisrückgänge bei hohem Vol.",
+                    "detail": "Vorher: 5/15 Tage · Aktuell: 4/15 Tage · Warnung ab 5",
+                },
+                {
+                    "tone": "neutral",
+                    "label": "Warnzeichen derzeit nicht bewertbar: Schwaches RS-Rating",
+                    "detail": "Aktuell: RS-Rating nicht verfügbar",
+                },
+            ],
+        }
+    )
+
+    assert "ENTWARNUNG: Preisrückgänge bei hohem Vol." in message
+    assert "DATENHINWEIS: Schwaches RS-Rating" in message
+    assert "ENTWARNUNG: Warnzeichen beendet" not in message
 
 
 def test_failed_signal_delivery_keeps_previous_state(monkeypatch: pytest.MonkeyPatch) -> None:

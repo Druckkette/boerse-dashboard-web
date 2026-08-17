@@ -562,6 +562,12 @@ class StockAssessmentSignal(BaseModel):
     detail: str = ""
 
 
+class StockAssessmentSignalState(BaseModel):
+    active: bool
+    available: bool
+    detail: str = ""
+
+
 class StockAssessmentScores(BaseModel):
     overall: int = Field(ge=0, le=100)
     technical: float = Field(ge=0, le=100)
@@ -709,6 +715,7 @@ class StockAssessmentResponse(BaseModel):
     earnings: StockEarningsWarning | None = None
     checks: list[StockAssessmentCheck]
     chart_signals: list[StockAssessmentSignal]
+    chart_signal_states: dict[str, StockAssessmentSignalState] = Field(default_factory=dict)
     drivers: list[str]
     warnings: list[str]
 

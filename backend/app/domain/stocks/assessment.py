@@ -42,6 +42,13 @@ class ChartSignal:
 
 
 @dataclass(frozen=True)
+class ChartSignalState:
+    active: bool
+    available: bool
+    detail: str
+
+
+@dataclass(frozen=True)
 class StockAssessmentScores:
     overall: int
     technical: float
@@ -96,6 +103,7 @@ class StockAssessmentResult:
     earnings: EarningsWarning | None = None
     checks: list[AssessmentCheck] = field(default_factory=list)
     chart_signals: list[ChartSignal] = field(default_factory=list)
+    chart_signal_states: Mapping[str, ChartSignalState] = field(default_factory=dict)
     drivers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -160,6 +168,7 @@ def compute_stock_assessment(
     if earnings_check is not None:
         checks.append(earnings_check)
     chart_signals = evaluate_chart_signs(df, rs_context=rs)
+    chart_signal_states = evaluate_negative_chart_signal_states(df, rs_context=rs)
     metrics = _compute_metrics(
         df,
         cmf_value=cmf_value,
@@ -203,6 +212,7 @@ def compute_stock_assessment(
         earnings=earnings,
         checks=checks,
         chart_signals=chart_signals,
+        chart_signal_states=chart_signal_states,
         drivers=drivers,
         warnings=warnings,
     )
@@ -512,11 +522,15 @@ def evaluate_chart_signs(
             signals.append(ChartSignal("negative", "Durchschnitte in falscher Ordnung", "21<50<200"))
 
     if len(ema21) >= 10 and s50 is not None:
-        ema_up = _safe_float(ema21.iloc[-1]) is not None and _safe_float(ema21.iloc[-10]) is not None and ema21.iloc[-1] > ema21.iloc[-10]
-        sma_up = pd.notna(sma50.iloc[-10]) and sma50.iloc[-1] > sma50.iloc[-10]
+        ema_up = bool(
+            _safe_float(ema21.iloc[-1]) is not None
+            and _safe_float(ema21.iloc[-10]) is not None
+            and ema21.iloc[-1] > ema21.iloc[-10]
+        )
+        sma_up = bool(pd.notna(sma50.iloc[-10]) and sma50.iloc[-1] > sma50.iloc[-10])
         if ema_up and sma_up:
             signals.append(ChartSignal("positive", "Nach oben zeigende Durchschnittslinien"))
-        elif not ema_up and sma_up is False:
+        elif not ema_up and not sma_up:
             signals.append(ChartSignal("negative", "Nach unten zeigende Durchschnittslinien"))
 
     close_range = _close_range_position(close, high, low)
@@ -610,6 +624,197 @@ def evaluate_chart_signs(
 
     signals.extend(_recent_reaction_signals(close, high, low, open_, pct, s50, volume, _safe_float(vol_avg_50.iloc[-1])))
     return signals
+
+
+def evaluate_negative_chart_signal_states(
+    df: pd.DataFrame,
+    *,
+    rs_context: Mapping[str, Any] | None = None,
+) -> dict[str, ChartSignalState]:
+    """Return current values for every negative chart signal.
+
+    ``evaluate_chart_signs`` intentionally returns active signals only. Alert
+    transitions also need the current inactive value so a resolved message does
+    not accidentally repeat the previous trigger value.
+    """
+
+    if len(df) < 50:
+        return {}
+    rs = dict(rs_context or {})
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    high = pd.to_numeric(df["High"], errors="coerce")
+    low = pd.to_numeric(df["Low"], errors="coerce")
+    open_ = pd.to_numeric(df["Open"], errors="coerce")
+    volume = pd.to_numeric(df["Volume"], errors="coerce")
+    pct = close.pct_change(fill_method=None)
+    vol_avg_50 = volume.rolling(50).mean()
+    ema21 = close.ewm(span=21, adjust=False).mean()
+    sma50 = close.rolling(50, min_periods=50).mean()
+    sma200 = close.rolling(200, min_periods=200).mean()
+    close_range = _close_range_position(close, high, low)
+    states: dict[str, ChartSignalState] = {}
+
+    def add(label: str, *, active: bool, detail: str, available: bool = True) -> None:
+        states[label] = ChartSignalState(active=active, available=available, detail=detail)
+
+    high_volume_up = int(((close.tail(20) > close.shift(1).tail(20)) & (volume.tail(20) > vol_avg_50.tail(20))).sum())
+    high_volume_down = int(((close.tail(20) < close.shift(1).tail(20)) & (volume.tail(20) > vol_avg_50.tail(20))).sum())
+    add(
+        "Mehr Verlust- als Gewinntage mit hohem Vol.",
+        active=high_volume_down > high_volume_up,
+        detail=f"Verlusttage {high_volume_down} vs Gewinntage {high_volume_up} (20T) · Warnung nur bei Verlusttage > Gewinntage",
+    )
+
+    below_21_streak = _trailing_true_count(close < ema21)
+    below_50_streak = _trailing_true_count(close < sma50)
+    add(
+        "Leben unter den Durchschnitten",
+        active=below_21_streak >= 4 or below_50_streak >= 4,
+        detail=f"{below_21_streak}T unter 21-EMA · {below_50_streak}T unter 50-SMA · Warnung ab 4T",
+    )
+
+    e21 = _safe_float(ema21.iloc[-1])
+    s50 = _safe_float(sma50.iloc[-1])
+    s200 = _safe_float(sma200.iloc[-1])
+    ma_available = e21 is not None and s50 is not None and s200 is not None
+    add(
+        "Durchschnitte in falscher Ordnung",
+        active=bool(ma_available and e21 < s50 < s200),
+        available=ma_available,
+        detail=(
+            f"21-EMA {e21:.2f} · 50-SMA {s50:.2f} · 200-SMA {s200:.2f} · Warnung bei 21<50<200"
+            if ma_available
+            else "200-SMA oder weitere Durchschnittsdaten fehlen"
+        ),
+    )
+
+    slope_available = len(ema21) >= 10 and s50 is not None and pd.notna(sma50.iloc[-10])
+    ema_up = bool(slope_available and ema21.iloc[-1] > ema21.iloc[-10])
+    sma_up = bool(slope_available and sma50.iloc[-1] > sma50.iloc[-10])
+    add(
+        "Nach unten zeigende Durchschnittslinien",
+        active=bool(slope_available and not ema_up and not sma_up),
+        available=slope_available,
+        detail=(
+            f"21-EMA über 10T {'steigend' if ema_up else 'fallend'} · 50-SMA {'steigend' if sma_up else 'fallend'}"
+            if slope_available
+            else "Steigungsdaten der Durchschnitte fehlen"
+        ),
+    )
+
+    down_gaps = int(((open_.tail(10) < low.shift(1).tail(10)) & (volume.tail(10) > vol_avg_50.tail(10))).sum())
+    add(
+        "Negative Kurslücken bei hohem Vol.",
+        active=down_gaps > 0,
+        detail=f"{down_gaps}/10 Tage · Warnung ab 1",
+    )
+
+    material_drops = pct.tail(15) <= -0.009
+    high_volume = (volume.tail(15) > volume.shift(1).tail(15)) | (volume.tail(15) > vol_avg_50.tail(15))
+    high_volume_drops = int((material_drops & high_volume).sum())
+    add(
+        "Preisrückgänge bei hohem Vol.",
+        active=high_volume_drops >= 5,
+        detail=f"{high_volume_drops}/15 Tage · Kurs <= -0,9% und Volumen > Vortag oder 50T · Warnung ab 5",
+    )
+
+    stall_days = int(((pct.tail(10).abs() <= 0.005) & (volume.tail(10) >= volume.shift(1).tail(10) * 0.95) & (close_range.tail(10) < 0.5)).sum())
+    add("Stau-Tage", active=stall_days >= 2, detail=f"{stall_days}/10 Tage · Warnung ab 2")
+
+    bearish_outside_days = int(_bearish_outside_day_mask(open_, high, low, close, close_range).tail(15).sum())
+    add(
+        "Bearisher Outside Day",
+        active=bearish_outside_days >= 1,
+        detail=f"{bearish_outside_days}/15 Tage · Warnung ab 1",
+    )
+    bearish_engulfing = int(_bearish_engulfing_mask(open_, close, close_range).tail(15).sum())
+    add(
+        "Bearish Engulfing",
+        active=bearish_engulfing >= 1,
+        detail=f"{bearish_engulfing}/15 Tage · Warnung ab 1",
+    )
+
+    trend_5w = rs.get("trend_5w")
+    add(
+        "RS-Linie fällt",
+        active=trend_5w is False,
+        available=isinstance(trend_5w, bool),
+        detail=("5W-Trend fallend" if trend_5w is False else "5W-Trend steigend" if trend_5w is True else "5W-Trend nicht verfügbar"),
+    )
+    for label, state_key, average_key in (
+        ("RS-Linie unter 21-EMA", "above_21", "ema21"),
+        ("RS-Linie unter 50-SMA", "above_50", "sma50"),
+    ):
+        above = rs.get(state_key)
+        add(
+            label,
+            active=above is False,
+            available=isinstance(above, bool),
+            detail=f"{_rs_line_detail(rs, average_key)} · aktuell {'darüber' if above is True else 'darunter' if above is False else 'nicht verfügbar'}",
+        )
+
+    distance_to_high = _safe_float(rs.get("distance_to_high_pct"))
+    add(
+        "RS-Linie deutlich unter Hoch",
+        active=distance_to_high is not None and distance_to_high <= -10,
+        available=distance_to_high is not None,
+        detail=(f"{distance_to_high:+.1f}% zum RS-Hoch · Warnung ab -10,0%" if distance_to_high is not None else "Distanz zum RS-Hoch nicht verfügbar"),
+    )
+    rating = _safe_float(rs.get("rating"))
+    add(
+        "Schwaches RS-Rating",
+        active=rating is not None and rating < 70,
+        available=rating is not None,
+        detail=(f"RS {int(rating)} · Warnung unter 70" if rating is not None else "RS-Rating nicht verfügbar"),
+    )
+
+    avg_close_range = _safe_float(close_range.tail(5).mean())
+    add(
+        "Tiefe Schlussposition",
+        active=avg_close_range is not None and avg_close_range < 0.25,
+        available=avg_close_range is not None,
+        detail=(f"Ø {avg_close_range:.0%} in 5T · Warnung unter 25%" if avg_close_range is not None else "Schlussposition nicht verfügbar"),
+    )
+
+    current_close = _safe_float(close.iloc[-1])
+    distance_warnings = _moving_average_distance_warnings(
+        current_close,
+        {
+            "10-SMA": (_safe_float(close.rolling(10, min_periods=10).mean().iloc[-1]), 10.0),
+            "21-EMA": (e21, 14.0),
+            "50-SMA": (s50, 25.0),
+            "200-SMA": (s200, 70.0),
+        },
+    )
+    all_distances = _moving_average_distance_details(
+        current_close,
+        {
+            "10-SMA": (_safe_float(close.rolling(10, min_periods=10).mean().iloc[-1]), 10.0),
+            "21-EMA": (e21, 14.0),
+            "50-SMA": (s50, 25.0),
+            "200-SMA": (s200, 70.0),
+        },
+    )
+    add(
+        "Großer Abstand zu Durchschnitten",
+        active=bool(distance_warnings),
+        available=bool(all_distances),
+        detail=", ".join(all_distances) if all_distances else "Abstände nicht verfügbar",
+    )
+
+    accelerated = False
+    accelerated_detail = "Weniger als drei Veränderungswerte verfügbar"
+    if len(pct.dropna()) >= 3:
+        r1, r2, r3 = pct.iloc[-3] * 100, pct.iloc[-2] * 100, pct.iloc[-1] * 100
+        accelerated = bool(r1 < 0 and r2 < 0 and r3 < 0 and r3 < r2 < r1 and r3 <= -2.0)
+        accelerated_detail = f"letzte 3 Tage {r1:+.1f}% → {r2:+.1f}% → {r3:+.1f}%"
+    add(
+        "Beschleunigte Verluste",
+        active=accelerated,
+        available=len(pct.dropna()) >= 3,
+        detail=accelerated_detail,
+    )
+    return states
 
 
 def _rs_checks(rs_context: Mapping[str, Any]) -> list[AssessmentCheck]:
@@ -1965,6 +2170,20 @@ def _moving_average_distance_warnings(
         if abs(distance) >= threshold:
             warnings.append(f"{label} {distance:+.1f}% (Limit ±{threshold:.0f}%)")
     return warnings
+
+
+def _moving_average_distance_details(
+    price: float | None,
+    averages: Mapping[str, tuple[float | None, float]],
+) -> list[str]:
+    if price is None:
+        return []
+    details: list[str] = []
+    for label, (average, threshold) in averages.items():
+        distance = _distance_pct(price, average)
+        if distance is not None:
+            details.append(f"{label} {distance:+.1f}% (Limit ±{threshold:.0f}%)")
+    return details
 
 
 def _missing_check(

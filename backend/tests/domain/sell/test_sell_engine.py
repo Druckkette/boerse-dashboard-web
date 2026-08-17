@@ -27,6 +27,7 @@ from app.domain.sell.service import (
     get_sell_position_ranking,
     snooze_sell_signal,
 )
+from app.domain.stocks.assessment import compute_stock_assessment
 from app.repositories.portfolio import PortfolioPositionRow
 from tests.helpers.sell_fixture_data import fixture_positions, fixture_price_bars
 
@@ -70,6 +71,21 @@ def test_live_trend_monitor_builds_all_moving_average_states() -> None:
     assert state["moving_averages"]["ema21"]["above"] is False
     assert state["moving_averages"]["ema21"]["previous_above"] is True
     assert state["moving_averages"]["sma200"]["distance_pct"] < 0
+
+
+@pytest.mark.parametrize("ticker", ["NVDA", "PLTR", "EMAB", "CLMX"])
+def test_negative_chart_signal_states_match_active_signals(ticker: str) -> None:
+    bars = fixture_price_bars(ticker)
+    result = compute_stock_assessment(ticker, bars)
+
+    active_negative = {
+        signal.label for signal in result.chart_signals if signal.category == "negative"
+    }
+    active_states = {
+        label for label, state in result.chart_signal_states.items() if state.active
+    }
+
+    assert active_states == active_negative
 
 
 @pytest.mark.parametrize(

@@ -972,6 +972,12 @@ export type StockAssessmentSignal = {
   detail: string;
 };
 
+export type StockAssessmentSignalState = {
+  active: boolean;
+  available: boolean;
+  detail: string;
+};
+
 export type StockAssessmentScores = {
   overall: number;
   technical: number;
@@ -1119,6 +1125,7 @@ export type StockAssessment = {
   earnings?: StockEarningsWarning | null;
   checks: StockAssessmentCheck[];
   chart_signals: StockAssessmentSignal[];
+  chart_signal_states?: Record<string, StockAssessmentSignalState>;
   drivers: string[];
   warnings: string[];
 };

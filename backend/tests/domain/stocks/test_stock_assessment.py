@@ -60,6 +60,12 @@ def test_stock_assessment_flags_weak_position() -> None:
     assert result.verdict_tone in {"warning", "bad"}
     assert any("Dollar-Volumen" in warning for warning in result.warnings)
     assert any(signal.category == "negative" for signal in result.chart_signals)
+    active_negative = {
+        signal.label for signal in result.chart_signals if signal.category == "negative"
+    }
+    assert {
+        label for label, state in result.chart_signal_states.items() if state.active
+    } == active_negative
 
 
 def test_stock_assessment_places_price_and_high_distance_in_technical_checks() -> None:

@@ -359,8 +359,18 @@ def _format_stock_signal_alert_message(alert: dict[str, Any]) -> str:
     for event in events[:8]:
         if not isinstance(event, dict):
             continue
-        prefix = "WARNUNG" if str(event.get("tone") or "") == "warning" else "ERHOLT" if str(event.get("tone") or "") == "good" else "BEWERTUNG"
-        lines.append(f"{prefix}: {str(event.get('label') or '').strip()}")
+        tone = str(event.get("tone") or "")
+        prefix = (
+            "WARNUNG"
+            if tone == "warning"
+            else "ENTWARNUNG"
+            if tone == "good"
+            else "DATENHINWEIS"
+            if tone == "neutral"
+            else "BEWERTUNG"
+        )
+        label = _notification_event_label(str(event.get("label") or ""))
+        lines.append(f"{prefix}: {label}")
         detail = str(event.get("detail") or "").strip()
         if detail:
             lines.append(detail)
@@ -532,11 +542,21 @@ def _moving_average_events(previous_value: Any, trend: dict[str, Any]) -> list[d
             values.append(f"{label} {average:.2f}")
         if distance is not None:
             values.append(f"Abstand {distance:+.2f}%")
+        previous_values = ["darüber" if prior_above else "darunter"]
+        prior_average = _float_or_none(prior.get("value"))
+        prior_distance = _float_or_none(prior.get("distance_pct"))
+        if prior_average is not None:
+            previous_values.append(f"{label} {prior_average:.2f}")
+        if prior_distance is not None:
+            previous_values.append(f"Abstand {prior_distance:+.2f}%")
         events.append(
             {
                 "tone": "good" if current["above"] else "warning",
                 "label": f"{label} zurückerobert" if current["above"] else f"Bruch der {label}",
-                "detail": " · ".join(values),
+                "detail": (
+                    f"Vorher: {' · '.join(previous_values)} · "
+                    f"Aktuell: {' · '.join(values)}"
+                ),
             }
         )
     return events
@@ -582,6 +602,16 @@ def _assessment_state(raw: dict[str, Any]) -> dict[str, Any]:
                 "category": category,
                 "detail": str(item.get("detail") or ""),
             }
+    signal_states: dict[str, Any] = {}
+    raw_states = raw.get("chart_signal_states") if isinstance(raw.get("chart_signal_states"), dict) else {}
+    for label, item in raw_states.items():
+        if not isinstance(item, dict):
+            continue
+        signal_states[str(label)] = {
+            "active": bool(item.get("active")),
+            "available": bool(item.get("available")),
+            "detail": str(item.get("detail") or ""),
+        }
     scores = raw.get("scores") if isinstance(raw.get("scores"), dict) else {}
     return {
         "source": str(raw.get("source") or "missing"),
@@ -591,6 +621,7 @@ def _assessment_state(raw: dict[str, Any]) -> dict[str, Any]:
         "overall_score": int(_float_or_none(scores.get("overall")) or 0),
         "checks": checks,
         "signals": signals,
+        "signal_states": signal_states,
     }
 
 
@@ -602,36 +633,92 @@ def _assessment_events(previous: dict[str, Any], current: dict[str, Any]) -> lis
         if not isinstance(check, dict) or str(label).startswith("Kurs über "):
             continue
         old = previous_checks.get(label) if isinstance(previous_checks.get(label), dict) else None
-        if old is None or bool(old.get("passed")) == bool(check.get("passed")):
+        if old is None:
+            continue
+        old_detail = str(old.get("detail") or "")
+        current_detail = str(check.get("detail") or "")
+        old_available = _assessment_detail_available(old_detail)
+        current_available = _assessment_detail_available(current_detail)
+        if (
+            bool(old.get("passed")) == bool(check.get("passed"))
+            and old_available == current_available
+        ):
+            continue
+        if not current_available:
+            if not old_available:
+                continue
+            events.append(
+                {
+                    "tone": "neutral",
+                    "label": f"Kriterium derzeit nicht bewertbar: {label}",
+                    "detail": _transition_detail(old_detail, current_detail),
+                }
+            )
             continue
         events.append(
             {
                 "tone": "good" if bool(check.get("passed")) else "warning",
-                "label": f"Kriterium wieder erfüllt: {label}" if bool(check.get("passed")) else f"Neues Warnzeichen: {label}",
-                "detail": str(check.get("detail") or ""),
+                "label": (
+                    f"Kriterium jetzt bewertbar: {label}"
+                    if not old_available
+                    else f"Kriterium wieder erfüllt: {label}"
+                    if bool(check.get("passed"))
+                    else f"Neues Warnzeichen: {label}"
+                ),
+                "detail": _transition_detail(old_detail, current_detail),
             }
         )
 
     previous_signals = previous.get("signals") if isinstance(previous.get("signals"), dict) else {}
     current_signals = current.get("signals") if isinstance(current.get("signals"), dict) else {}
+    previous_signal_states = previous.get("signal_states") if isinstance(previous.get("signal_states"), dict) else {}
+    current_signal_states = current.get("signal_states") if isinstance(current.get("signal_states"), dict) else {}
     for key, signal in current_signals.items():
         if not isinstance(signal, dict) or signal.get("category") != "negative" or key in previous_signals:
             continue
+        label = str(signal.get("label") or "")
+        previous_state = previous_signal_states.get(label) if isinstance(previous_signal_states.get(label), dict) else {}
+        current_state = current_signal_states.get(label) if isinstance(current_signal_states.get(label), dict) else {}
+        previous_detail = str(previous_state.get("detail") or "")
+        current_detail = str(current_state.get("detail") or signal.get("detail") or "")
         events.append(
             {
                 "tone": "warning",
-                "label": f"Neues Warnzeichen: {signal.get('label', '')}",
-                "detail": str(signal.get("detail") or ""),
+                "label": f"Neues Warnzeichen: {label}",
+                "detail": (
+                    _transition_detail(previous_detail, current_detail)
+                    if previous_detail
+                    else f"Aktuell: {current_detail}"
+                ),
             }
         )
     for key, signal in previous_signals.items():
         if not isinstance(signal, dict) or signal.get("category") != "negative" or key in current_signals:
             continue
+        label = str(signal.get("label") or "")
+        current_state = current_signal_states.get(label) if isinstance(current_signal_states.get(label), dict) else {}
+        previous_state = previous_signal_states.get(label) if isinstance(previous_signal_states.get(label), dict) else {}
+        previous_detail = str(previous_state.get("detail") or signal.get("detail") or "")
+        current_detail = str(current_state.get("detail") or "")
+        if not current_state or not bool(current_state.get("available")):
+            events.append(
+                {
+                    "tone": "neutral",
+                    "label": f"Warnzeichen derzeit nicht bewertbar: {label}",
+                    "detail": _transition_detail(previous_detail, current_detail or "Aktuelle Daten fehlen."),
+                }
+            )
+            continue
+        if current_state and bool(current_state.get("active")):
+            continue
         events.append(
             {
                 "tone": "good",
-                "label": f"Warnzeichen beendet: {signal.get('label', '')}",
-                "detail": str(signal.get("detail") or ""),
+                "label": f"Warnzeichen beendet: {label}",
+                "detail": _transition_detail(
+                    previous_detail,
+                    current_detail or "Auslöseschwelle aktuell nicht mehr erfüllt.",
+                ),
             }
         )
 
@@ -656,6 +743,52 @@ def _assessment_events(previous: dict[str, Any], current: dict[str, Any]) -> lis
             }
         )
     return events[:12]
+
+
+def _transition_detail(previous: str, current: str) -> str:
+    old = previous.strip()
+    new = current.strip()
+    if old and new and old != new:
+        return f"Vorher: {old} · Aktuell: {new}"
+    if new:
+        return f"Aktuell: {new}"
+    if old:
+        return f"Vorher: {old} · Aktuelle Auslöseschwelle nicht mehr erfüllt."
+    return "Aktuelle Auslöseschwelle nicht mehr erfüllt."
+
+
+def _assessment_detail_available(detail: str) -> bool:
+    clean = detail.strip().lower()
+    if not clean or clean == "n/a":
+        return False
+    unavailable_markers = (
+        "nicht verfügbar",
+        "nicht auswertbar",
+        "noch kein",
+        "keine eps-",
+        "keine umsatz-",
+        "keine roe-",
+        "keine gespeicherten",
+    )
+    if any(marker in clean for marker in unavailable_markers):
+        return False
+    return not any(f"nur {count}/3" in clean for count in range(3))
+
+
+def _notification_event_label(label: str) -> str:
+    clean = label.strip()
+    prefixes = (
+        "Neues Warnzeichen: ",
+        "Warnzeichen beendet: ",
+        "Warnzeichen derzeit nicht bewertbar: ",
+        "Kriterium wieder erfüllt: ",
+        "Kriterium jetzt bewertbar: ",
+        "Kriterium derzeit nicht bewertbar: ",
+    )
+    for prefix in prefixes:
+        if clean.startswith(prefix):
+            return clean.removeprefix(prefix)
+    return clean
 
 
 def _parse_datetime(value: Any) -> datetime | None:
