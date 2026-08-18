@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,6 +6,7 @@ import pytest
 
 from app.domain.portfolio.trade_republic import parse_transaction_export_csv, reconstruct_open_positions
 from app.data_sources.yfinance_client import FetchedAfterHoursQuote
+from app.repositories.market import MarketOhlcvPoint
 from app.repositories.portfolio import PortfolioImportResult, TradeRepublicImportResult
 from app.repositories.portfolio import PortfolioPositionRow
 from app.schemas import PortfolioImportRequest, TradeRepublicTransactionImportRequest
@@ -383,6 +384,36 @@ def test_trade_republic_usd_position_converts_foreign_cached_listing_price(
     assert normalized.entry_price == pytest.approx(6.85)
     assert normalized.current_price == pytest.approx(6.8608)
     assert normalized.currency == "USD"
+
+
+def test_beta_falls_back_to_aligned_cached_returns() -> None:
+    start = date(2026, 1, 1)
+    benchmark_close = 100.0
+    asset_close = 50.0
+    benchmark_rows: list[MarketOhlcvPoint] = []
+    asset_rows: list[MarketOhlcvPoint] = []
+    daily_returns = [-0.02, 0.01, 0.005, -0.007, 0.015, -0.003] * 7
+    for offset, benchmark_return in enumerate([0.0, *daily_returns]):
+        if offset:
+            benchmark_close *= 1 + benchmark_return
+            asset_close *= 1 + benchmark_return * 1.5
+        bar_date = start + timedelta(days=offset)
+        benchmark_rows.append(
+            MarketOhlcvPoint("SPY", bar_date, benchmark_close, benchmark_close, benchmark_close, benchmark_close, 1)
+        )
+        asset_rows.append(
+            MarketOhlcvPoint("TEST", bar_date, asset_close, asset_close, asset_close, asset_close, 1)
+        )
+
+    beta = portfolio_service._beta_from_price_rows(asset_rows, benchmark_rows)
+
+    assert beta == pytest.approx(1.5, abs=0.02)
+
+
+def test_beta_fallback_requires_sufficient_aligned_history() -> None:
+    row = MarketOhlcvPoint("TEST", date(2026, 1, 1), 100, 100, 100, 100, 1)
+
+    assert portfolio_service._beta_from_price_rows([row], [row]) is None
 
 
 def test_after_hours_portfolio_converts_yahoo_quote_currency_to_usd(

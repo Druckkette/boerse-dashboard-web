@@ -167,7 +167,14 @@ def get_portfolio_positions(
         atr_pct = atr_by_ticker.get(row.ticker) or _atr_pct_for_ticker(row.ticker)
         snapshot = fundamentals_by_ticker.get(row.ticker)
         beta_value = _finite_float(snapshot.beta) if snapshot is not None else None
-        beta = round(beta_value, 4) if beta_value is not None and beta_value > 0 else _beta_for_ticker(row.ticker)
+        beta = round(beta_value, 4) if beta_value is not None and beta_value > 0 else None
+        if beta is None:
+            beta = _beta_from_price_rows(
+                price_series.get(row.ticker, []),
+                price_series.get("SPY", []) or price_series.get("^GSPC", []),
+            )
+        if beta is None:
+            beta = _beta_for_ticker(row.ticker)
         weight_pct = market_value / allocation_base * 100 if allocation_base else 0
         beta_balancer_score = _beta_balancer_score(beta=beta, atr_pct=atr_pct, market_atr_pct=market_atr_pct)
         risk_contribution = _risk_contribution(weight_pct=weight_pct, beta_balancer_score=beta_balancer_score)
@@ -2198,6 +2205,37 @@ def _beta_for_ticker(ticker: str) -> float | None:
         snapshot = None
     beta = _finite_float(snapshot.beta) if snapshot is not None else None
     return round(beta, 4) if beta is not None and beta > 0 else None
+
+
+def _beta_from_price_rows(
+    asset_rows: list[market_repository.MarketOhlcvPoint],
+    benchmark_rows: list[market_repository.MarketOhlcvPoint],
+) -> float | None:
+    if len(asset_rows) < 31 or len(benchmark_rows) < 31:
+        return None
+    asset = pd.Series(
+        {row.date: float(row.close) for row in asset_rows if row.close and row.close > 0},
+        dtype=float,
+    )
+    benchmark = pd.Series(
+        {row.date: float(row.close) for row in benchmark_rows if row.close and row.close > 0},
+        dtype=float,
+    )
+    aligned = pd.concat(
+        [asset.rename("asset"), benchmark.rename("benchmark")],
+        axis=1,
+        join="inner",
+    ).sort_index()
+    returns = aligned.pct_change(fill_method=None).replace([float("inf"), float("-inf")], pd.NA).dropna()
+    if len(returns) < 30:
+        return None
+    benchmark_variance = float(returns["benchmark"].var())
+    if not math.isfinite(benchmark_variance) or benchmark_variance <= 0:
+        return None
+    beta = float(returns["asset"].cov(returns["benchmark"])) / benchmark_variance
+    if not math.isfinite(beta) or beta <= 0 or beta > 10:
+        return None
+    return round(beta, 4)
 
 
 def _cash_balance_for_normalized_rows(
