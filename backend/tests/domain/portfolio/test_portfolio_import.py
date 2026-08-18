@@ -357,6 +357,34 @@ def test_trade_republic_cached_listing_price_is_converted_from_quote_currency(
     assert normalized.currency == "USD"
 
 
+def test_trade_republic_usd_position_converts_foreign_cached_listing_price(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        portfolio_service,
+        "currency_to_usd",
+        lambda value, currency: float(value) * 0.128 if currency == "HKD" else float(value),
+    )
+    row = PortfolioPositionRow(
+        ticker="2318.HK",
+        name="Ping An Insurance",
+        shares=100,
+        entry_price=6.85,
+        current_price=53.60,
+        currency="USD",
+        buy_date=date(2026, 1, 1),
+        broker="Trade Republic",
+        account="Main",
+        current_price_source="price_cache",
+    )
+
+    normalized = portfolio_service._normalize_trade_republic_row_to_usd(row)
+
+    assert normalized.entry_price == pytest.approx(6.85)
+    assert normalized.current_price == pytest.approx(6.8608)
+    assert normalized.currency == "USD"
+
+
 def test_after_hours_portfolio_converts_yahoo_quote_currency_to_usd(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

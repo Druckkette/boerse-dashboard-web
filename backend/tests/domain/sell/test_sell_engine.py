@@ -662,6 +662,34 @@ def test_entry_reference_converts_portfolio_currency_to_usd(monkeypatch: pytest.
     assert monitor["threshold_crossed"] is True
 
 
+def test_sell_position_converts_foreign_cache_quote_for_usd_trade_republic_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = PortfolioPositionRow(
+        ticker="2318.HK",
+        name="Ping An Insurance",
+        shares=100,
+        entry_price=6.85,
+        current_price=53.60,
+        currency="USD",
+        buy_date=date(2026, 1, 1),
+        broker="Trade Republic",
+        account="Main",
+        current_price_source="price_cache",
+    )
+    monkeypatch.setattr(
+        sell_service,
+        "currency_to_usd",
+        lambda value, currency: None if value is None else float(value) * (0.128 if currency == "HKD" else 1.0),
+    )
+
+    entry_price, current_price, currency = sell_service._portfolio_row_prices_for_sell(row)
+
+    assert entry_price == pytest.approx(6.85)
+    assert current_price == pytest.approx(6.8608)
+    assert currency == "USD"
+
+
 def test_high_since_buy_is_not_truncated_by_fallback_lookback() -> None:
     row = PortfolioPositionRow(
         ticker="AAPL",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -69,6 +70,22 @@ def test_smart_plan_refreshes_only_missing_position_prices_and_monitor() -> None
     ]
     assert plan[0].payload["tickers"] == ["NVDA", "MSFT"]
     assert plan[0].payload["range"] == "1y"
+
+
+def test_market_price_merge_always_includes_open_positions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        smart_module.portfolio_repository,
+        "list_open_positions",
+        lambda: [SimpleNamespace(ticker="2318.HK"), SimpleNamespace(ticker="ZPDH.DE")],
+    )
+
+    merged = smart_module._merge_price_symbols(
+        [smart_module._SimplePriceSymbol(source_ticker="SPY", yahoo_symbol="SPY")],
+        benchmark_ticker="SPY",
+    )
+
+    tickers = {symbol.source_ticker for symbol in merged}
+    assert {"SPY", "2318.HK", "ZPDH.DE"}.issubset(tickers)
 
 
 def test_smart_plan_refreshes_market_dependencies_after_stale_prices() -> None:

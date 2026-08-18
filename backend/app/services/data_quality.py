@@ -338,7 +338,7 @@ def _build_issues(
             detail=", ".join(_freshness_label(item.name) for item in stale_services),
             category="freshness",
         ))
-    actionable_events = [event for event in events if event.event_type != "ticker_mapping"]
+    actionable_events = [event for event in events if event.severity in {"warning", "critical"}]
     if actionable_events:
         issues.append(DataDiagnosticIssue(
             key="corporate_action_candidates", label="Kapitalmaßnahmen prüfen", severity="warning",

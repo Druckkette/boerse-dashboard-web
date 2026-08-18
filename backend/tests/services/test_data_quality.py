@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from datetime import date, timedelta
 
-from app.schemas import PortfolioPosition
+from app.schemas import DataQualityEvent, PortfolioPosition
+from app.services import data_quality
 from app.services.data_quality import assess_position_quality
 
 
@@ -63,3 +66,58 @@ def test_position_quality_blocks_implausible_position_values() -> None:
 
     assert result["NVDA"]["status"] == "blocked"
     assert "plausibilitätskritisch" in result["NVDA"]["detail"]
+
+
+def test_informational_dividend_does_not_create_warning_issue() -> None:
+    issues = data_quality._build_issues(
+        open_tickers=["2318.HK"],
+        missing_price_tickers=[],
+        stale_price_tickers=[],
+        missing_yahoo_tickers=[],
+        missing_fundamentals=[],
+        missing_risk_metrics=[],
+        missing_stops=[],
+        implausible=[],
+        isin_mappings_count=1,
+        freshness=[],
+        events=[
+            DataQualityEvent(
+                ticker="2318.HK",
+                event_type="dividend_candidate",
+                event_date="2026-08-18",
+                label="Mögliche Ausschüttung",
+                detail="Roh- und adjustierter Kurs unterscheiden sich.",
+                severity="info",
+            )
+        ],
+    )
+
+    assert all(issue.key != "corporate_action_candidates" for issue in issues)
+
+
+def test_critical_split_candidate_creates_warning_issue() -> None:
+    issues = data_quality._build_issues(
+        open_tickers=["TEST"],
+        missing_price_tickers=[],
+        stale_price_tickers=[],
+        missing_yahoo_tickers=[],
+        missing_fundamentals=[],
+        missing_risk_metrics=[],
+        missing_stops=[],
+        implausible=[],
+        isin_mappings_count=1,
+        freshness=[],
+        events=[
+            DataQualityEvent(
+                ticker="TEST",
+                event_type="split_candidate",
+                event_date="2026-08-18",
+                label="Möglicher Aktiensplit",
+                detail="Extremer Rohkurs-Sprung.",
+                severity="critical",
+            )
+        ],
+    )
+
+    issue = next(issue for issue in issues if issue.key == "corporate_action_candidates")
+    assert issue.tickers == ["TEST"]

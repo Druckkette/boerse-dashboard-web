@@ -895,17 +895,27 @@ def _portfolio_row_prices_for_sell(row: PortfolioPositionRow) -> tuple[float, fl
     entry_price = _finite_float(row.entry_price) or row.entry_price
     current_price = _finite_float(row.current_price, entry_price)
     currency = row.currency or "USD"
-    if "trade republic" in str(row.broker or "").lower() and str(row.currency or "").upper() == "EUR":
-        fx_rate = get_eur_usd_rate()
-        entry_price = float(eur_to_usd(entry_price, rate=fx_rate) or entry_price)
+    if "trade republic" in str(row.broker or "").lower():
+        position_currency = str(row.currency or "USD").upper()
+        if position_currency == "EUR":
+            fx_rate = get_eur_usd_rate()
+            entry_price = float(eur_to_usd(entry_price, rate=fx_rate) or entry_price)
+        elif position_currency != "USD":
+            converted_entry = currency_to_usd(entry_price, position_currency)
+            entry_price = float(converted_entry if converted_entry is not None else entry_price)
+
         if row.current_price_source == "price_cache":
             converted_price = currency_to_usd(
                 current_price,
                 yahoo_quote_currency(row.ticker),
             )
             current_price = float(converted_price if converted_price is not None else entry_price)
-        else:
+        elif position_currency == "EUR":
+            fx_rate = get_eur_usd_rate()
             current_price = float(eur_to_usd(current_price, rate=fx_rate) or current_price)
+        elif position_currency != "USD":
+            converted_price = currency_to_usd(current_price, position_currency)
+            current_price = float(converted_price if converted_price is not None else entry_price)
         currency = "USD"
     return entry_price, current_price, currency
 

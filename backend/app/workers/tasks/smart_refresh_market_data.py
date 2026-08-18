@@ -714,6 +714,14 @@ def _merge_price_symbols(symbols: list[Any], *, benchmark_ticker: str) -> list[A
         clean = ticker.strip().upper()
         if clean and clean not in by_ticker:
             by_ticker[clean] = _SimplePriceSymbol(source_ticker=clean, yahoo_symbol=clean)
+    try:
+        position_tickers = [row.ticker for row in portfolio_repository.list_open_positions()]
+    except portfolio_repository.PortfolioRepositoryUnavailable:
+        position_tickers = []
+    for ticker in position_tickers:
+        clean = str(ticker or "").strip().upper()
+        if clean and clean not in by_ticker:
+            by_ticker[clean] = _SimplePriceSymbol(source_ticker=clean, yahoo_symbol=clean)
     return list(by_ticker.values())
 
 
@@ -739,7 +747,12 @@ def _refresh_fundamentals(
         max_value=6 * 60 * 60,
     )
     latest_states = _latest_fundamental_states(tickers) if incremental else {}
-    priority_tickers = earnings_priority_tickers()
+    priority_tickers = _dedupe_tickers(
+        [
+            *earnings_priority_tickers(),
+            *_tracked_fundamental_quality_tickers(limit=1000),
+        ]
+    )
     selected_tickers, skipped_current_count, deferred_count = _select_fundamental_work(
         tickers,
         latest_states=latest_states,

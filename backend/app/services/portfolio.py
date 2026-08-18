@@ -1937,17 +1937,29 @@ def _normalize_trade_republic_row_to_usd(
     *,
     fx_rate: FxRate | None = None,
 ) -> portfolio_repository.PortfolioPositionRow:
-    if "trade republic" not in str(row.broker or "").lower() or str(row.currency or "").upper() != "EUR":
+    if "trade republic" not in str(row.broker or "").lower():
         return row
-    rate = fx_rate or get_eur_usd_rate()
-    entry_price = float(eur_to_usd(row.entry_price, rate=rate) or row.entry_price)
+
+    position_currency = str(row.currency or "USD").upper()
+    entry_price = float(row.entry_price)
+    if position_currency == "EUR":
+        rate = fx_rate or get_eur_usd_rate()
+        entry_price = float(eur_to_usd(entry_price, rate=rate) or entry_price)
+    elif position_currency != "USD":
+        converted_entry = currency_to_usd(entry_price, position_currency)
+        entry_price = float(converted_entry if converted_entry is not None else entry_price)
+
     current_price = row.current_price
     if row.current_price_source == "price_cache":
         quote_currency = yahoo_quote_currency(row.ticker)
         converted_price = currency_to_usd(row.current_price, quote_currency)
         current_price = float(converted_price if converted_price is not None else entry_price)
-    else:
+    elif position_currency == "EUR":
+        rate = fx_rate or get_eur_usd_rate()
         current_price = float(eur_to_usd(row.current_price, rate=rate) or row.current_price)
+    elif position_currency != "USD":
+        converted_price = currency_to_usd(row.current_price, position_currency)
+        current_price = float(converted_price if converted_price is not None else entry_price)
     return portfolio_repository.PortfolioPositionRow(
         ticker=row.ticker,
         name=row.name,
