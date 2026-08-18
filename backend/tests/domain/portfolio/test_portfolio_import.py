@@ -416,6 +416,30 @@ def test_beta_fallback_requires_sufficient_aligned_history() -> None:
     assert portfolio_service._beta_from_price_rows([row], [row]) is None
 
 
+def test_beta_fallback_keeps_valid_negative_beta() -> None:
+    start = date(2026, 1, 1)
+    benchmark_close = 100.0
+    asset_close = 50.0
+    benchmark_rows: list[MarketOhlcvPoint] = []
+    asset_rows: list[MarketOhlcvPoint] = []
+    daily_returns = [-0.02, 0.01, 0.005, -0.007, 0.015, -0.003] * 7
+    for offset, benchmark_return in enumerate([0.0, *daily_returns]):
+        if offset:
+            benchmark_close *= 1 + benchmark_return
+            asset_close *= 1 - benchmark_return * 0.5
+        bar_date = start + timedelta(days=offset)
+        benchmark_rows.append(
+            MarketOhlcvPoint("SPY", bar_date, benchmark_close, benchmark_close, benchmark_close, benchmark_close, 1)
+        )
+        asset_rows.append(
+            MarketOhlcvPoint("HEDGE", bar_date, asset_close, asset_close, asset_close, asset_close, 1)
+        )
+
+    beta = portfolio_service._beta_from_price_rows(asset_rows, benchmark_rows)
+
+    assert beta == pytest.approx(-0.5, abs=0.02)
+
+
 def test_after_hours_portfolio_converts_yahoo_quote_currency_to_usd(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

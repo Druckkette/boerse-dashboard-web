@@ -168,7 +168,7 @@ def get_portfolio_positions(
         atr_pct = atr_by_ticker.get(row.ticker) or _atr_pct_for_ticker(row.ticker)
         snapshot = fundamentals_by_ticker.get(row.ticker)
         beta_value = _finite_float(snapshot.beta) if snapshot is not None else None
-        beta = round(beta_value, 4) if beta_value is not None and beta_value > 0 else None
+        beta = round(beta_value, 4) if beta_value is not None and abs(beta_value) <= 10 else None
         if beta is None:
             beta = _beta_from_price_rows(
                 price_series.get(row.ticker, []),
@@ -2234,7 +2234,7 @@ def _beta_from_price_rows(
     if not math.isfinite(benchmark_variance) or benchmark_variance <= 0:
         return None
     beta = float(returns["asset"].cov(returns["benchmark"])) / benchmark_variance
-    if not math.isfinite(beta) or beta <= 0 or beta > 10:
+    if not math.isfinite(beta) or abs(beta) > 10:
         return None
     return round(beta, 4)
 
