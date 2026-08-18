@@ -116,6 +116,7 @@ HEADER_ALIASES = {
 }
 DEFAULT_BUY_STRENGTH_WEEKS = 3
 DEFAULT_PORTFOLIO_CURVE_DAYS = 370
+PORTFOLIO_RISK_LOOKBACK_DAYS = 370
 
 
 def get_portfolio_positions(
@@ -145,7 +146,7 @@ def get_portfolio_positions(
     if allocation_base <= 0:
         allocation_base = invested
     tickers = list(dict.fromkeys([*(row.ticker for row in rows), "^GSPC", "SPY"]))
-    start_date = date.today() - timedelta(days=120)
+    start_date = date.today() - timedelta(days=PORTFOLIO_RISK_LOOKBACK_DAYS)
     try:
         price_series = market_repository.load_cached_ohlcv_for_tickers(tickers, start_date=start_date)
     except MarketRepositoryUnavailable:
