@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import copy
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -504,19 +505,76 @@ def test_pushover_delivery_uses_high_priority(monkeypatch: pytest.MonkeyPatch) -
     assert captured["title"] == "ATR-Alarm AAPL"
 
 
+def test_daily_signal_summary_uses_normal_priority(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+    app_settings = SimpleNamespace(pushover_enabled=True)
+    monkeypatch.setattr(
+        monitor_module,
+        "get_runtime_config_value",
+        lambda key: "user" if "USER" in key else "token",
+    )
+    monkeypatch.setattr(monitor_module, "get_runtime_config_bool", lambda *args: False)
+
+    def fake_send(**kwargs):
+        captured.update(kwargs)
+        return {"status": 1, "request": "test"}
+
+    monkeypatch.setattr(monitor_module, "_send_pushover_message", fake_send)
+    delivery = monitor_module._deliver_monitor_alerts(
+        [
+            {
+                "kind": "stock_signal_summary",
+                "alert_id": "stock-signal-summary:2026-08-13",
+                "ticker": "DEPOT",
+                "summary_date": "2026-08-13",
+                "entries": ["- NVDA · WARNUNG · leicht unter 21-EMA"],
+            }
+        ],
+        app_settings=app_settings,
+    )
+
+    assert delivery["sent"] == 1
+    assert captured["priority"] == 0
+    assert captured["title"] == "Depot-Tagesübersicht"
+
+
 def test_fresh_live_ema_break_creates_portfolio_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})
+    stored: dict = {
+        "signal_tickers": {
+            "NVDA": {
+                "moving_averages": {
+                    "ema21": {"label": "21-EMA", "value": 181.0, "above": True, "distance_pct": 0.2}
+                },
+                "ma_alert_state": {
+                    "ema21": {
+                        "initialized": True,
+                        "stable_zone": "above",
+                        "candidate_zone": "",
+                        "candidate_since": "",
+                        "candidate_count": 0,
+                    }
+                },
+            }
+        }
+    }
+
+    def write_state(values: dict) -> dict:
+        stored.clear()
+        stored.update(copy.deepcopy(values))
+        return values
+
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
     monkeypatch.setattr(
         monitor_module.settings_repository,
         "write_position_monitor_state",
-        lambda values: written.update(values) or values,
+        write_state,
     )
     result = {
         "items": [
             {
                 "ticker": "NVDA",
                 "as_of": "2026-08-13",
+                "monitor": {"atr_value": 4.0, "current_price": 180.0},
                 "trend_monitor": {
                     "available": True,
                     "as_of": "2026-08-13",
@@ -536,25 +594,37 @@ def test_fresh_live_ema_break_creates_portfolio_warning(monkeypatch: pytest.Monk
         ]
     }
 
+    settings = {
+        "position_monitor_ma_alerts_enabled": True,
+        "position_monitor_assessment_alerts_enabled": False,
+    }
+    started_at = datetime(2026, 8, 13, 15, 0, tzinfo=UTC)
+    for offset in (0, 1):
+        alerts = monitor_module._apply_portfolio_signal_state(
+            result,
+            monitor_settings=settings,
+            now=started_at + timedelta(minutes=offset),
+        )
+        assert alerts == []
+        monitor_module._finalize_portfolio_signal_state(result, alert_delivery={"sent_alert_ids": []})
+
     alerts = monitor_module._apply_portfolio_signal_state(
         result,
-        monitor_settings={
-            "position_monitor_ma_alerts_enabled": True,
-            "position_monitor_assessment_alerts_enabled": False,
-        },
-        now=datetime(2026, 8, 13, 15, 0, tzinfo=UTC),
+        monitor_settings=settings,
+        now=started_at + timedelta(minutes=3),
     )
 
     assert alerts[0]["kind"] == "stock_signal"
     assert alerts[0]["events"][0]["label"] == "Bruch der 21-EMA"
-    assert alerts[0]["events"][0]["detail"] == (
-        "Vorher: darüber · Aktuell: Kurs 180.00 USD · 21-EMA 181.50 · Abstand -0.83%"
-    )
+    assert "3 Minuten bestätigt" in alerts[0]["events"][0]["detail"]
+    assert "Abstand -0.83%" in alerts[0]["events"][0]["detail"]
+    assert "Mindestabstand 0.22%" in alerts[0]["events"][0]["detail"]
     monitor_module._finalize_portfolio_signal_state(
         result,
         alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
     )
-    assert written["signal_tickers"]["NVDA"]["moving_averages"]["ema21"]["above"] is False
+    assert stored["signal_tickers"]["NVDA"]["moving_averages"]["ema21"]["above"] is False
+    assert stored["signal_tickers"]["NVDA"]["ma_alert_state"]["ema21"]["stable_zone"] == "below"
 
 
 def test_unchanged_ma_break_is_not_repeated(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -602,6 +672,244 @@ def test_unchanged_ma_break_is_not_repeated(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     assert alerts == []
+
+
+def test_light_ema21_break_waits_for_end_of_day_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    stored = {
+        "signal_tickers": {
+            "NVDA": {
+                "moving_averages": {
+                    "ema21": {"label": "21-EMA", "value": 180.0, "above": True, "distance_pct": 0.2},
+                    "sma10": {"label": "10-SMA", "value": 179.0, "above": True, "distance_pct": 0.5},
+                },
+                "ma_alert_state": {
+                    "ema21": {"initialized": True, "stable_zone": "above"},
+                },
+            }
+        }
+    }
+    def write_state(values: dict) -> dict:
+        stored.clear()
+        stored.update(copy.deepcopy(values))
+        return values
+
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
+    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", write_state)
+    result = {
+        "items": [
+            {
+                "ticker": "NVDA",
+                "as_of": "2026-08-13",
+                "monitor": {"atr_value": 5.4, "current_price": 180.0},
+                "trend_monitor": {
+                    "current_price": 180.0,
+                    "currency": "USD",
+                    "moving_averages": {
+                        "ema21": {
+                            "label": "21-EMA",
+                            "value": 180.18,
+                            "above": False,
+                            "distance_pct": -0.10,
+                        },
+                        "sma10": {
+                            "label": "10-SMA",
+                            "value": 180.09,
+                            "above": False,
+                            "distance_pct": -0.05,
+                        },
+                    },
+                },
+            }
+        ]
+    }
+
+    alerts = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings={
+            "position_monitor_ma_alerts_enabled": True,
+            "position_monitor_assessment_alerts_enabled": False,
+        },
+        now=datetime(2026, 8, 13, 20, 35, tzinfo=UTC),
+    )
+
+    assert len(alerts) == 1
+    assert alerts[0]["kind"] == "stock_signal_summary"
+    assert any("leicht unter 21-EMA" in entry for entry in alerts[0]["entries"])
+    assert any("10-SMA · 1 Wechsel" in entry for entry in alerts[0]["entries"])
+    monitor_module._finalize_portfolio_signal_state(
+        result,
+        alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
+    )
+    assert stored["signal_summary_date"] == "2026-08-13"
+    assert stored["signal_tickers"]["NVDA"]["daily_signal_digest"]["sma10"]["crossings"] == 0
+
+    repeated = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings={
+            "position_monitor_ma_alerts_enabled": True,
+            "position_monitor_assessment_alerts_enabled": False,
+        },
+        now=datetime(2026, 8, 13, 20, 36, tzinfo=UTC),
+    )
+    assert not any(alert["kind"] == "stock_signal_summary" for alert in repeated)
+
+
+def test_confirmed_ema21_recovery_requires_positive_hysteresis() -> None:
+    previous = {
+        "moving_averages": {
+            "ema21": {"label": "21-EMA", "value": 180.0, "above": False, "distance_pct": -0.5}
+        },
+        "ma_alert_state": {
+            "ema21": {
+                "initialized": True,
+                "stable_zone": "below",
+                "candidate_zone": "above",
+                "candidate_since": "2026-08-13T15:00:00+00:00",
+                "candidate_count": 3,
+                "last_warning_distance_atr": 0.4,
+            }
+        },
+    }
+    current = copy.deepcopy(previous)
+    digest = monitor_module._new_daily_signal_digest("2026-08-13")
+
+    events = monitor_module._update_moving_average_signal_state(
+        previous=previous,
+        current=current,
+        trend={
+            "current_price": 181.0,
+            "currency": "USD",
+            "moving_averages": {
+                "ema21": {"label": "21-EMA", "value": 180.0, "above": True, "distance_pct": 0.56}
+            },
+        },
+        monitor={"atr_value": 3.6, "current_price": 180.0},
+        now=datetime(2026, 8, 13, 15, 3, tzinfo=UTC),
+        digest=digest,
+    )
+
+    assert events[0]["tone"] == "good"
+    assert events[0]["label"] == "21-EMA zurückerobert"
+    assert current["ma_alert_state"]["ema21"]["stable_zone"] == "above"
+    assert current["ma_alert_state"]["ema21"]["last_warning_distance_atr"] is None
+
+
+def test_ema21_warns_again_after_additional_half_atr_decline() -> None:
+    previous = {
+        "moving_averages": {
+            "ema21": {"label": "21-EMA", "value": 180.0, "above": False, "distance_pct": -0.6}
+        },
+        "ma_alert_state": {
+            "ema21": {
+                "initialized": True,
+                "stable_zone": "below",
+                "last_warning_distance_atr": 0.3,
+            }
+        },
+    }
+    current = copy.deepcopy(previous)
+
+    events = monitor_module._update_moving_average_signal_state(
+        previous=previous,
+        current=current,
+        trend={
+            "current_price": 176.8,
+            "currency": "USD",
+            "moving_averages": {
+                "ema21": {"label": "21-EMA", "value": 180.0, "above": False, "distance_pct": -1.78}
+            },
+        },
+        monitor={"atr_value": 3.6, "current_price": 180.0},
+        now=datetime(2026, 8, 13, 15, 5, tzinfo=UTC),
+        digest=monitor_module._new_daily_signal_digest("2026-08-13"),
+    )
+
+    assert events[0]["tone"] == "warning"
+    assert events[0]["label"] == "21-EMA: weitere Verschlechterung"
+    assert "Seit letzter Warnung +0.59 ATR tiefer" in events[0]["detail"]
+
+
+def test_score_anchor_accumulates_across_checks_and_resets_after_five_points(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored = {
+        "signal_tickers": {
+            "NVDA": {
+                "assessment": {
+                    "source": "database",
+                    "as_of": "2026-08-13",
+                    "overall_score": 60,
+                    "verdict_label": "Stark",
+                    "verdict_tone": "good",
+                    "checks": {},
+                    "signals": {},
+                    "signal_states": {},
+                },
+                "assessment_checked_at": "2026-08-13T14:00:00+00:00",
+                "score_notification_anchor": 60,
+            }
+        }
+    }
+    score = {"value": 64}
+
+    def write_state(values: dict) -> dict:
+        stored.clear()
+        stored.update(copy.deepcopy(values))
+        return values
+
+    def assessment(_ticker: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            model_dump=lambda mode: {
+                "source": "database",
+                "as_of": "2026-08-13",
+                "verdict_label": "Stark",
+                "verdict_tone": "good",
+                "scores": {"overall": score["value"]},
+                "checks": [],
+                "chart_signals": [],
+                "chart_signal_states": {},
+            }
+        )
+
+    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
+    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", write_state)
+    monkeypatch.setattr(monitor_module, "get_stock_assessment", assessment)
+    settings = {
+        "position_monitor_ma_alerts_enabled": False,
+        "position_monitor_assessment_alerts_enabled": True,
+        "position_monitor_assessment_interval_minutes": 15,
+    }
+    result = {"items": [{"ticker": "NVDA", "as_of": "2026-08-13"}]}
+
+    alerts = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings=settings,
+        now=datetime(2026, 8, 13, 15, 0, tzinfo=UTC),
+    )
+    assert alerts == []
+    monitor_module._finalize_portfolio_signal_state(result, alert_delivery={"sent_alert_ids": []})
+    assert stored["signal_tickers"]["NVDA"]["score_notification_anchor"] == 60
+
+    score["value"] = 65
+    alerts = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings=settings,
+        now=datetime(2026, 8, 13, 15, 16, tzinfo=UTC),
+    )
+    assert alerts[0]["events"][0]["label"] == "Gesamtscore 60 → 65"
+    monitor_module._finalize_portfolio_signal_state(
+        result,
+        alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
+    )
+    assert stored["signal_tickers"]["NVDA"]["score_notification_anchor"] == 65
+
+    score["value"] = 70
+    alerts = monitor_module._apply_portfolio_signal_state(
+        result,
+        monitor_settings=settings,
+        now=datetime(2026, 8, 14, 15, 32, tzinfo=UTC),
+    )
+    assert alerts[0]["events"][0]["label"] == "Gesamtscore 65 → 70"
 
 
 def test_assessment_changes_report_new_and_resolved_warnings() -> None:
