@@ -735,13 +735,13 @@ def test_light_ema21_break_waits_for_end_of_day_summary(monkeypatch: pytest.Monk
     assert len(alerts) == 1
     assert alerts[0]["kind"] == "stock_signal_summary"
     assert any("leicht unter 21-EMA" in entry for entry in alerts[0]["entries"])
-    assert any("10-SMA · 1 Wechsel" in entry for entry in alerts[0]["entries"])
+    assert any("leicht unter 10-SMA" in entry for entry in alerts[0]["entries"])
     monitor_module._finalize_portfolio_signal_state(
         result,
         alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
     )
     assert stored["signal_summary_date"] == "2026-08-13"
-    assert stored["signal_tickers"]["NVDA"]["daily_signal_digest"]["sma10"]["crossings"] == 0
+    assert stored["signal_tickers"]["NVDA"]["daily_signal_digest"]["events"] == {}
 
     repeated = monitor_module._apply_portfolio_signal_state(
         result,
@@ -752,6 +752,44 @@ def test_light_ema21_break_waits_for_end_of_day_summary(monkeypatch: pytest.Monk
         now=datetime(2026, 8, 13, 20, 36, tzinfo=UTC),
     )
     assert not any(alert["kind"] == "stock_signal_summary" for alert in repeated)
+
+
+def test_confirmed_sma10_break_uses_same_hysteresis_as_ema21() -> None:
+    previous = {
+        "moving_averages": {
+            "sma10": {"label": "10-SMA", "value": 180.0, "above": True, "distance_pct": 0.4}
+        },
+        "ma_alert_state": {
+            "sma10": {
+                "initialized": True,
+                "stable_zone": "above",
+                "candidate_zone": "below",
+                "candidate_since": "2026-08-13T15:00:00+00:00",
+                "candidate_count": 3,
+            }
+        },
+    }
+    current = copy.deepcopy(previous)
+
+    events = monitor_module._update_moving_average_signal_state(
+        previous=previous,
+        current=current,
+        trend={
+            "current_price": 178.6,
+            "currency": "USD",
+            "moving_averages": {
+                "sma10": {"label": "10-SMA", "value": 180.0, "above": False, "distance_pct": -0.78}
+            },
+        },
+        monitor={"atr_value": 3.6, "current_price": 180.0},
+        now=datetime(2026, 8, 13, 15, 3, tzinfo=UTC),
+        digest=monitor_module._new_daily_signal_digest("2026-08-13"),
+    )
+
+    assert events[0]["tone"] == "warning"
+    assert events[0]["label"] == "Bruch der 10-SMA"
+    assert "3 Minuten bestätigt" in events[0]["detail"]
+    assert "Mindestabstand 0.20%" in events[0]["detail"]
 
 
 def test_confirmed_ema21_recovery_requires_positive_hysteresis() -> None:

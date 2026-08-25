@@ -27,7 +27,7 @@ MA_CONFIRMATION_MINUTES = 3
 MA_ESCALATION_ATR = 0.50
 SCORE_NOTIFICATION_STEP = 5
 SIGNAL_SUMMARY_TIME = time(22, 35)
-IMMEDIATE_MA_KEYS = ("ema21", "sma50", "sma200")
+IMMEDIATE_MA_KEYS = ("sma10", "ema21", "sma50", "sma200")
 
 
 @celery_app.task(bind=True, name="position_atr_monitor", soft_time_limit=50, time_limit=55)
@@ -606,7 +606,6 @@ def _new_daily_signal_digest(summary_date: str) -> dict[str, Any]:
     return {
         "date": summary_date,
         "events": {},
-        "sma10": {"crossings": 0},
         "score": {},
     }
 
@@ -652,15 +651,12 @@ def _update_moving_average_signal_state(
     now: datetime,
     digest: dict[str, Any],
 ) -> list[dict[str, str]]:
-    previous_ma = previous.get("moving_averages") if isinstance(previous.get("moving_averages"), dict) else {}
     raw = trend.get("moving_averages") if isinstance(trend.get("moving_averages"), dict) else {}
     atr_pct = _monitor_atr_pct(monitor)
     threshold_pct = max(MA_MIN_DISTANCE_PCT, (atr_pct or 0.0) * MA_MIN_DISTANCE_ATR)
     state_by_ma = current.get("ma_alert_state") if isinstance(current.get("ma_alert_state"), dict) else {}
     state_by_ma = copy.deepcopy(state_by_ma)
     events: list[dict[str, str]] = []
-
-    _update_sma10_digest(previous_ma, raw, digest)
 
     for key in IMMEDIATE_MA_KEYS:
         current_value = raw.get(key) if isinstance(raw.get(key), dict) else {}
@@ -760,27 +756,6 @@ def _monitor_atr_pct(monitor: dict[str, Any]) -> float | None:
     if atr_value is None or current_price is None or atr_value <= 0 or current_price <= 0:
         return None
     return atr_value / current_price * 100
-
-
-def _update_sma10_digest(
-    previous_ma: dict[str, Any],
-    raw: dict[str, Any],
-    digest: dict[str, Any],
-) -> None:
-    current = raw.get("sma10") if isinstance(raw.get("sma10"), dict) else {}
-    if not isinstance(current.get("above"), bool):
-        return
-    prior = previous_ma.get("sma10") if isinstance(previous_ma.get("sma10"), dict) else {}
-    prior_above = prior.get("above") if isinstance(prior.get("above"), bool) else current.get("previous_above")
-    sma10 = digest.get("sma10") if isinstance(digest.get("sma10"), dict) else {"crossings": 0}
-    if isinstance(prior_above, bool) and prior_above != current["above"]:
-        sma10["crossings"] = int(_float_or_none(sma10.get("crossings")) or 0) + 1
-    sma10.update(
-        above=bool(current["above"]),
-        distance_pct=_float_or_none(current.get("distance_pct")),
-        value=_float_or_none(current.get("value")),
-    )
-    digest["sma10"] = sma10
 
 
 def _ma_transition_event(
@@ -889,7 +864,12 @@ def _build_signal_summary_alert(
 
         ma_state = current.get("ma_alert_state") if isinstance(current.get("ma_alert_state"), dict) else {}
         current_ma = current.get("moving_averages") if isinstance(current.get("moving_averages"), dict) else {}
-        for key, label in (("ema21", "21-EMA"), ("sma50", "50-SMA"), ("sma200", "200-SMA")):
+        for key, label in (
+            ("sma10", "10-SMA"),
+            ("ema21", "21-EMA"),
+            ("sma50", "50-SMA"),
+            ("sma200", "200-SMA"),
+        ):
             alert_state = ma_state.get(key) if isinstance(ma_state.get(key), dict) else {}
             ma_value = current_ma.get(key) if isinstance(current_ma.get(key), dict) else {}
             distance = _float_or_none(ma_value.get("distance_pct"))
@@ -902,14 +882,6 @@ def _build_signal_summary_alert(
                 )
             elif str(alert_state.get("stable_zone") or "") == "below":
                 prioritized.append((1, f"{ticker} · AKTIV · unter {label} ({distance:+.2f}%)"))
-
-        sma10 = digest.get("sma10") if isinstance(digest.get("sma10"), dict) else {}
-        crossings = int(_float_or_none(sma10.get("crossings")) or 0)
-        if crossings:
-            side = "darüber" if bool(sma10.get("above")) else "darunter"
-            distance = _float_or_none(sma10.get("distance_pct"))
-            suffix = f" ({distance:+.2f}%)" if distance is not None else ""
-            prioritized.append((3, f"{ticker} · 10-SMA · {crossings} Wechsel, zuletzt {side}{suffix}"))
 
         score = digest.get("score") if isinstance(digest.get("score"), dict) else {}
         anchor = _float_or_none(score.get("anchor"))
