@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowUpDown, Columns3, ExternalLink, Upload } from "lucide-react";
+import { ArrowUpDown, Check, Columns3, ExternalLink, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -160,7 +160,14 @@ function MobilePositionCard({ position, quote }: { position: PortfolioPosition; 
       <MobileMetric label="Wert" value={formatMoney(position.market_value, position.currency, 0)} />
       <MobileMetric label="P&L" value={formatPercent(position.pnl_pct)} tone={position.pnl_pct >= 0 ? "good" : "bad"} />
       <MobileMetric label="Kurs" value={formatMoney(position.current_price, position.currency)} />
-      <MobileMetric label="Stopp" value={position.stop_price ? formatMoney(position.stop_price, "USD") : "Nicht gepflegt"} />
+      <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2">
+        <div className="text-[10px] uppercase text-[#687386]">Stopp USD bearbeiten</div>
+        <StopPriceCell
+          key={`${position.ticker}-${position.stop_price ?? "none"}-mobile`}
+          mobile
+          position={position}
+        />
+      </div>
       {quote?.available ? <MobileMetric label="After Market" value={formatPercent(quote.after_hours_change_pct)} tone={(quote.after_hours_change_pct ?? 0) >= 0 ? "good" : "bad"} /> : null}
     </div>
   </div>;
@@ -182,7 +189,7 @@ function SignedValue({ value, suffix, digits = 1 }: { value: number; suffix: str
   return <span className={value >= 0 ? "font-medium text-[#138a57]" : "font-medium text-[#c2413b]"}>{value > 0 ? "+" : ""}{formatNumber(value, digits)}{suffix}</span>;
 }
 
-function StopPriceCell({ position }: { position: PortfolioPosition }) {
+function StopPriceCell({ position, mobile = false }: { position: PortfolioPosition; mobile?: boolean }) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(formatEditableNumber(position.stop_price));
   const mutation = useMutation({
@@ -195,14 +202,28 @@ function StopPriceCell({ position }: { position: PortfolioPosition }) {
     if (numbersEqual(nextStop, currentStop) || mutation.isPending) return;
     mutation.mutate(nextStop);
   }
-  return <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+  const currentStop = typeof position.stop_price === "number" ? position.stop_price : null;
+  const isDirty = !numbersEqual(parseEditableNumber(value), currentStop);
+  return <div className={`flex items-center gap-2 ${mobile ? "mt-1" : ""}`} onClick={(event) => event.stopPropagation()}>
     <input
       aria-label={`${position.ticker} Stopp USD`}
-      className="h-8 w-24 rounded-[7px] border border-[#d8e1ea] bg-white px-2 text-right text-sm tabular-nums text-[#172033] outline-none focus:border-[#0f766e]"
+      className={`${mobile ? "h-9 min-w-0 flex-1" : "h-8 w-24"} rounded-[7px] border border-[#d8e1ea] bg-white px-2 text-right text-sm tabular-nums text-[#172033] outline-none focus:border-[#0f766e]`}
       inputMode="decimal" placeholder="–" value={value} disabled={mutation.isPending}
       onBlur={save} onChange={(event) => setValue(event.target.value)}
       onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setValue(formatEditableNumber(position.stop_price)); event.currentTarget.blur(); } }}
     />
+    {mobile ? (
+      <button
+        aria-label={`${position.ticker} Stopp speichern`}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[7px] bg-[#0f766e] text-white transition hover:bg-[#0b5f59] disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={!isDirty || mutation.isPending}
+        title="Stopp speichern"
+        type="button"
+        onClick={save}
+      >
+        <Check size={16} />
+      </button>
+    ) : null}
     {mutation.isPending ? <span className="text-xs text-[#687386]">speichert</span> : null}
     {mutation.isError ? <span className="text-xs text-[#c2413b]">Fehler</span> : null}
   </div>;
