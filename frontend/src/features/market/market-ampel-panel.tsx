@@ -283,6 +283,7 @@ function ActiveWarningsDisclosure({
   checks: MarketAmpelWarningCheck[];
   warningCount: number;
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const activeChecks = checks.filter((check) => check.active_warning);
   if (!activeChecks.length) {
     return (
@@ -293,32 +294,56 @@ function ActiveWarningsDisclosure({
   }
 
   return (
-    <details className="group mt-3 overflow-hidden rounded-xl border border-[#e2c98f] bg-white/75">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-semibold text-[#7c5514] transition hover:bg-white [&::-webkit-details-marker]:hidden">
+    <div className="mt-3 overflow-hidden rounded-xl border border-[#e2c98f] bg-white/75">
+      <button
+        aria-expanded={isExpanded}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm font-semibold text-[#7c5514] transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#b7791f]/30"
+        type="button"
+        onClick={() => setIsExpanded((current) => !current)}
+      >
         <span className="flex min-w-0 items-center gap-2">
           <CircleAlert className="shrink-0 text-[#b7791f]" size={16} />
-          <span>{warningCount} aktive Warnzeichen anzeigen</span>
+          <span>{warningCount} aktive Warnzeichen</span>
         </span>
-        <ChevronDown className="shrink-0 transition-transform group-open:rotate-180" size={16} />
-      </summary>
-      <div className="space-y-2 border-t border-[#ead9b2] p-3">
-        {activeChecks.map((check) => (
-          <div key={check.label} className="rounded-lg border border-[#f0dfb9] bg-[#fffaf0] px-3 py-2">
-            <div className="flex items-start gap-2">
-              <CircleAlert className="mt-0.5 shrink-0 text-[#b7791f]" size={14} />
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-[#172033]">{check.label}</div>
-                <div className="mt-0.5 text-xs leading-5 text-[#687386]">{check.detail}</div>
+        <span className="flex shrink-0 items-center gap-1 text-xs">
+          {isExpanded ? "Details ausblenden" : "Details anzeigen"}
+          <ChevronDown className={clsx("transition-transform", isExpanded && "rotate-180")} size={16} />
+        </span>
+      </button>
+
+      <div className="border-t border-[#ead9b2] px-3 py-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {activeChecks.map((check) => (
+            <span
+              key={check.label}
+              className="rounded-full border border-[#ead9b2] bg-[#fffaf0] px-2 py-1 text-[11px] font-semibold leading-4 text-[#7c5514]"
+            >
+              {check.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {isExpanded ? (
+        <div className="space-y-2 border-t border-[#ead9b2] p-3">
+          {activeChecks.map((check) => (
+            <div key={check.label} className="rounded-lg border border-[#f0dfb9] bg-[#fffaf0] px-3 py-2">
+              <div className="flex items-start gap-2">
+                <CircleAlert className="mt-0.5 shrink-0 text-[#b7791f]" size={14} />
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-[#172033]">{check.label}</div>
+                  <div className="mt-0.5 text-xs leading-5 text-[#687386]">{check.detail}</div>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-        <p className="text-[11px] leading-5 text-[#687386]">
-          Defensiv wird der Modus bei mindestens vier aktiven Warnzeichen, roter Trend-Ampel,
-          Schutzmodus der gleichgewichteten Indizes oder VIX-Stress.
-        </p>
-      </div>
-    </details>
+          ))}
+          <p className="text-[11px] leading-5 text-[#687386]">
+            Defensiv wird der Modus bei mindestens vier aktiven Warnzeichen, roter Trend-Ampel,
+            Schutzmodus der gleichgewichteten Indizes oder VIX-Stress.
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
