@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, CircleDot, RotateCw, ShieldAlert } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, CircleAlert, CircleDot, RotateCw, ShieldAlert } from "lucide-react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelDistanceTile, MarketAmpelLight, Tone } from "@/lib/types/api";
+import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelDistanceTile, MarketAmpelLight, MarketAmpelWarningCheck, Tone } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
 import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
 
@@ -224,6 +224,7 @@ function CompactMarketAmpel({
               </div>
             </div>
             {heroReason ? <TrendReasonCard reason={heroReason} tone={data.phase_info.tone} /> : null}
+            <ActiveWarningsDisclosure checks={data.warning_checks} warningCount={data.warning_count} />
           </div>
 
           {todayCard ? <TodayIndexCard card={todayCard} /> : null}
@@ -272,6 +273,52 @@ function CompactMarketAmpel({
         <MovingAverageDistanceSummary tiles={data.distance_tiles} />
       </div>
     </div>
+  );
+}
+
+function ActiveWarningsDisclosure({
+  checks,
+  warningCount
+}: {
+  checks: MarketAmpelWarningCheck[];
+  warningCount: number;
+}) {
+  const activeChecks = checks.filter((check) => check.active_warning);
+  if (!activeChecks.length) {
+    return (
+      <div className="mt-3 border-t border-black/5 pt-3 text-xs font-medium text-[#138a57]">
+        Keine aktiven Warnzeichen
+      </div>
+    );
+  }
+
+  return (
+    <details className="group mt-3 overflow-hidden rounded-xl border border-[#e2c98f] bg-white/75">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-semibold text-[#7c5514] transition hover:bg-white [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 items-center gap-2">
+          <CircleAlert className="shrink-0 text-[#b7791f]" size={16} />
+          <span>{warningCount} aktive Warnzeichen anzeigen</span>
+        </span>
+        <ChevronDown className="shrink-0 transition-transform group-open:rotate-180" size={16} />
+      </summary>
+      <div className="space-y-2 border-t border-[#ead9b2] p-3">
+        {activeChecks.map((check) => (
+          <div key={check.label} className="rounded-lg border border-[#f0dfb9] bg-[#fffaf0] px-3 py-2">
+            <div className="flex items-start gap-2">
+              <CircleAlert className="mt-0.5 shrink-0 text-[#b7791f]" size={14} />
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-[#172033]">{check.label}</div>
+                <div className="mt-0.5 text-xs leading-5 text-[#687386]">{check.detail}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+        <p className="text-[11px] leading-5 text-[#687386]">
+          Defensiv wird der Modus bei mindestens vier aktiven Warnzeichen, roter Trend-Ampel,
+          Schutzmodus der gleichgewichteten Indizes oder VIX-Stress.
+        </p>
+      </div>
+    </details>
   );
 }
 

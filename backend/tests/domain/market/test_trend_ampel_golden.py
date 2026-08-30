@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 
 from app.domain.market.ampel import TrendAmpelBar, compute_trend_ampel
-from app.services.market import _ampel_cycle, _build_ampel_warning_checks, _detect_failing_rally, _last_cycle_markers
+from app.services.market import (
+    _ampel_cycle,
+    _build_ampel_warning_checks,
+    _detect_failing_rally,
+    _last_cycle_markers,
+    _legacy_market_action_and_tone,
+)
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "market" / "ampel"
@@ -284,6 +291,70 @@ def test_loss_gain_warning_activates_when_loss_days_outnumber_gain_days() -> Non
     assert check.active_warning is True
     assert check.passed is False
     assert check.tone == "warning"
+
+
+def test_under_50sma_is_counted_once_as_trend_break() -> None:
+    points = compute_trend_ampel(_rising_bars(220, start=100.0, step=0.2))
+    latest = replace(
+        points[-1],
+        close=139.0,
+        sma50=140.0,
+        dist_50sma_pct=-0.7,
+        neg_reversals_10d=0,
+        low_cr_5d=0,
+        dist_count_25=0,
+        loss_days_10d=4,
+        gain_days_10d=6,
+        loss_gain_ratio_10d=0.7,
+        dist_21ema=0.2,
+        sma200=120.0,
+        up_vol_declining=False,
+    )
+
+    checks = _build_ampel_warning_checks(
+        points=[*points[:-1], latest],
+        latest=latest,
+        intermarket=[],
+        defensive_lead=None,
+        defensive_spread_pct=None,
+        index_name="Russell 2000",
+    )
+    active = [check.label for check in checks if check.active_warning]
+
+    assert "Kurs über 50-SMA" in active
+    assert "Überdehnt über 50-SMA" not in active
+    assert active.count("Kurs über 50-SMA") == 1
+
+
+@pytest.mark.parametrize(
+    ("phase", "warning_count", "breadth_mode", "vix_regime", "expected_mode", "expected_tone"),
+    [
+        ("aufwaertstrend", 1, "rueckenwind", "Ruhig", "Offensiv", "good"),
+        ("aufwaertstrend", 2, "rueckenwind", "Ruhig", "Neutral", "warning"),
+        ("aufwaertstrend", 3, "rueckenwind", "Ruhig", "Neutral", "warning"),
+        ("aufwaertstrend", 4, "rueckenwind", "Ruhig", "Defensiv", "bad"),
+        ("aufwaertstrend", 0, "schutz", "Ruhig", "Defensiv", "bad"),
+        ("aufwaertstrend", 0, "rueckenwind", "Stress", "Defensiv", "bad"),
+        ("rot", 0, "rueckenwind", "Ruhig", "Defensiv", "bad"),
+    ],
+)
+def test_market_mode_uses_four_warning_threshold(
+    phase: str,
+    warning_count: int,
+    breadth_mode: str,
+    vix_regime: str,
+    expected_mode: str,
+    expected_tone: str,
+) -> None:
+    mode, tone, _ = _legacy_market_action_and_tone(
+        phase,
+        warning_count,
+        breadth_mode,
+        vix_regime,
+    )
+
+    assert mode == expected_mode
+    assert tone == expected_tone
 
 
 def test_failing_rally_detail_uses_recovered_drop_share_not_price_gain() -> None:

@@ -2062,7 +2062,7 @@ def _legacy_market_action_and_tone(
     clean_phase = str(phase or "").lower()
     clean_breadth = str(breadth_mode or "").lower()
     clean_vol = str(vix_regime or "").lower()
-    if clean_phase == "rot" or warning_count >= 3 or clean_breadth == "schutz" or clean_vol == "stress":
+    if clean_phase == "rot" or warning_count >= 4 or clean_breadth == "schutz" or clean_vol == "stress":
         if clean_phase == "rot":
             message = "Ampel rot. Risiko reduzieren, keine aggressiven Neueinstiege und bestehende Positionen kritisch prüfen."
         elif clean_vol == "stress":
@@ -2093,6 +2093,12 @@ def _legacy_market_action_and_tone(
             )
         return "Frühe Bestätigung", "warning", "Ampel grün, aber Umfeld gemischt. Nur selektiv aufstocken."
     if clean_phase == "aufwaertstrend":
+        if warning_count >= 2 or clean_breadth == "wachsam" or clean_vol in {"risk", "vorsicht"}:
+            return (
+                "Neutral",
+                "warning",
+                f"Aufwärtstrend intakt, aber {warning_count} Warnzeichen aktiv. Neue Käufe selektiv halten und bestehende Risiken beobachten.",
+            )
         return (
             "Offensiv",
             "good",
@@ -2497,12 +2503,15 @@ def _build_ampel_warning_checks(
     )
     d50_threshold = 7.0 if "Nasdaq" in index_name else 5.0
     if latest.dist_50sma_pct is not None:
-        d50_warning = latest.dist_50sma_pct > d50_threshold or latest.dist_50sma_pct < 0
+        d50_warning = latest.dist_50sma_pct > d50_threshold
         checks.append(
             _ampel_warning_check(
-                "50-SMA Abstand",
+                "Überdehnt über 50-SMA",
                 not d50_warning,
-                f"{latest.dist_50sma_pct:+.1f}% ({'über' if latest.dist_50sma_pct > 0 else 'unter'} 50-SMA, Schwelle: {d50_threshold:.0f}%)",
+                (
+                    f"{latest.dist_50sma_pct:+.1f}% zur 50-SMA "
+                    f"(Überdehnungsschwelle: +{d50_threshold:.0f}%)"
+                ),
                 d50_warning,
             )
         )
