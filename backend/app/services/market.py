@@ -2332,7 +2332,7 @@ def _ampel_reason_line(
         return "Trendwende-Ampel: AUFWÄRTSTREND - MA-Ordnung bestätigt"
     if latest.phase == "rot":
         if floor_mark is not None:
-            return f"Trendwende-Ampel: ROT - Korrektur aktiv · Floor-Marke {_format_number(floor_mark)}"
+            return f"Trendwende-Ampel: ROT - Korrektur aktiv · Bodenmarke {_format_number(floor_mark)}"
         return "Trendwende-Ampel: ROT - Korrektur aktiv"
     return "Trendwende-Ampel: NEUTRAL - kein aktiver Zyklus"
 
