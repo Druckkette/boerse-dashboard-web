@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -11,8 +11,21 @@ import pandas as pd
 from app.domain.market.regime import MarketPhase
 
 
-GREEN_CONFIRMATION_DAYS = 2
-UPTREND_CONFIRMATION_DAYS = 10
+GREEN_CONFIRMATION_DAYS = 3
+ATR_PERIOD = 21
+REVERSAL_ATR_MULTIPLIER = 1.5
+PIVOT_TOLERANCE_ATR = 0.25
+
+MarketStructure = Literal["up", "down", "mixed", "unknown"]
+
+
+@dataclass(frozen=True)
+class MarketSwingPoint:
+    pivot_type: Literal["high", "low"]
+    pivot_price: float
+    pivot_date: str
+    confirmation_date: str
+    atr_at_pivot: float
 
 
 @dataclass(frozen=True)
@@ -75,17 +88,55 @@ class TrendAmpelPoint:
     loss_days_10d: int = 0
     gain_days_10d: int = 0
     loss_gain_ratio_10d: float | None = None
+    startschuss_date: str | None = None
+    uptrend_high: float | None = None
+    market_structure: MarketStructure = "unknown"
+    high_structure: Literal["higher", "lower", "equal", "unknown"] = "unknown"
+    low_structure: Literal["higher", "lower", "equal", "unknown"] = "unknown"
+    latest_swing_high: float | None = None
+    latest_swing_high_date: str | None = None
+    latest_swing_low: float | None = None
+    latest_swing_low_date: str | None = None
+    consecutive_closes_below_ema21: int = 0
+    consecutive_closes_above_ema21: int = 0
+    ma_order_streak: int = 0
+    ema21_rising: bool | None = None
+    sma50_rising: bool | None = None
+    phase_warning_count: int = 0
+    phase_warning_streak: int = 0
+    green_below_sma200: bool = False
+    phase_reason: str | None = None
 
 
-def compute_trend_ampel(bars: Sequence[TrendAmpelBar | Mapping[str, Any]]) -> list[TrendAmpelPoint]:
+def compute_trend_ampel(
+    bars: Sequence[TrendAmpelBar | Mapping[str, Any]],
+    *,
+    over_50_warning_pct: float = 5.0,
+) -> list[TrendAmpelPoint]:
     frame = _frame_from_bars(bars)
     if frame.empty:
         return []
 
     indicator_frame = add_trend_indicators(frame)
     distribution_frame = detect_distribution_days(indicator_frame)
-    ampel_frame = _compute_ampel_frame(distribution_frame)
+    structure_frame, _swings = add_market_structure(distribution_frame)
+    warning_frame = add_phase_warning_counts(
+        structure_frame,
+        over_50_warning_pct=over_50_warning_pct,
+    )
+    ampel_frame = _compute_ampel_frame(warning_frame)
     return [_trend_ampel_point(index, row) for index, row in ampel_frame.iterrows()]
+
+
+def compute_atr_zigzag_swings(
+    bars: Sequence[TrendAmpelBar | Mapping[str, Any]],
+) -> list[MarketSwingPoint]:
+    frame = _frame_from_bars(bars)
+    if frame.empty:
+        return []
+    indicator_frame = add_trend_indicators(frame)
+    _structure_frame, swings = add_market_structure(indicator_frame)
+    return swings
 
 
 def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
@@ -94,7 +145,7 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     df["SMA50"] = _sma(df["Close"], 50)
     df["SMA200"] = _sma(df["Close"], 200)
     df["SMA10"] = _sma(df["Close"], 10)
-    df["ATR21"] = _atr(df, 21)
+    df["ATR21"] = _atr(df, ATR_PERIOD)
     df["ATR_pct"] = df["ATR21"] / df["Close"] * 100
     df["Vol_SMA50"] = _sma(df["Volume"], 50)
     df["Pct_Change"] = pd.to_numeric(df["Close"], errors="coerce").ffill().pct_change(fill_method=None) * 100
@@ -112,6 +163,7 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     df["High_52w"] = df["High"].rolling(252, min_periods=1).max()
     df["Dist_52w_pct"] = (df["Close"] - df["High_52w"]) / df["High_52w"] * 100
     df["MA_Order"] = (df["EMA21"] > df["SMA50"]) & (df["SMA50"] > df["SMA200"])
+    df["MA_Order_Streak"] = _consecutive_true(df["MA_Order"])
     df["Low_above_21"] = df["Low"] > df["EMA21"]
     df["Low_above_50"] = df["Low"] > df["SMA50"]
     df["Low_above_200"] = df["Low"] > df["SMA200"]
@@ -142,6 +194,10 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     df["Gain_Days_10d"] = gain_day.rolling(10, min_periods=1).sum().fillna(0).astype(int)
     df["Loss_Days_10d"] = loss_day.rolling(10, min_periods=1).sum().fillna(0).astype(int)
     df["Loss_Gain_Ratio_10d"] = df["Loss_Days_10d"] / df["Gain_Days_10d"].clip(lower=1)
+    df["Consec_Close_Above_21"] = _consecutive_true(df["Close"] > df["EMA21"])
+    df["Consec_Close_Below_21"] = _consecutive_true(df["Close"] < df["EMA21"])
+    df["EMA21_Rising"] = df["EMA21"] > df["EMA21"].shift(5)
+    df["SMA50_Rising"] = df["SMA50"] > df["SMA50"].shift(10)
     return df
 
 
@@ -159,6 +215,199 @@ def detect_distribution_days(frame: pd.DataFrame) -> pd.DataFrame:
         & (df["Closing_Range"] < 0.5)
     ).fillna(False)
     df["Dist_Count_25"] = _count_active_distribution_days(df["Is_Distribution"], df["Close"], 25, 6.0)
+    df["Stall_Count_10"] = df["Is_Stall"].rolling(10, min_periods=1).sum().fillna(0).astype(int)
+    return df
+
+
+def add_market_structure(frame: pd.DataFrame) -> tuple[pd.DataFrame, list[MarketSwingPoint]]:
+    df = frame.copy()
+    row_count = len(df)
+    structures: list[MarketStructure] = ["unknown"] * row_count
+    high_structures = ["unknown"] * row_count
+    low_structures = ["unknown"] * row_count
+    latest_highs: list[float | None] = [None] * row_count
+    latest_high_dates: list[str | None] = [None] * row_count
+    latest_lows: list[float | None] = [None] * row_count
+    latest_low_dates: list[str | None] = [None] * row_count
+
+    high = df["High"].to_numpy(dtype=float)
+    low = df["Low"].to_numpy(dtype=float)
+    close = df["Close"].to_numpy(dtype=float)
+    atr = df["ATR21"].to_numpy(dtype=float)
+    dates = [pd.Timestamp(value).strftime("%Y-%m-%d") for value in df.index]
+
+    direction: Literal["unknown", "up", "down"] = "unknown"
+    candidate_high: float | None = None
+    candidate_high_index: int | None = None
+    candidate_high_atr: float | None = None
+    candidate_low: float | None = None
+    candidate_low_index: int | None = None
+    candidate_low_atr: float | None = None
+    swings: list[MarketSwingPoint] = []
+    confirmed_highs: list[MarketSwingPoint] = []
+    confirmed_lows: list[MarketSwingPoint] = []
+
+    def confirm(pivot_type: Literal["high", "low"], price: float, pivot_index: int, pivot_atr: float, index: int) -> None:
+        point = MarketSwingPoint(
+            pivot_type=pivot_type,
+            pivot_price=float(price),
+            pivot_date=dates[pivot_index],
+            confirmation_date=dates[index],
+            atr_at_pivot=float(pivot_atr),
+        )
+        swings.append(point)
+        if pivot_type == "high":
+            confirmed_highs.append(point)
+        else:
+            confirmed_lows.append(point)
+
+    for index in range(row_count):
+        if not _is_finite(atr[index]) or atr[index] <= 0:
+            continue
+
+        if candidate_high is None:
+            candidate_high = float(high[index])
+            candidate_high_index = index
+            candidate_high_atr = float(atr[index])
+            candidate_low = float(low[index])
+            candidate_low_index = index
+            candidate_low_atr = float(atr[index])
+        elif direction == "unknown":
+            if high[index] > candidate_high:
+                candidate_high = float(high[index])
+                candidate_high_index = index
+                candidate_high_atr = float(atr[index])
+            if candidate_low is None or low[index] < candidate_low:
+                candidate_low = float(low[index])
+                candidate_low_index = index
+                candidate_low_atr = float(atr[index])
+
+            up_confirmed = bool(
+                candidate_low is not None
+                and close[index] >= candidate_low + REVERSAL_ATR_MULTIPLIER * atr[index]
+            )
+            down_confirmed = bool(
+                candidate_high is not None
+                and close[index] <= candidate_high - REVERSAL_ATR_MULTIPLIER * atr[index]
+            )
+            if up_confirmed and down_confirmed:
+                if candidate_low_index is not None and candidate_high_index is not None:
+                    up_confirmed = candidate_low_index < candidate_high_index
+                    down_confirmed = candidate_high_index < candidate_low_index
+
+            if up_confirmed and candidate_low_index is not None and candidate_low_atr is not None:
+                confirm("low", candidate_low, candidate_low_index, candidate_low_atr, index)
+                direction = "up"
+                candidate_high = float(high[index])
+                candidate_high_index = index
+                candidate_high_atr = float(atr[index])
+            elif down_confirmed and candidate_high_index is not None and candidate_high_atr is not None:
+                confirm("high", candidate_high, candidate_high_index, candidate_high_atr, index)
+                direction = "down"
+                candidate_low = float(low[index])
+                candidate_low_index = index
+                candidate_low_atr = float(atr[index])
+        elif direction == "up":
+            if candidate_high is None or high[index] > candidate_high:
+                candidate_high = float(high[index])
+                candidate_high_index = index
+                candidate_high_atr = float(atr[index])
+            if (
+                candidate_high is not None
+                and candidate_high_index is not None
+                and candidate_high_atr is not None
+                and close[index] <= candidate_high - REVERSAL_ATR_MULTIPLIER * atr[index]
+            ):
+                confirm("high", candidate_high, candidate_high_index, candidate_high_atr, index)
+                direction = "down"
+                candidate_low = float(low[index])
+                candidate_low_index = index
+                candidate_low_atr = float(atr[index])
+        else:
+            if candidate_low is None or low[index] < candidate_low:
+                candidate_low = float(low[index])
+                candidate_low_index = index
+                candidate_low_atr = float(atr[index])
+            if (
+                candidate_low is not None
+                and candidate_low_index is not None
+                and candidate_low_atr is not None
+                and close[index] >= candidate_low + REVERSAL_ATR_MULTIPLIER * atr[index]
+            ):
+                confirm("low", candidate_low, candidate_low_index, candidate_low_atr, index)
+                direction = "up"
+                candidate_high = float(high[index])
+                candidate_high_index = index
+                candidate_high_atr = float(atr[index])
+
+        high_structure = _swing_structure(confirmed_highs)
+        low_structure = _swing_structure(confirmed_lows)
+        structure: MarketStructure = "unknown"
+        if high_structure != "unknown" and low_structure != "unknown":
+            if high_structure == "higher" and low_structure == "higher":
+                structure = "up"
+            elif high_structure == "lower" and low_structure == "lower":
+                structure = "down"
+            else:
+                structure = "mixed"
+        structures[index] = structure
+        high_structures[index] = high_structure
+        low_structures[index] = low_structure
+        if confirmed_highs:
+            latest_highs[index] = confirmed_highs[-1].pivot_price
+            latest_high_dates[index] = confirmed_highs[-1].pivot_date
+        if confirmed_lows:
+            latest_lows[index] = confirmed_lows[-1].pivot_price
+            latest_low_dates[index] = confirmed_lows[-1].pivot_date
+
+    df["Market_Structure"] = structures
+    df["High_Structure"] = high_structures
+    df["Low_Structure"] = low_structures
+    df["Latest_Swing_High"] = latest_highs
+    df["Latest_Swing_High_Date"] = latest_high_dates
+    df["Latest_Swing_Low"] = latest_lows
+    df["Latest_Swing_Low_Date"] = latest_low_dates
+    return df, swings
+
+
+def _swing_structure(
+    swings: Sequence[MarketSwingPoint],
+) -> Literal["higher", "lower", "equal", "unknown"]:
+    if len(swings) < 2:
+        return "unknown"
+    previous, latest = swings[-2], swings[-1]
+    tolerance = PIVOT_TOLERANCE_ATR * latest.atr_at_pivot
+    if latest.pivot_price > previous.pivot_price + tolerance:
+        return "higher"
+    if latest.pivot_price < previous.pivot_price - tolerance:
+        return "lower"
+    return "equal"
+
+
+def add_phase_warning_counts(
+    frame: pd.DataFrame,
+    *,
+    over_50_warning_pct: float,
+) -> pd.DataFrame:
+    df = frame.copy()
+    warning_columns = pd.DataFrame(
+        {
+            "negative_reversals": df["Neg_Reversals_10d"] >= 3,
+            "weak_closes": df["Low_CR_5d"] >= 3,
+            "stall_days": df["Stall_Count_10"] >= 3,
+            "distribution": df["Dist_Count_25"] >= 4,
+            "loss_days": df["Loss_Days_10d"] > df["Gain_Days_10d"],
+            "overextended_50": df["Dist_50SMA_pct"] > float(over_50_warning_pct),
+            "below_21": df["Close"] < df["EMA21"],
+            "overextended_21": df["Dist_21EMA"] > 3.0,
+            "below_50": df["Close"] < df["SMA50"],
+            "below_200": df["Close"] < df["SMA200"],
+            "declining_up_volume": df["Up_Vol_Declining"],
+        },
+        index=df.index,
+    ).fillna(False)
+    df["Phase_Warning_Count"] = warning_columns.astype(int).sum(axis=1)
+    df["Phase_Warning_Streak"] = _consecutive_true(df["Phase_Warning_Count"] >= 4)
     return df
 
 
@@ -170,14 +419,23 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     floor_mark: float | None = None
     startschuss_idx: int | None = None
     startschuss_low: float | None = None
-    gruen_since: int | None = None
+    startschuss_date: str | None = None
     startschuss_bonus: bool | None = None
+    demand_confirmed = False
+    closes_above_21_since_start = 0
+    pressure_closes_above_21 = 0
+    uptrend_high: float | None = None
+    uptrend_structure_low: float | None = None
 
     phases: list[MarketPhase] = ["neutral"] * row_count
     anchor_dates: list[str | None] = [None] * row_count
     floor_marks: list[float | None] = [None] * row_count
     startschuss_lows: list[float | None] = [None] * row_count
+    startschuss_dates: list[str | None] = [None] * row_count
     startschuss_bonuses: list[bool | None] = [None] * row_count
+    uptrend_highs: list[float | None] = [None] * row_count
+    green_below_sma200: list[bool] = [False] * row_count
+    phase_reasons: list[str | None] = [None] * row_count
 
     close = df["Close"].to_numpy(dtype=float)
     high = df["High"].to_numpy(dtype=float)
@@ -189,16 +447,34 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     sma50 = df["SMA50"].to_numpy(dtype=float)
     sma200 = df["SMA200"].to_numpy(dtype=float)
     ema21 = df["EMA21"].to_numpy(dtype=float)
+    atr21 = df["ATR21"].to_numpy(dtype=float)
+    vol_sma50 = df["Vol_SMA50"].to_numpy(dtype=float)
+    consec_low_above_21 = df["Consec_Low_above_21"].to_numpy(dtype=int)
+    consec_low_above_50 = df["Consec_Low_above_50"].to_numpy(dtype=int)
+    consec_close_below_21 = df["Consec_Close_Below_21"].to_numpy(dtype=int)
+    ma_order_streak = df["MA_Order_Streak"].to_numpy(dtype=int)
+    ema21_rising = df["EMA21_Rising"].fillna(False).to_numpy(dtype=bool)
+    sma50_rising = df["SMA50_Rising"].fillna(False).to_numpy(dtype=bool)
+    market_structure = df["Market_Structure"].astype(str).to_numpy()
+    latest_swing_low = df["Latest_Swing_Low"].to_numpy(dtype=float)
+    phase_warning_streak = df["Phase_Warning_Streak"].to_numpy(dtype=int)
+    dates = [pd.Timestamp(value).strftime("%Y-%m-%d") for value in df.index]
 
     def clear_state() -> None:
-        nonlocal anchor_idx, floor_mark, startschuss_idx, startschuss_low, gruen_since
-        nonlocal startschuss_bonus
+        nonlocal anchor_idx, floor_mark, startschuss_idx, startschuss_low, startschuss_date
+        nonlocal startschuss_bonus, demand_confirmed, closes_above_21_since_start
+        nonlocal pressure_closes_above_21, uptrend_high, uptrend_structure_low
         anchor_idx = None
         floor_mark = None
         startschuss_idx = None
         startschuss_low = None
-        gruen_since = None
+        startschuss_date = None
         startschuss_bonus = None
+        demand_confirmed = False
+        closes_above_21_since_start = 0
+        pressure_closes_above_21 = 0
+        uptrend_high = None
+        uptrend_structure_low = None
 
     def correction_detected(index: int) -> bool:
         lookback = max(0, index - 60)
@@ -209,45 +485,93 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
         below_sma50_with_distribution = (
             _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4
         )
-        return drawdown_pct < -10 or below_sma50_with_distribution
+        return drawdown_pct <= -10 or below_sma50_with_distribution
 
-    def moving_averages_in_correct_order(index: int) -> bool:
+    def uptrend_confirmed(index: int) -> bool:
         return bool(
-            _is_finite(ema21[index])
+            _is_finite(close[index])
+            and _is_finite(ema21[index])
             and _is_finite(sma50[index])
             and _is_finite(sma200[index])
-            and ema21[index] > sma50[index] > sma200[index]
+            and close[index] > ema21[index]
+            and close[index] > sma200[index]
+            and consec_low_above_21[index] >= 3
+            and consec_low_above_50[index] >= 3
+            and ma_order_streak[index] >= 3
+            and ema21_rising[index]
+            and sma50_rising[index]
+            and market_structure[index] == "up"
         )
-
-    def sma200_broken(index: int) -> bool:
-        return _is_finite(sma200[index]) and close[index] < sma200[index]
 
     def startschuss_low_broken(index: int) -> bool:
         return startschuss_low is not None and close[index] < startschuss_low
 
+    def update_uptrend_reference(index: int) -> None:
+        nonlocal uptrend_high, uptrend_structure_low
+        if uptrend_high is None or high[index] > uptrend_high:
+            uptrend_high = float(high[index])
+        if market_structure[index] == "up" and _is_finite(latest_swing_low[index]):
+            uptrend_structure_low = float(latest_swing_low[index])
+
+    def uptrend_hard_red(index: int) -> str | None:
+        if startschuss_low_broken(index):
+            return "Schlusskurs unter Startschuss-Tief"
+        if _is_finite(sma200[index]) and close[index] < sma200[index]:
+            return "Schlusskurs unter 200-SMA"
+        if uptrend_high is not None and close[index] <= uptrend_high * 0.90:
+            return "Mindestens 10% Drawdown seit Aufwärtstrend-Hoch"
+        if _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4:
+            return "50-SMA-Bruch bei mindestens vier Distributionstagen"
+        if market_structure[index] == "down":
+            return "Bestätigtes tieferes Swing-Hoch und tieferes Swing-Tief"
+        return None
+
+    def uptrend_pressure_reason(index: int) -> str | None:
+        if consec_close_below_21[index] >= 3:
+            return "Drei Schlusskurse in Folge unter der 21-EMA"
+        strong_50_break = bool(
+            _is_finite(sma50[index])
+            and _is_finite(atr21[index])
+            and close[index] < sma50[index] - 0.5 * atr21[index]
+            and (
+                volume[index] > volume[index - 1]
+                or (_is_finite(vol_sma50[index]) and volume[index] > vol_sma50[index])
+            )
+        )
+        if strong_50_break:
+            return "Deutlicher volumenbestätigter Bruch der 50-SMA"
+        if _is_finite(ema21[index]) and _is_finite(sma50[index]) and ema21[index] < sma50[index]:
+            return "21-EMA unter 50-SMA"
+        if uptrend_structure_low is not None and close[index] < uptrend_structure_low:
+            return "Schlusskurs unter letztem bestätigten höheren Swing-Tief"
+        if phase_warning_streak[index] >= 2:
+            return "Mindestens vier indexinterne Warnzeichen an zwei Handelstagen"
+        return None
+
+    def pressure_recovered(index: int) -> bool:
+        return bool(
+            pressure_closes_above_21 >= 2
+            and _is_finite(ema21[index])
+            and _is_finite(atr21[index])
+            and close[index] >= ema21[index] + 0.1 * atr21[index]
+            and _is_finite(sma50[index])
+            and close[index] > sma50[index]
+            and _is_finite(sma200[index])
+            and close[index] > sma200[index]
+            and ema21[index] > sma50[index] > sma200[index]
+            and market_structure[index] != "down"
+        )
+
     for index in range(1, row_count):
         daily_pct = pct_change[index] if _is_finite(pct_change[index]) else 0.0
         range_position = closing_range[index] if _is_finite(closing_range[index]) else 0.5
+        transition_reason: str | None = None
 
-        if phase in {"neutral", "aufwaertstrend"}:
-            if phase == "aufwaertstrend" and startschuss_low_broken(index):
+        if phase == "neutral":
+            if correction_detected(index):
                 phase = "rot"
+                transition_reason = "Substanzielle Korrektur erkannt"
                 clear_state()
-            elif phase == "aufwaertstrend" and sma200_broken(index):
-                phase = "rot"
-                clear_state()
-            elif phase == "neutral" and correction_detected(index):
-                phase = "rot"
-                clear_state()
-            elif (
-                phase == "aufwaertstrend"
-                and _is_finite(ema21[index])
-                and _is_finite(sma50[index])
-                and ema21[index] < sma50[index]
-            ):
-                phase = "gruen" if startschuss_low is not None and close[index] >= startschuss_low else "rot"
-                if phase == "rot":
-                    clear_state()
         elif phase == "rot":
             if (
                 anchor_idx is not None
@@ -270,43 +594,117 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 and volume[index] > volume[index - 1]
                 and low[index] >= floor_mark
             ):
-                phase = "gelb"
+                phase = "gelb_startschuss"
                 startschuss_idx = index
                 startschuss_low = float(low[index])
+                startschuss_date = dates[index]
                 startschuss_bonus = _is_finite(ema21[index]) and close[index] > ema21[index]
-        elif phase == "gelb":
+                demand_confirmed = False
+                closes_above_21_since_start = 0
+                transition_reason = "Startschuss erkannt"
+        elif phase == "gelb_startschuss":
             if startschuss_low_broken(index):
                 phase = "rot"
+                transition_reason = "Schlusskurs unter Startschuss-Tief"
                 clear_state()
-            elif startschuss_idx is not None and index > startschuss_idx + GREEN_CONFIRMATION_DAYS:
-                phase = "gruen"
-                gruen_since = index
+            else:
+                closes_above_21_since_start = (
+                    closes_above_21_since_start + 1
+                    if _is_finite(ema21[index]) and close[index] > ema21[index]
+                    else 0
+                )
+                if (
+                    daily_pct >= 1.0
+                    and volume[index] > volume[index - 1]
+                    and startschuss_low is not None
+                    and close[index] >= startschuss_low
+                ):
+                    demand_confirmed = True
+                if (
+                    startschuss_idx is not None
+                    and index >= startschuss_idx + GREEN_CONFIRMATION_DAYS
+                    and (demand_confirmed or closes_above_21_since_start >= 3)
+                ):
+                    phase = "gruen"
+                    transition_reason = (
+                        "Zusätzlicher Akkumulationstag bestätigt Grün"
+                        if demand_confirmed
+                        else "Drei Schlusskurse über der 21-EMA bestätigen Grün"
+                    )
         elif phase == "gruen":
-            if startschuss_low_broken(index) or sma200_broken(index):
+            if startschuss_low_broken(index):
                 phase = "rot"
+                transition_reason = "Schlusskurs unter Startschuss-Tief"
                 clear_state()
-            elif (
-                moving_averages_in_correct_order(index)
-                and gruen_since is not None
-                and index - gruen_since >= UPTREND_CONFIRMATION_DAYS
-            ):
+            elif uptrend_confirmed(index):
                 phase = "aufwaertstrend"
+                uptrend_high = float(high[index])
+                uptrend_structure_low = (
+                    float(latest_swing_low[index]) if _is_finite(latest_swing_low[index]) else None
+                )
+                transition_reason = "Aufwärtstrend vollständig bestätigt"
+        elif phase == "aufwaertstrend":
+            update_uptrend_reference(index)
+            hard_red_reason = uptrend_hard_red(index)
+            if hard_red_reason:
+                phase = "rot"
+                transition_reason = hard_red_reason
+                clear_state()
+            else:
+                pressure_reason = uptrend_pressure_reason(index)
+                if pressure_reason:
+                    phase = "gelb_trend_unter_druck"
+                    pressure_closes_above_21 = 0
+                    transition_reason = pressure_reason
+        elif phase == "gelb_trend_unter_druck":
+            update_uptrend_reference(index)
+            pressure_closes_above_21 = (
+                pressure_closes_above_21 + 1
+                if _is_finite(ema21[index]) and close[index] > ema21[index]
+                else 0
+            )
+            hard_red_reason = uptrend_hard_red(index)
+            if hard_red_reason:
+                phase = "rot"
+                transition_reason = hard_red_reason
+                clear_state()
+            elif pressure_recovered(index):
+                if market_structure[index] == "up":
+                    phase = "aufwaertstrend"
+                    transition_reason = "21-EMA qualifiziert zurückerobert; Aufwärtsstruktur intakt"
+                else:
+                    phase = "gruen"
+                    uptrend_high = None
+                    uptrend_structure_low = None
+                    transition_reason = "21-EMA zurückerobert; Marktstruktur noch nicht eindeutig aufwärts"
 
         phases[index] = phase
+        phase_reasons[index] = transition_reason or (phase_reasons[index - 1] if index > 0 else None)
         if anchor_idx is not None:
             anchor_dates[index] = pd.Timestamp(df.index[anchor_idx]).strftime("%Y-%m-%d")
         if floor_mark is not None:
             floor_marks[index] = round(floor_mark, 2)
         if startschuss_low is not None:
             startschuss_lows[index] = round(startschuss_low, 2)
+        if startschuss_date is not None:
+            startschuss_dates[index] = startschuss_date
         if startschuss_bonus is not None:
             startschuss_bonuses[index] = bool(startschuss_bonus)
+        if uptrend_high is not None:
+            uptrend_highs[index] = round(uptrend_high, 2)
+        green_below_sma200[index] = bool(
+            phase == "gruen" and _is_finite(sma200[index]) and close[index] < sma200[index]
+        )
 
     df["Ampel_Phase"] = phases
     df["Anchor_Date"] = anchor_dates
     df["Floor_Mark"] = floor_marks
     df["Startschuss_Low"] = startschuss_lows
+    df["Startschuss_Date"] = startschuss_dates
     df["Startschuss_Bonus"] = startschuss_bonuses
+    df["Uptrend_High"] = uptrend_highs
+    df["Green_Below_SMA200"] = green_below_sma200
+    df["Phase_Reason"] = phase_reasons
     return df
 
 
@@ -395,6 +793,24 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         loss_days_10d=_safe_int(row.get("Loss_Days_10d")),
         gain_days_10d=_safe_int(row.get("Gain_Days_10d")),
         loss_gain_ratio_10d=_safe_float(row.get("Loss_Gain_Ratio_10d")),
+        startschuss_date=_safe_str(row.get("Startschuss_Date")),
+        uptrend_high=_safe_float(row.get("Uptrend_High")),
+        market_structure=str(row.get("Market_Structure") or "unknown"),  # type: ignore[arg-type]
+        high_structure=str(row.get("High_Structure") or "unknown"),  # type: ignore[arg-type]
+        low_structure=str(row.get("Low_Structure") or "unknown"),  # type: ignore[arg-type]
+        latest_swing_high=_safe_float(row.get("Latest_Swing_High")),
+        latest_swing_high_date=_safe_str(row.get("Latest_Swing_High_Date")),
+        latest_swing_low=_safe_float(row.get("Latest_Swing_Low")),
+        latest_swing_low_date=_safe_str(row.get("Latest_Swing_Low_Date")),
+        consecutive_closes_below_ema21=_safe_int(row.get("Consec_Close_Below_21")),
+        consecutive_closes_above_ema21=_safe_int(row.get("Consec_Close_Above_21")),
+        ma_order_streak=_safe_int(row.get("MA_Order_Streak")),
+        ema21_rising=_safe_bool(row.get("EMA21_Rising")),
+        sma50_rising=_safe_bool(row.get("SMA50_Rising")),
+        phase_warning_count=_safe_int(row.get("Phase_Warning_Count")),
+        phase_warning_streak=_safe_int(row.get("Phase_Warning_Streak")),
+        green_below_sma200=bool(_safe_bool(row.get("Green_Below_SMA200"))),
+        phase_reason=_safe_str(row.get("Phase_Reason")),
     )
 
 

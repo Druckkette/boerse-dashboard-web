@@ -2,7 +2,7 @@
   "scenario": "green_to_uptrend",
   "expected": {
     "final_phase": "aufwaertstrend",
-    "phase_path_contains": ["rot", "gelb", "gruen", "aufwaertstrend"],
+    "phase_path_contains": ["rot", "gelb_startschuss", "gruen", "aufwaertstrend"],
     "anchor_date_present": true,
     "startschuss_low_present": true
   }

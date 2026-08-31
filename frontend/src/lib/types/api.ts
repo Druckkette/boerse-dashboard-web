@@ -1,4 +1,5 @@
 export type Tone = "good" | "neutral" | "warning" | "bad";
+export type MarketPhase = "rot" | "gelb_startschuss" | "gruen" | "aufwaertstrend" | "gelb_trend_unter_druck" | "neutral";
 
 export type KpiCard = {
   label: string;
@@ -10,7 +11,7 @@ export type KpiCard = {
 export type MarketTrendAmpel = {
   ticker: string;
   as_of: string;
-  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  phase: MarketPhase;
   phase_label: string;
   close?: number | null;
   anchor_date?: string | null;
@@ -18,6 +19,9 @@ export type MarketTrendAmpel = {
   startschuss_low?: number | null;
   startschuss_bonus?: boolean | null;
   dist_count_25: number;
+  market_structure: "up" | "down" | "mixed" | "unknown";
+  uptrend_high?: number | null;
+  phase_reason?: string | null;
   source: "database" | "missing" | "synthetic_fixture";
 };
 
@@ -27,7 +31,7 @@ export type MarketOverview = {
   source: "database" | "synthetic_fixture" | "missing";
   data_status: "fresh" | "stale" | "missing" | "fallback";
   message: string;
-  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  phase: MarketPhase;
   phase_label: string;
   action: string;
   warning_count: number;
@@ -45,7 +49,7 @@ export type MarketAmpelHero = {
 };
 
 export type MarketAmpelLight = {
-  key: "rot" | "gelb" | "gruen" | "aufwaertstrend";
+  key: "rot" | "gelb_startschuss" | "gruen" | "aufwaertstrend" | "gelb_trend_unter_druck";
   label: string;
   active: boolean;
   rule: string;
@@ -53,7 +57,7 @@ export type MarketAmpelLight = {
 };
 
 export type MarketAmpelPhaseInfo = {
-  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  phase: MarketPhase;
   label: string;
   reason: string;
   action: string;
@@ -71,6 +75,9 @@ export type MarketAmpelCycle = {
   startschuss_distance_pct?: number | null;
   startschuss_bonus?: boolean | null;
   ma_order?: boolean | null;
+  market_structure: "up" | "down" | "mixed" | "unknown";
+  uptrend_high?: number | null;
+  phase_reason?: string | null;
   diagnostics: string[];
 };
 
@@ -94,6 +101,7 @@ export type MarketAmpelDistanceTile = {
 };
 
 export type MarketAmpelWarningCheck = {
+  code?: string | null;
   label: string;
   passed: boolean;
   detail: string;
@@ -121,7 +129,7 @@ export type MarketAmpelChartPoint = {
   sma50_held: boolean;
   sma200_held: boolean;
   up_vol_declining: boolean;
-  phase: "rot" | "gelb" | "gruen" | "aufwaertstrend" | "neutral";
+  phase: MarketPhase;
   is_distribution: boolean;
   is_stall: boolean;
   intraday_reversal_down: boolean;

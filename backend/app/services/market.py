@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
     GREEN_CONFIRMATION_DAYS,
-    UPTREND_CONFIRMATION_DAYS,
     TrendAmpelBar,
     TrendAmpelPoint,
     compute_trend_ampel,
@@ -167,7 +166,10 @@ def get_market_ampel(
     if len(bars) < 2:
         return _missing_market_ampel(clean_ticker)
 
-    points = compute_trend_ampel([_trend_bar_from_ohlcv(point) for point in bars])
+    points = compute_trend_ampel(
+        [_trend_bar_from_ohlcv(point) for point in bars],
+        over_50_warning_pct=7.0 if clean_ticker == "^IXIC" else 5.0,
+    )
     if not points:
         return _missing_market_ampel(clean_ticker)
 
@@ -1411,7 +1413,10 @@ def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> Tren
     bars, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
     if len(bars) < 2:
         return None
-    points = compute_trend_ampel([_trend_bar_from_ohlcv(point) for point in bars])
+    points = compute_trend_ampel(
+        [_trend_bar_from_ohlcv(point) for point in bars],
+        over_50_warning_pct=7.0 if ticker == "^IXIC" else 5.0,
+    )
     return points[-1] if points else None
 
 
@@ -1731,7 +1736,7 @@ def _build_market_diagnostic_checks(
         _diagnostic_check(
             "trend",
             "Startschuss (>= Gelb)?",
-            trend_phase in {"gelb", "gruen", "aufwaertstrend"},
+            trend_phase in {"gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck"},
             f"Trend-Ampel: {_phase_label(trend_phase)}",
         ),
         _diagnostic_check(
@@ -2072,7 +2077,7 @@ def _legacy_market_action_and_tone(
         else:
             message = f"{warning_count} Warnzeichen aktiv. Defensive Haltung - Risiko reduzieren trotz laufender Ampelphase."
         return "Defensiv", "bad", message
-    if clean_phase == "gelb":
+    if clean_phase == "gelb_startschuss":
         if warning_count <= 2 and clean_breadth != "schutz" and clean_vol not in {"stress", "risk"}:
             return (
                 "Startschuss",
@@ -2083,6 +2088,12 @@ def _legacy_market_action_and_tone(
             "Startschuss",
             "warning",
             "Startschuss erkannt, aber Umfeld noch nicht frei. Nur kleine Testpositionen und keine Aggressivität.",
+        )
+    if clean_phase == "gelb_trend_unter_druck":
+        return (
+            "Trend unter Druck",
+            "bad",
+            "Der bestätigte Aufwärtstrend ist beschädigt. Keine aggressiven Neueinstiege; bestehende Risiken eng überwachen.",
         )
     if clean_phase == "gruen":
         if warning_count <= 2 and clean_breadth != "schutz":
@@ -2130,7 +2141,7 @@ def _ampel_phase_info(
             action="Nicht kaufen. Beobachte den Markt auf Stabilisierung.",
             tone="bad",
         )
-    if phase == "gelb":
+    if phase == "gelb_startschuss":
         reason = (
             f"Startschuss erkannt. Ankertag: {anchor_date}. Validierungslinie: {_format_number(startschuss_low)}."
             if anchor_date and startschuss_low is not None
@@ -2141,6 +2152,14 @@ def _ampel_phase_info(
             label="GELB - Startschuss",
             reason=reason,
             action="Erste Positionen eröffnen, aber nur mit klarem Setup und kleiner Größe.",
+            tone="warning",
+        )
+    if phase == "gelb_trend_unter_druck":
+        return MarketAmpelPhaseInfo(
+            phase=phase,
+            label="GELB - Trend unter Druck",
+            reason=latest.phase_reason or "Ein bestehender Aufwärtstrend wurde technisch beschädigt.",
+            action="Keine aggressiven Neueinstiege. Auf eine qualifizierte Rückeroberung der 21-EMA oder ein Rot-Signal achten.",
             tone="warning",
         )
     if phase == "gruen":
@@ -2160,7 +2179,10 @@ def _ampel_phase_info(
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="AUFWÄRTSTREND",
-            reason="MA-Bestätigung aktiv: 21-EMA > 50-SMA > 200-SMA. Fällt 21-EMA unter 50-SMA, geht die Ampel auf Grün zurück.",
+            reason=(
+                "Höhere Swing-Hochs und Swing-Tiefs bestätigt; drei vollständige Tage über 21-EMA und 50-SMA, "
+                "steigende Durchschnittslinien und stabile MA-Reihenfolge."
+            ),
             action="Offensiv handeln. Viele kleine Positionen und beste Läufer aufstocken.",
             tone="good",
         )
@@ -2176,14 +2198,21 @@ def _ampel_phase_info(
 def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
     active_key = phase
     rules = {
-        "rot": "ROT wird aktiv bei Drawdown von mehr als 10% vom jüngsten Hoch oder Schlusskurs unter der 50-SMA bei mindestens 4 Distribution Days im 25-Tage-Fenster. Nach bestätigter grüner Ampel schaltet zusätzlich ein Schlusskurs unter der 200-SMA auf Rot.",
-        "gelb": "GELB wird aktiv, wenn nach einem Ankertag frühestens ab Tag 5 ein Startschuss auftritt: mindestens +1,0%, Volumen über Vortag und kein Unterschreiten der Bodenmarke intraday.",
-        "gruen": f"GRÜN wird aktiv, wenn der Startschuss hält und nach GELB mehr als {GREEN_CONFIRMATION_DAYS} weitere Handelstage vergehen, ohne dass das Startschuss-Tief per Schlusskurs gebrochen wird.",
-        "aufwaertstrend": f"AUFWÄRTSTREND/RÜCKENWIND wird aktiv, wenn die grüne Phase mindestens {UPTREND_CONFIRMATION_DAYS} Tage Bestand hatte und 21-EMA > 50-SMA > 200-SMA gilt. Ab Grün schaltet ein Schluss unter 200-SMA auf Rot.",
+        "rot": "ROT wird bei mindestens 10% Drawdown vom relevanten Hoch, bestätigter Abwärtsstruktur oder einer harten Bruchregel aktiv.",
+        "gelb_startschuss": "GELB - STARTSCHUSS wird frühestens ab Tag 5 nach dem Ankertag aktiv: mindestens +1,0%, Volumen über Vortag und Tagestief nicht unter der Bodenmarke.",
+        "gruen": f"GRÜN benötigt mindestens {GREEN_CONFIRMATION_DAYS} vollständige Handelstage nach dem Startschuss sowie einen weiteren Akkumulationstag oder drei Schlusskurse über der 21-EMA.",
+        "aufwaertstrend": "AUFWÄRTSTREND benötigt höhere Swing-Hochs und -Tiefs, drei vollständige Tage über 21-EMA und 50-SMA, drei Tage korrekte MA-Ordnung sowie steigende 21-EMA und 50-SMA.",
+        "gelb_trend_unter_druck": "GELB - TREND UNTER DRUCK wird bei nachhaltigem 21-EMA-Bruch, deutlichem 50-SMA-Bruch, negativer Kreuzung, Strukturbruch oder vier Warnzeichen an zwei Tagen aktiv.",
     }
     lights = [
         MarketAmpelLight(key="rot", label="ROT", active=active_key == "rot", rule=rules["rot"], tone="bad"),
-        MarketAmpelLight(key="gelb", label="GELB", active=active_key == "gelb", rule=rules["gelb"], tone="warning"),
+        MarketAmpelLight(
+            key="gelb_startschuss",
+            label="GELB - STARTSCHUSS",
+            active=active_key == "gelb_startschuss",
+            rule=rules["gelb_startschuss"],
+            tone="warning",
+        ),
         MarketAmpelLight(
             key="gruen",
             label="GRÜN",
@@ -2197,6 +2226,13 @@ def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
             active=active_key == "aufwaertstrend",
             rule=rules["aufwaertstrend"],
             tone="good",
+        ),
+        MarketAmpelLight(
+            key="gelb_trend_unter_druck",
+            label="GELB - TRENDDRUCK",
+            active=active_key == "gelb_trend_unter_druck",
+            rule=rules["gelb_trend_unter_druck"],
+            tone="warning",
         ),
     ]
     if phase == "neutral":
@@ -2228,6 +2264,9 @@ def _ampel_cycle(
         diagnostics.append("Startschuss-Tief noch nicht gesetzt")
     elif not startschuss_current:
         diagnostics.append("Startschuss-Tief ist ein historischer letzter Wert")
+    diagnostics.append(f"Marktstruktur: {_market_structure_label(latest.market_structure)}")
+    if latest.phase_reason:
+        diagnostics.append(f"Letzter Phasengrund: {latest.phase_reason}")
     return MarketAmpelCycle(
         anchor_date=anchor_date,
         anchor_current=anchor_current,
@@ -2239,6 +2278,9 @@ def _ampel_cycle(
         startschuss_distance_pct=_safe_pct_change(close, startschuss_low),
         startschuss_bonus=latest.startschuss_bonus,
         ma_order=latest.ma_order,
+        market_structure=latest.market_structure,
+        uptrend_high=latest.uptrend_high,
+        phase_reason=latest.phase_reason,
         diagnostics=diagnostics,
     )
 
@@ -2263,9 +2305,10 @@ def _ampel_reasons(
         _ampel_reason_line(latest, anchor_date=anchor_date, floor_mark=floor_mark, startschuss_low=startschuss_low),
         f"Aktive Warnzeichen: {warning_count}",
         f"Abstand zur 50-SMA: {_format_optional_pct(latest.dist_50sma_pct)}",
+        f"Marktstruktur: {_market_structure_label(latest.market_structure)}",
         f"Marktbreite Gleichgewichtete Indizes: {_breadth_mode_label(breadth_mode)}",
         f"VIX-Regime: {vix_regime}",
-    ][:4]
+    ][:5]
 
 
 def _ampel_reason_line(
@@ -2275,10 +2318,12 @@ def _ampel_reason_line(
     floor_mark: float | None,
     startschuss_low: float | None,
 ) -> str:
-    if latest.phase == "gelb":
+    if latest.phase == "gelb_startschuss":
         if anchor_date and startschuss_low is not None:
             return f"Trendwende-Ampel: GELB - Startschuss aktiv seit {anchor_date} · Startschuss-Tief {_format_number(startschuss_low)}"
         return "Trendwende-Ampel: GELB - Startschuss aktiv"
+    if latest.phase == "gelb_trend_unter_druck":
+        return f"Trendwende-Ampel: GELB - Trend unter Druck · {latest.phase_reason or 'technische Beschädigung'}"
     if latest.phase == "gruen":
         if startschuss_low is not None:
             return f"Trendwende-Ampel: GRÜN - Startschuss bestätigt · Absicherung über {_format_number(startschuss_low)}"
@@ -2330,12 +2375,14 @@ def _ampel_change_cards(
     )
     previous_label = _ampel_phase_label(previous.phase if previous else "")
     phase_label = _ampel_phase_label(latest.phase)
-    if latest.phase == "gelb":
+    if latest.phase == "gelb_startschuss":
         detail = (
             f"Startschuss-Tief {_format_number(latest.startschuss_low)} · {warning_count} Warnzeichen"
             if latest.startschuss_low is not None
             else f"Startschuss aktiv · {warning_count} Warnzeichen"
         )
+    elif latest.phase == "gelb_trend_unter_druck":
+        detail = f"{latest.phase_reason or 'Trend beschädigt'} · {warning_count} Warnzeichen"
     elif latest.phase == "gruen":
         detail = f"Startschuss bestätigt · {warning_count} Warnzeichen"
     else:
@@ -2536,7 +2583,25 @@ def _build_ampel_warning_checks(
         )
     under_200 = latest.sma200 is not None and latest.close is not None and latest.close < latest.sma200
     under_50 = latest.sma50 is not None and latest.close is not None and latest.close < latest.sma50
-    checks.append(_ampel_warning_check("Kurs über 200-SMA", not under_200, "Unter 200-SMA" if under_200 else "OK", under_200))
+    if latest.green_below_sma200:
+        checks.append(
+            _ampel_warning_check(
+                "Grün, aber unter der 200-SMA",
+                False,
+                "Die frühe Marktbestätigung ist aktiv, der langfristige Aufwärtstrend ist jedoch noch nicht bestätigt.",
+                True,
+                code="green_below_sma200",
+            )
+        )
+    else:
+        checks.append(
+            _ampel_warning_check(
+                "Kurs über 200-SMA",
+                not under_200,
+                "Unter 200-SMA" if under_200 else "OK",
+                under_200,
+            )
+        )
     checks.append(_ampel_warning_check("Kurs über 50-SMA", not under_50, "Unter 50-SMA" if under_50 else "OK", under_50))
     declining_up_volume = bool(latest.up_vol_declining)
     checks.append(
@@ -2614,8 +2679,10 @@ def _ampel_warning_check(
     active_warning: bool,
     *,
     tone: str | None = None,
+    code: str | None = None,
 ) -> MarketAmpelWarningCheck:
     return MarketAmpelWarningCheck(
+        code=code,
         label=label,
         passed=passed,
         detail=detail,
@@ -2751,9 +2818,10 @@ def _sma_distance_tile(label: str, value: float | None, detail: str) -> MarketAm
 def _ampel_phase_label(phase: str) -> str:
     return {
         "rot": "ROT",
-        "gelb": "GELB - Startschuss",
+        "gelb_startschuss": "GELB - Startschuss",
         "gruen": "GRÜN - Frühe Bestätigung",
         "aufwaertstrend": "AUFWÄRTSTREND",
+        "gelb_trend_unter_druck": "GELB - Trend unter Druck",
         "neutral": "NEUTRAL",
     }.get(str(phase or "").lower(), str(phase or "-").upper())
 
@@ -2761,7 +2829,7 @@ def _ampel_phase_label(phase: str) -> str:
 def _tone_for_phase(phase: str) -> str:
     if phase in {"gruen", "aufwaertstrend"}:
         return "good"
-    if phase in {"gelb", "neutral"}:
+    if phase in {"gelb_startschuss", "gelb_trend_unter_druck", "neutral"}:
         return "warning"
     return "bad"
 
@@ -2829,7 +2897,9 @@ def _normalize_tickers(tickers: list[str]) -> list[str]:
 
 
 def _normalize_phase(value: str) -> str:
-    if value in {"rot", "gelb", "gruen", "aufwaertstrend", "neutral"}:
+    if value == "gelb":
+        return "gelb_startschuss"
+    if value in {"rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"}:
         return value
     return "neutral"
 
@@ -2843,9 +2913,10 @@ def _normalize_breadth_mode(value: str) -> str:
 def _phase_label(phase: str) -> str:
     return {
         "rot": "Rot",
-        "gelb": "Gelb",
+        "gelb_startschuss": "Gelb - Startschuss",
         "gruen": "Grün",
         "aufwaertstrend": "Aufwärtstrend",
+        "gelb_trend_unter_druck": "Gelb - Trend unter Druck",
         "neutral": "Neutral",
     }.get(phase, "Neutral")
 
@@ -2853,11 +2924,24 @@ def _phase_label(phase: str) -> str:
 def _action_for_phase(phase: str) -> str:
     if phase == "rot":
         return "Defensiv bleiben, neue Käufe stark filtern und Risiko reduzieren."
-    if phase == "gelb":
+    if phase == "gelb_startschuss":
         return "Selektiv bleiben, Positionsgrößen kontrollieren und Breakouts nur mit klarer Bestätigung handeln."
+    if phase == "gelb_trend_unter_druck":
+        return "Keine aggressiven Neueinstiege; bestehende Risiken eng überwachen und auf Rückeroberung oder Rot-Signal achten."
     if phase == "gruen":
         return "Konstruktiv bleiben, Qualitäts-Setups bevorzugen und Stops diszipliniert nachziehen."
+    if phase == "aufwaertstrend":
+        return "Der Aufwärtstrend ist bestätigt. Führende Aktien selektiv aufbauen und Risiko regelbasiert steuern."
     return "Marktdaten prüfen und keine großen Risikoänderungen ohne frische Breitenwerte vornehmen."
+
+
+def _market_structure_label(value: str) -> str:
+    return {
+        "up": "Höhere Hochs und höhere Tiefs",
+        "down": "Tiefere Hochs und tiefere Tiefs",
+        "mixed": "Gemischte Swing-Struktur",
+        "unknown": "Noch nicht ausreichend bestätigt",
+    }.get(str(value or "unknown"), "Noch nicht ausreichend bestätigt")
 
 
 def _kpis_from_metrics(metrics: dict) -> list[KpiCard]:
@@ -2898,6 +2982,9 @@ def _trend_ampel_metrics(point: TrendAmpelPoint | None, *, ticker: str) -> dict:
         "startschuss_low": point.startschuss_low,
         "startschuss_bonus": point.startschuss_bonus,
         "dist_count_25": point.dist_count_25,
+        "market_structure": point.market_structure,
+        "uptrend_high": point.uptrend_high,
+        "phase_reason": point.phase_reason,
     }
 
 

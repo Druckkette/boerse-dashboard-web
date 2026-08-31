@@ -4,7 +4,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-MarketPhase = Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+MarketPhase = Literal[
+    "rot",
+    "gelb_startschuss",
+    "gruen",
+    "aufwaertstrend",
+    "gelb_trend_unter_druck",
+    "neutral",
+]
+BreadthPhase = Literal["rot", "gelb", "gruen", "neutral"]
 BreadthMode = Literal["schutz", "wachsam", "rueckenwind"]
 Tone = Literal["good", "neutral", "warning", "bad"]
 
@@ -32,7 +40,7 @@ class MarketRegimeInput:
 
 @dataclass(frozen=True)
 class MarketRegimeResult:
-    phase: MarketPhase
+    phase: BreadthPhase
     breadth_mode: BreadthMode
     warning_count: int
     action: str
@@ -143,7 +151,7 @@ def _phase_from_warnings(
     pct_above_50sma: float | None,
     pct_above_200sma: float | None,
     warning_count: int,
-) -> MarketPhase:
+) -> BreadthPhase:
     if pct_above_50sma is None or pct_above_200sma is None:
         return "neutral"
     if warning_count >= 4 or (pct_above_50sma < 40 and pct_above_200sma < 40):

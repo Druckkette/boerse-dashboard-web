@@ -239,7 +239,7 @@ function CompactMarketAmpel({
           <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
           <CycleMetric
             label="Ankertag"
             value={data.cycle.anchor_date ?? "-"}
@@ -262,6 +262,16 @@ function CompactMarketAmpel({
             label="MA-Ordnung"
             value={data.cycle.ma_order ? "Korrekt" : "Gestört"}
             tone={data.cycle.ma_order ? "good" : "bad"}
+          />
+          <CycleMetric
+            label="Marktstruktur"
+            value={marketStructureLabel(data.cycle.market_structure)}
+            tone={marketStructureTone(data.cycle.market_structure)}
+          />
+          <CycleMetric
+            label="Aufwärtstrend-Hoch"
+            value={data.cycle.uptrend_high != null ? formatNumber(data.cycle.uptrend_high) : "-"}
+            tone="neutral"
           />
         </div>
 
@@ -413,13 +423,27 @@ function InfoBlock({ emphasis = false, text, title }: { emphasis?: boolean; text
 
 function PhaseStepper({ lights }: { lights: MarketAmpelLight[] }) {
   return (
-    <div className="relative grid grid-cols-2 gap-x-3 gap-y-2 md:grid-cols-4">
-      <div className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-3 hidden h-px bg-[#dfe5ec] md:block" />
+    <div className="relative grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="pointer-events-none absolute left-[10%] right-[10%] top-3 hidden h-px bg-[#dfe5ec] lg:block" />
       {lights.map((light) => (
         <PhaseStep key={light.key} light={light} />
       ))}
     </div>
   );
+}
+
+function marketStructureLabel(value: MarketAmpel["cycle"]["market_structure"]) {
+  if (value === "up") return "Höhere Hochs/Tiefs";
+  if (value === "down") return "Tiefere Hochs/Tiefs";
+  if (value === "mixed") return "Gemischt";
+  return "Noch offen";
+}
+
+function marketStructureTone(value: MarketAmpel["cycle"]["market_structure"]): Tone {
+  if (value === "up") return "good";
+  if (value === "down") return "bad";
+  if (value === "mixed") return "warning";
+  return "neutral";
 }
 
 function PhaseStep({ light }: { light: MarketAmpelLight }) {
@@ -476,7 +500,7 @@ function RuleDefinitions({ lights }: { lights: MarketAmpelLight[] }) {
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-3.5 py-2.5">
         <span>
           <span className="block text-sm font-semibold text-[#172033]">Regeldefinitionen</span>
-          <span className="mt-0.5 block text-xs leading-5 text-[#687386]">Logik und Bedingungen der vier Ampelphasen.</span>
+          <span className="mt-0.5 block text-xs leading-5 text-[#687386]">Logik und Bedingungen der fünf sichtbaren Ampelzustände.</span>
         </span>
         <span className="shrink-0 rounded-full border border-[#d8e1ea] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#687386] group-open:text-[#0f766e]">
           Details
@@ -646,4 +670,8 @@ function formatValueWithDistance(value?: number | null, pct?: number | null) {
   const formattedValue = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
   if (pct === null || pct === undefined) return formattedValue;
   return `${formattedValue} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)`;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 }).format(value);
 }

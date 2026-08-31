@@ -266,7 +266,7 @@ function normalizeTicker(value: string) {
 function marketTone(phase?: string): Tone {
   if (phase === "aufwaertstrend" || phase === "gruen") return "good";
   if (phase === "rot") return "bad";
-  if (phase === "gelb") return "warning";
+  if (phase === "gelb_startschuss" || phase === "gelb_trend_unter_druck") return "warning";
   return "neutral";
 }
 

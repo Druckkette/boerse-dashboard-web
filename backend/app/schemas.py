@@ -49,7 +49,7 @@ class KpiCard(BaseModel):
 class MarketTrendAmpel(BaseModel):
     ticker: str
     as_of: str
-    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
     phase_label: str
     close: float | None = None
     anchor_date: str | None = None
@@ -57,6 +57,9 @@ class MarketTrendAmpel(BaseModel):
     startschuss_low: float | None = None
     startschuss_bonus: bool | None = None
     dist_count_25: int = 0
+    market_structure: Literal["up", "down", "mixed", "unknown"] = "unknown"
+    uptrend_high: float | None = None
+    phase_reason: str | None = None
     source: Literal["database", "missing", "synthetic_fixture"] = "database"
 
 
@@ -68,7 +71,7 @@ class MarketAmpelHero(BaseModel):
 
 
 class MarketAmpelLight(BaseModel):
-    key: Literal["rot", "gelb", "gruen", "aufwaertstrend"]
+    key: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck"]
     label: str
     active: bool
     rule: str
@@ -76,7 +79,7 @@ class MarketAmpelLight(BaseModel):
 
 
 class MarketAmpelPhaseInfo(BaseModel):
-    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
     label: str
     reason: str
     action: str
@@ -94,6 +97,9 @@ class MarketAmpelCycle(BaseModel):
     startschuss_distance_pct: float | None = None
     startschuss_bonus: bool | None = None
     ma_order: bool | None = None
+    market_structure: Literal["up", "down", "mixed", "unknown"] = "unknown"
+    uptrend_high: float | None = None
+    phase_reason: str | None = None
     diagnostics: list[str] = Field(default_factory=list)
 
 
@@ -117,6 +123,7 @@ class MarketAmpelDistanceTile(BaseModel):
 
 
 class MarketAmpelWarningCheck(BaseModel):
+    code: str | None = None
     label: str
     passed: bool
     detail: str
@@ -144,7 +151,7 @@ class MarketAmpelChartPoint(BaseModel):
     sma50_held: bool = False
     sma200_held: bool = False
     up_vol_declining: bool = False
-    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
     is_distribution: bool = False
     is_stall: bool = False
     intraday_reversal_down: bool = False
@@ -188,7 +195,7 @@ class MarketOverviewResponse(BaseModel):
     source: Literal["database", "synthetic_fixture", "missing"]
     data_status: Literal["fresh", "stale", "missing", "fallback"]
     message: str = ""
-    phase: Literal["rot", "gelb", "gruen", "aufwaertstrend", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
     phase_label: str
     action: str
     warning_count: int

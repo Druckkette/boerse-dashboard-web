@@ -104,7 +104,7 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
 
 function toneForPhase(phase: string) {
   if (phase === "gruen" || phase === "aufwaertstrend") return "good";
-  if (phase === "gelb" || phase === "neutral") return "warning";
+  if (phase === "gelb_startschuss" || phase === "gelb_trend_unter_druck" || phase === "neutral") return "warning";
   return "bad";
 }
 

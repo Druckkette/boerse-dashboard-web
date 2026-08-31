@@ -19,9 +19,22 @@ statistisch kalibrierte Rendite- oder Verlustprognose.
   Handelstagen.
 - VIX/VXX-Werte werden höchstens drei Indexzeilen vorgetragen. Ältere Werte
   gelten als nicht verfügbar.
-- Die Trendwende-Ampel folgt einer Zustandsmaschine. Nach Grün wird Rot nur
-  durch einen Schluss unter dem Startschuss-Tief oder unter der 200-SMA
-  ausgelöst. Eine verlorene 21/50-Ordnung setzt Aufwärtstrend auf Grün zurück.
+- Die Trendwende-Ampel folgt einer Zustandsmaschine mit getrenntem Startschuss,
+  früher grüner Bestätigung, bestätigtem Aufwärtstrend und dem Zustand
+  `Gelb - Trend unter Druck`. Grün benötigt nach drei vollständigen
+  Handelstagen zusätzliche Nachfrage; ein Aufwärtstrend zusätzlich drei
+  vollständig über 21-EMA und 50-SMA liegende Tage, steigende Linien, drei Tage
+  korrekte MA-Ordnung und bestätigte höhere Swing-Hochs und Swing-Tiefs.
+- Bestätigte Swing-Punkte werden aus abgeschlossenen Tageskerzen mit einem
+  ATR21-ZigZag (1,5 ATR Umkehr, 0,25 ATR Strukturtoleranz) ermittelt. Im
+  Aufwärtstrend wird der 10-Prozent-Rückgang vom seit Phasenbeginn geführten
+  Hoch berechnet, nicht von einem Hoch aus dem vorausgegangenen Zyklus.
+- Drei Schlusskurse unter der 21-EMA oder andere definierte technische Schäden
+  setzen einen Aufwärtstrend zunächst auf `Gelb - Trend unter Druck`. Für eine
+  Rückkehr zählen zwei neue, nach Eintritt in diese Phase entstandene
+  Schlusskurse über der 21-EMA; der zweite muss mindestens 0,1 ATR darüber
+  liegen. Marktbreite und Equal-Weight-Modus werden separat angezeigt und
+  verändern diese Trendphase nicht direkt.
 
 ## Aktien und Fundamentals
 
