@@ -239,6 +239,11 @@ function CompactMarketAmpel({
           <InfoBlock title="Handlung" text={data.phase_info.action} emphasis />
         </div>
 
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <InfoBlock title="Nächste Stufe" text={data.phase_info.next_step} emphasis />
+          <InfoBlock title="Letzte Statusänderung" text={lastStatusChangeText(data)} />
+        </div>
+
         <div className="mt-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
           <CycleMetric
             label="Ankertag"
@@ -419,6 +424,15 @@ function InfoBlock({ emphasis = false, text, title }: { emphasis?: boolean; text
       <p className={clsx("mt-1.5 text-sm leading-6", emphasis ? "font-semibold text-[#0f172a]" : "text-[#475569]")}>{text}</p>
     </div>
   );
+}
+
+function lastStatusChangeText(data: MarketAmpel) {
+  const { last_changed_at: changedAt, last_change_reason: reason } = data.phase_info;
+  if (!changedAt) {
+    return "Im geladenen Kursfenster gab es noch keinen Phasenwechsel. Ankertag und Bodenmarke sind davon getrennte Zyklusmarken.";
+  }
+  const formattedDate = new Intl.DateTimeFormat("de-DE").format(new Date(changedAt + "T12:00:00"));
+  return formattedDate + ": " + (reason || "Wechsel zu " + data.phase_info.label);
 }
 
 function PhaseStepper({ lights }: { lights: MarketAmpelLight[] }) {

@@ -62,6 +62,9 @@ export type MarketAmpelPhaseInfo = {
   reason: string;
   action: string;
   tone: Tone;
+  next_step: string;
+  last_changed_at?: string | null;
+  last_change_reason?: string | null;
 };
 
 export type MarketAmpelCycle = {

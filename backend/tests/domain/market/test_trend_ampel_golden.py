@@ -10,6 +10,7 @@ import pytest
 from app.domain.market.ampel import TrendAmpelBar, compute_trend_ampel
 from app.services.market import (
     _ampel_cycle,
+    _ampel_phase_info,
     _build_ampel_warning_checks,
     _detect_failing_rally,
     _last_cycle_markers,
@@ -79,6 +80,24 @@ def test_active_cycle_values_are_marked_current() -> None:
     assert cycle.anchor_current is True
     assert cycle.floor_current is True
     assert cycle.startschuss_current is True
+
+
+def test_phase_info_explains_next_step_and_last_real_transition() -> None:
+    points = compute_trend_ampel(_startschuss_to_green_bars())
+    latest = points[-1]
+    anchor_date, floor_mark, startschuss_low = _last_cycle_markers(points, latest)
+
+    info = _ampel_phase_info(
+        latest,
+        points=points,
+        anchor_date=anchor_date,
+        floor_mark=floor_mark,
+        startschuss_low=startschuss_low,
+    )
+
+    assert info.next_step.startswith("Für AUFWÄRTSTREND")
+    assert info.last_changed_at is not None
+    assert info.last_change_reason
 
 
 def test_green_resets_to_red_when_close_breaks_startschuss_low() -> None:

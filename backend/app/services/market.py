@@ -236,6 +236,7 @@ def build_market_ampel_response(
     )
     phase_info = _ampel_phase_info(
         latest,
+        points=points,
         anchor_date=anchor_date,
         floor_mark=floor_mark,
         startschuss_low=startschuss_low,
@@ -1951,6 +1952,7 @@ def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
             reason="Keine ausreichenden Kursdaten für die Trendwende-Ampel.",
             action="Marktdaten laden.",
             tone="neutral",
+            next_step="Price-Cache laden. Danach kann die Ampel die erste Marktphase bestimmen.",
         ),
         lights=_ampel_lights("neutral"),
         cycle=MarketAmpelCycle(diagnostics=["Keine Kursdaten im Cache"]),
@@ -2123,11 +2125,20 @@ def _legacy_market_action_and_tone(
 def _ampel_phase_info(
     latest: TrendAmpelPoint,
     *,
+    points: Sequence[TrendAmpelPoint],
     anchor_date: str | None,
     floor_mark: float | None,
     startschuss_low: float | None,
 ) -> MarketAmpelPhaseInfo:
     phase = latest.phase
+    last_changed_at, last_change_reason = _last_phase_change(points)
+    next_step = _next_phase_step(
+        points,
+        latest,
+        anchor_date=anchor_date,
+        floor_mark=floor_mark,
+        startschuss_low=startschuss_low,
+    )
     if phase == "rot":
         reason = (
             f"Substanzielle Korrektur läuft. Ankertag: {anchor_date}. Bodenmarke: {_format_number(floor_mark)}."
@@ -2140,6 +2151,9 @@ def _ampel_phase_info(
             reason=reason,
             action="Nicht kaufen. Beobachte den Markt auf Stabilisierung.",
             tone="bad",
+            next_step=next_step,
+            last_changed_at=last_changed_at,
+            last_change_reason=last_change_reason,
         )
     if phase == "gelb_startschuss":
         reason = (
@@ -2153,6 +2167,9 @@ def _ampel_phase_info(
             reason=reason,
             action="Erste Positionen eröffnen, aber nur mit klarem Setup und kleiner Größe.",
             tone="warning",
+            next_step=next_step,
+            last_changed_at=last_changed_at,
+            last_change_reason=last_change_reason,
         )
     if phase == "gelb_trend_unter_druck":
         return MarketAmpelPhaseInfo(
@@ -2161,6 +2178,9 @@ def _ampel_phase_info(
             reason=latest.phase_reason or "Ein bestehender Aufwärtstrend wurde technisch beschädigt.",
             action="Keine aggressiven Neueinstiege. Auf eine qualifizierte Rückeroberung der 21-EMA oder ein Rot-Signal achten.",
             tone="warning",
+            next_step=next_step,
+            last_changed_at=last_changed_at,
+            last_change_reason=last_change_reason,
         )
     if phase == "gruen":
         reason = (
@@ -2174,6 +2194,9 @@ def _ampel_phase_info(
             reason=reason,
             action="Frühe Bestätigungsphase. Exponierung vorsichtig aufbauen.",
             tone="good",
+            next_step=next_step,
+            last_changed_at=last_changed_at,
+            last_change_reason=last_change_reason,
         )
     if phase == "aufwaertstrend":
         return MarketAmpelPhaseInfo(
@@ -2185,6 +2208,9 @@ def _ampel_phase_info(
             ),
             action="Offensiv handeln. Viele kleine Positionen und beste Läufer aufstocken.",
             tone="good",
+            next_step=next_step,
+            last_changed_at=last_changed_at,
+            last_change_reason=last_change_reason,
         )
     return MarketAmpelPhaseInfo(
         phase="neutral",
@@ -2192,7 +2218,141 @@ def _ampel_phase_info(
         reason="Keine substanzielle Korrektur erkannt. Die Trendwende-Ampel ist nicht aktiv.",
         action="Normale Marktbeobachtung. Ampel greift erst bei substanziellem Drawdown.",
         tone="neutral",
+        next_step=next_step,
+        last_changed_at=last_changed_at,
+        last_change_reason=last_change_reason,
     )
+
+
+def _last_phase_change(points: Sequence[TrendAmpelPoint]) -> tuple[str | None, str | None]:
+    """Return the most recent real phase transition, not cycle-marker changes."""
+    if len(points) < 2:
+        return None, None
+    for index in range(len(points) - 1, 0, -1):
+        current = points[index]
+        previous = points[index - 1]
+        if current.phase != previous.phase:
+            reason = current.phase_reason or (
+                f"Wechsel von {_phase_label(previous.phase)} zu {_phase_label(current.phase)}."
+            )
+            return current.date, reason
+    return None, None
+
+
+def _index_for_date(points: Sequence[TrendAmpelPoint], value: str | None) -> int | None:
+    if not value:
+        return None
+    for index in range(len(points) - 1, -1, -1):
+        if points[index].date == value:
+            return index
+    return None
+
+
+def _next_phase_step(
+    points: Sequence[TrendAmpelPoint],
+    latest: TrendAmpelPoint,
+    *,
+    anchor_date: str | None,
+    floor_mark: float | None,
+    startschuss_low: float | None,
+) -> str:
+    """Explain the next state transition from already calculated daily data."""
+    phase = latest.phase
+    if phase == "rot":
+        anchor_index = _index_for_date(points, latest.anchor_date)
+        if anchor_index is None or floor_mark is None:
+            return (
+                "Für GELB - Startschuss braucht es zuerst einen Ankertag: positiver Schlusskurs "
+                "oder Schluss in der oberen Hälfte der Tageskerze."
+            )
+        completed_days = max(0, len(points) - 1 - anchor_index)
+        remaining_days = max(0, 5 - completed_days)
+        start_rule = (
+            "Tagesplus von mindestens +1,0%, Volumen über dem Vortag und ein Tagestief "
+            f"nicht unter der Bodenmarke {_format_number(floor_mark)}."
+        )
+        if remaining_days:
+            return (
+                f"Für GELB - Startschuss fehlen noch {remaining_days} vollständige Handelstage seit dem Ankertag. "
+                f"Danach braucht es: {start_rule}"
+            )
+        return f"Für GELB - Startschuss braucht es: {start_rule}"
+
+    if phase == "gelb_startschuss":
+        start_index = _index_for_date(points, latest.startschuss_date)
+        completed_days = max(0, len(points) - 1 - start_index) if start_index is not None else 0
+        remaining_days = max(0, GREEN_CONFIRMATION_DAYS - completed_days)
+        timing = (
+            f"Noch {remaining_days} vollständige Handelstage seit dem Startschuss. "
+            if remaining_days
+            else "Die zeitliche Mindestbedingung ist erfüllt. "
+        )
+        return (
+            f"Für GRÜN: {timing}Zusätzlich braucht es entweder einen weiteren Akkumulationstag "
+            "(+1,0%, Volumen über Vortag) oder drei Schlusskurse über der 21-EMA."
+        )
+
+    if phase == "gruen":
+        missing: list[str] = []
+        if latest.close is None or latest.sma200 is None or latest.close <= latest.sma200:
+            missing.append("Schlusskurs über der 200-SMA")
+        if latest.consec_low_above_21 < 3:
+            missing.append(f"{latest.consec_low_above_21}/3 Tage mit Tagestief über 21-EMA")
+        if latest.consec_low_above_50 < 3:
+            missing.append(f"{latest.consec_low_above_50}/3 Tage mit Tagestief über 50-SMA")
+        if latest.ma_order_streak < 3:
+            missing.append(f"{latest.ma_order_streak}/3 Tage korrekte MA-Ordnung")
+        if latest.ema21_rising is not True:
+            missing.append("steigende 21-EMA")
+        if latest.sma50_rising is not True:
+            missing.append("steigende 50-SMA")
+        if latest.market_structure != "up":
+            missing.append("bestätigte höhere Swing-Hochs und Swing-Tiefs")
+        return "Für AUFWÄRTSTREND fehlen: " + "; ".join(missing) + "." if missing else (
+            "Alle Bedingungen für AUFWÄRTSTREND liegen vor; die nächste abgeschlossene Tageskerze bestätigt den Wechsel."
+        )
+
+    if phase == "aufwaertstrend":
+        return "Keine höhere Stufe. Der Aufwärtstrend bleibt aktiv, solange keine Rückstufungs- oder Rot-Bedingung erfüllt ist."
+
+    if phase == "gelb_trend_unter_druck":
+        pressure_start = _index_for_last_phase_change(points, "gelb_trend_unter_druck")
+        closes_above = _consecutive_closes_above_ema(points, start_index=pressure_start)
+        missing: list[str] = []
+        if closes_above < 2:
+            missing.append(f"{closes_above}/2 neuen Schlusskursen über 21-EMA")
+        if latest.close is None or latest.sma50 is None or latest.close <= latest.sma50:
+            missing.append("Schlusskurs über 50-SMA")
+        if latest.close is None or latest.sma200 is None or latest.close <= latest.sma200:
+            missing.append("Schlusskurs über 200-SMA")
+        if latest.ma_order is not True:
+            missing.append("korrekter MA-Ordnung")
+        detail = "; ".join(missing) if missing else "zwei bestätigten Schlusskursen über der 21-EMA"
+        return (
+            f"Für die Erholung fehlen: {detail}. Mit Aufwärtsstruktur geht es direkt in den AUFWÄRTSTREND, "
+            "sonst zunächst auf GRÜN."
+        )
+
+    return (
+        "Ein neuer Ampelzyklus beginnt erst bei einer Korrektur: mindestens 10% Drawdown vom relevanten Hoch "
+        "oder Schlusskurs unter 50-SMA bei mindestens vier aktiven Distributionstagen."
+    )
+
+
+def _index_for_last_phase_change(points: Sequence[TrendAmpelPoint], phase: str) -> int:
+    for index in range(len(points) - 1, 0, -1):
+        if points[index].phase == phase and points[index - 1].phase != phase:
+            return index
+    return 0
+
+
+def _consecutive_closes_above_ema(points: Sequence[TrendAmpelPoint], *, start_index: int) -> int:
+    count = 0
+    for point in reversed(points[start_index:]):
+        if point.close is None or point.ema21 is None or point.close <= point.ema21:
+            break
+        count += 1
+    return count
 
 
 def _ampel_lights(phase: str) -> list[MarketAmpelLight]:

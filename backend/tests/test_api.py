@@ -161,7 +161,16 @@ def test_market_ampel_contract() -> None:
     assert payload["data_status"] in {"fresh", "stale", "missing", "fallback"}
     assert payload["ticker"] == "^GSPC"
     assert {"mode", "tone", "action", "reasons"}.issubset(payload["hero"])
-    assert {"phase", "label", "reason", "action", "tone"}.issubset(payload["phase_info"])
+    assert {
+        "phase",
+        "label",
+        "reason",
+        "action",
+        "tone",
+        "next_step",
+        "last_changed_at",
+        "last_change_reason",
+    }.issubset(payload["phase_info"])
     assert isinstance(payload["lights"], list)
     assert isinstance(payload["change_cards"], list)
     assert isinstance(payload["distance_tiles"], list)

@@ -84,6 +84,9 @@ class MarketAmpelPhaseInfo(BaseModel):
     reason: str
     action: str
     tone: Literal["good", "neutral", "warning", "bad"]
+    next_step: str = ""
+    last_changed_at: str | None = None
+    last_change_reason: str | None = None
 
 
 class MarketAmpelCycle(BaseModel):
