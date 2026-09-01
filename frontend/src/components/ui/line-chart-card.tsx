@@ -1,8 +1,8 @@
 "use client";
 
-import { Eye, EyeOff, Minus, Plus, RotateCcw } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
+import { Eye, EyeOff, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 
 type ChartDatum = {
@@ -93,6 +93,7 @@ export function LineChartCard({
   hideTextHeader = false
 }: LineChartCardProps) {
   const chartRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const [visibleRange, setVisibleRange] = useState<VisibleRange>(() => ({
     start: 0,
@@ -100,6 +101,8 @@ export function LineChartCard({
     total: points.length
   }));
   const [hiddenSeries, setHiddenSeries] = useState<Record<string, boolean>>({});
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const normalizedRange = useMemo(
     () =>
       visibleRange.total === points.length
@@ -173,23 +176,37 @@ export function LineChartCard({
   const canZoomOut = points.length > 1 && currentWindow < points.length;
   const hasDistributionMarkers = markers.some(isDistributionMarker);
 
-  function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
-    if (points.length <= 1) return;
-    event.preventDefault();
-    const rect = chartRef.current?.getBoundingClientRect();
-    if (!rect?.width) return;
-    const current = clampVisibleRange(normalizedRange, points.length);
-    const currentWindow = current.end - current.start + 1;
-    const minWindow = Math.min(MIN_VISIBLE_POINTS, points.length);
-    const nextWindow = Math.max(
-      minWindow,
-      Math.min(points.length, Math.round(currentWindow * (event.deltaY > 0 ? 1.18 : 0.82)))
-    );
-    const cursorRatio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const anchor = current.start + cursorRatio * Math.max(1, currentWindow - 1);
-    const nextStart = Math.round(anchor - cursorRatio * Math.max(1, nextWindow - 1));
-    setVisibleRange(clampVisibleRange({ start: nextStart, end: nextStart + nextWindow - 1 }, points.length));
-  }
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || points.length <= 1) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = chart.getBoundingClientRect();
+      if (!rect.width) return;
+      const current = clampVisibleRange(normalizedRange, points.length);
+      const windowSize = current.end - current.start + 1;
+      const nextWindow = Math.max(
+        Math.min(MIN_VISIBLE_POINTS, points.length),
+        Math.min(points.length, Math.round(windowSize * (event.deltaY > 0 ? 1.16 : 0.84)))
+      );
+      const plotLeft = rect.left + (PAD_X / WIDTH) * rect.width;
+      const plotWidth = ((WIDTH - PAD_X * 2) / WIDTH) * rect.width;
+      const cursorRatio = Math.max(0, Math.min(1, (event.clientX - plotLeft) / plotWidth));
+      const anchor = current.start + cursorRatio * Math.max(1, windowSize - 1);
+      const nextStart = Math.round(anchor - cursorRatio * Math.max(1, nextWindow - 1));
+      setVisibleRange(clampVisibleRange({ start: nextStart, end: nextStart + nextWindow - 1 }, points.length));
+    };
+
+    chart.addEventListener("wheel", handleWheel, { passive: false });
+    return () => chart.removeEventListener("wheel", handleWheel);
+  }, [normalizedRange, points.length]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === cardRef.current);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
 
   function zoomBy(factor: number) {
     if (points.length <= 1) return;
@@ -220,9 +237,10 @@ export function LineChartCard({
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
     const rect = chartRef.current?.getBoundingClientRect();
     if (!rect?.width) return;
+    setHoveredIndex(indexAtClientX(event.clientX, rect, visiblePoints.length));
+    if (!drag || drag.pointerId !== event.pointerId) return;
     const windowSize = drag.range.end - drag.range.start + 1;
     const pointsPerPixel = windowSize / rect.width;
     const offset = Math.round((drag.clientX - event.clientX) * pointsPerPixel);
@@ -240,8 +258,26 @@ export function LineChartCard({
     }
   }
 
+  async function toggleFullscreen() {
+    if (document.fullscreenElement === cardRef.current) {
+      await document.exitFullscreen();
+      return;
+    }
+    await cardRef.current?.requestFullscreen();
+  }
+
+  const hoveredPoint = hoveredIndex === null ? null : visiblePoints[hoveredIndex];
+  const hoveredX = hoveredIndex === null ? null : xForIndex(hoveredIndex, visiblePoints.length);
+
   return (
-    <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+    <section
+      ref={cardRef}
+      className={
+        isFullscreen
+          ? "flex h-screen w-screen flex-col overflow-hidden bg-[#f6f8fb] p-5"
+          : "rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]"
+      }
+    >
       <div className={hideTextHeader ? "mb-3 flex justify-end" : "mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"}>
         {!hideTextHeader && (
           <div>
@@ -280,20 +316,39 @@ export function LineChartCard({
           >
             <RotateCcw size={15} />
           </button>
+          <button
+            className="inline-flex size-9 items-center justify-center rounded-full border border-[#d8e1ea] bg-white text-[#172033] shadow-sm transition hover:border-[#0f766e] hover:text-[#0f766e]"
+            type="button"
+            title={isFullscreen ? "Vollbild schließen" : "Chart im Vollbild öffnen"}
+            aria-label={isFullscreen ? "Vollbild schließen" : "Chart im Vollbild öffnen"}
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
           {!hideTextHeader && statusLabel && <StatusChip tone={statusTone}>{statusLabel}</StatusChip>}
         </div>
       </div>
 
       <div
         ref={chartRef}
-        className="relative h-[320px] touch-none select-none rounded-[20px] border border-[#d9dee8] bg-white"
+        className={[
+          "relative touch-none select-none overflow-hidden rounded-[14px] border border-[#d9dee8] bg-white",
+          isFullscreen ? "min-h-0 flex-1" : "h-[380px]",
+          isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"
+        ].join(" ")}
         onPointerCancel={handlePointerEnd}
         onPointerDown={handlePointerDown}
-        onPointerLeave={handlePointerEnd}
+        onPointerLeave={(event) => {
+          setHoveredIndex(null);
+          handlePointerEnd(event);
+        }}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
-        onWheel={handleWheel}
+        onDoubleClick={() => setVisibleRange(fullVisibleRange(points.length))}
       >
+        {!isLoading && !hasError && !empty && hoveredPoint && (
+          <ChartHoverReadout point={hoveredPoint} chartMode={chartMode} series={visibleSeries} />
+        )}
         {isLoading && (
           <div className="absolute inset-0 grid place-items-center text-sm text-[#687386]">
             Daten werden geladen...
@@ -326,7 +381,7 @@ export function LineChartCard({
                 />
               ))}
             {volumeKey && maxVolume > 0 && (
-              <g opacity="0.24">
+              <g opacity="0.14">
                 {visiblePoints.map((point, index) => {
                   const volume = toNumber(point[volumeKey]);
                   if (volume === null) return null;
@@ -336,7 +391,7 @@ export function LineChartCard({
                   const y = priceBottom - barHeight;
                   const close = toNumber(point.close);
                   const open = toNumber(point.open);
-                  const fill = close !== null && open !== null && close < open ? "#fb7185" : "#34d399";
+                  const fill = close !== null && open !== null && close < open ? "#dc2626" : "#059669";
                   return <rect key={`${point.date}-${index}`} fill={fill} height={barHeight} width={barWidth} x={x} y={y} />;
                 })}
               </g>
@@ -350,20 +405,23 @@ export function LineChartCard({
                   const close = toNumber(point.close);
                   if (open === null || high === null || low === null || close === null) return null;
                   const x = xForIndex(index, visiblePoints.length);
-                  const candleWidth = Math.max(3, (WIDTH - PAD_X * 2) / Math.max(1, visiblePoints.length) * 0.58);
+                  const candleWidth = Math.min(
+                    15,
+                    Math.max(4.5, (WIDTH - PAD_X * 2) / Math.max(1, visiblePoints.length) * 0.68)
+                  );
                   const yHigh = yForValue(high, yMin, yMax, PAD_TOP, priceBottom);
                   const yLow = yForValue(low, yMin, yMax, PAD_TOP, priceBottom);
                   const yOpen = yForValue(open, yMin, yMax, PAD_TOP, priceBottom);
                   const yClose = yForValue(close, yMin, yMax, PAD_TOP, priceBottom);
                   const up = close >= open;
-                  const color = up ? "#34d399" : "#fb7185";
+                  const color = up ? "#059669" : "#dc2626";
                   const bodyY = Math.min(yOpen, yClose);
                   const bodyHeight = Math.max(1.4, Math.abs(yClose - yOpen));
                   return (
                     <g key={`${point.date}-candle`}>
                       <line
                         stroke={color}
-                        strokeWidth="1.4"
+                        strokeWidth="1"
                         vectorEffect="non-scaling-stroke"
                         x1={x}
                         x2={x}
@@ -371,10 +429,10 @@ export function LineChartCard({
                         y2={yLow}
                       />
                       <rect
-                        fill={up ? "#34d399" : "#fb7185"}
+                        fill={color}
                         height={bodyHeight}
                         stroke={color}
-                        strokeWidth="1.5"
+                        strokeWidth="0.8"
                         vectorEffect="non-scaling-stroke"
                         width={candleWidth}
                         x={x - candleWidth / 2}
@@ -396,7 +454,7 @@ export function LineChartCard({
                   stroke={item.color}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="3"
+                  strokeWidth="1.35"
                   vectorEffect="non-scaling-stroke"
                 />
               );
@@ -408,7 +466,7 @@ export function LineChartCard({
                   <line
                     stroke={level.color}
                     strokeDasharray="7 7"
-                    strokeWidth="2"
+                    strokeWidth="1.15"
                     vectorEffect="non-scaling-stroke"
                     x1={PAD_X}
                     x2={WIDTH - PAD_X}
@@ -499,7 +557,7 @@ export function LineChartCard({
                       stroke={item.color}
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      strokeWidth="2"
+                      strokeWidth="1.25"
                       vectorEffect="non-scaling-stroke"
                     />
                   );
@@ -515,6 +573,30 @@ export function LineChartCard({
                   {latest?.date}
                 </text>
               </>
+            )}
+            {hoveredX !== null && hoveredPoint && (
+              <g pointerEvents="none">
+                <line
+                  stroke="#64748b"
+                  strokeDasharray="3 5"
+                  strokeWidth="0.8"
+                  vectorEffect="non-scaling-stroke"
+                  x1={hoveredX}
+                  x2={hoveredX}
+                  y1={PAD_TOP}
+                  y2={HEIGHT - PAD_BOTTOM}
+                />
+                <text
+                  fill="#334155"
+                  fontSize="10"
+                  fontWeight="600"
+                  textAnchor="middle"
+                  x={hoveredX}
+                  y={HEIGHT - 16}
+                >
+                  {formatShortDate(hoveredPoint.date)}
+                </text>
+              </g>
             )}
           </svg>
         )}
@@ -591,6 +673,52 @@ export function LineChartCard({
   );
 }
 
+function ChartHoverReadout({
+  chartMode,
+  point,
+  series
+}: {
+  chartMode: "line" | "candlestick";
+  point: ChartDatum;
+  series: ChartSeries[];
+}) {
+  const open = toNumber(point.open);
+  const high = toNumber(point.high);
+  const low = toNumber(point.low);
+  const close = toNumber(point.close);
+
+  return (
+    <div className="pointer-events-none absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-lg border border-[#d9e1ea] bg-white/95 px-3 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.10)] backdrop-blur">
+      <div className="text-[11px] font-semibold text-[#475569]">{formatLongDate(point.date)}</div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-[#172033]">
+        {chartMode === "candlestick" && (
+          <>
+            <HoverValue label="O" value={open} />
+            <HoverValue label="H" value={high} />
+            <HoverValue label="T" value={low} />
+            <HoverValue label="S" value={close} />
+          </>
+        )}
+        {series.map((item) => {
+          const value = toNumber(point[item.key]);
+          if (value === null) return null;
+          return <HoverValue key={item.key} label={item.label} value={value} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HoverValue({ label, value }: { label: string; value: number | null }) {
+  if (value === null) return null;
+  return (
+    <span>
+      <span className="text-[#64748b]">{label}</span>{" "}
+      <span className="font-semibold">{value.toFixed(2)}</span>
+    </span>
+  );
+}
+
 function buildPath(
   points: ChartDatum[],
   key: string,
@@ -616,6 +744,14 @@ function buildPath(
 function xForIndex(index: number, total: number) {
   if (total <= 1) return PAD_X;
   return PAD_X + (index / (total - 1)) * (WIDTH - PAD_X * 2);
+}
+
+function indexAtClientX(clientX: number, rect: DOMRect, total: number) {
+  if (total <= 1) return 0;
+  const plotLeft = rect.left + (PAD_X / WIDTH) * rect.width;
+  const plotWidth = ((WIDTH - PAD_X * 2) / WIDTH) * rect.width;
+  const ratio = Math.max(0, Math.min(1, (clientX - plotLeft) / plotWidth));
+  return Math.round(ratio * (total - 1));
 }
 
 function clampVisibleRange(range: Pick<VisibleRange, "start" | "end">, total: number) {
@@ -688,6 +824,17 @@ function formatShortDate(date: string) {
   const parsed = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return date;
   return new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" }).format(parsed);
+}
+
+function formatLongDate(date: string) {
+  const parsed = new Date(date + "T00:00:00Z");
+  if (Number.isNaN(parsed.getTime())) return date;
+  return new Intl.DateTimeFormat("de-DE", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(parsed);
 }
 
 function formatCompact(value: number | null) {
