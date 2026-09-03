@@ -4,7 +4,7 @@ from typing import Any
 
 from app.services.fundamentals import refresh_fundamentals_for_ticker
 from app.services.prices import PriceRange, refresh_price_cache_for_ticker
-from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER
+from app.services.relative_strength import DEFAULT_RS_BENCHMARK_TICKER, refresh_relative_strength_line_for_ticker
 from app.services.sec13f import refresh_institutional_13f_from_sec
 from app.services.settings import get_runtime_config_value
 from app.repositories import jobs as job_repository
@@ -145,14 +145,13 @@ def _refresh_one_stock(
         }
 
     if include_rs:
-        item["steps"]["relative_strength"] = {
-            "ok": True,
-            "skipped": True,
-            "reason": (
-                "Das RS-Rating bleibt der letzte vollständige Universums-Snapshot. "
-                "Eine Einzelaktie darf das Perzentil-Ranking nicht überschreiben."
-            ),
-        }
+        update(0.42, f"{ticker} RS-Linie berechnen", f"{ticker}: RS-Linie und Durchschnitte gegen {benchmark_ticker} aktualisieren.")
+        item["steps"]["relative_strength"] = _safe_step(
+            lambda: refresh_relative_strength_line_for_ticker(
+                ticker,
+                benchmark_ticker=benchmark_ticker,
+            )
+        )
 
     if include_fundamentals:
         update(0.58, f"{ticker} Fundamentals laden", f"{ticker}: yfinance/FMP/SEC Fundamental-Cache aktualisieren.")

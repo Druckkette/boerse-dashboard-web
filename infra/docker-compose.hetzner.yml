@@ -93,6 +93,24 @@ services:
       redis:
         condition: service_healthy
 
+  interactive-worker:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.hetzner
+    environment:
+      APP_ENV: hetzner
+      BACKEND_CACHE_DIR: /app/.cache
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--hostname=interactive@%h", "-Q", "interactive"]
+    volumes:
+      - backend_cache:/app/.cache
+      - worker_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   scheduler:
     image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped

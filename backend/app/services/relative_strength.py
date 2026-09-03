@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
-from app.domain.stocks.relative_strength import compute_relative_strength_ratings
+from app.domain.stocks.relative_strength import compute_relative_strength_line, compute_relative_strength_ratings
 from app.data_sources.rs_csv_client import DEFAULT_RS_CSV_URL, fetch_external_rs_ratings
 from app.repositories import market as market_repository
 from app.repositories import relative_strength as rs_repository
@@ -41,7 +41,23 @@ def refresh_selected_relative_strength_ratings(
 ) -> dict:
     selected_source = str(source or configured_rs_source()).strip().lower()
     if selected_source == "csv_latest":
-        return refresh_external_relative_strength_ratings(tickers=None)
+        external_result = refresh_external_relative_strength_ratings(tickers=None)
+        computed_result = refresh_relative_strength_ratings(
+            tickers=tickers,
+            benchmark_ticker=benchmark_ticker,
+            lookback_days=lookback_days,
+            source=DEFAULT_RS_SOURCE,
+        )
+        return {
+            **external_result,
+            "technical_lines": {
+                "ok": bool(computed_result.get("ok")),
+                "as_of": computed_result.get("as_of"),
+                "ratings_count": computed_result.get("ratings_count", 0),
+                "records_written": computed_result.get("records_written", 0),
+                "reason": computed_result.get("reason", ""),
+            },
+        }
     return refresh_relative_strength_ratings(
         tickers=tickers,
         benchmark_ticker=benchmark_ticker,
@@ -162,6 +178,87 @@ def refresh_relative_strength_ratings(
         "records_seen": sum(len(points) for points in series.values()),
         "records_written": records_written,
         "top": top,
+    }
+
+
+def refresh_relative_strength_line_for_ticker(
+    ticker: str,
+    *,
+    benchmark_ticker: str = DEFAULT_RS_BENCHMARK_TICKER,
+    lookback_days: int = DEFAULT_RS_LOOKBACK_DAYS,
+) -> dict:
+    """Refresh RS-line indicators for one ticker without changing its universe rank."""
+
+    clean_ticker = str(ticker or "").strip().upper()
+    clean_benchmark = str(benchmark_ticker or DEFAULT_RS_BENCHMARK_TICKER).strip().upper()
+    if not clean_ticker or clean_ticker == clean_benchmark:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Für die technische RS-Linie werden Aktie und separater Benchmark benötigt.",
+            "records_written": 0,
+        }
+
+    start_date = date.today() - timedelta(days=max(120, min(2500, lookback_days)))
+    series = market_repository.load_cached_prices([clean_ticker, clean_benchmark], start_date=start_date)
+    line = compute_relative_strength_line(
+        series.get(clean_ticker) or [],
+        series.get(clean_benchmark) or [],
+    )
+    if line is None:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Keine ausreichenden gemeinsamen Kursdaten für Aktie und Benchmark im Price-Cache.",
+            "ticker": clean_ticker,
+            "benchmark_ticker": clean_benchmark,
+            "records_written": 0,
+        }
+
+    selected_source = configured_rs_source()
+    row = rs_repository.get_latest_rs_rating(clean_ticker, source=selected_source)
+    if row is None:
+        row = rs_repository.get_latest_rs_rating(clean_ticker)
+    if row is None:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "Noch kein RS-Rating für den Ticker gespeichert. Zuerst den täglichen RS-Refresh ausführen.",
+            "ticker": clean_ticker,
+            "benchmark_ticker": clean_benchmark,
+            "records_written": 0,
+        }
+
+    metadata = {
+        **dict(row.metadata_json or {}),
+        **line.metadata,
+        "rs_line_data_as_of": line.date.isoformat(),
+        "rs_line_benchmark": clean_benchmark,
+    }
+    records_written = rs_repository.upsert_rs_ratings(
+        [
+            RsRatingWrite(
+                ticker=row.ticker,
+                date=row.date,
+                rating=int(row.rating or 0),
+                score=float(row.score or 0),
+                percentile=float(row.percentile or 0),
+                method=row.method,
+                source=row.source,
+                universe_size=row.universe_size,
+                metadata_json=metadata,
+            )
+        ]
+    )
+    return {
+        "ok": records_written > 0,
+        "ticker": clean_ticker,
+        "benchmark_ticker": clean_benchmark,
+        "as_of": line.date.isoformat(),
+        "source": row.source,
+        "above_21": metadata.get("above_21"),
+        "above_50": metadata.get("above_50"),
+        "records_written": records_written,
     }
 
 

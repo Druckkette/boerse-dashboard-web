@@ -56,7 +56,7 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
             message=(
                 "Relative-Staerke-Linien und Percentiles werden aus gecachten Kursen berechnet."
                 if source == "computed"
-                else "Die ausgewählte externe RS CSV wird importiert."
+                else "Externe RS-Ratings werden importiert; technische RS-Linien werden aus dem Price-Cache ergänzt."
             ),
         )
         result = refresh_selected_relative_strength_ratings(

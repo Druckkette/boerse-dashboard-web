@@ -100,6 +100,30 @@ services:
       redis:
         condition: service_healthy
 
+  interactive-worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    env_file:
+      - ../.env.example
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://boerse:boerse@postgres:5432/boerse_dashboard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      BACKEND_CACHE_DIR: /app/.cache
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--hostname=interactive@%h", "-Q", "interactive"]
+    volumes:
+      - backend_cache:/app/.cache
+      - backend_runtime:/app/runtime
+      - worker_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   monitor:
     build:
       context: ..

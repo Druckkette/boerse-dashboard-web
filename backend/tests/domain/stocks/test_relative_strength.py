@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.domain.stocks.relative_strength import ClosePoint, compute_relative_strength_ratings
+from app.domain.stocks.relative_strength import ClosePoint, compute_relative_strength_line, compute_relative_strength_ratings
 
 
 def test_relative_strength_ranks_leaders_above_laggards() -> None:
@@ -31,6 +31,16 @@ def test_relative_strength_returns_empty_without_benchmark() -> None:
     ratings = compute_relative_strength_ratings({"NVDA": _series(0.002)}, benchmark_ticker="SPY")
 
     assert ratings == []
+
+
+def test_single_stock_relative_strength_line_calculates_moving_averages_without_rank() -> None:
+    result = compute_relative_strength_line(_series(0.0020), _series(0.0010))
+
+    assert result is not None
+    assert result.metadata["rs_line_last"] > result.metadata["rs_ema21_last"]
+    assert result.metadata["above_21"] is True
+    assert result.metadata["above_50"] is True
+    assert len(result.metadata["rs_history"]) == 320
 
 
 def test_relative_strength_excludes_tickers_with_stale_latest_bar() -> None:

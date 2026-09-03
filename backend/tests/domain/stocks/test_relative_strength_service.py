@@ -68,6 +68,11 @@ def test_external_rs_refresh_uses_provider_universe(monkeypatch: pytest.MonkeyPa
         return {"ok": True, "source": "csv_latest", "ratings_count": 5910}
 
     monkeypatch.setattr(service, "refresh_external_relative_strength_ratings", fake_external)
+    monkeypatch.setattr(
+        service,
+        "refresh_relative_strength_ratings",
+        lambda **kwargs: {"ok": True, "as_of": "2026-07-30", "ratings_count": 3, "records_written": 3},
+    )
 
     result = service.refresh_selected_relative_strength_ratings(
         tickers=["NVDA", "MSFT"],
@@ -75,7 +80,51 @@ def test_external_rs_refresh_uses_provider_universe(monkeypatch: pytest.MonkeyPa
     )
 
     assert result["ratings_count"] == 5910
+    assert result["technical_lines"]["ratings_count"] == 3
     assert captured["tickers"] is None
+
+
+def test_targeted_rs_line_refresh_enriches_selected_rating_without_changing_rank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stored: list[RsRatingWrite] = []
+    selected = RsRatingRow(
+        ticker="TWLO",
+        name="Twilio",
+        date=date(2026, 9, 2),
+        rating=84,
+        score=84.0,
+        percentile=84.0,
+        method="external_csv",
+        source="csv_latest",
+        universe_size=5910,
+        metadata_json={"external_source": "test"},
+    )
+    monkeypatch.setattr(service, "configured_rs_source", lambda: "csv_latest")
+    monkeypatch.setattr(
+        service.market_repository,
+        "load_cached_prices",
+        lambda tickers, start_date: {"TWLO": _series(0.0020), "SPY": _series(0.0010)},
+    )
+    monkeypatch.setattr(
+        service.rs_repository,
+        "get_latest_rs_rating",
+        lambda ticker, source=None: selected,
+    )
+    monkeypatch.setattr(
+        service.rs_repository,
+        "upsert_rs_ratings",
+        lambda rows: stored.extend(rows) or len(rows),
+    )
+
+    result = service.refresh_relative_strength_line_for_ticker("TWLO")
+
+    assert result["ok"] is True
+    assert result["above_21"] is True
+    assert stored[0].rating == 84
+    assert stored[0].source == "csv_latest"
+    assert stored[0].metadata_json["rs_ema21_last"] is not None
+    assert stored[0].metadata_json["rs_line_data_as_of"] == result["as_of"]
 
 
 def test_external_rs_ranking_accepts_configured_csv_source(monkeypatch: pytest.MonkeyPatch) -> None:

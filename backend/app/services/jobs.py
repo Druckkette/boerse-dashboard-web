@@ -15,6 +15,7 @@ class JobConflictError(RuntimeError):
 LIGHTWEIGHT_JOB_QUEUES = {
     "position_atr_monitor": "monitor",
     "pushover_test": "monitor",
+    "refresh_stock_detail": "interactive",
 }
 JOB_LIST_MAX_RESULT_ITEMS = 5
 JOB_LIST_MAX_RESULT_STRING_LENGTH = 500
@@ -105,6 +106,8 @@ def get_job(job_id: str) -> Job | None:
 
 def start_job(payload: JobCreateRequest) -> Job:
     job_type = str(payload.type)
+    if job_type == "refresh_stock_detail" and len(_stock_detail_tickers(payload.payload)) != 1:
+        raise JobConflictError("Ein interaktiver Aktienrefresh benötigt genau einen Ticker.")
     active_heavy_jobs = [
         job
         for job in job_repository.list_active_jobs()
@@ -131,6 +134,12 @@ def start_job(payload: JobCreateRequest) -> Job:
 
     updated = job_repository.set_celery_task_id(job.job_id, async_result.id)
     return updated or job
+
+
+def _stock_detail_tickers(payload: dict) -> list[str]:
+    raw = payload.get("tickers")
+    values = raw if isinstance(raw, list) else [payload.get("ticker")]
+    return list(dict.fromkeys(str(value or "").strip().upper() for value in values if str(value or "").strip()))
 
 
 def cancel_job(job_id: str) -> tuple[Job | None, bool]:

@@ -31,6 +31,30 @@ class RelativeStrengthRating:
     metadata: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RelativeStrengthLine:
+    date: date
+    metadata: dict[str, Any]
+
+
+def compute_relative_strength_line(
+    stock_points: Sequence[Any],
+    benchmark_points: Sequence[Any],
+) -> RelativeStrengthLine | None:
+    """Calculate one stock's technical RS line without deriving a universe rank."""
+
+    stock_close = _coerce_close_series(stock_points)
+    benchmark_close = _coerce_close_series(benchmark_points)
+    raw_rs = _build_relative_strength_line(stock_close, benchmark_close, normalize_to=None)
+    plot_rs = _build_relative_strength_line(stock_close, benchmark_close, normalize_to=100.0)
+    if raw_rs is None or plot_rs is None or plot_rs.empty:
+        return None
+    return RelativeStrengthLine(
+        date=plot_rs.index[-1].date(),
+        metadata=_build_metadata(stock_close, raw_rs, plot_rs),
+    )
+
+
 def compute_relative_strength_ratings(
     series: Mapping[str, Sequence[Any]],
     *,

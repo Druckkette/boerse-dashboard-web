@@ -53,7 +53,7 @@ services:
       NAS_CONTROL_ENABLED: ${NAS_CONTROL_ENABLED:-1}
       NAS_DOCKER_SOCKET: /var/run/docker.sock
       NAS_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-infra}
-      NAS_RESTART_SERVICES: worker,monitor,scheduler,frontend,backend
+      NAS_RESTART_SERVICES: worker,interactive-worker,monitor,scheduler,frontend,backend
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -82,6 +82,26 @@ services:
       BACKEND_CACHE_DIR: /app/.cache
       APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default"]
+    volumes:
+      - backend_cache:/app/.cache
+      - backend_runtime:/app/runtime
+      - worker_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  interactive-worker:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.nas
+    environment:
+      APP_ENV: nas
+      BACKEND_CACHE_DIR: /app/.cache
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--hostname=interactive@%h", "-Q", "interactive"]
     volumes:
       - backend_cache:/app/.cache
       - backend_runtime:/app/runtime

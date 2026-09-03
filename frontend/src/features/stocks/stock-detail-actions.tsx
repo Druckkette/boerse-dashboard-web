@@ -128,8 +128,8 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           benchmark_ticker: "SPY",
           include_prices: options?.includePrices ?? true,
           include_fundamentals: true,
-          include_rs: false,
-          include_13f: options?.include13f ?? true,
+          include_rs: true,
+          include_13f: options?.include13f ?? false,
           incremental: true,
           source: "stock_detail"
         }
@@ -197,7 +197,8 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
   const blockingDetailDataMissing =
     priceQuery.data?.source !== "database" ||
     fundamentalsNeedDailyRefresh ||
-    !rsQuery.data?.found;
+    !rsQuery.data?.found ||
+    rsTechnicalDataNeedsRefresh(rsQuery.data?.item?.rs_history, priceQuery.data?.last_date);
 
   useEffect(() => {
     if (!clean || detailDataLoading || !blockingDetailDataMissing || refreshRunning || refreshStockMutation.isPending || refreshJobId) return;
@@ -270,10 +271,10 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
             className="inline-flex items-center justify-center gap-2 rounded border border-amber-300/40 bg-amber-300/10 px-4 py-2 text-sm text-amber-100 hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!clean || refreshStockMutation.isPending || refreshRunning}
             type="button"
-            onClick={() => refreshStockMutation.mutate({ includePrices: true })}
+            onClick={() => refreshStockMutation.mutate({ includePrices: true, include13f: false })}
           >
             {refreshStockMutation.isPending || refreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={16} />}
-            {refreshRunning ? "Daten laufen" : "Alle Daten aktualisieren"}
+            {refreshRunning ? "Bewertung läuft" : "Aktienbewertung aktualisieren"}
           </button>
         </div>
       </div>
@@ -324,6 +325,15 @@ function priceDataStatus(history: PriceHistory | undefined, isRefreshing: boolea
   const marketDate = formatDateOnly(history.last_date ?? history.as_of);
   const cacheDate = history.cache_updated_at ? formatDateTime(history.cache_updated_at) : "noch nicht geprüft";
   return `Kursstand ${marketDate} · Cache ${cacheDate}`;
+}
+
+function rsTechnicalDataNeedsRefresh(
+  history: Array<{ date: string }> | undefined,
+  priceAsOf: string | null | undefined
+) {
+  if (!history?.length) return true;
+  if (!priceAsOf) return false;
+  return history[history.length - 1].date.slice(0, 10) < priceAsOf.slice(0, 10);
 }
 
 function buildPositionDefaults(ticker: string, assessment?: StockAssessment, priceHistory?: PriceHistory) {

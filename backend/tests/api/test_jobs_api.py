@@ -123,6 +123,47 @@ def test_position_monitor_uses_dedicated_queue_and_bypasses_heavy_job(monkeypatc
     assert send_calls[1]["kwargs"]["queue"] == "monitor"
 
 
+def test_single_stock_refresh_uses_interactive_queue_and_bypasses_heavy_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.jobs as job_service
+
+    send_calls: list[dict] = []
+    monkeypatch.setattr(
+        job_service.celery_app,
+        "send_task",
+        lambda *args, **kwargs: send_calls.append({"args": args, "kwargs": kwargs})
+        or SimpleNamespace(id=f"celery-{len(send_calls)}"),
+    )
+
+    heavy = client.post("/api/v1/jobs", json={"type": "refresh_prices", "payload": {}})
+    detail = client.post(
+        "/api/v1/jobs",
+        json={"type": "refresh_stock_detail", "payload": {"ticker": "TWLO"}},
+    )
+
+    assert heavy.status_code == 202
+    assert detail.status_code == 202
+    assert send_calls[1]["kwargs"]["queue"] == "interactive"
+
+
+def test_interactive_stock_refresh_rejects_multiple_tickers(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.jobs as job_service
+
+    monkeypatch.setattr(
+        job_service.celery_app,
+        "send_task",
+        lambda *args, **kwargs: SimpleNamespace(id="should-not-run"),
+    )
+
+    response = client.post(
+        "/api/v1/jobs",
+        json={"type": "refresh_stock_detail", "payload": {"tickers": ["TWLO", "NVDA"]}},
+    )
+
+    assert response.status_code == 409
+
+
 def test_scheduled_monitor_history_does_not_hide_user_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(job_repository, "_with_db", lambda callback, fallback: fallback())
     scheduled = job_repository.create_job(

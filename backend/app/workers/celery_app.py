@@ -33,6 +33,7 @@ celery_app.conf.update(
     task_routes={
         "position_atr_monitor": {"queue": "monitor"},
         "pushover_test": {"queue": "monitor"},
+        "refresh_stock_detail": {"queue": "interactive"},
     },
     imports=(
         "app.workers.tasks.smart_refresh_market_data",
