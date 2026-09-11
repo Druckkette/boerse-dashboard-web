@@ -33,7 +33,7 @@ export function StockAssessmentRankingPanel() {
   });
   required.forEach((label) => params.append("required", label));
   const queryString = params.toString();
-  const query = useQuery({ queryKey: ["stock-screening", queryString], queryFn: () => api.stockScreening(queryString), enabled: open, staleTime: 60_000 });
+  const query = useQuery({ queryKey: ["stock-screening", queryString], queryFn: () => api.stockScreening(queryString), enabled: open, staleTime: 60_000, refetchInterval: open ? 60_000 : false });
   const exportList = useMutation({ mutationFn: () => api.exportStockScreening(queryString) });
   const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, enabled: open, refetchInterval: open ? 10_000 : false });
   const discovered = jobs.data?.find((value) => value.job_type === "refresh_stock_assessments" && !terminal.has(value.status));
@@ -73,7 +73,7 @@ export function StockAssessmentRankingPanel() {
   ];
   return (
     <CollapsiblePanel title="Aktienbewertung Ranking" open={open} onOpenChange={setOpen}
-      summary={<StatusChip tone={running ? "warning" : "neutral"}>{running ? "Bewertung läuft" : (summary?.records_written ?? 0) + " Aktien bewertet"}</StatusChip>}>
+      summary={<StatusChip tone={running ? "warning" : "neutral"}>{running ? "Bewertung läuft" : summary?.records_written != null ? summary.records_written + " Aktien bewertet" : "Nicht geladen"}</StatusChip>}>
       <div className="space-y-4 p-4 text-[#172033]">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="text-base font-semibold">Bestenliste deines Aktienuniversums</h3>
