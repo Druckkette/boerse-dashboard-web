@@ -1806,7 +1806,9 @@ def _coerce_bars_to_frame(bars: Sequence[Any]) -> pd.DataFrame:
         close = _safe_float(_point_value(bar, "close"))
         if bar_date is None or close is None:
             continue
-        timestamp = pd.to_datetime(bar_date, errors="coerce")
+        # Repository bars already contain typed dates; avoid a parser invocation
+        # for every historical candle when screening thousands of instruments.
+        timestamp = pd.Timestamp(bar_date) if isinstance(bar_date, date) else pd.to_datetime(bar_date, errors="coerce")
         if pd.isna(timestamp):
             continue
         rows.append(
