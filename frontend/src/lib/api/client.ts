@@ -49,6 +49,7 @@ import type {
   StockAssessment,
   StockAssessmentCompare,
   StockAssessmentRanking,
+  StockScreening,
   StockSearchResponse,
   StockSignalChanges,
   StockFundamentals,
@@ -203,6 +204,17 @@ export const api = {
   rsRanking: (limit = 100) => getJson<RsRatingRanking>(`/stocks/ratings/rs?limit=${limit}`),
   stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   stockAssessment: (ticker: string) => getJson<StockAssessment>(`/stocks/${ticker}/assessment`),
+  stockScreening: (params = "") => getJson<StockScreening>("/stocks/screening?" + params),
+  exportStockScreening: async (params: string) => {
+    const response = await safeFetch("/stocks/screening/export?" + params, { cache: "no-store" });
+    if (!response.ok) throw new Error(await errorMessage(response));
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "aktien-bestenliste.csv";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   stockSearch: (query: string, limit = 8) =>
     getJson<StockSearchResponse>(`/stocks/search?q=${encodeURIComponent(query)}&limit=${limit}`),
   stockSignalChanges: (ticker: string) => getJson<StockSignalChanges>(`/stocks/${ticker}/changes`),

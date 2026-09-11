@@ -326,6 +326,10 @@ This prevents small controls, such as ATR threshold changes, from starting a ful
 
 ## NAS Performance Guardrails
 
+The full-universe stock assessment and filtered CSV best-list export are available under
+**Aktien > Aktienbewertung Ranking**. See [stock screening](docs/stock-screening.md)
+for data coverage, incremental reuse, worker limits and API details.
+
 - `WORKER_CONCURRENCY=1` is the default.
 - The lightweight `monitor` worker uses a separate queue and Celery `solo` pool with concurrency 1.
 - Single-stock refreshes use the separate `interactive` queue with concurrency 1, so they can run during a full market refresh without starting a second full-universe job.

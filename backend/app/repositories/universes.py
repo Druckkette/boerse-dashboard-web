@@ -158,7 +158,7 @@ def get_universe_status(key: str = "us_common_stocks") -> UniverseStatusRow | No
         raise UniverseRepositoryUnavailable(str(exc)) from exc
 
 
-def list_universe_tickers(key: str = "us_common_stocks", *, limit: int = 5000) -> list[str]:
+def list_universe_tickers(key: str = "us_common_stocks", *, limit: int | None = 5000) -> list[str]:
     try:
         with SessionLocal() as db:
             universe = db.scalars(select(Universe).where(Universe.key == key)).first()
@@ -168,7 +168,7 @@ def list_universe_tickers(key: str = "us_common_stocks", *, limit: int = 5000) -
                 select(UniverseMember.ticker)
                 .where(UniverseMember.universe_id == universe.id, UniverseMember.valid_to.is_(None))
                 .order_by(UniverseMember.ticker.asc())
-                .limit(max(1, min(10_000, limit)))
+                .limit(max(1, min(10_000, limit)) if limit is not None else None)
             ).all()
             return list(rows)
     except SQLAlchemyError as exc:

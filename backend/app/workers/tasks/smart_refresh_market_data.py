@@ -466,7 +466,8 @@ def build_smart_refresh_plan(
         )
 
     try:
-        assessment_snapshot_missing = stock_assessment_repository.latest_generated_at() is None
+        assessment_generated_at = stock_assessment_repository.latest_generated_at()
+        assessment_snapshot_missing = assessment_generated_at is None or assessment_generated_at.date() < date.today()
     except stock_assessment_repository.StockAssessmentRepositoryUnavailable:
         assessment_snapshot_missing = True
     assessment_dependencies = {
@@ -482,9 +483,9 @@ def build_smart_refresh_plan(
             SmartRefreshAction(
                 key="refresh_stock_assessments",
                 job_type="refresh_stock_assessments",
-                label="Aktienranking vorbereiten",
+                label="Gesamtes Aktienuniversum bewerten",
                 reason="Aktienbewertungen werden nach Kurs-, RS-, Fundamental- oder 13F-Änderungen im Worker erneuert.",
-                payload={"mode": "smart", "source": "smart_refresh", "limit": 120},
+                payload={"mode": "smart", "source": "smart_refresh"},
             )
         )
 
@@ -543,7 +544,6 @@ def _run_action(
         )
     if action.job_type == "refresh_stock_assessments":
         return refresh_stock_assessment_snapshots(
-            limit=int(action.payload.get("limit") or 120),
             source_job_id=job_id,
         )
     if action.job_type == "refresh_earnings_calendar":

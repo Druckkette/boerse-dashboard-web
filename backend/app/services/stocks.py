@@ -27,7 +27,6 @@ from app.repositories.relative_strength import RelativeStrengthRepositoryUnavail
 from app.repositories.sec13f import Institutional13FTrendRow, Sec13FRepositoryUnavailable
 from app.repositories.stock_assessments import (
     StockAssessmentRepositoryUnavailable,
-    StockAssessmentSnapshotWrite,
 )
 from app.services.relative_strength import configured_rs_source
 from app.schemas import (
@@ -265,26 +264,10 @@ def refresh_stock_assessment_snapshots(
     limit: int = 120,
     source_job_id: str = "",
 ) -> dict[str, Any]:
-    ranking = _compute_stock_assessment_ranking(limit=limit)
-    writes = [
-        StockAssessmentSnapshotWrite(
-            ticker=item.ticker,
-            name=item.name,
-            as_of=date.fromisoformat(item.as_of),
-            overall_score=item.overall_score,
-            technical_score=item.technical_score,
-            item_json=item.model_dump(mode="json"),
-        )
-        for item in ranking.rows
-    ]
-    written = stock_assessment_repository.replace_snapshots(writes, source_job_id=source_job_id)
-    return {
-        "ok": True,
-        "as_of": ranking.as_of,
-        "records_seen": len(ranking.rows),
-        "records_written": written,
-        "source_job_id": source_job_id,
-    }
+    from app.services.stock_screening import screen_universe
+
+    # Keep the legacy argument for callers; it no longer restricts candidates by RS rank.
+    return screen_universe(source_job_id=source_job_id)
 
 
 def _compute_stock_assessment_ranking(*, limit: int = 120) -> StockAssessmentRankingResponse:
@@ -481,6 +464,18 @@ def _build_assessment_results(
     *,
     primary_rs_rows: dict[str, RsRatingRow] | None = None,
 ) -> list[tuple[StockAssessmentResult, RsRatingRow | None, dict]]:
+    return [
+        (compute_stock_assessment(ticker, **inputs), row, inputs["rs_context"])
+        for ticker, row, inputs in _load_assessment_inputs(tickers, primary_rs_rows=primary_rs_rows)
+    ]
+
+
+def _load_assessment_inputs(
+    tickers: list[str],
+    *,
+    primary_rs_rows: dict[str, RsRatingRow] | None = None,
+    strict: bool = False,
+) -> list[tuple[str, RsRatingRow | None, dict]]:
     clean_tickers = list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))
     if not clean_tickers:
         return []
@@ -491,14 +486,20 @@ def _build_assessment_results(
             start_date=date(1900, 1, 1),
         )
     except MarketRepositoryUnavailable:
+        if strict:
+            raise
         bars_by_ticker = {}
     try:
         fundamentals_by_ticker = fundamentals_repository.get_latest_fundamentals_for_tickers(clean_tickers)
     except FundamentalsRepositoryUnavailable:
+        if strict:
+            raise
         fundamentals_by_ticker = {}
     try:
         institutional_by_ticker = sec13f_repository.get_latest_trends_for_tickers(clean_tickers)
     except Sec13FRepositoryUnavailable:
+        if strict:
+            raise
         institutional_by_ticker = {}
 
     selected_source = configured_rs_source()
@@ -509,6 +510,8 @@ def _build_assessment_results(
                 source=selected_source,
             )
         except RelativeStrengthRepositoryUnavailable:
+            if strict:
+                raise
             primary_rs_rows = {}
     try:
         computed_rs_rows = (
@@ -517,9 +520,20 @@ def _build_assessment_results(
             else rs_repository.get_latest_rs_ratings_for_tickers(clean_tickers, source="computed")
         )
     except RelativeStrengthRepositoryUnavailable:
+        if strict:
+            raise
         computed_rs_rows = {}
 
-    results: list[tuple[StockAssessmentResult, RsRatingRow | None, dict]] = []
+    results = []
+    try:
+        earnings_dates = earnings_repository.next_earnings_dates([
+            ticker for ticker, row in fundamentals_by_ticker.items()
+            if row.next_earnings_date is None or row.next_earnings_date < date.today()
+        ])
+    except earnings_repository.EarningsRepositoryUnavailable:
+        if strict:
+            raise
+        earnings_dates = {}
     for ticker in clean_tickers:
         rs_row = primary_rs_rows.get(ticker)
         rs_context = _rs_context(
@@ -527,18 +541,20 @@ def _build_assessment_results(
             computed_row=computed_rs_rows.get(ticker),
             load_computed=False,
         )
-        result = compute_stock_assessment(
-            ticker,
-            bars_by_ticker.get(ticker, []),
-            rs_context=rs_context,
-            fundamentals_context=_fundamentals_context(fundamentals_by_ticker.get(ticker)),
-            institutional_context=_institutional_context(institutional_by_ticker.get(ticker)),
-        )
-        results.append((result, rs_row, rs_context))
+        results.append((ticker, rs_row, {
+            "bars": bars_by_ticker.get(ticker, []),
+            "rs_context": rs_context,
+            "fundamentals_context": _fundamentals_context(
+                fundamentals_by_ticker.get(ticker), load_earnings=False, next_earnings=earnings_dates.get(ticker),
+            ),
+            "institutional_context": _institutional_context(institutional_by_ticker.get(ticker)),
+        }))
     return results
 
 
-def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
+def _fundamentals_context(
+    row: FundamentalSnapshotRow | None, *, load_earnings: bool = True, next_earnings: date | None = None,
+) -> dict:
     if row is None:
         return {}
     eps_quarter_history = _eps_history_from_metadata(row.metadata_json)
@@ -550,7 +566,10 @@ def _fundamentals_context(row: FundamentalSnapshotRow | None) -> dict:
     if not annual_revenue_history:
         annual_revenue_history = _single_annual_revenue_history(row.annual_revenue_growth_pct, row.as_of)
     roe_history = _roe_history_from_metadata(row.metadata_json)
-    next_earnings = _next_earnings_date(row)
+    if load_earnings:
+        next_earnings = _next_earnings_date(row)
+    elif row.next_earnings_date is not None and row.next_earnings_date >= date.today():
+        next_earnings = row.next_earnings_date
     return {
         "ticker": row.ticker,
         "as_of": row.as_of.isoformat(),

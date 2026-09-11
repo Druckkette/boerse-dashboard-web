@@ -758,6 +758,33 @@ class StockAssessmentRankingResponse(BaseModel):
     rows: list[StockAssessmentRankingItem]
 
 
+class StockScreeningItem(StockAssessmentRankingItem):
+    checks: list[StockAssessmentCheck] = Field(default_factory=list)
+    fundamentals_available: bool = False
+    rs_line_available: bool = False
+    institutional_available: bool = False
+    prices_stale: bool = True
+
+
+class StockScreeningResponse(BaseModel):
+    summary: dict = Field(default_factory=dict)
+    rows: list[StockScreeningItem]
+    total_count: int = 0
+    criteria: list[str] = Field(default_factory=list)
+
+
+class StockScreeningFilters(BaseModel):
+    min_score: int = Field(default=0, ge=0, le=100)
+    min_rs: int = Field(default=0, ge=0, le=99)
+    min_fundamental: int = Field(default=0, ge=0, le=100)
+    max_warnings: int = Field(default=100, ge=0, le=100)
+    complete_only: bool = False
+    search: str = Field(default="", max_length=100)
+    required: list[str] = Field(default_factory=list, max_length=100)
+    sort: Literal["overall_score", "technical_score", "fundamental_score", "moving_average_score", "chart_behavior_score", "rs_rating"] = "overall_score"
+    page: int = Field(default=0, ge=0)
+
+
 class StockAssessmentCompareItem(BaseModel):
     rank: int
     ticker: str

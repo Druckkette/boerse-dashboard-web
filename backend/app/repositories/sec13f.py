@@ -150,6 +150,7 @@ def get_latest_trends_for_tickers(tickers: list[str]) -> dict[str, Institutional
                     Institutional13FTrend.ticker.asc(),
                     Institutional13FTrend.report_period.desc(),
                 )
+                .distinct(Institutional13FTrend.ticker)
             ).all()
             latest: dict[str, Institutional13FTrendRow] = {}
             for row in rows:

@@ -28,6 +28,20 @@ class EarningsRepositoryUnavailable(RuntimeError):
     pass
 
 
+def next_earnings_dates(tickers: list[str]) -> dict[str, date]:
+    if not tickers:
+        return {}
+    try:
+        with SessionLocal() as db:
+            return dict(db.execute(
+                select(EarningsEvent.ticker, func.min(EarningsEvent.event_date))
+                .where(EarningsEvent.ticker.in_(tickers), EarningsEvent.event_date >= date.today())
+                .group_by(EarningsEvent.ticker)
+            ).all())
+    except SQLAlchemyError as exc:
+        raise EarningsRepositoryUnavailable(str(exc)) from exc
+
+
 def upsert_earnings_events(rows: list[EarningsEventWrite]) -> int:
     if not rows:
         return 0

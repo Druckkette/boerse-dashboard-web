@@ -6,7 +6,7 @@ from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
 
 
-@celery_app.task(bind=True, name="refresh_stock_assessments", soft_time_limit=1200, time_limit=1260)
+@celery_app.task(bind=True, name="refresh_stock_assessments", soft_time_limit=3600, time_limit=3660)
 def refresh_stock_assessments(self, job_id: str | None = None, payload: dict | None = None) -> dict:
     payload = payload or {}
     job = job_repository.get_job(job_id) if job_id else None
@@ -16,17 +16,16 @@ def refresh_stock_assessments(self, job_id: str | None = None, payload: dict | N
             payload,
             requested_by=str(payload.get("source") or "scheduler"),
         )
-    limit = max(20, min(500, int(payload.get("limit") or 120)))
     job_repository.mark_running(job.job_id, step="Aktienranking vorbereiten")
     try:
         raise_if_cancelled(job.job_id)
         job_repository.update_progress(
             job.job_id,
-            progress=15,
+            progress=5,
             step="Kandidaten laden",
-            message=f"Die stärksten {limit} RS-Kandidaten werden im Worker bewertet.",
+            message="Das gesamte Aktienuniversum wird anhand der gespeicherten Scores und Kriterien bewertet.",
         )
-        result = refresh_stock_assessment_snapshots(limit=limit, source_job_id=job.job_id)
+        result = refresh_stock_assessment_snapshots(source_job_id=job.job_id)
         raise_if_cancelled(job.job_id)
         job_repository.mark_done(
             job.job_id,

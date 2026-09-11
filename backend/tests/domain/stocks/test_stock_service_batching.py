@@ -69,23 +69,15 @@ def test_assessment_ranking_loads_related_data_in_batches(monkeypatch) -> None:
         "list_price_bars",
         lambda ticker: (_ for _ in ()).throw(AssertionError("tickerweise Kursabfrage")),
     )
-    stored = []
-    monkeypatch.setattr(
-        service.stock_assessment_repository,
-        "replace_snapshots",
-        lambda rows, source_job_id="": stored.extend(rows) or len(rows),
-    )
-
-    result = service.refresh_stock_assessment_snapshots(limit=60)
-
-    assert result["records_written"] == 1
-    assert stored[0].ticker == "NVDA"
+    result = service._compute_stock_assessment_ranking(limit=60)
+    assert len(result.rows) == 1
+    assert result.rows[0].ticker == "NVDA"
     assert calls == {"prices": 1, "fundamentals": 1, "institutional": 1, "computed_rs": 1}
 
     monkeypatch.setattr(
         service.stock_assessment_repository,
         "list_snapshots",
-        lambda limit: [SimpleNamespace(as_of=stored[0].as_of, item_json=stored[0].item_json)],
+        lambda limit: [SimpleNamespace(as_of=date.fromisoformat(result.rows[0].as_of), item_json=result.rows[0].model_dump())],
     )
     monkeypatch.setattr(service.stock_assessment_repository, "count_snapshots", lambda: 1)
 

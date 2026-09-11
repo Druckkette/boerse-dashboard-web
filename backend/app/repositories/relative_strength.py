@@ -175,6 +175,7 @@ def get_latest_rs_ratings_for_tickers(
                 select(RsRating, Instrument)
                 .join(Instrument, Instrument.id == RsRating.instrument_id)
                 .where(Instrument.ticker.in_(clean_tickers))
+                .distinct(Instrument.ticker)
                 .order_by(Instrument.ticker.asc(), RsRating.date.desc())
             )
             if source:

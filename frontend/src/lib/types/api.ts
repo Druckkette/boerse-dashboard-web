@@ -1169,6 +1169,31 @@ export type StockAssessmentRanking = {
   rows: StockAssessmentRankingItem[];
 };
 
+export type StockScreeningItem = StockAssessmentRankingItem & {
+  checks: StockAssessmentCheck[];
+  fundamentals_available: boolean;
+  rs_line_available: boolean;
+  institutional_available: boolean;
+  prices_stale: boolean;
+};
+
+export type StockScreening = {
+  total_count: number;
+  criteria: string[];
+  summary: {
+    universe_count?: number;
+    records_written?: number;
+    missing_count?: number;
+    error_count?: number;
+    reused_count?: number;
+    calculated_count?: number;
+    stale_count?: number;
+    duration_seconds?: number;
+    generated_at?: string;
+  };
+  rows: StockScreeningItem[];
+};
+
 export type StockAssessmentCompareItem = {
   rank: number;
   ticker: string;

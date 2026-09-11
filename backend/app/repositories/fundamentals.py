@@ -94,6 +94,7 @@ def get_latest_fundamentals_for_tickers(tickers: list[str]) -> dict[str, Fundame
             rows = db.scalars(
                 select(FundamentalSnapshot)
                 .where(FundamentalSnapshot.ticker.in_(clean_tickers))
+                .distinct(FundamentalSnapshot.ticker)
                 .order_by(
                     FundamentalSnapshot.ticker.asc(),
                     FundamentalSnapshot.as_of.desc(),

@@ -1,4 +1,7 @@
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 from app.repositories.fundamentals import FundamentalsRepositoryUnavailable
 from app.schemas import (
@@ -15,6 +18,8 @@ from app.schemas import (
     StockFundamentalsUpdateRequest,
     StockAssessmentRankingResponse,
     StockAssessmentResponse,
+    StockScreeningResponse,
+    StockScreeningFilters,
     StockSearchResponse,
     StockSignalChangesResponse,
 )
@@ -38,6 +43,31 @@ from app.services.stocks import (
 
 
 router = APIRouter()
+
+
+@router.get("/screening", response_model=StockScreeningResponse)
+def stock_screening(filters: Annotated[StockScreeningFilters, Query()]) -> StockScreeningResponse:
+    from app.repositories.stock_assessments import StockAssessmentRepositoryUnavailable
+    from app.services.stock_screening import get_screening
+
+    try:
+        return StockScreeningResponse.model_validate(get_screening(filters))
+    except StockAssessmentRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Die gespeicherte Bestenliste ist momentan nicht erreichbar.") from exc
+
+
+@router.get("/screening/export")
+def export_stock_screening(filters: Annotated[StockScreeningFilters, Query()]) -> Response:
+    from app.repositories.stock_assessments import StockAssessmentRepositoryUnavailable
+    from app.services.stock_screening import screening_csv
+
+    try:
+        return Response(
+            content=screening_csv(filters), media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="aktien-bestenliste.csv"'},
+        )
+    except StockAssessmentRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Die Bestenliste konnte nicht exportiert werden.") from exc
 
 
 @router.get("/search", response_model=StockSearchResponse)
