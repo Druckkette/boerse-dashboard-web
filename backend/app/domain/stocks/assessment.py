@@ -1808,12 +1808,12 @@ def _coerce_bars_to_frame(bars: Sequence[Any]) -> pd.DataFrame:
             continue
         # Repository bars already contain typed dates; avoid a parser invocation
         # for every historical candle when screening thousands of instruments.
-        timestamp = pd.Timestamp(bar_date) if isinstance(bar_date, date) else pd.to_datetime(bar_date, errors="coerce")
+        timestamp = bar_date if isinstance(bar_date, date) else pd.to_datetime(bar_date, errors="coerce")
         if pd.isna(timestamp):
             continue
         rows.append(
             {
-                "Date": pd.Timestamp(timestamp).normalize(),
+                "Date": timestamp,
                 "Open": _safe_float(_point_value(bar, "open")) or close,
                 "High": _safe_float(_point_value(bar, "high")) or close,
                 "Low": _safe_float(_point_value(bar, "low")) or close,
@@ -1823,7 +1823,9 @@ def _coerce_bars_to_frame(bars: Sequence[Any]) -> pd.DataFrame:
         )
     if not rows:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-    df = pd.DataFrame(rows).drop_duplicates("Date", keep="last").sort_values("Date")
+    df = pd.DataFrame(rows)
+    df["Date"] = pd.DatetimeIndex(df["Date"]).normalize()
+    df = df.drop_duplicates("Date", keep="last").sort_values("Date")
     df = df.set_index(pd.DatetimeIndex(df.pop("Date")))
     return df[["Open", "High", "Low", "Close", "Volume"]]
 
@@ -2010,13 +2012,13 @@ def _support_week_signal(
 ) -> ChartSignal | None:
     weekly = pd.DataFrame(
         {
-            "Open": open_.resample("W-FRI").first(),
-            "High": high.resample("W-FRI").max(),
-            "Low": low.resample("W-FRI").min(),
-            "Close": close.resample("W-FRI").last(),
-            "Volume": volume.resample("W-FRI").sum(),
+            "Open": open_,
+            "High": high,
+            "Low": low,
+            "Close": close,
+            "Volume": volume,
         }
-    ).dropna()
+    ).resample("W-FRI").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
     if len(weekly) < 50:
         return None
 
