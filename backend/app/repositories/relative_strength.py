@@ -171,15 +171,24 @@ def get_latest_rs_ratings_for_tickers(
 
     try:
         with SessionLocal() as db:
-            query = (
-                select(RsRating, Instrument)
-                .join(Instrument, Instrument.id == RsRating.instrument_id)
-                .where(Instrument.ticker.in_(clean_tickers))
-                .distinct(Instrument.ticker)
-                .order_by(Instrument.ticker.asc(), RsRating.date.desc())
+            # Fetch one indexed row per instrument instead of sorting all historical
+            # RS rows (whose metadata contains the complete relative-strength series).
+            latest_id = (
+                select(RsRating.id)
+                .where(RsRating.instrument_id == Instrument.id)
+                .order_by(RsRating.date.desc())
+                .limit(1)
+                .correlate(Instrument)
             )
             if source:
-                query = query.where(RsRating.source == source)
+                latest_id = latest_id.where(RsRating.source == source)
+            query = (
+                select(RsRating, Instrument)
+                .select_from(Instrument)
+                .join(RsRating, RsRating.id == latest_id.scalar_subquery())
+                .where(Instrument.ticker.in_(clean_tickers))
+                .order_by(Instrument.ticker.asc())
+            )
             rows = db.execute(query).all()
             latest: dict[str, RsRatingRow] = {}
             for rating, instrument in rows:
