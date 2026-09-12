@@ -50,6 +50,23 @@ DEFAULT_FUNDAMENTAL_MAX_REFRESH_COUNT = 250
 DEFAULT_FUNDAMENTAL_FRESHNESS_DAYS = 14
 
 
+def _action_requires_continuation(key: str, value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("stopped_due_to_timeout"):
+        return True
+    # Missing source data is a coverage warning, not unfinished screening work.
+    if (
+        key == "refresh_stock_assessments"
+        and value.get("ok")
+        and value.get("universe_count", 0) > 0
+        and value.get("records_seen") == value.get("universe_count")
+        and value.get("error_count") == 0
+    ):
+        return False
+    return bool(value.get("partial"))
+
+
 @dataclass(frozen=True)
 class SmartRefreshAction:
     key: str
@@ -153,7 +170,7 @@ def smart_refresh_market_data(self, job_id: str | None = None, payload: dict | N
         partial_actions = [
             key
             for key, value in result["results"].items()
-            if isinstance(value, dict) and (value.get("partial") or value.get("stopped_due_to_timeout"))
+            if _action_requires_continuation(key, value)
         ]
         result["ok"] = True
         result["partial"] = bool(partial_actions)
