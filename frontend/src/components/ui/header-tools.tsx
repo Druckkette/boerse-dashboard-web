@@ -81,7 +81,7 @@ function GlobalStockSearch() {
 function DataQualityLink() {
   const diagnostics = useQuery({
     queryKey: ["data-quality-header"],
-    queryFn: api.dataDiagnostics,
+    queryFn: api.dataQualitySummary,
     staleTime: 60_000,
     refetchInterval: 5 * 60_000
   });

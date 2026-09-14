@@ -15,6 +15,7 @@ from app.repositories.stock_assessments import StockAssessmentSnapshotWrite
 from app.services.market_calendar import expected_us_market_session
 from app.services.stocks import _load_assessment_inputs, _to_ranking_item
 from app.schemas import StockScreeningFilters
+from app.services.assessment_quality import dependency_quality
 from app.workers.tasks.common import raise_if_cancelled
 
 
@@ -40,6 +41,10 @@ def screen_universe(*, source_job_id: str = "") -> dict:
     if not tickers:
         raise ValueError("Das Aktienuniversum ist leer. Bitte zuerst das Aktienuniversum laden.")
     cached = {row.ticker: row for row in stock_assessments.list_all_snapshots()}
+    try:
+        revisions = stock_assessments.input_revisions()
+    except stock_assessments.StockAssessmentRepositoryUnavailable:
+        revisions = {}  # Legacy schema: retain full, safe input comparison.
     started = monotonic()
     today = date.today()
     expected_date = expected_us_market_session().date.isoformat()
@@ -66,7 +71,25 @@ def screen_universe(*, source_job_id: str = "") -> dict:
                 message=f"{calculated} neu berechnet, {reused} unverändert, {len(missing)} ohne ausreichende Kurse.",
             )
         # Read each dependency once per bounded batch. Database failures abort publication.
-        inputs_batch = _load_assessment_inputs(tickers[offset:offset + BATCH_SIZE], strict=True)
+        batch = tickers[offset:offset + BATCH_SIZE]
+        revision_keys = {
+            ticker: input_fingerprint({"revision": revisions[ticker]}, engine_version=engine_version, today=today)
+            for ticker in batch if ticker in revisions
+        }
+        unchanged = {
+            ticker for ticker in batch if ticker in cached and ticker in revision_keys
+            and cached[ticker].item_json.get("_dependency_revision") == revision_keys[ticker]
+        }
+        for ticker in unchanged:
+            item = dict(cached[ticker].item_json)
+            item["prices_stale"] = item["as_of"] < expected_date
+            writes.append(StockAssessmentSnapshotWrite(
+                ticker=ticker, name=item["name"], as_of=date.fromisoformat(item["as_of"]),
+                overall_score=item["overall_score"], technical_score=item["technical_score"], item_json=item,
+            ))
+            reused += 1
+        changed = [ticker for ticker in batch if ticker not in unchanged]
+        inputs_batch = _load_assessment_inputs(changed, strict=True) if changed else []
         for ticker, rs_row, inputs in inputs_batch:
             fingerprint = input_fingerprint(inputs, engine_version=engine_version, today=today)
             previous = cached.get(ticker)
@@ -90,6 +113,10 @@ def screen_universe(*, source_job_id: str = "") -> dict:
                     errors.append({"ticker": ticker, "error": f"{type(exc).__name__}: {exc}"[:200]})
                     continue
             item["prices_stale"] = item["as_of"] < expected_date
+            if ticker in revision_keys:
+                item["_dependency_revision"] = revision_keys[ticker]
+            item["data_quality"] = dependency_quality(inputs["fundamentals_context"], inputs["institutional_context"], inputs["rs_context"])
+            item["dependencies_current"] = all(value["status"] == "fresh" for value in item["data_quality"].values())
             writes.append(StockAssessmentSnapshotWrite(
                 ticker=ticker, name=item["name"], as_of=date.fromisoformat(item["as_of"]),
                 overall_score=item["overall_score"], technical_score=item["technical_score"], item_json=item,

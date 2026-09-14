@@ -679,8 +679,8 @@ def test_sell_position_converts_foreign_cache_quote_for_usd_trade_republic_row(
     )
     monkeypatch.setattr(
         sell_service,
-        "currency_to_usd",
-        lambda value, currency: None if value is None else float(value) * (0.128 if currency == "HKD" else 1.0),
+        "cached_currency_usd_factor",
+        lambda currency: 0.128 if currency == "HKD" else 1.0,
     )
 
     entry_price, current_price, currency = sell_service._portfolio_row_prices_for_sell(row)

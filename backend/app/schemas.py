@@ -171,6 +171,9 @@ class MarketAmpelChartMarker(BaseModel):
 
 class MarketAmpelResponse(BaseModel):
     as_of: str
+    confirmed_as_of: str = ""
+    quote_as_of: str = ""
+    intraday: bool = False
     as_of_time: str = ""
     ticker: str
     name: str
@@ -710,6 +713,7 @@ class StockEarningsWarning(BaseModel):
 
 
 class StockAssessmentResponse(BaseModel):
+    data_quality: dict[str, dict] = Field(default_factory=dict)
     ticker: str
     as_of: str
     source: Literal["database", "missing"]
@@ -1192,7 +1196,7 @@ class PortfolioCurvePoint(BaseModel):
 class PortfolioCurveResponse(BaseModel):
     as_of: str
     source: Literal["database", "trade_republic_transactions", "missing"]
-    data_status: Literal["fresh", "missing"]
+    data_status: Literal["fresh", "limited", "stale", "missing"]
     base_date: str | None = None
     message: str = ""
     points: list[PortfolioCurvePoint]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.refresh_attempts import read_attempts, record_attempt, retry_due
+
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
@@ -838,12 +840,14 @@ def _refresh_fundamentals(
         try:
             item = refresh_fundamentals_for_ticker(ticker, include_holders=include_holders)
         except Exception as exc:
+            record_attempt(ticker, error=f"{type(exc).__name__}: {exc}")
             fundamental_result["failure_count"] += 1
             if len(fundamental_result["failed_tickers"]) < 80:
                 fundamental_result["failed_tickers"].append(
                     {"ticker": ticker, "error_message": f"{type(exc).__name__}: {exc}"}
                 )
             continue
+        record_attempt(ticker)
         fundamental_result["success_count"] += 1
         fundamental_result["records_seen"] += int(item.get("records_seen") or 0)
         fundamental_result["records_written"] += int(item.get("records_written") or 0)
@@ -896,6 +900,8 @@ def _select_fundamental_work(
     }
     skipped_current_count = 0
     pending: list[str] = []
+    attempts = read_attempts()
+    now = datetime.now(UTC)
     for ticker in tickers:
         latest_state = latest_states.get(ticker)
         is_current = (
@@ -911,14 +917,16 @@ def _select_fundamental_work(
 
     pending.sort(
         key=lambda ticker: (
+            0 if retry_due(attempts.get(ticker, {}), now) else 1,
             0 if ticker in priority else 1,
+            attempts.get(ticker, {}).get("last_attempt", ""),
             latest_states[ticker].latest_date
             if ticker in latest_states and latest_states[ticker].latest_date is not None
             else date.min,
             ticker,
         )
     )
-    selected = pending[:max_refresh_count]
+    selected = [ticker for ticker in pending if retry_due(attempts.get(ticker, {}), now)][:max_refresh_count]
     return selected, skipped_current_count, max(0, len(pending) - len(selected))
 
 
@@ -966,9 +974,9 @@ def _incomplete_fundamental_tickers(payload: dict[str, Any]) -> list[str]:
     incomplete: list[str] = []
     for ticker in tickers:
         latest_state = latest_states.get(ticker)
-        if latest_state is None or latest_state.latest_date is None or not latest_state.complete:
+        if latest_state is None or latest_state.latest_date is None or not latest_state.complete or latest_state.latest_date < datetime.now(UTC).date() - timedelta(days=14):
             incomplete.append(ticker)
-    return incomplete[:80]
+    return incomplete
 
 
 def _resolve_fundamental_quality_tickers(payload: dict[str, Any]) -> list[str]:

@@ -1060,8 +1060,7 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
     try:
         tr_curve = _get_trade_republic_curve(days=days, start_date=curve_start)
     except Exception as exc:
-        tr_curve = None
-        tr_error = f" TR-Kurve: {exc}"
+        return _missing_portfolio_curve(f"TR-Kurve konnte nicht berechnet werden: {exc}")
     if tr_curve is not None:
         return tr_curve
 
@@ -1157,10 +1156,10 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
     return PortfolioCurveResponse(
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="database",
-        data_status="fresh",
+        data_status="limited",
         base_date=points[0].date if points else curve_start.isoformat(),
         message=(
-            "Depotkurve aus offenen Positionen, Price Cache und Cash-Bestand."
+            "Simulation des heutigen Bestands, keine historische Depotperformance. Vergangene Zu- und Abfluesse sind nicht rekonstruiert."
             if used_requested_start
             else f"Keine Price-Bars ab {curve_start.isoformat()} gefunden; Kurve startet mit dem ersten verfügbaren Cache-Datum."
         ),
@@ -1200,6 +1199,27 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     positions_value = pd.Series(0.0, index=calendar)
     missing_price_instruments: list[str] = []
     trade_price_fallbacks: list[str] = []
+    incomplete_price_histories: list[str] = []
+    fx_fallbacks: set[str] = set()
+    fx_series: dict[str, pd.Series] = {}
+
+    def rates(currency: str) -> pd.Series:
+        clean = str(currency or "USD").upper()
+        if clean not in fx_series:
+            series = pd.Series(1.0, index=calendar)
+            if clean != "USD":
+                history = _cached_price_series(f"{clean}USD=X", first_transaction_date - timedelta(days=10))
+                if not history.empty and history.index.max() < calendar.max():
+                    fx_fallbacks.add(clean)
+                series = history.reindex(history.index.union(calendar)).sort_index().ffill().reindex(calendar)
+                if series.isna().any() or (series <= 0).any():
+                    fx_fallbacks.add(clean)
+                    fallback = fx_rate if clean == "EUR" else get_currency_usd_rate(clean)
+                    if fallback is None:
+                        raise ValueError(f"Wechselkurse fuer {clean} fehlen.")
+                    series = series.where(series > 0).fillna(fallback.rate)
+            fx_series[clean] = series
+        return fx_series[clean]
 
     for instrument_key, instrument_transactions in _trade_republic_valuation_groups(transactions).items():
         ticker = instrument_transactions[0].ticker
@@ -1219,7 +1239,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             shares.loc[shares.index >= pd.Timestamp(row.date)] = running
 
         cached_prices = (
-            _cached_price_series(ticker, first_transaction_date, convert_to_usd=True)
+            _cached_price_series(ticker, first_transaction_date)
             if ticker
             else pd.Series(dtype=float)
         )
@@ -1229,11 +1249,19 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 missing_price_instruments.append(label)
                 continue
             trade_price_fallbacks.append(label)
+            # Fallback prices already use today's FX; disclose this limitation.
+            fx_fallbacks.add(str(instrument_transactions[0].currency or "USD"))
         aligned_prices = _align_price_series_to_calendar(cached_prices, calendar)
+        if label not in trade_price_fallbacks:
+            held_dates = shares[shares > 0].index
+            if len(held_dates) and (cached_prices.index.min() > held_dates.min() or cached_prices.index.max() < held_dates.max()):
+                incomplete_price_histories.append(label)
+            aligned_prices = aligned_prices * rates(yahoo_quote_currency(ticker))
         positions_value = positions_value.add(shares.values * aligned_prices.values, fill_value=0.0)
 
     cash_daily = pd.Series(0.0, index=calendar)
     external_daily = pd.Series(0.0, index=calendar)
+    cash_by_currency: dict[str, pd.Series] = {}
     for row in transactions:
         day = pd.Timestamp(row.date)
         if day not in cash_daily.index:
@@ -1241,18 +1269,26 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if next_days.empty:
                 continue
             day = next_days[0]
-        cash_daily.loc[day] += _money_to_usd(row.net_amount, row.currency, fx_rate)
+        currency = str(row.currency or "USD").upper()
+        cash_by_currency.setdefault(currency, pd.Series(0.0, index=calendar))
+        cash_by_currency[currency].loc[day] += float(row.net_amount or 0.0)
+        day_rate = float(rates(currency).loc[day])
         transaction_type = normalize_transaction_type(row.transaction_type)
         if transaction_type in TR_EXTERNAL_FLOW_TYPES:
-            external_daily.loc[day] += _money_to_usd(row.net_amount, row.currency, fx_rate)
+            external_daily.loc[day] += float(row.net_amount or 0.0) * day_rate
         elif transaction_type in {"transfer_in", "transfer_out"}:
-            external_daily.loc[day] += _transfer_external_value(row, fx_rate)
+            sign = -1 if transaction_type == "transfer_out" else 1
+            external_daily.loc[day] += sign * abs(float(row.shares or 0.0)) * float(row.price or 0.0) * day_rate
+
+    cash_balance = pd.Series(0.0, index=calendar)
+    for currency, movements in cash_by_currency.items():
+        cash_balance += movements.cumsum() * rates(currency)
 
     curve = pd.DataFrame(
         {
             "date": calendar,
             "positions_value": positions_value.values,
-            "cash": cash_daily.cumsum().values,
+            "cash": cash_balance.values,
             "external_flow": external_daily.values,
         }
     )
@@ -1318,14 +1354,18 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         details.append(f"Trade-Price-Fallback für {len(trade_price_fallbacks)} Instrumente")
     if missing_price_instruments:
         details.append(f"Kursdaten fehlen für {len(missing_price_instruments)} Instrumente")
-    message = f"Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, TR-EUR-Werte mit EUR/USD {fx_rate.rate:.4f} in USD umgerechnet."
+    if incomplete_price_histories:
+        details.append(f"Lueckenhafte Kurshistorie / fortgeschriebene Ersatzkurse fuer {len(incomplete_price_histories)} Instrumente")
+    message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, mit datumsspezifischen USD-Wechselkursen."
+    if fx_fallbacks:
+        details.append("Historische Wechselkurse teilweise durch heutigen Kurs ersetzt: " + ", ".join(sorted(fx_fallbacks)))
     if details:
         message += " " + " · ".join(details)
 
     return PortfolioCurveResponse(
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="trade_republic_transactions",
-        data_status="fresh" if points else "missing",
+        data_status="limited" if details else "fresh",
         base_date=points[0].date if points else curve_start_date.isoformat(),
         message=message,
         points=points,

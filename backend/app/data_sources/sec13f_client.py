@@ -4,8 +4,10 @@ import os
 import re
 import tempfile
 import zipfile
+import hashlib
+import json
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -157,6 +159,23 @@ def build_institutional_13f_payload(
         {"dataset_count": len(dataset_links)},
     )
     zip_paths = [download_dataset(link, cache_dir, sec_user_agent=sec_user_agent) for link in dataset_links]
+    records = fetch_sec_company_symbol_records(tickers, sec_user_agent=sec_user_agent)
+    fingerprint = hashlib.sha256(json.dumps({
+        "artifacts": [(str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in zip_paths],
+        "tickers": sorted(tickers), "overrides": cusip_overrides,
+        "symbols": [asdict(record) for record in records],
+        "minimum_value": large_holder_min_value_usd,
+        "engine": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }, sort_keys=True).encode()).hexdigest()
+    result_cache = cache_dir / "latest-aggregation.json"
+    try:
+        cached = json.loads(result_cache.read_text())
+        if cached.get("fingerprint") == fingerprint:
+            result = Sec13FBuildResult(**cached["result"])
+            result.metadata["aggregation_reused"] = True
+            return result
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 
     _emit(progress, 28, "Submission-Index lesen", "13F-HR-Submissions werden gefiltert.", {})
     submission_indexes = [load_submission_index(path) for path in zip_paths]
@@ -185,7 +204,6 @@ def build_institutional_13f_payload(
     )
 
     _emit(progress, 68, "CUSIP Mapping", "SEC Company-Ticker werden mit CUSIPs gemappt.", {})
-    records = fetch_sec_company_symbol_records(tickers, sec_user_agent=sec_user_agent)
     overrides = load_default_overrides(tickers)
     for raw_cusip, raw_ticker in (cusip_overrides or {}).items():
         cusip = normalize_cusip(raw_cusip)
@@ -228,12 +246,19 @@ def build_institutional_13f_payload(
         f"{len(rows)} Ticker-Trends berechnet.",
         {"records_seen": len(rows), "matched_tickers": metadata["matched_tickers"]},
     )
-    return Sec13FBuildResult(
+    metadata["artifact_revision"] = fingerprint
+    result = Sec13FBuildResult(
         payload=payload,
         mapping_rows=_dataframe_records(mapping),
         unmatched_rows=_dataframe_records(unmatched_enriched),
         metadata=metadata,
     )
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", delete=False, dir=cache_dir) as tmp:
+        json.dump({"fingerprint": fingerprint, "result": asdict(result)}, tmp)
+        temporary_path = Path(tmp.name)
+    temporary_path.replace(result_cache)
+    return result
 
 
 def sec_headers(sec_user_agent: str = "") -> dict[str, str]:
@@ -313,12 +338,16 @@ def _named_month_label_sort_key(label: str) -> tuple[int, int, int]:
 def download_dataset(link: DatasetLink, cache_dir: Path, *, sec_user_agent: str = "") -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     target = cache_dir / link.filename
+    headers = sec_headers(sec_user_agent)
     if target.exists() and target.stat().st_size > 1_000_000:
-        return target
+        from email.utils import formatdate
+        headers["If-Modified-Since"] = formatdate(target.stat().st_mtime, usegmt=True)
 
     tmp_path: Path | None = None
     try:
-        with requests.get(link.url, headers=sec_headers(sec_user_agent), stream=True, timeout=120) as response:
+        with requests.get(link.url, headers=headers, stream=True, timeout=120) as response:
+            if response.status_code == 304 and target.exists():
+                return target
             response.raise_for_status()
             with tempfile.NamedTemporaryFile("wb", delete=False, dir=cache_dir) as tmp:
                 tmp_path = Path(tmp.name)

@@ -33,6 +33,7 @@ from app.schemas import (
 from app.services.settings import get_runtime_config_value
 from app.services.universes import resolve_universe_tickers
 from app.services.workspace import get_workspace_state
+from app.repositories.settings import _read_json_setting, _write_json_setting, SettingsRepositoryUnavailable
 
 ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]
 
@@ -91,7 +92,22 @@ def refresh_institutional_13f_from_sec(
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT"),
     )
     known_overrides = {**load_default_overrides(set(universe)), **manual_overrides}
-    ingest_result = ingest_institutional_13f_payload(build_result.payload)
+    revision = build_result.metadata.get("artifact_revision")
+    try:
+        checkpoint = _read_json_setting("sec13f_ingested_artifact")
+    except SettingsRepositoryUnavailable:
+        checkpoint = {}
+    unchanged = bool(revision and checkpoint.get("revision") == revision)
+    ingest_result = (
+        {"ok": True, "records_written": 0, "source_unchanged": True,
+         "message": "SEC-Quelle unveraendert; keine neuen Berichtsperioden eingespielt."}
+        if unchanged else ingest_institutional_13f_payload(build_result.payload)
+    )
+    if revision and ingest_result.get("ok") and not unchanged:
+        try:
+            _write_json_setting("sec13f_ingested_artifact", {"revision": revision}, description="Successfully ingested SEC artifact revision")
+        except SettingsRepositoryUnavailable:
+            pass
     ticker_breakdown = _ticker_breakdown(
         universe=universe,
         payload=build_result.payload,
@@ -386,7 +402,7 @@ def _join_unique(values: Any) -> str:
 
 def _resolve_universe(payload: dict[str, Any]) -> list[str]:
     explicit = _normalize_tickers(payload.get("tickers"))
-    limit = max(1, min(5000, _int_or_default(payload.get("limit_universe") or payload.get("limit"), 120)))
+    limit = max(1, min(10000, _int_or_default(payload.get("limit_universe") or payload.get("limit"), 120)))
     if explicit:
         return explicit[:limit]
 

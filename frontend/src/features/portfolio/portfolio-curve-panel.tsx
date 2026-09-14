@@ -33,6 +33,12 @@ export function PortfolioCurvePanel() {
           />
         </label>
       </div>
+      {curve?.points.length && curve.message ? (
+        <details className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <summary className="cursor-pointer font-medium">Berechnungsgrundlage und Einschränkungen</summary>
+          <p className="mt-2 leading-6">{curve.message}</p>
+        </details>
+      ) : null}
       <LineChartCard
         caption={
           curve?.points.length

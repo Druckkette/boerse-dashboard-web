@@ -40,7 +40,7 @@ from app.repositories import prices as prices_repository
 from app.repositories import sell_state as sell_state_repository
 from app.repositories.portfolio import PortfolioPositionRow, PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
-from app.services.fx import currency_to_usd, eur_to_usd, get_eur_usd_rate, yahoo_quote_currency
+from app.services.fx import currency_to_usd, yahoo_quote_currency, cached_currency_usd_factor
 from app.services.data_quality import get_position_quality_by_ticker
 
 
@@ -513,6 +513,7 @@ def _monitor_state_from_metrics(
         current_price_source=current_price_source,
         current_trade_date=current_trade_date,
         fallback_atr=metrics.atr14,
+        frame_currency=metrics.raw_payload.currency,
     )
 
 
@@ -525,6 +526,7 @@ def _monitor_state_from_frame(
     current_price_source: str,
     current_trade_date: date | None,
     fallback_atr: float | None = None,
+    frame_currency: str | None = None,
 ) -> dict[str, Any]:
     atr_period = int(_finite_float(settings.get("position_monitor_atr_period"), 14) or 14)
     threshold_atr = float(_finite_float(settings.get("position_monitor_threshold_atr"), 1.5) or 1.5)
@@ -534,22 +536,28 @@ def _monitor_state_from_frame(
         reference_mode = "previous_close"
 
     raw_current_price = _finite_float(current_price_override)
+    quote_currency = yahoo_quote_currency(row.ticker)
+    frame_currency = frame_currency or quote_currency
+    reference_current = raw_current_price
+    if frame_currency != quote_currency and raw_current_price is not None:
+        quote_factor = cached_currency_usd_factor(quote_currency)
+        frame_factor = cached_currency_usd_factor(frame_currency)
+        reference_current = raw_current_price * quote_factor / frame_factor if quote_factor and frame_factor else None
     raw_reference_price = _monitor_reference_price(
         daily_frame=daily_frame,
         row=row,
-        current_price=raw_current_price,
+        current_price=reference_current,
         reference_mode=reference_mode,
         lookback_days=lookback_days,
         current_trade_date=current_trade_date,
     )
     raw_atr_value = _monitor_atr(daily_frame, atr_period) or fallback_atr
-    quote_currency = yahoo_quote_currency(row.ticker)
     current_price = _monitor_value_usd(raw_current_price, quote_currency)
     reference_price = _monitor_value_usd(
         raw_reference_price,
-        row.currency if reference_mode == "entry_price" else quote_currency,
+        row.currency if reference_mode == "entry_price" else frame_currency,
     )
-    atr_value = _monitor_value_usd(raw_atr_value, quote_currency)
+    atr_value = _monitor_value_usd(raw_atr_value, frame_currency)
     distance_atr = None
     threshold_crossed = False
     if reference_price is not None and atr_value is not None and atr_value > 0 and current_price is not None:
@@ -897,26 +905,12 @@ def _portfolio_row_prices_for_sell(row: PortfolioPositionRow) -> tuple[float, fl
     currency = row.currency or "USD"
     if "trade republic" in str(row.broker or "").lower():
         position_currency = str(row.currency or "USD").upper()
-        if position_currency == "EUR":
-            fx_rate = get_eur_usd_rate()
-            entry_price = float(eur_to_usd(entry_price, rate=fx_rate) or entry_price)
-        elif position_currency != "USD":
-            converted_entry = currency_to_usd(entry_price, position_currency)
-            entry_price = float(converted_entry if converted_entry is not None else entry_price)
-
-        if row.current_price_source == "price_cache":
-            converted_price = currency_to_usd(
-                current_price,
-                yahoo_quote_currency(row.ticker),
-            )
-            current_price = float(converted_price if converted_price is not None else entry_price)
-        elif position_currency == "EUR":
-            fx_rate = get_eur_usd_rate()
-            current_price = float(eur_to_usd(current_price, rate=fx_rate) or current_price)
-        elif position_currency != "USD":
-            converted_price = currency_to_usd(current_price, position_currency)
-            current_price = float(converted_price if converted_price is not None else entry_price)
-        currency = "USD"
+        entry_factor = cached_currency_usd_factor(position_currency)
+        quote_currency = yahoo_quote_currency(row.ticker) if row.current_price_source == "price_cache" else position_currency
+        quote_factor = cached_currency_usd_factor(quote_currency)
+        if entry_factor is None or quote_factor is None:
+            raise SellMarketDataUnavailableError(f"{row.ticker}: Aktueller Wechselkurs fehlt; keine Verkaufsentscheidung.")
+        return float(entry_price * entry_factor), float(current_price * quote_factor) if current_price is not None else None, "USD"
     return entry_price, current_price, currency
 
 
@@ -931,6 +925,7 @@ def _position_context(ticker: str) -> dict[str, Any]:
 
 def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
     price_frame = _price_frame_from_cache(request.ticker)
+    price_frame = _sell_frame_in_currency(price_frame, request.ticker, request.currency)
     if len(price_frame) < MINIMUM_SELL_PRICE_BARS:
         raise SellMarketDataUnavailableError(
             f"{request.ticker}: nur {len(price_frame)} Kurszeilen im Price Cache; "
@@ -959,6 +954,21 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
         payload["metrics"]["price_data_source"] = "database"
         payload["metrics"]["benchmark_data_source"] = "database"
     return payload
+
+
+def _sell_frame_in_currency(frame: pd.DataFrame, ticker: str, target_currency: str) -> pd.DataFrame:
+    source_currency = yahoo_quote_currency(ticker)
+    if frame.empty or source_currency == target_currency:
+        return frame
+    source_rate = cached_currency_usd_factor(source_currency)
+    target_rate = cached_currency_usd_factor(target_currency)
+    if source_rate is None or target_rate is None or source_rate <= 0 or target_rate <= 0:
+        raise SellMarketDataUnavailableError(f"{ticker}: Wechselkurs fuer die Verkaufsbewertung fehlt.")
+    converted = frame.copy()
+    for column in ("Open", "High", "Low", "Close"):
+        if column in converted:
+            converted[column] = converted[column] * (source_rate / target_rate)
+    return converted
 
 
 def _price_frame_from_cache(ticker: str) -> pd.DataFrame:

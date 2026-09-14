@@ -153,6 +153,9 @@ function CompactMarketAmpel({
           <h1 className="mr-1 text-base font-semibold text-[#0f172a]">Marktampel</h1>
           <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
           <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
+          {data.intraday ? (
+            <span className="text-xs text-[#687386]">Kurs vorläufig · Ampel bestätigt bis {data.confirmed_as_of}</span>
+          ) : null}
         </div>
 
         <div className="flex min-w-0 flex-col gap-2.5 lg:flex-row lg:items-center">

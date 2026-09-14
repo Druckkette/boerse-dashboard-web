@@ -45,6 +45,16 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
   return (
     <section className="space-y-4">
       {mode !== "technical" ? <>
+      {assessment.data_quality && Object.values(assessment.data_quality).some((item) => item.status !== "fresh") ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" role="status">
+          <p className="font-semibold">Bewertung mit eingeschränkter Datenbasis</p>
+          <ul className="mt-1 space-y-1">
+            {Object.entries(assessment.data_quality).filter(([, item]) => item.status !== "fresh").map(([key, item]) => (
+              <li key={key}>{item.label}: {item.status === "missing" ? "fehlt" : "nicht aktuell bestätigt"} · Stand {item.as_of ?? "unbekannt"}{item.expected ? ` · erwartet ${item.expected}` : ""}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>

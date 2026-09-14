@@ -16,6 +16,7 @@ from app.services.settings import (
     get_database_target,
     get_app_settings,
     get_data_diagnostics,
+    get_data_quality_summary,
     get_runtime_config,
     restart_runtime_services,
     switch_database_target,
@@ -36,6 +37,11 @@ def read_settings() -> AppSettings:
 @router.get("/data-diagnostics", response_model=DataDiagnosticsResponse)
 def read_data_diagnostics() -> DataDiagnosticsResponse:
     return get_data_diagnostics()
+
+
+@router.get("/data-quality-summary")
+def read_data_quality_summary() -> dict:
+    return get_data_quality_summary()
 
 
 @router.patch("", response_model=AppSettings)

@@ -148,6 +148,9 @@ export type MarketAmpelChartMarker = {
 };
 
 export type MarketAmpel = {
+  confirmed_as_of?: string;
+  quote_as_of?: string;
+  intraday?: boolean;
   as_of: string;
   as_of_time: string;
   ticker: string;
@@ -557,7 +560,7 @@ export type PortfolioCurvePoint = {
 export type PortfolioCurve = {
   as_of: string;
   source: "database" | "trade_republic_transactions" | "missing";
-  data_status: "fresh" | "missing";
+  data_status: "fresh" | "limited" | "stale" | "missing";
   base_date?: string | null;
   message: string;
   points: PortfolioCurvePoint[];
@@ -1121,6 +1124,7 @@ export type StockEarningsWarning = {
 };
 
 export type StockAssessment = {
+  data_quality?: Record<string, { status: string; label: string; as_of?: string | null; fetched_at?: string | null; expected?: string }>;
   ticker: string;
   as_of: string;
   source: "database" | "missing";

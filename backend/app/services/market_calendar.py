@@ -81,6 +81,37 @@ def previous_us_market_session_date(session_date: date) -> date:
     return fallback
 
 
+def completed_us_market_session(now: datetime | None = None) -> ExpectedMarketSession:
+    current = expected_us_market_session(now)
+    if current.phase != "intraday":
+        return current
+    return expected_us_market_session(current.open_at - timedelta(seconds=1))
+
+
+def price_is_current(bar_date: date | None, fetched_at: datetime | None, *, now: datetime | None = None) -> bool:
+    session = expected_us_market_session(now)
+    if bar_date is None or bar_date != session.date or fetched_at is None:
+        return False
+    required_time = session.open_at if session.phase == "intraday" else session.close_at
+    return required_time is not None and _as_utc(fetched_at) >= required_time
+
+
+def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: datetime | None = None) -> bool:
+    completed = completed_us_market_session(now)
+    if bar_date > completed.date:
+        return False
+    if fetched_at is None:
+        # Legacy history remains usable, but the newest session needs a verified fetch.
+        return bar_date < completed.date
+    if _as_utc(fetched_at).date() > bar_date:
+        return True
+    calendar = _xnys_calendar()
+    session = pd.Timestamp(bar_date)
+    if not calendar.is_session(session):
+        return False
+    return _as_utc(fetched_at) >= _as_utc(calendar.session_close(session).to_pydatetime())
+
+
 @lru_cache(maxsize=1)
 def _xnys_calendar():
     return xcals.get_calendar("XNYS")

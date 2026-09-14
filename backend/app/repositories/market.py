@@ -27,6 +27,7 @@ class MarketOhlcvPoint:
     low: float
     close: float
     volume: float
+    fetched_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint
                     PriceBar.low,
                     PriceBar.close,
                     PriceBar.volume,
+                    PriceBar.fetched_at,
                 )
                 .join(PriceBar, PriceBar.instrument_id == Instrument.id)
                 .where(
@@ -118,7 +120,7 @@ def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint
         raise MarketRepositoryUnavailable(str(exc)) from exc
 
     points: list[MarketOhlcvPoint] = []
-    for row_ticker, bar_date, open_, high, low, close, volume in rows:
+    for row_ticker, bar_date, open_, high, low, close, volume, fetched_at in rows:
         close_value = float(close)
         points.append(
             MarketOhlcvPoint(
@@ -129,6 +131,7 @@ def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint
                 low=float(low if low is not None else close_value),
                 close=close_value,
                 volume=float(volume or 0),
+                fetched_at=fetched_at,
             )
         )
     return points
@@ -150,6 +153,7 @@ def load_cached_ohlcv_for_tickers(tickers: Iterable[str], *, start_date: date) -
                     PriceBar.low,
                     PriceBar.close,
                     PriceBar.volume,
+                    PriceBar.fetched_at,
                 )
                 .join(PriceBar, PriceBar.instrument_id == Instrument.id)
                 .where(
@@ -163,7 +167,7 @@ def load_cached_ohlcv_for_tickers(tickers: Iterable[str], *, start_date: date) -
         raise MarketRepositoryUnavailable(str(exc)) from exc
 
     series: dict[str, list[MarketOhlcvPoint]] = {ticker: [] for ticker in clean_tickers}
-    for row_ticker, bar_date, open_, high, low, close, volume in rows:
+    for row_ticker, bar_date, open_, high, low, close, volume, fetched_at in rows:
         close_value = float(close)
         series.setdefault(str(row_ticker), []).append(
             MarketOhlcvPoint(
@@ -174,6 +178,7 @@ def load_cached_ohlcv_for_tickers(tickers: Iterable[str], *, start_date: date) -
                 low=float(low if low is not None else close_value),
                 close=close_value,
                 volume=float(volume or 0),
+                fetched_at=fetched_at,
             )
         )
     return {ticker: points for ticker, points in series.items() if points}

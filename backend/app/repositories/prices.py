@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -98,11 +99,12 @@ def get_price_cache_metadata(ticker: str) -> PriceCacheMetadata | None:
     try:
         with SessionLocal() as db:
             row = db.execute(
-                select(Instrument.updated_at, func.max(PriceBar.date))
+                select(PriceBar.fetched_at, PriceBar.date)
                 .select_from(Instrument)
                 .outerjoin(PriceBar, PriceBar.instrument_id == Instrument.id)
                 .where(Instrument.ticker == clean)
-                .group_by(Instrument.updated_at)
+                .order_by(PriceBar.date.desc().nulls_last(), PriceBar.fetched_at.desc().nulls_last())
+                .limit(1)
             ).one_or_none()
             if row is None:
                 return None
@@ -153,10 +155,13 @@ def upsert_price_bars(
             ).all()
             existing = {row.date: row for row in existing_rows}
             written = 0
+            changed = False
+            fetched_at = datetime.now(UTC)
 
             for bar in incoming:
                 row = existing.get(bar.date)
                 if row is None:
+                    changed = True
                     row = PriceBar(
                         instrument_id=instrument.id,
                         date=bar.date,
@@ -170,14 +175,24 @@ def upsert_price_bars(
                     )
                     db.add(row)
                 else:
+                    changed = changed or any(
+                        getattr(row, field) != getattr(bar, field)
+                        for field in ("open", "high", "low", "close", "adj_close", "volume")
+                    )
                     row.open = bar.open
                     row.high = bar.high
                     row.low = bar.low
                     row.close = bar.close
                     row.adj_close = bar.adj_close
                     row.volume = bar.volume
+                row.fetched_at = fetched_at
                 written += 1
 
+            metadata = dict(instrument.metadata_json or {})
+            metadata["price_checked_at"] = fetched_at.isoformat()
+            if changed or not metadata.get("price_revision"):
+                metadata["price_revision"] = str(uuid4())
+            instrument.metadata_json = metadata
             db.commit()
             return written
     except SQLAlchemyError as exc:

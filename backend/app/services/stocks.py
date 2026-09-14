@@ -29,6 +29,8 @@ from app.repositories.stock_assessments import (
     StockAssessmentRepositoryUnavailable,
 )
 from app.services.relative_strength import configured_rs_source
+from app.services.assessment_quality import dependency_quality
+from app.services.market_calendar import price_is_current
 from app.schemas import (
     StockEarningsWarning,
     StockAssessmentCheck,
@@ -193,14 +195,30 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
 
     fundamentals_row = _safe_latest_fundamentals(clean)
     institutional_row = _safe_latest_13f(clean)
+    fundamentals_context = _fundamentals_context(fundamentals_row)
+    institutional_context = _institutional_context(institutional_row)
+    rs_context = _rs_context(rs_row)
     result = compute_stock_assessment(
         clean,
         bars,
-        rs_context=_rs_context(rs_row),
-        fundamentals_context=_fundamentals_context(fundamentals_row),
-        institutional_context=_institutional_context(institutional_row),
+        rs_context=rs_context,
+        fundamentals_context=fundamentals_context,
+        institutional_context=institutional_context,
     )
-    return _to_response(result)
+    response = _to_response(result)
+    response.data_quality = dependency_quality(
+        fundamentals_context, institutional_context, rs_context,
+    )
+    latest = bars[-1] if bars else None
+    response.data_quality["prices"] = {
+        "status": "fresh" if latest and price_is_current(latest.date, getattr(latest, "fetched_at", None)) else "stale" if latest else "missing",
+        "as_of": latest.date.isoformat() if latest else None,
+        "fetched_at": getattr(latest, "fetched_at", None).isoformat() if latest and getattr(latest, "fetched_at", None) else None,
+        "label": "Kursabruf",
+    }
+    if response.source != "missing" and any(item["status"] != "fresh" for item in response.data_quality.values()):
+        response.data_status = "stale"
+    return response
 
 
 def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAssessmentCompareResponse:
@@ -396,6 +414,7 @@ def _rs_context(
         metadata = {**dict(computed_row.metadata_json or {}), **metadata}
     return {
         "rating": row.rating,
+        "as_of": row.date.isoformat(),
         "percentile": row.percentile,
         "score": row.score,
         "method": row.method,
@@ -409,6 +428,10 @@ def _rs_context(
         "excess_return_6m_pct": metadata.get("excess_return_6m_pct"),
         "excess_return_12m_pct": metadata.get("excess_return_12m_pct"),
         "rs_line_last": metadata.get("rs_line_last"),
+        "line_as_of": metadata.get("rs_line_data_as_of") or (
+            (computed_row.date if computed_row is not None else row.date).isoformat()
+            if row.source == "computed" or computed_row is not None else None
+        ),
         "ema21": metadata.get("rs_ema21_last"),
         "sma50": metadata.get("rs_sma50_last") if metadata.get("rs_sma50_last") is not None else metadata.get("rs_ema50_last"),
         "above_21": metadata.get("above_21"),

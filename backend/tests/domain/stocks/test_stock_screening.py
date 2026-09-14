@@ -76,6 +76,24 @@ def test_unchanged_inputs_reused_but_intraday_price_change_recomputed(monkeypatc
     assert third["reused_count"] == 0
 
 
+def test_unchanged_revisions_do_not_load_price_history(monkeypatch, storage):
+    data = inputs()
+    loads = []
+    monkeypatch.setattr(screening.universes, "list_universe_tickers", lambda limit: ["TWLO"])
+    monkeypatch.setattr(screening.stock_assessments, "input_revisions", lambda: {"TWLO": "revision-1"})
+
+    def load(tickers, **kwargs):
+        loads.append(tickers)
+        return [("TWLO", None, data)]
+
+    monkeypatch.setattr(screening, "_load_assessment_inputs", load)
+    screening.screen_universe()
+    second = screening.screen_universe()
+    assert loads == [["TWLO"]]
+    assert second["reused_count"] == 1
+    assert second["calculated_count"] == 0
+
+
 def test_fingerprint_tracks_rules_fundamentals_rs_and_calendar():
     data = inputs()
     original = screening.input_fingerprint(data, engine_version="v1", today=date(2026, 9, 11))

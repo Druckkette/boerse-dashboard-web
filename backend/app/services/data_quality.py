@@ -13,6 +13,7 @@ from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import DataDiagnosticIssue, DataDiagnosticsResponse, DataQualityEvent, PortfolioPosition
 from app.services.freshness import get_freshness
 from app.services.portfolio import get_portfolio_positions
+from app.services.market_calendar import expected_us_market_session, price_is_current
 
 
 STALE_POSITION_PRICE_DAYS = 5
@@ -29,6 +30,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
 
     latest_by_ticker: dict[str, date] = {}
     fundamentals_by_ticker: dict[str, date] = {}
+    fetched_by_ticker: dict[str, datetime | None] = {}
     missing_yahoo_tickers: list[str] = []
     ticker_mapping_events: list[DataQualityEvent] = []
     isin_mappings_count = 0
@@ -52,19 +54,21 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
             )
             if open_tickers:
                 latest_price_rows = db.execute(
-                    select(Instrument.ticker, func.max(PriceBar.date))
+                    select(Instrument.ticker, PriceBar.date, PriceBar.fetched_at)
                     .join(PriceBar, PriceBar.instrument_id == Instrument.id)
                     .where(
                         Instrument.ticker.in_(open_tickers),
                         PriceBar.close.is_not(None),
                     )
-                    .group_by(Instrument.ticker)
+                    .distinct(Instrument.ticker)
+                    .order_by(Instrument.ticker, PriceBar.date.desc(), PriceBar.fetched_at.desc().nulls_last())
                 ).all()
                 latest_by_ticker = {
                     str(ticker).upper(): price_date
-                    for ticker, price_date in latest_price_rows
+                    for ticker, price_date, _fetched_at in latest_price_rows
                     if ticker and price_date is not None
                 }
+                fetched_by_ticker = {str(ticker).upper(): fetched_at for ticker, _price_date, fetched_at in latest_price_rows}
                 fundamental_rows = db.execute(
                     select(FundamentalSnapshot.ticker, func.max(FundamentalSnapshot.as_of))
                     .where(FundamentalSnapshot.ticker.in_(open_tickers))
@@ -110,10 +114,9 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
             ],
         )
 
-    stale_before = today - timedelta(days=STALE_POSITION_PRICE_DAYS)
     missing_price_tickers = [ticker for ticker in open_tickers if ticker not in latest_by_ticker]
     stale_price_tickers = [
-        ticker for ticker in open_tickers if latest_by_ticker.get(ticker) and latest_by_ticker[ticker] < stale_before
+        ticker for ticker in open_tickers if latest_by_ticker.get(ticker) and not price_is_current(latest_by_ticker[ticker], fetched_by_ticker.get(ticker), now=now)
     ]
     missing_fundamentals = [ticker for ticker in open_tickers if ticker not in fundamentals_by_ticker]
     missing_risk_metrics = sorted(
@@ -130,6 +133,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
         latest_by_ticker=latest_by_ticker,
         fundamentals_by_ticker=fundamentals_by_ticker,
         today=today,
+        fetched_by_ticker=fetched_by_ticker,
     )
     events = [*_detect_corporate_action_candidates(open_tickers), *ticker_mapping_events][:25]
 
@@ -147,6 +151,14 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
         events=events,
     )
     blocked = any(item["status"] == "blocked" for item in quality_by_ticker.values())
+    triggered_stops = [position.ticker for position in positions if position.stop_price is not None and position.current_price <= position.stop_price]
+    if triggered_stops:
+        issues.append(DataDiagnosticIssue(key="stops_already_reached", label="Stopps bereits erreicht", severity="warning", category="portfolio",
+            detail="Stop-Kurse sind gepflegt, liegen aber bereits am oder ueber dem aktuellen Kurs. Stop-Abdeckung bedeutet nicht, dass ein Brokerauftrag ausgefuehrt wurde.", tickers=triggered_stops))
+    stale_fundamentals = [ticker for ticker, as_of in fundamentals_by_ticker.items() if as_of < today - timedelta(days=14)]
+    if stale_fundamentals:
+        issues.append(DataDiagnosticIssue(key="stale_fundamentals", label="Fundamentaldaten veraltet", severity="warning", category="fundamental",
+            detail="Fundamental-Snapshots sind aelter als 14 Tage.", tickers=stale_fundamentals))
     limited = any(item["status"] == "limited" for item in quality_by_ticker.values())
     critical_count = sum(issue.severity == "critical" for issue in issues)
     warning_count = sum(issue.severity == "warning" for issue in issues)
@@ -191,10 +203,13 @@ def get_position_quality_by_ticker() -> dict[str, dict[str, str]]:
     positions = get_portfolio_positions()
     latest_by_ticker: dict[str, date] = {}
     fundamentals_by_ticker: dict[str, date] = {}
+    fetched_by_ticker: dict[str, datetime | None] = {}
     for position in positions:
         ticker = position.ticker.upper()
         try:
-            latest = price_repository.get_latest_price_bar_date(ticker)
+            metadata = price_repository.get_price_cache_metadata(ticker)
+            latest = metadata.latest_date if metadata else None
+            fetched_by_ticker[ticker] = metadata.cache_updated_at if metadata else None
         except PriceRepositoryUnavailable:
             latest = None
         if latest is not None:
@@ -218,6 +233,7 @@ def get_position_quality_by_ticker() -> dict[str, dict[str, str]]:
         latest_by_ticker=latest_by_ticker,
         fundamentals_by_ticker=fundamentals_by_ticker,
         today=date.today(),
+        fetched_by_ticker=fetched_by_ticker,
     )
 
 
@@ -227,9 +243,12 @@ def assess_position_quality(
     latest_by_ticker: dict[str, date],
     fundamentals_by_ticker: dict[str, date],
     today: date,
+    fetched_by_ticker: dict[str, datetime | None] | None = None,
 ) -> dict[str, dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
-    stale_before = today - timedelta(days=STALE_POSITION_PRICE_DAYS)
+    now = datetime.now(UTC)
+    evaluation_time = now if today == now.date() else datetime.combine(today, datetime.max.time(), tzinfo=UTC)
+    stale_before = expected_us_market_session(evaluation_time).date
     for position in positions:
         ticker = position.ticker.upper()
         blockers: list[str] = []
@@ -239,12 +258,16 @@ def assess_position_quality(
             blockers.append("Kursdaten fehlen")
         elif latest < stale_before:
             limitations.append(f"Kursstand {latest.isoformat()} ist veraltet")
+        elif fetched_by_ticker is not None and not price_is_current(latest, fetched_by_ticker.get(ticker), now=evaluation_time):
+            limitations.append("Aktueller Kursabruf ist nicht bestaetigt")
         if _position_is_implausible(position):
             blockers.append(f"P&L von {position.pnl_pct:+.1f}% ist plausibilitätskritisch")
         if position.atr_pct is None or position.beta is None:
             limitations.append("ATR oder Beta fehlt")
         if ticker not in fundamentals_by_ticker:
             limitations.append("Fundamental-Snapshot fehlt")
+        elif fundamentals_by_ticker[ticker] < today - timedelta(days=14):
+            limitations.append("Fundamental-Snapshot ist aelter als 14 Tage")
         status = "blocked" if blockers else "limited" if limitations else "trusted"
         details = [*blockers, *limitations]
         result[ticker] = {
@@ -291,7 +314,7 @@ def _build_issues(
     if stale_price_tickers:
         issues.append(DataDiagnosticIssue(
             key="stale_price_cache", label="Kursdaten veraltet", severity="warning",
-            detail=f"{len(stale_price_tickers)} offene Positionen sind älter als {STALE_POSITION_PRICE_DAYS} Tage.",
+            detail=f"{len(stale_price_tickers)} offene Positionen haben nicht den erwarteten Handelstag im Cache.",
             tickers=stale_price_tickers, action_label="Kurse aktualisieren", job_type="refresh_prices",
             job_payload={"mode": "manual", "range": "6m", "tickers": stale_price_tickers}, category="price",
         ))

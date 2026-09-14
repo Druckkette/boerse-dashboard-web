@@ -345,6 +345,7 @@ export const api = {
   restartRuntimeServices: () =>
     postJson<RuntimeServicesRestartResponse>("/settings/runtime-services/restart"),
   dataDiagnostics: () => getJson<DataDiagnostics>("/settings/data-diagnostics"),
+  dataQualitySummary: () => getJson<Pick<DataDiagnostics, "decision_status" | "summary">>("/settings/data-quality-summary"),
   pushoverDeliveryLog: () => getJson<PushoverDeliveryLog>("/insights/notifications"),
   patchSettings: (body: Partial<AppSettings>) => patchJson<AppSettings>("/settings", body),
   workspace: () => getJson<WorkspaceState>("/workspace"),

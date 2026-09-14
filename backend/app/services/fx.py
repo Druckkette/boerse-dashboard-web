@@ -115,6 +115,23 @@ def currency_to_usd(
     return float(value) * effective_rate.rate
 
 
+def cached_currency_usd_factor(currency: str) -> float | None:
+    """Decision paths never download FX or substitute a fictional conversion rate."""
+    from math import isfinite
+    from app.services.market_calendar import completed_us_market_session
+
+    minor_unit = currency in {"GBp", "GBX"}
+    clean = "GBP" if minor_unit else currency.strip().upper()
+    if clean == "USD":
+        return 1.0
+    rate = _latest_cached_fx_rate(f"{clean}USD=X", pair=f"{clean}/USD")
+    if rate is None or not isfinite(rate.rate) or rate.rate <= 0:
+        return None
+    if rate.as_of < completed_us_market_session().date:
+        return None
+    return rate.rate / 100 if minor_unit else rate.rate
+
+
 def _latest_cached_eur_usd_rate() -> FxRate | None:
     return _latest_cached_fx_rate(EUR_USD_TICKER, pair="EUR/USD")
 

@@ -52,6 +52,11 @@ def get_freshness() -> FreshnessResponse:
     return FreshnessResponse(generated_at=now, services=_cache_freshness(now))
 
 
+def _required_quote_fetch(session: ExpectedMarketSession) -> datetime:
+    boundary = session.open_at if session.phase == "intraday" else session.close_at
+    return boundary or datetime.combine(session.date, time.max, tzinfo=UTC)
+
+
 def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
     expected_session = expected_us_market_session(now)
     try:
@@ -107,7 +112,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
             now,
             "earnings_calendar",
             latest_earnings_calendar,
-            max_lag_minutes=26 * 60,
+            max_lag_minutes=_earnings_schedule_lag_minutes(now),
             detail=(
                 "Earnings-Kalender"
                 + (f" ({_provider_label(latest_earnings_source)})" if latest_earnings_source else "")
@@ -207,6 +212,7 @@ def _price_universe_freshness(
                         PriceBar.instrument_id == UniverseMember.instrument_id,
                         PriceBar.date >= expected_session.date,
                         PriceBar.close.is_not(None),
+                        PriceBar.fetched_at >= _required_quote_fetch(expected_session),
                     )
                 ),
             )
@@ -224,6 +230,7 @@ def _price_universe_freshness(
         .where(
             PriceBar.instrument_id == Instrument.id,
             PriceBar.close.is_not(None),
+            (PriceBar.date < expected_session.date) | (PriceBar.fetched_at >= _required_quote_fetch(expected_session)),
         )
         .correlate(Instrument)
         .scalar_subquery()
@@ -547,6 +554,20 @@ def _datetime_freshness(
     )
 
 
+def _earnings_schedule_lag_minutes(now: datetime) -> int:
+    from zoneinfo import ZoneInfo
+    from datetime import time
+
+    local = _as_utc(now).astimezone(ZoneInfo("Europe/Berlin"))
+    slots = [
+        datetime.combine(local.date() - timedelta(days=offset), time(hour, minute), tzinfo=local.tzinfo)
+        for offset in range(8) for hour, minute in ((15, 50), (22, 20))
+        if (local.date() - timedelta(days=offset)).weekday() < 5
+    ]
+    last_due = max(slot for slot in slots if slot <= local - timedelta(minutes=30))
+    return int((_as_utc(now) - last_due.astimezone(UTC)).total_seconds() / 60) + 30
+
+
 def _trend_benchmark_freshness(db, now: datetime) -> ServiceFreshness:
     expected_session = expected_us_market_session(now)
     candidates = [MARKET_TREND_BENCHMARK, *MARKET_INDEX_FALLBACK_TICKERS.get(MARKET_TREND_BENCHMARK, [])]
@@ -556,6 +577,7 @@ def _trend_benchmark_freshness(db, now: datetime) -> ServiceFreshness:
         .where(
             Instrument.ticker.in_(candidates),
             PriceBar.close.is_not(None),
+            (PriceBar.date < expected_session.date) | (PriceBar.fetched_at >= _required_quote_fetch(expected_session)),
         )
         .group_by(Instrument.ticker)
     ).all()

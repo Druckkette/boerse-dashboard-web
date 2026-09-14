@@ -5,6 +5,8 @@ from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from functools import lru_cache
+from app.services.market_calendar import completed_us_market_session, expected_us_market_session, daily_bar_is_final
 
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
@@ -127,8 +129,10 @@ def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOvervi
     if snapshot is None:
         return _missing_market_overview()
 
+    ampel = get_market_ampel(ticker=clean_ticker)
     trend_ampel = _market_trend_ampel_for_ticker(clean_ticker, lookback_days=550)
-    return _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
+    overview = _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
+    return overview.model_copy(update={"warning_count": ampel.warning_count, "as_of_time": ampel.as_of_time})
 
 
 def _build_market_overview_response(clean_ticker, snapshot, trend_ampel) -> MarketOverviewResponse:
@@ -138,7 +142,7 @@ def _build_market_overview_response(clean_ticker, snapshot, trend_ampel) -> Mark
     phase = trend_ampel.phase if trend_ampel else _normalize_phase(snapshot.ampel_phase)
     return MarketOverviewResponse(
         as_of=trend_ampel.as_of if trend_ampel else snapshot.date.isoformat(),
-        as_of_time=snapshot.generated_at.isoformat() if snapshot.generated_at else "",
+        as_of_time="",
         source="database",
         data_status=_data_status_for_date(date.fromisoformat(trend_ampel.as_of) if trend_ampel else snapshot.date),
         message=_market_snapshot_message(snapshot.date, metrics, index_ticker=clean_ticker),
@@ -160,16 +164,15 @@ def get_market_ampel(
 ) -> MarketAmpelResponse:
     clean_ticker = _normalize_ampel_ticker(ticker)
     clean_days = max(30, min(240, int(days)))
-    start_date = date.today() - timedelta(days=max(320, clean_days + 280))
+    start_date = date(1900, 1, 1)
     bars, used_ticker = _load_cached_index_ohlcv(clean_ticker, start_date=start_date)
 
     if len(bars) < 2:
         return _missing_market_ampel(clean_ticker)
 
-    points = compute_trend_ampel(
-        [_trend_bar_from_ohlcv(point) for point in bars],
-        over_50_warning_pct=7.0 if clean_ticker == "^IXIC" else 5.0,
-    )
+    all_points = _cached_ampel_calculation(tuple(_trend_bar_from_ohlcv(point) for point in bars), clean_ticker)
+    confirmed_bars = _confirmed_ampel_bars(bars)
+    points = list(_cached_ampel_calculation(tuple(_trend_bar_from_ohlcv(p) for p in confirmed_bars), clean_ticker))
     if not points:
         return _missing_market_ampel(clean_ticker)
 
@@ -183,10 +186,11 @@ def get_market_ampel(
         if snapshot is not None
         else _missing_market_overview()
     )
+    overview.as_of_time = bars[-1].fetched_at.isoformat() if bars[-1].fetched_at else ""
     volatility = get_volatility()
     intermarket = _cached_intermarket_divergence()
     rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
-    return build_market_ampel_response(
+    response = build_market_ampel_response(
         ticker=clean_ticker,
         name=MARKET_AMPEL_INDEXES.get(clean_ticker, clean_ticker),
         points=points,
@@ -199,6 +203,34 @@ def get_market_ampel(
         defensive_lead=defensive_lead,
         defensive_spread_pct=defensive_spread,
     )
+    response.chart_points = _ampel_chart_points(all_points[-clean_days:])
+    response.confirmed_as_of = points[-1].date
+    response.quote_as_of = all_points[-1].date
+    response.intraday = all_points[-1].date > points[-1].date
+    if response.intraday:
+        quote_card = _ampel_change_cards(
+            latest=all_points[-1], previous=all_points[-2] if len(all_points) > 1 else None,
+            warning_count=response.warning_count, breadth_mode=overview.breadth_mode,
+            volatility=volatility, index_name=response.name, as_of_time=overview.as_of_time,
+        )[0]
+        quote_card.detail = quote_card.detail.replace("Schlusskurs", "Vorlaeufiger Kurs")
+        response.change_cards = [quote_card, *[c for c in response.change_cards if not c.title.startswith("Heute ")]]
+    return response
+
+
+@lru_cache(maxsize=12)
+def _cached_ampel_calculation(bars: tuple[TrendAmpelBar, ...], ticker: str) -> tuple[TrendAmpelPoint, ...]:
+    return tuple(compute_trend_ampel(bars, over_50_warning_pct=7.0 if ticker == "^IXIC" else 5.0))
+
+
+def _confirmed_ampel_bars(bars):
+    # Stop at the first unconfirmed session: skipping it would join nonconsecutive days.
+    confirmed = []
+    for bar in bars:
+        if not daily_bar_is_final(bar.date, bar.fetched_at):
+            break
+        confirmed.append(bar)
+    return confirmed
 
 
 def build_market_ampel_response(
@@ -1410,14 +1442,11 @@ def build_market_snapshot(
 
 
 def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> TrendAmpelPoint | None:
-    start_date = date.today() - timedelta(days=max(250, min(2000, lookback_days)))
+    start_date = date(1900, 1, 1)
     bars, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
     if len(bars) < 2:
         return None
-    points = compute_trend_ampel(
-        [_trend_bar_from_ohlcv(point) for point in bars],
-        over_50_warning_pct=7.0 if ticker == "^IXIC" else 5.0,
-    )
+    points = _cached_ampel_calculation(tuple(_trend_bar_from_ohlcv(p) for p in _confirmed_ampel_bars(bars)), ticker)
     return points[-1] if points else None
 
 
@@ -2029,6 +2058,7 @@ def _merge_proxy_volume(
                 low=point.low,
                 close=point.close,
                 volume=volume_by_date.get(point.date, point.volume),
+                fetched_at=point.fetched_at,
             )
         )
     return merged
@@ -2046,7 +2076,7 @@ def _ampel_data_message(*, ticker: str, price_ticker: str | None) -> str:
 def _ampel_data_status(value: date, *, ticker: str, price_ticker: str | None) -> str:
     if price_ticker and price_ticker != ticker:
         return "fallback"
-    return _data_status_for_date(value)
+    return "fresh" if value == completed_us_market_session().date else "stale"
 
 
 def _last_cycle_markers(points: Sequence[TrendAmpelPoint], latest: TrendAmpelPoint) -> tuple[str | None, float | None, float | None]:
@@ -3179,14 +3209,7 @@ def _format_pct(value: float | None) -> str:
 
 
 def _data_status_for_date(value: date) -> str:
-    age_days = (date.today() - value).days
-    if age_days < 0:
-        return "fresh"
-    if age_days <= 3:
-        return "fresh"
-    if age_days <= 10:
-        return "stale"
-    return "stale"
+    return "fresh" if value == expected_us_market_session().date else "stale"
 
 
 def _overview_action(*, phase: str, snapshot, metrics: dict) -> str:

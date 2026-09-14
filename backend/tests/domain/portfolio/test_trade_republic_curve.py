@@ -25,6 +25,23 @@ def fixed_fx_rate(monkeypatch) -> None:
     )
 
 
+def test_historical_fx_revalues_cash_and_neutralizes_new_euro_deposits(monkeypatch) -> None:
+    transactions = [
+        _tr_row(date(2025, 1, 2), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2025, 1, 3), "customer_inbound", 0, None, 100),
+    ]
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: transactions)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, start_date=None: {
+        "EURUSD=X": [PriceRow(date(2025, 1, 2), 1.0), PriceRow(date(2025, 1, 3), 1.2)],
+        "^GSPC": [PriceRow(date(2025, 1, 2), 5000), PriceRow(date(2025, 1, 3), 5000)],
+    }.get(ticker, []))
+    result = portfolio_service.get_portfolio_curve(days=2500)
+    points = {point.date: point for point in result.points}
+    assert points["2025-01-02"].cash == 1000
+    assert points["2025-01-03"].cash == 1320
+    assert points["2025-01-03"].portfolio_index == 120
+
+
 def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
     transactions = [
         portfolio_repository.TradeRepublicStoredTransactionRow(

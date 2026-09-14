@@ -16,7 +16,11 @@ from app.services.portfolio import parse_positions_csv
 
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "portfolio"
-REFERENCE_TR_EXPORT = Path(__file__).resolve().parents[5] / "boerse-dashboard-github" / "TR" / "Transaktionsexport.csv"
+REFERENCE_TR_EXPORT = next(
+    (candidate for parent in Path(__file__).resolve().parents
+     if (candidate := parent / "boerse-dashboard-github" / "TR" / "Transaktionsexport.csv").is_file()),
+    FIXTURE_DIR / "optional_reference_export.csv",
+)
 
 
 @pytest.fixture(autouse=True)
