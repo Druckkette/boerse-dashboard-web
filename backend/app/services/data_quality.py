@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import FundamentalSnapshot, Instrument, IsinMapping, PriceBar
@@ -41,14 +41,9 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
                 db.scalar(
                     select(func.count())
                     .select_from(Instrument)
-                    .where(
-                        exists(
-                            select(1).where(
-                                PriceBar.instrument_id == Instrument.id,
-                                PriceBar.close.is_not(None),
-                            )
-                        )
-                    )
+                    # Updated transactionally with price upserts. Counting the
+                    # small instrument table avoids a full price-bar index scan.
+                    .where(Instrument.metadata_json["price_revision"].as_string().is_not(None))
                 )
                 or 0
             )
