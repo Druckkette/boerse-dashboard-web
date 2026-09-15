@@ -41,29 +41,39 @@ class StockAssessmentRepositoryUnavailable(RuntimeError):
 def input_revisions(tickers: list[str] | None = None) -> dict[str, str]:
     """Hash small dependency records in Postgres, never transfer OHLC history for reuse checks."""
     query = text("""
+        WITH latest_rs_rows AS (
+            SELECT DISTINCT ON (instrument_id, source)
+                instrument_id, source, md5(to_jsonb(rr)::text) AS row_hash
+            FROM rs_ratings rr
+            ORDER BY instrument_id, source, date DESC
+        ), rs AS (
+            SELECT instrument_id, string_agg(row_hash, '|' ORDER BY source) AS revision
+            FROM latest_rs_rows GROUP BY instrument_id
+        ), fundamentals AS (
+            SELECT DISTINCT ON (instrument_id)
+                instrument_id, md5(to_jsonb(ff)::text) AS revision
+            FROM fundamental_snapshots ff
+            ORDER BY instrument_id, as_of DESC, updated_at DESC
+        ), holders AS (
+            SELECT DISTINCT ON (ticker)
+                ticker, md5(to_jsonb(hh)::text) AS revision
+            FROM institutional_13f_trends hh
+            ORDER BY ticker, report_period DESC, id DESC
+        ), earnings AS (
+            SELECT ticker, md5(string_agg(to_jsonb(ee)::text, '|' ORDER BY event_date, source)) AS revision
+            FROM earnings_events ee WHERE event_date >= CURRENT_DATE GROUP BY ticker
+        ), benchmark AS (
+            SELECT metadata_json->>'price_revision' AS revision FROM instruments WHERE ticker = 'SPY'
+        )
         SELECT i.ticker, md5(concat_ws('|', i.metadata_json->>'price_revision',
-            r.revision, f.revision, h.revision, e.revision,
-            (SELECT metadata_json->>'price_revision' FROM instruments WHERE ticker = 'SPY'),
+            rs.revision, fundamentals.revision, holders.revision, earnings.revision,
+            (SELECT revision FROM benchmark),
             (SELECT value_json->>'rs_rating_source' FROM app_settings WHERE key = 'runtime'))) AS revision
         FROM instruments i
-        LEFT JOIN LATERAL (
-            SELECT string_agg(md5(row_data::text), '|' ORDER BY source) AS revision FROM (
-                SELECT DISTINCT ON (source) source, to_jsonb(rr) AS row_data
-                FROM rs_ratings rr WHERE rr.instrument_id = i.id ORDER BY source, date DESC
-            ) latest
-        ) r ON true
-        LEFT JOIN LATERAL (
-            SELECT md5(to_jsonb(ff)::text) AS revision FROM fundamental_snapshots ff
-            WHERE ff.instrument_id = i.id ORDER BY as_of DESC, updated_at DESC LIMIT 1
-        ) f ON true
-        LEFT JOIN LATERAL (
-            SELECT md5(to_jsonb(hh)::text) AS revision FROM institutional_13f_trends hh
-            WHERE hh.ticker = i.ticker ORDER BY report_period DESC, id DESC LIMIT 1
-        ) h ON true
-        LEFT JOIN LATERAL (
-            SELECT md5(string_agg(to_jsonb(ee)::text, '|' ORDER BY event_date, source)) AS revision
-            FROM earnings_events ee WHERE ee.ticker = i.ticker AND event_date >= CURRENT_DATE
-        ) e ON true
+        LEFT JOIN rs ON rs.instrument_id = i.id
+        LEFT JOIN fundamentals ON fundamentals.instrument_id = i.id
+        LEFT JOIN holders ON holders.ticker = i.ticker
+        LEFT JOIN earnings ON earnings.ticker = i.ticker
         WHERE i.metadata_json->>'price_revision' IS NOT NULL
     """ + (" AND i.ticker = ANY(:tickers)" if tickers is not None else ""))
     try:
