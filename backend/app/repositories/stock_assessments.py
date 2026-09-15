@@ -46,9 +46,7 @@ def input_revisions(tickers: list[str] | None = None) -> dict[str, str]:
             FROM rs_ratings
             GROUP BY source
         ), latest_rs_rows AS (
-            SELECT rr.instrument_id, rr.source,
-                md5(concat_ws('|', rr.date, rr.rating, rr.score, rr.percentile,
-                    rr.method, rr.universe_size, rr.metadata_json::text)) AS row_hash
+            SELECT rr.instrument_id, rr.source, md5(to_jsonb(rr)::text) AS row_hash
             FROM rs_ratings rr
             JOIN latest_rs_dates latest
               ON latest.source = rr.source AND latest.date = rr.date
