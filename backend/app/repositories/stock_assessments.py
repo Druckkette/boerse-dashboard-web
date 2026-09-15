@@ -41,11 +41,17 @@ class StockAssessmentRepositoryUnavailable(RuntimeError):
 def input_revisions(tickers: list[str] | None = None) -> dict[str, str]:
     """Hash small dependency records in Postgres, never transfer OHLC history for reuse checks."""
     query = text("""
-        WITH latest_rs_rows AS (
-            SELECT DISTINCT ON (instrument_id, source)
-                instrument_id, source, md5(to_jsonb(rr)::text) AS row_hash
+        WITH latest_rs_dates AS (
+            SELECT source, max(date) AS date
+            FROM rs_ratings
+            GROUP BY source
+        ), latest_rs_rows AS (
+            SELECT rr.instrument_id, rr.source,
+                md5(concat_ws('|', rr.date, rr.rating, rr.score, rr.percentile,
+                    rr.method, rr.universe_size, rr.metadata_json::text)) AS row_hash
             FROM rs_ratings rr
-            ORDER BY instrument_id, source, date DESC
+            JOIN latest_rs_dates latest
+              ON latest.source = rr.source AND latest.date = rr.date
         ), rs AS (
             SELECT instrument_id, string_agg(row_hash, '|' ORDER BY source) AS revision
             FROM latest_rs_rows GROUP BY instrument_id
