@@ -63,6 +63,30 @@ def test_smart_refresh_job_can_be_started(monkeypatch: pytest.MonkeyPatch) -> No
     assert job["celery_task_id"] == "celery-smart-id"
 
 
+def test_ranking_reuses_running_market_cycle(monkeypatch):
+    import app.services.jobs as service
+    calls = []
+    monkeypatch.setattr(service.celery_app, "send_task", lambda *args, **kwargs: calls.append(kwargs) or SimpleNamespace(id="smart"))
+    first = client.post("/api/v1/jobs", json={"type": "smart_refresh_market_data", "payload": {}}).json()["job"]
+    second = client.post("/api/v1/jobs", json={"type": "refresh_stock_assessments", "payload": {}}).json()["job"]
+    assert first["job_id"] == second["job_id"]
+    assert len(calls) == 1
+    assert calls[0]["expires"] == 6 * 60 * 60
+
+
+def test_report_work_status_and_unavailable_database(monkeypatch):
+    from app.repositories import refresh_work
+    from sqlalchemy.exc import SQLAlchemyError
+    monkeypatch.setattr(refresh_work, "summary", lambda: {"due_count": 7, "groups": [], "active": [], "oldest_due_at": None})
+    response = client.get("/api/v1/jobs/report-work")
+    assert response.status_code == 200
+    assert response.json()["due_count"] == 7
+    def fail():
+        raise SQLAlchemyError("unavailable")
+    monkeypatch.setattr(refresh_work, "summary", fail)
+    assert client.get("/api/v1/jobs/report-work").status_code == 503
+
+
 def test_jobs_cancel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.services.jobs as job_service
 

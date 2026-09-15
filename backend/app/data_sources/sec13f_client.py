@@ -354,6 +354,13 @@ def download_dataset(link: DatasetLink, cache_dir: Path, *, sec_user_agent: str 
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         tmp.write(chunk)
+        if target.exists() and target.stat().st_size == tmp_path.stat().st_size:
+            def digest(path):
+                with path.open("rb") as stream:
+                    return hashlib.file_digest(stream, "sha256").hexdigest()
+            if digest(target) == digest(tmp_path):
+                tmp_path.unlink()
+                return target
         tmp_path.replace(target)
         return target
     except Exception:

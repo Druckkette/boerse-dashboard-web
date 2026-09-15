@@ -36,6 +36,7 @@ celery_app.conf.update(
         "refresh_stock_detail": {"queue": "interactive"},
     },
     imports=(
+        "app.workers.tasks.refresh_report_data",
         "app.workers.tasks.smart_refresh_market_data",
         "app.workers.tasks.bootstrap_market_data",
         "app.workers.tasks.refresh_prices",

@@ -7,7 +7,11 @@ from app.schemas import (
     JobDetailResponse,
     JobListResponse,
 )
-from app.services.jobs import JobConflictError, cancel_job, get_job, list_jobs, start_job
+from app.services.jobs import JobConflictError, _job_list_summary, cancel_job, get_job, list_jobs, start_job
+from pydantic import BaseModel
+from datetime import datetime
+from sqlalchemy.exc import SQLAlchemyError
+from app.repositories import refresh_work
 
 
 router = APIRouter()
@@ -18,12 +22,39 @@ def list_job_runs(limit: int = Query(default=50, ge=1, le=200)) -> JobListRespon
     return JobListResponse(jobs=list_jobs(limit=limit))
 
 
+class ReportWorkGroup(BaseModel):
+    group: str
+    status: str
+    count: int
+
+
+class ReportWorkActive(BaseModel):
+    ticker: str
+    group: str
+    lease_until: datetime | None = None
+
+
+class ReportWorkStatus(BaseModel):
+    due_count: int
+    oldest_due_at: datetime | None = None
+    groups: list[ReportWorkGroup]
+    active: list[ReportWorkActive]
+
+
+@router.get("/report-work", response_model=ReportWorkStatus)
+def report_work_status() -> ReportWorkStatus:
+    try:
+        return ReportWorkStatus.model_validate(refresh_work.summary())
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Berichtswarteschlange nicht erreichbar. Migration und Datenbank pruefen.") from exc
+
+
 @router.get("/{job_id}", response_model=JobDetailResponse)
-def job_detail(job_id: str) -> JobDetailResponse:
+def job_detail(job_id: str, compact: bool = False) -> JobDetailResponse:
     job = get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return JobDetailResponse(job=job)
+    return JobDetailResponse(job=_job_list_summary(job) if compact else job)
 
 
 @router.post("", response_model=JobCreateResponse, status_code=status.HTTP_202_ACCEPTED)

@@ -60,6 +60,7 @@ def fetch_fundamental_enrichment(
     fmp_api_key: str = "",
     sec_user_agent: str = "",
     timeout: int = 15,
+    statements_only: bool = False,
 ) -> FundamentalEnrichment:
     clean = ticker.strip().upper()
     notes: list[str] = []
@@ -68,25 +69,26 @@ def fetch_fundamental_enrichment(
     fmp_next_earnings_date: date | None = None
 
     if fmp_api_key:
-        fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout)
+        fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout, **({"minimal": True} if statements_only else {}))
         if fmp_note:
             notes.append(fmp_note)
         raw = merge_quarterly_raw(fmp_raw, raw)
-        fmp_profile, fmp_profile_note = fetch_fmp_profile(clean, fmp_api_key, timeout=timeout)
-        if fmp_profile_note:
-            notes.append(fmp_profile_note)
-        fmp_next_earnings_date, fmp_earnings_note = fetch_fmp_next_earnings_date(clean, fmp_api_key, timeout=timeout)
-        if fmp_earnings_note:
-            notes.append(fmp_earnings_note)
+        if not statements_only:
+            fmp_profile, fmp_profile_note = fetch_fmp_profile(clean, fmp_api_key, timeout=timeout)
+            if fmp_profile_note:
+                notes.append(fmp_profile_note)
+            fmp_next_earnings_date, fmp_earnings_note = fetch_fmp_next_earnings_date(clean, fmp_api_key, timeout=timeout)
+            if fmp_earnings_note:
+                notes.append(fmp_earnings_note)
     else:
         notes.append("FMP: kein API-Key")
 
-    if sec_user_agent:
+    if sec_user_agent and (not statements_only or _needs_yfinance_statement_history(raw)):
         sec_raw, sec_note = fetch_quarterly_sec_companyfacts(clean, sec_user_agent, timeout=timeout)
         if sec_note:
             notes.append(sec_note)
         raw = merge_quarterly_raw(raw, sec_raw)
-    else:
+    elif not sec_user_agent:
         notes.append("SEC: kein User-Agent")
 
     if _needs_yfinance_statement_history(raw):
@@ -113,6 +115,7 @@ def fetch_quarterly_fmp(
     api_key: str,
     *,
     timeout: int = 15,
+    minimal: bool = False,
 ) -> tuple[QuarterlyRaw | None, str]:
     if not api_key:
         return None, "FMP: kein API-Key"
@@ -152,8 +155,14 @@ def fetch_quarterly_fmp(
     errors: list[str] = []
     raw: QuarterlyRaw = {}
     for label, url, params, parser in attempts:
+        if minimal and "Wachstum" in label and not _needs_yfinance_statement_history(raw):
+            continue
         try:
-            response = requests.get(url, params=params, timeout=timeout)
+            if minimal:
+                from app.data_sources.provider_guard import guarded_fmp_get
+                response = guarded_fmp_get(url, params=params, timeout=timeout)
+            else:
+                response = requests.get(url, params=params, timeout=timeout)
         except requests.exceptions.Timeout:
             errors.append(f"{label}: Timeout")
             continue
@@ -164,7 +173,7 @@ def fetch_quarterly_fmp(
         if response.status_code == 429:
             body = compact_fmp_response_body(response)
             errors.append(f"{label}: Rate Limited" + (f" ({body})" if body else ""))
-            continue
+            break
         if response.status_code in {401, 403}:
             body = compact_fmp_response_body(response)
             errors.append(f"{label}: Zugriff verweigert" + (f" ({body})" if body else ""))
@@ -193,7 +202,8 @@ def fetch_quarterly_fmp(
             errors.append(f"{label}: Keine verwertbaren Daten")
 
     if raw and any(isinstance(value, pd.Series) and not value.empty for value in raw.values()):
-        _merge_fmp_ttm_ratios(raw, ticker, api_key, timeout=timeout)
+        if not minimal or _roe_pct(raw) is None or _profit_margin_pct(raw) is None:
+            _merge_fmp_ttm_ratios(raw, ticker, api_key, timeout=timeout)
         return raw, "FMP stable"
 
     return None, " | ".join(errors) if errors else "FMP: keine Quartalsdaten"
@@ -464,6 +474,11 @@ def compute_fundamental_enrichment(
         roe_history=[_roe_point_payload(point) for point in roe_history[:5]],
         metadata={
             "ticker": ticker.upper(),
+            "report_ends": {
+                key: str(pd.Timestamp(value.index.max()).date())
+                for key, value in raw.items() if key in {"DilutedEPS", "TotalRevenue"}
+                and isinstance(value, pd.Series) and not value.empty
+            },
             "notes": notes,
             # Stable schema for persisted snapshots:
             # eps_quarter_history/revenue_quarter_history are ordered latest-first and each item contains

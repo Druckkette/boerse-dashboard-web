@@ -598,6 +598,7 @@ def _fundamentals_context(
         "as_of": row.as_of.isoformat(),
         "source": row.source,
         "fiscal_period": row.fiscal_period,
+        "report_refresh": row.metadata_json.get("report_refresh"),
         "quarterly_eps_growth_pct": row.quarterly_eps_growth_pct,
         "annual_eps_growth_pct": row.annual_eps_growth_pct,
         "quarterly_revenue_growth_pct": row.quarterly_revenue_growth_pct,

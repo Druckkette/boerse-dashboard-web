@@ -338,7 +338,7 @@ def probe_daily_price_symbol(symbol: str, *, period: str = "1mo") -> dict:
     }
 
 
-def fetch_fundamentals(symbol: str, *, include_holders: bool = True) -> FetchedFundamentals:
+def fetch_fundamentals(symbol: str, *, include_holders: bool = True, include_calendar: bool = True) -> FetchedFundamentals:
     """Fetch a compact fundamental snapshot for worker-side caching."""
     import yfinance as yf
 
@@ -366,7 +366,7 @@ def fetch_fundamentals(symbol: str, *, include_holders: bool = True) -> FetchedF
         trailing_eps=_float_or_none(info.get("trailingEps")),
         institutional_holders=None,
         institutional_ownership_pct=None,
-        next_earnings_date=_next_earnings_date(ticker),
+        next_earnings_date=_next_earnings_date(ticker) if include_calendar else None,
         beta=_float_or_none(info.get("beta")),
     )
 

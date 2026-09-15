@@ -65,7 +65,7 @@ jobs:
           python-version: "3.12"
       - run: pip install ".[dev]"
       - run: alembic upgrade head
-      - run: pytest tests/integration/test_price_revisions.py -q
+      - run: pytest tests/integration -q
 
   docker-build:
     runs-on: ubuntu-latest

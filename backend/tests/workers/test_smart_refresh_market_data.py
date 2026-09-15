@@ -19,6 +19,7 @@ from app.workers.tasks import smart_refresh_market_data as smart_module
 @pytest.fixture(autouse=True)
 def reset_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     job_repository.clear_memory_jobs()
+    monkeypatch.setattr(smart_module, "plan_report_work", lambda **kwargs: 0)
     monkeypatch.setattr(
         smart_module.stock_assessment_repository,
         "latest_generated_at",
@@ -340,7 +341,7 @@ def test_smart_refresh_task_runs_13f_when_missing(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(smart_module, "refresh_institutional_13f_from_sec", fake_13f_refresh)
 
-    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart"})
+    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart", "inline_reports": True})
     result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
     updated = job_repository.get_job(job.job_id)
 
@@ -366,7 +367,7 @@ def test_smart_refresh_task_skips_13f_without_sec_user_agent(monkeypatch: pytest
         lambda *args, **kwargs: pytest.fail("13F should not start without SEC_USER_AGENT"),
     )
 
-    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart"})
+    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart", "inline_reports": True})
     result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
 
     assert result["ok"] is True
@@ -488,7 +489,9 @@ def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.M
     assert result["ok"] is True
     assert "price:SPY:6m:True" in calls
     assert "price:^GSPC:6m:True" in calls
-    assert calls[-3:] == ["breadth", "rs", "fundamentals:NVDA"]
+    assert calls[-2:] == ["breadth", "rs"]
+    assert "fundamentals:NVDA" not in calls
+    assert result["background_reports"]["independent"] is True
     assert result["results"]["refresh_breadth"]["snapshot_date"] == "2026-06-19"
     assert updated is not None
     assert updated.status == "done"
@@ -528,6 +531,7 @@ def test_smart_refresh_fundamentals_are_batched_and_deferred(monkeypatch: pytest
         {
             "mode": "smart",
             "force_fundamentals": True,
+            "inline_reports": True,
             "fundamental_universe": "all",
             "fundamental_max_refresh_count": 2,
         },

@@ -5,6 +5,7 @@ import { CheckCircle2, CircleDashed, Play, RotateCw, Save, SearchCheck, WandSpar
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
+import { ReportWorkStatus } from "@/components/ui/report-work-status";
 import { api } from "@/lib/api/client";
 import type {
   Job,
@@ -634,6 +635,7 @@ export default function JobsPage() {
         </button>
       </div>
 
+      <ReportWorkStatus />
       <JobsSetupStatusPanel
         activeJob={activeJob}
         cancellingJobId={cancelMutation.isPending ? cancelMutation.variables : null}

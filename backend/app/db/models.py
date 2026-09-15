@@ -24,6 +24,27 @@ def uuid_pk() -> Mapped[str]:
     return mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
 
 
+class RefreshWorkItem(Base):
+    __tablename__ = "refresh_work_items"
+    __table_args__ = (Index("ix_refresh_work_due", "status", "due_at"),)
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    data_group: Mapped[str] = mapped_column(String(32))
+    revision: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), default="queued")
+    priority: Mapped[int] = mapped_column(Integer, default=50)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    result_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    error: Mapped[str] = mapped_column(Text, default="")
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Instrument(Base):
     __tablename__ = "instruments"
 

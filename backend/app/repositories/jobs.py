@@ -35,6 +35,13 @@ _MEMORY_JOBS: dict[str, Job] = {}
 QUEUED_JOB_STALE_AFTER = timedelta(minutes=30)
 RUNNING_JOB_STALE_AFTER = timedelta(minutes=90)
 QUEUED_JOB_EXPIRES_SECONDS = int(QUEUED_JOB_STALE_AFTER.total_seconds())
+SERIAL_WAIT_JOB_TYPES = {"smart_refresh_market_data", "refresh_stock_assessments"}
+
+
+def queued_expiry_seconds(job_type: str) -> int:
+    return 6 * 60 * 60 if job_type in SERIAL_WAIT_JOB_TYPES else QUEUED_JOB_EXPIRES_SECONDS
+
+
 SCHEDULED_MONITOR_HISTORY_LIMIT = 20
 SCHEDULED_MONITOR_JOB_TYPE = "position_atr_monitor"
 SCHEDULER_REQUESTED_BY = "scheduler"
@@ -46,6 +53,8 @@ def create_job(
     *,
     requested_by: str = "api",
 ) -> Job:
+    if str(job_type) == "refresh_report_data" and requested_by == SCHEDULER_REQUESTED_BY:
+        prune_terminal_job_history(job_type="refresh_report_data", requested_by=requested_by, keep=100)
     if str(job_type) == SCHEDULED_MONITOR_JOB_TYPE and requested_by == SCHEDULER_REQUESTED_BY:
         prune_terminal_job_history(
             job_type=SCHEDULED_MONITOR_JOB_TYPE,
@@ -291,7 +300,7 @@ def _reconcile_stale_jobs_db(db: Session) -> int:
     reconciled = 0
     for row in rows:
         reference = row.heartbeat_at or row.started_at or row.requested_at or row.created_at
-        if reference is None or not _job_is_stale(row.status, reference, now):
+        if reference is None or not _job_is_stale(row.status, reference, now, row.job_type):
             continue
         row.status = "failed"
         row.current_step = "Verwaisten Job beendet"
@@ -396,7 +405,7 @@ def _reconcile_stale_jobs_memory() -> int:
         if job.status not in ACTIVE_JOB_STATUSES:
             continue
         reference = job.heartbeat_at or job.started_at or job.requested_at or job.created_at
-        if not _job_is_stale(job.status, reference, now):
+        if not _job_is_stale(job.status, reference, now, str(job.job_type)):
             continue
         _MEMORY_JOBS[job_id] = job.model_copy(
             update={
@@ -466,7 +475,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _job_is_stale(status: str, reference: datetime, now: datetime) -> bool:
+def _job_is_stale(status: str, reference: datetime, now: datetime, job_type: str = "") -> bool:
     normalized_reference = reference if reference.tzinfo is not None else reference.replace(tzinfo=UTC)
-    threshold = QUEUED_JOB_STALE_AFTER if status == "queued" else RUNNING_JOB_STALE_AFTER
+    threshold = timedelta(seconds=queued_expiry_seconds(job_type)) if status == "queued" else RUNNING_JOB_STALE_AFTER
     return normalized_reference < now - threshold

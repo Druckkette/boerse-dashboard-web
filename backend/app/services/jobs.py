@@ -45,6 +45,8 @@ def _job_list_summary(job: Job) -> Job:
             compacted, value_truncated = _compact_result_value(value, preserve_list=True)
             result[key] = compacted
             truncated = truncated or value_truncated
+        elif key in {"step_durations_seconds", "background_reports"} and isinstance(value, dict):
+            result[key] = {str(k): v for k, v in list(value.items())[:20] if isinstance(v, (str, int, float, bool)) or v is None}
         elif isinstance(value, list):
             result[f"{key}_count"] = len(value)
             truncated = True
@@ -113,7 +115,11 @@ def start_job(payload: JobCreateRequest) -> Job:
         for job in job_repository.list_active_jobs()
         if str(job.job_type) not in LIGHTWEIGHT_JOB_QUEUES
     ]
-    if job_type not in LIGHTWEIGHT_JOB_QUEUES and active_heavy_jobs:
+    if job_type in {"smart_refresh_market_data", "refresh_stock_assessments"}:
+        for active in active_heavy_jobs:
+            if active.job_type == job_type or (job_type == "refresh_stock_assessments" and active.job_type == "smart_refresh_market_data"):
+                return active
+    if job_type not in {*LIGHTWEIGHT_JOB_QUEUES, "smart_refresh_market_data", "refresh_stock_assessments"} and active_heavy_jobs:
         raise JobConflictError("Ein Job läuft bereits. Auf der NAS ist parallele Schwerarbeit gesperrt.")
 
     job = job_repository.create_job(payload.type, payload.payload, requested_by=payload.requested_by)
@@ -123,7 +129,7 @@ def start_job(payload: JobCreateRequest) -> Job:
             args=[job.job_id, payload.payload],
             queue=LIGHTWEIGHT_JOB_QUEUES.get(job_type, "default"),
             ignore_result=True,
-            expires=job_repository.QUEUED_JOB_EXPIRES_SECONDS,
+            expires=job_repository.queued_expiry_seconds(job_type),
         )
     except (CeleryError, KombuError, OSError, RuntimeError) as exc:
         failed = job_repository.mark_failed(

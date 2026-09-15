@@ -251,7 +251,7 @@ def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSe
     if not alerts:
         result["reason"] = "Keine neuen Positionssignale."
         return result
-    if not app_settings.pushover_enabled:
+    if not getattr(app_settings, "pushover_enabled", False):
         result.update(skipped=len(alerts), reason="Pushover ist in den Settings deaktiviert.")
         _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
         return result

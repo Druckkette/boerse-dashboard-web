@@ -36,13 +36,14 @@ def input_fingerprint(inputs: dict, *, engine_version: str, today: date) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def screen_universe(*, source_job_id: str = "") -> dict:
-    tickers = list(dict.fromkeys(universes.list_universe_tickers(limit=None)))
+def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None = None) -> dict:
+    tickers = list(dict.fromkeys(only_tickers if only_tickers is not None else universes.list_universe_tickers(limit=None)))
     if not tickers:
         raise ValueError("Das Aktienuniversum ist leer. Bitte zuerst das Aktienuniversum laden.")
-    cached = {row.ticker: row for row in stock_assessments.list_all_snapshots()}
+    cached_rows = stock_assessments.list_all_snapshots(tickers) if only_tickers is not None else stock_assessments.list_all_snapshots()
+    cached = {row.ticker: row for row in cached_rows}
     try:
-        revisions = stock_assessments.input_revisions()
+        revisions = stock_assessments.input_revisions(tickers) if only_tickers is not None else stock_assessments.input_revisions()
     except stock_assessments.StockAssessmentRepositoryUnavailable:
         revisions = {}  # Legacy schema: retain full, safe input comparison.
     started = monotonic()
@@ -140,7 +141,7 @@ def screen_universe(*, source_job_id: str = "") -> dict:
         item.item_json["_screening"] = run_summary
     if source_job_id:
         raise_if_cancelled(source_job_id)
-    stock_assessments.replace_snapshots(writes, source_job_id=source_job_id)
+    stock_assessments.replace_snapshots(writes, source_job_id=source_job_id, **({"replace_all": False} if only_tickers is not None else {}))
     return summary
 
 

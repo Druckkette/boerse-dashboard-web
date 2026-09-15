@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services.refresh_attempts import read_attempts, record_attempt, retry_due
+from app.services.report_planner import plan_report_work
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -138,10 +139,23 @@ def smart_refresh_market_data(self, job_id: str | None = None, payload: dict | N
             job_repository.mark_done(job.job_id, result=result, message="Smart-Refresh-Plan wurde geprüft.")
             return result
 
+        if not payload.get("inline_reports", False):
+            try:
+                count = plan_report_work(include_sec13f=bool(payload.get("include_sec13f", True)), include_fundamentals=bool(payload.get("include_fundamentals", True)))
+                result["background_reports"] = {"planned": count, "status": "queued", "independent": True}
+            except Exception as exc:
+                result["background_reports"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"[:300]}
+            actions = [action for action in actions if action.job_type not in {"refresh_fundamentals", "refresh_sec13f"}]
+            result["actions"] = [action.as_dict() for action in actions]
+
         if not actions:
             result["ok"] = True
+            result["partial"] = result.get("background_reports", {}).get("status") == "error"
             result["skipped"].append({"reason": "Alle geprüften Marktdaten sind aktuell."})
-            job_repository.mark_done(job.job_id, result=result, message="Alle geprüften Marktdaten sind aktuell.")
+            message = "Marktdaten aktuell. Berichtspflege wird getrennt im Hintergrund fortgesetzt."
+            if result["partial"]:
+                message = "Marktdaten aktuell; Berichtspflege konnte nicht eingeplant werden. Fehlerdetails pruefen."
+            job_repository.mark_done(job.job_id, result=result, message=message)
             return result
 
         total = max(1, len(actions))
@@ -166,7 +180,11 @@ def smart_refresh_market_data(self, job_id: str | None = None, payload: dict | N
                 message=action.reason,
                 result=result,
             )
-            action_result = _run_action(job.job_id, action, result=result, action_index=index, total_actions=total)
+            started = monotonic()
+            try:
+                action_result = _run_action(job.job_id, action, result=result, action_index=index, total_actions=total)
+            finally:
+                result.setdefault("step_durations_seconds", {})[action.key] = round(monotonic() - started, 2)
             result["results"][action.key] = action_result
 
         partial_actions = [
@@ -175,11 +193,11 @@ def smart_refresh_market_data(self, job_id: str | None = None, payload: dict | N
             if _action_requires_continuation(key, value)
         ]
         result["ok"] = True
-        result["partial"] = bool(partial_actions)
+        result["partial"] = bool(partial_actions or result["skipped"] or result.get("background_reports", {}).get("status") == "error")
         if partial_actions:
             result["partial_actions"] = partial_actions
         result["freshness_after"] = _freshness_summary(get_freshness())
-        message = f"Smart Refresh abgeschlossen: {len(actions)} notwendige Aktion(en) ausgeführt."
+        message = f"Marktzyklus abgeschlossen: {len(result['results'])} Aktionen. Berichtspflege laeuft unabhaengig im Hintergrund."
         if partial_actions:
             message = (
                 f"Smart Refresh teilweise abgeschlossen: {len(actions)} Aktion(en) geprüft; "
@@ -741,7 +759,8 @@ def _merge_price_symbols(symbols: list[Any], *, benchmark_ticker: str) -> list[A
         clean = str(ticker or "").strip().upper()
         if clean and clean not in by_ticker:
             by_ticker[clean] = _SimplePriceSymbol(source_ticker=clean, yahoo_symbol=clean)
-    return list(by_ticker.values())
+    priority = set(MARKET_CORE_PRICE_TICKERS) | set(VOLATILITY_TICKERS) | set(SECTOR_ETF_TICKERS) | set(position_tickers) | {benchmark_ticker, "SPY"}
+    return sorted(by_ticker.values(), key=lambda symbol: symbol.source_ticker not in priority)
 
 
 def _refresh_fundamentals(

@@ -38,11 +38,12 @@ class StockAssessmentRepositoryUnavailable(RuntimeError):
     pass
 
 
-def input_revisions() -> dict[str, str]:
+def input_revisions(tickers: list[str] | None = None) -> dict[str, str]:
     """Hash small dependency records in Postgres, never transfer OHLC history for reuse checks."""
     query = text("""
         SELECT i.ticker, md5(concat_ws('|', i.metadata_json->>'price_revision',
             r.revision, f.revision, h.revision, e.revision,
+            (SELECT metadata_json->>'price_revision' FROM instruments WHERE ticker = 'SPY'),
             (SELECT value_json->>'rs_rating_source' FROM app_settings WHERE key = 'runtime'))) AS revision
         FROM instruments i
         LEFT JOIN LATERAL (
@@ -64,28 +65,31 @@ def input_revisions() -> dict[str, str]:
             FROM earnings_events ee WHERE ee.ticker = i.ticker AND event_date >= CURRENT_DATE
         ) e ON true
         WHERE i.metadata_json->>'price_revision' IS NOT NULL
-    """)
+    """ + (" AND i.ticker = ANY(:tickers)" if tickers is not None else ""))
     try:
         with SessionLocal() as db:
-            return dict(db.execute(query).all())
+            return dict(db.execute(query, {"tickers": tickers} if tickers is not None else {}).all())
     except SQLAlchemyError as exc:
         raise StockAssessmentRepositoryUnavailable(str(exc)) from exc
 
 
-def replace_snapshots(rows: list[StockAssessmentSnapshotWrite], *, source_job_id: str = "") -> int:
+def replace_snapshots(rows: list[StockAssessmentSnapshotWrite], *, source_job_id: str = "", replace_all: bool = True) -> int:
     generated_at = datetime.now(UTC)
     try:
         with SessionLocal() as db:
-            existing = {row.ticker: row for row in db.scalars(select(StockAssessmentSnapshot)).all()}
+            query = select(StockAssessmentSnapshot)
+            if not replace_all:
+                query = query.where(StockAssessmentSnapshot.ticker.in_([row.ticker for row in rows]))
+            existing = {row.ticker: row for row in db.scalars(query).all()}
             published = {row.ticker for row in rows}
             for ticker, row in existing.items():
-                if ticker not in published:
+                if replace_all and ticker not in published:
                     db.delete(row)
             summary = rows[0].item_json.get("_screening", {}) if rows else {}
             summary_row = db.get(AppSetting, "stock_screening_summary")
-            if summary_row is None:
+            if summary_row is None and replace_all:
                 db.add(AppSetting(key="stock_screening_summary", value_json=summary, description="Atomic screening run summary"))
-            else:
+            elif replace_all:
                 summary_row.value_json = summary
             for item in rows:
                 data = {key: value for key, value in item.item_json.items() if key != "_screening"}
@@ -143,10 +147,13 @@ def count_snapshots() -> int:
         raise StockAssessmentRepositoryUnavailable(str(exc)) from exc
 
 
-def list_all_snapshots() -> list[StockAssessmentSnapshotRow]:
+def list_all_snapshots(tickers: list[str] | None = None) -> list[StockAssessmentSnapshotRow]:
     try:
         with SessionLocal() as db:
-            rows = db.scalars(select(StockAssessmentSnapshot).order_by(
+            query = select(StockAssessmentSnapshot)
+            if tickers is not None:
+                query = query.where(StockAssessmentSnapshot.ticker.in_(tickers))
+            rows = db.scalars(query.order_by(
                 StockAssessmentSnapshot.overall_score.desc(),
                 StockAssessmentSnapshot.technical_score.desc(),
                 StockAssessmentSnapshot.ticker.asc(),

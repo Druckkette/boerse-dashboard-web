@@ -36,11 +36,12 @@ export function StockAssessmentRankingPanel() {
   const query = useQuery({ queryKey: ["stock-screening", queryString], queryFn: () => api.stockScreening(queryString), enabled: open, staleTime: 60_000, refetchInterval: open ? 60_000 : false });
   const exportList = useMutation({ mutationFn: () => api.exportStockScreening(queryString) });
   const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, enabled: open, refetchInterval: open ? 10_000 : false });
-  const discovered = jobs.data?.find((value) => value.job_type === "refresh_stock_assessments" && !terminal.has(value.status));
+  const reportWork = useQuery({ queryKey: ["report-work"], queryFn: api.reportWork, enabled: open, refetchInterval: open ? 15_000 : false });
+  const discovered = jobs.data?.find((value) => ["refresh_stock_assessments", "smart_refresh_market_data"].includes(value.job_type) && !terminal.has(value.status));
   const selectedId = discovered?.job_id ?? jobId;
   const job = useQuery({
-    queryKey: ["job", selectedId], queryFn: () => api.job(selectedId!), enabled: Boolean(selectedId),
-    refetchInterval: (state) => state.state.data && terminal.has(state.state.data.status) ? false : 2000
+    queryKey: ["job-progress", selectedId], queryFn: () => api.jobProgress(selectedId!), enabled: open && Boolean(selectedId),
+    refetchInterval: (state) => state.state.data && terminal.has(state.state.data.status) ? false : 5000
   });
   const running = Boolean(selectedId && (!job.data || !terminal.has(job.data.status)));
   const start = useMutation({
@@ -49,7 +50,7 @@ export function StockAssessmentRankingPanel() {
   });
   const cancel = useMutation({
     mutationFn: () => api.cancelJob(selectedId!),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["job", selectedId] })
+    onSuccess: () => client.invalidateQueries({ queryKey: ["job-progress", selectedId] })
   });
   const jobStatus = job.data?.status;
   useEffect(() => {
@@ -78,7 +79,7 @@ export function StockAssessmentRankingPanel() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="text-base font-semibold">Bestenliste deines Aktienuniversums</h3>
             <p className="mt-1 text-sm text-[#687386]">{summary?.universe_count != null ? summary.records_written + " von " + summary.universe_count + " Aktien bewertet" : "Noch keine vollständige Universumsbewertung"}
-              {summary?.generated_at ? " · Auswertung " + new Date(summary.generated_at).toLocaleString("de-DE") : ""}</p>
+              {summary?.generated_at ? " · Universumsprüfung " + new Date(summary.generated_at).toLocaleString("de-DE") : ""}</p>
             {summary?.universe_count != null && <p className="mt-1 text-xs text-[#687386]">{summary.missing_count ?? 0} ohne ausreichende Kurse · {summary.stale_count ?? 0} mit altem Kursstand · {summary.error_count ?? 0} Bewertungsfehler</p>}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -91,9 +92,16 @@ export function StockAssessmentRankingPanel() {
             {running && <button type="button" onClick={() => cancel.mutate()} disabled={cancel.isPending} className={control + " inline-flex items-center gap-2"}><Square size={13} />Abbrechen</button>}
           </div>
           <progress className="mt-2 h-2 w-full accent-teal-700" value={job.data?.progress ?? 0} max={100} aria-label="Fortschritt der Universumsbewertung" />
-          <p className="mt-1 text-xs text-[#687386]">{job.data?.message}</p>
+          <p className="mt-1 text-xs text-[#687386]">{job.data?.job_type === "smart_refresh_market_data" ? "Marktzyklus: Die Bestenliste folgt auf Kurse und RS. " : ""}{job.data?.message}</p>
           {job.data?.error_message && <p className="mt-2 text-sm text-red-700">{job.data.error_message}</p>}
         </div>}
+        {reportWork.data && <div className="border-t border-[#e3e8ef] pt-3 text-sm text-[#475569]" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-2"><strong>Berichtspflege im Hintergrund</strong><Link href="/jobs" className="text-teal-800 underline">Jobs öffnen</Link></div>
+          <p>{reportWork.data.due_count} fällige Aufgaben · {reportWork.data.active.length ? reportWork.data.active.map((item) => `${item.ticker}: ${item.group}`).join(", ") : "Kein Paket aktiv"}</p>
+          {reportWork.data.oldest_due_at && <p className="text-xs">Älteste fällige Aufgabe: {new Date(reportWork.data.oldest_due_at).toLocaleString("de-DE")}</p>}
+          <details className="mt-2"><summary className="cursor-pointer">Datenbereiche und Wartezustände</summary><ul className="mt-2 space-y-1">{reportWork.data.groups.map((group) => <li key={`${group.group}:${group.status}`}>{({ statements: "EPS / Umsatz / ROE", beta: "Beta", sec13f: "13F", assessment: "Folgebewertung" } as Record<string, string>)[group.group] ?? group.group}: {group.count} · {({ queued: "eingeplant", running: "läuft", current: "geprüft / nächster Check geplant", waiting_source: "Daten der Quelle noch unvollständig", error: "Fehler / erneuter Versuch geplant" } as Record<string, string>)[group.status] ?? group.status}</li>)}</ul></details>
+        </div>}
+        {reportWork.error && <p role="status" className="text-sm text-amber-800">Berichtspflege-Status nicht verfügbar. Datenbankmigration und Jobs prüfen.</p>}
         {error && <p role="alert" className="text-sm text-red-700">{error instanceof Error ? error.message : "Bestenliste konnte nicht geladen werden."}</p>}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{filters.map((filter) => <label key={filter.label} className="grid gap-1 text-xs">{filter.label}<input className={control + " min-w-0 w-full"} type="number" min={0} max={filter.label.startsWith("RS") ? 99 : 100} value={filter.value} onChange={(event) => { filter.set(Math.max(0, Math.min(filter.label.startsWith("RS") ? 99 : 100, Number(event.target.value)))); setPage(0); }} /></label>)}</div>
         <div className="flex items-end gap-2">
