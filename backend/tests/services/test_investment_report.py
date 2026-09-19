@@ -116,7 +116,7 @@ def test_historical_report_never_calls_current_assessments(monkeypatch):
     from app.reports import collect
     entry = {"id": "entry-1", "ticker": "TEST", "portfolio_snapshot": {}, "market_snapshot": {},
              "stock_snapshot": {"assessment": {"source": "database", "scores": {"overall": 42}}}}
-    selected = SimpleNamespace(id="entry-1", linked_entry_id=None, ticker="TEST")
+    selected = SimpleNamespace(id="entry-1", linked_entry_id=None, trade_group_id=None, ticker="TEST")
     queries = []
     class DB:
         def scalar(self, query):

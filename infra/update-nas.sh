@@ -19,6 +19,9 @@ docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" pull
 echo "== Running database migrations =="
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile migrate run --rm migrate
 
+echo "== Projecting stored TR executions into the trade journal =="
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile migrate run --rm migrate python -m app.services.backfill_trade_journal
+
 echo "== Starting updated services =="
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
 

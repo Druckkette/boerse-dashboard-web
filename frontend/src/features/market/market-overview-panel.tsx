@@ -16,13 +16,14 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
   });
 
   if (isLoading) return <div className="rounded border border-[#2d333d] p-4">Market lädt...</div>;
-  if (error || !data) return <div className="rounded border border-rose-400/40 p-4">Market API nicht erreichbar.</div>;
+  if (!data) return <div className="rounded border border-rose-400/40 p-4">Market API nicht erreichbar.</div>;
 
   const overviewKpis = data.kpis.filter((item) => !isBreadthKpi(item.label));
   const trendDateMismatch = Boolean(data.trend_ampel && data.trend_ampel.as_of !== data.as_of);
 
   return (
     <section className="space-y-4">
+      {error && <p role="alert" className="rounded border border-amber-300 p-3 text-sm">Aktualisierung fehlgeschlagen. Angezeigt wird der letzte erfolgreich geladene Datenstand.</p>}
       <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>

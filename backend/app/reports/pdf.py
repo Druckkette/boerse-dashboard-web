@@ -52,7 +52,12 @@ LABELS = {
     "realized_pnl_eur": "Realisiertes Ergebnis (EUR)", "realized_pnl_pct": "Realisiertes Ergebnis (%)",
     "basis_text": "Ursprüngliche Begründung / Setup", "primary_reasons": "Hauptgründe",
     "sell_reason": "Verkaufsgrund", "alternative_entry_text": "Alternativer Einstieg",
-    "questionnaire": "Fragebogen", "portfolio_snapshot": "Position bei Erfassung",
+    "sell_assessment": "Automatische Verkaufsbewertung", "realized_pnl": "Realisiertes Ergebnis (Eintragswährung)",
+    "fees": "Gebühren", "tax": "Steuern", "allocations": "FIFO-Kaufzuordnung",
+    "cost_basis": "Einstand inklusive Kaufkosten", "net_proceeds": "Nettoverkaufserlös", "pnl": "Ergebnis",
+    "remaining_shares": "Verbleibende Stückzahl", "unallocated_shares": "Nicht zugeordnete Stückzahl",
+    "allocation_method": "Zuordnungsmethode", "cutoff": "Historische Datengrenze", "method": "Bewertungsmethode",
+    "evaluation": "Bewertung", "questionnaire": "Fragebogen", "portfolio_snapshot": "Position bei Erfassung",
     "market_snapshot": "Marktumfeld bei Erfassung", "created_at": "Erfasst am", "updated_at": "Zuletzt geändert",
     "checks": "Kriterien", "warnings": "Warnungen", "detail": "Erläuterung", "label": "Kriterium",
     "passed": "Kriterium erfüllt", "active": "Aktiv", "available": "Verfügbar", "score": "Score",
@@ -76,7 +81,7 @@ LABELS = {
     "ampel_phase": "Marktampel", "volatility_regime": "Volatilitätsregime", "breadth_mode": "Marktbreite",
 }
 # Transport/state-machine fields are not investor data. Never fetch remote chart URLs.
-SKIP = {"ticker", "id", "linked_entry_id", "key", "tone", "verdict_tone", "snapshot_schema",
+SKIP = {"source_transaction_id", "trade_group_id", "position_id", "buy_transaction_id", "ticker", "id", "linked_entry_id", "key", "tone", "verdict_tone", "snapshot_schema",
         "next_recommendation_state", "book_references", "raw_payload", "chart_images", "stock_snapshot",
         "points", "rs_history", "history", "error"}
 
@@ -294,9 +299,10 @@ def render_report(report: InvestmentReport) -> bytes:
         story.append(paragraph("Handelstagebuch", HEADING))
     for entry in report.journal:
         title = f"{label(entry.get('entry_type', ''))} · {entry.get('trade_date', '')}"
-        add_data(story, title, {k: v for k, v in entry.items() if k not in {"market_snapshot", "portfolio_snapshot"}})
-        add_data(story, "Position bei Erfassung", entry.get("portfolio_snapshot", {}))
-        add_data(story, "Marktumfeld bei Erfassung", entry.get("market_snapshot", {}))
+        add_data(story, title, {k: v for k, v in entry.items() if k not in {"market_snapshot", "portfolio_snapshot"} and v is not None and v != ""})
+        if entry.get("id") != report.trade_id:
+            add_data(story, "Position bei Erfassung", entry.get("portfolio_snapshot", {}))
+            add_data(story, "Marktumfeld bei Erfassung", entry.get("market_snapshot", {}))
         snapshot = entry.get("stock_snapshot", {})
         # Main historical assessment is already printed for the selected trade.
         if entry.get("id") != report.trade_id:

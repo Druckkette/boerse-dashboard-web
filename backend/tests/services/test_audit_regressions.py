@@ -41,7 +41,7 @@ def test_ampel_cycle_does_not_depend_on_chart_window(monkeypatch):
         return bars, ticker
 
     monkeypatch.setattr(market, "_load_cached_index_ohlcv", load)
-    monkeypatch.setattr(market, "daily_bar_is_final", lambda *args: True)
+    monkeypatch.setattr(market, "daily_bar_is_final", lambda *args, **kwargs: True)
     monkeypatch.setattr(market.market_repository, "get_latest_market_snapshot", lambda: None)
     monkeypatch.setattr(market, "get_volatility", lambda: VolatilityResponse(as_of="2026-09-11", source="missing", regime="n/a", status_cards=[], points=[]))
     monkeypatch.setattr(market, "_cached_intermarket_divergence", lambda: [])
@@ -111,7 +111,9 @@ def test_curve_failure_does_not_fall_back_to_current_holdings(monkeypatch):
 def test_header_does_not_compute_a_full_diagnosis(monkeypatch):
     monkeypatch.setattr(settings.settings_repository, "_read_json_setting", lambda key: {"decision_status": "trusted", "generated_at": "2026-01-01T00:00:00+00:00"})
     monkeypatch.setattr(settings, "get_data_diagnostics", lambda: pytest.fail("Expensive diagnosis in header"))
-    assert settings.get_data_quality_summary()["decision_status"] == "limited"
+    from app.services import system_quality
+    monkeypatch.setattr(system_quality, "get_system_quality", lambda: {"decision_status": "trusted"})
+    assert settings.get_data_quality_summary()["decision_status"] == "trusted"
 
 
 def test_retry_history_is_persistent_and_backs_off(monkeypatch):

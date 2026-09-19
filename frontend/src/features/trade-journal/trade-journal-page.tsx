@@ -605,12 +605,12 @@ function JournalChecklist({
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <MetricBox label="Preis" value={money(entry.price)} detail={`${entry.shares ?? "-"} Stück`} />
-        <MetricBox label="Stopp" value={money(entry.stop_price)} detail={entry.stop_distance_pct === null || entry.stop_distance_pct === undefined ? "Abstand offen" : `${entry.stop_distance_pct.toFixed(2)}% Abstand`} />
+        <MetricBox label="Preis" value={money(entry.price, entry.currency || "USD")} detail={`${entry.shares ?? "-"} Stück`} />
+        <MetricBox label="Stopp" value={money(entry.stop_price, entry.currency || "USD")} detail={entry.stop_distance_pct === null || entry.stop_distance_pct === undefined ? "Abstand offen" : `${entry.stop_distance_pct.toFixed(2)}% Abstand`} />
         <MetricBox
           label="P&L / Stop-Abweichung"
           value={entry.realized_pnl_pct === null || entry.realized_pnl_pct === undefined ? "-" : `${entry.realized_pnl_pct.toFixed(2)}%`}
-          detail={`${money(entry.realized_pnl_eur, "EUR")} · Stop-Abw. ${pct(entry.stop_deviation_pct)}`}
+          detail={`${money(entry.realized_pnl ?? entry.realized_pnl_eur, entry.realized_pnl != null ? entry.currency || "USD" : "EUR")} · Stop-Abw. ${pct(entry.stop_deviation_pct)}`}
         />
       </div>
 
@@ -638,6 +638,23 @@ function JournalChecklist({
 
       <TradeComparison entry={entry} counterpart={counterpart} loading={counterpartQuery.isLoading} />
       <StockSnapshotReport snapshot={entry.stock_snapshot} />
+      {entry.sell_assessment && Object.keys(entry.sell_assessment).length > 0 ? (
+        <section className="rounded border border-[#e3e8ef] p-4">
+          <h3 className="font-semibold">Automatische Verkaufsbewertung</h3>
+          <p className="mt-2 text-sm text-[#687386]">{String(entry.sell_assessment.method || "")}</p>
+          <p className="text-sm">{String(entry.sell_assessment.cutoff || "")}</p>
+          <p className="mt-2 text-sm">{String(entry.sell_assessment.message || "")}</p>
+          {recordValue(entry.sell_assessment.evaluation).display_label ? <p className="mt-2 font-semibold">{String(recordValue(entry.sell_assessment.evaluation).display_label)}</p> : null}
+          <p className="text-sm">{String(recordValue(entry.sell_assessment.evaluation).explanation_short || "")}</p>
+          {["emergency_features", "offensive_features", "defensive_features"].map((key) => (
+            <div key={key} className="mt-3 space-y-2">
+              {recordArray(recordValue(entry.sell_assessment?.evaluation)[key]).map((feature, index) => (
+                <p key={index} className="text-sm"><strong>{String(feature.label || "Kriterium")}</strong> · {feature.active ? "Aktiv" : "Nicht aktiv"} · {String(feature.value || "")}<br />{String(feature.detail || "")}</p>
+              ))}
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {Object.keys(entry.questionnaire).length > 0 && (
         <div className="rounded border border-[#242a33] bg-[#111419] p-4 print:border-gray-300 print:bg-white">
@@ -711,9 +728,9 @@ function ComparisonColumn({ entry, label }: { entry: TradeJournalEntryDetail | n
       </div>
       <div className="grid gap-2 text-sm text-[#c9d0da]">
         <div>Datum: {entry.trade_date}</div>
-        <div>Preis: {money(entry.price)}</div>
+        <div>Preis: {money(entry.price, entry.currency || "USD")}</div>
         <div>Stückzahl: {entry.shares ?? "-"}</div>
-        <div>Stopp: {money(entry.stop_price)} · {pct(entry.stop_distance_pct)}</div>
+        <div>Stopp: {money(entry.stop_price, entry.currency || "USD")} · {pct(entry.stop_distance_pct)}</div>
       </div>
     </div>
   );

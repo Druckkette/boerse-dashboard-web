@@ -426,6 +426,7 @@ def monitor_open_position_atr(
                 ),
                 "monitor": monitor_state,
                 "trend_monitor": trend_monitor,
+                "stop_observation": _stop_observation(row, quote),
             }
         )
 
@@ -1325,3 +1326,18 @@ def _json_safe(value: Any) -> Any:
 
 def _clean_ticker(ticker: str) -> str:
     return str(ticker or "").upper().strip()
+
+
+def _stop_observation(row, quote):
+    price = _position_monitor_live_price(quote)
+    stop = row.stop_price
+    if stop is None and row.stop_pct is not None:
+        stop = row.entry_price * (1 - row.stop_pct / 100)
+    source_currency = yahoo_quote_currency(row.ticker)
+    if price is not None and source_currency != row.currency:
+        source_factor = cached_currency_usd_factor(source_currency)
+        target_factor = cached_currency_usd_factor(row.currency)
+        price = price * source_factor / target_factor if source_factor and target_factor else None
+    return {"identity": row.position_id or f"{row.ticker}:{row.buy_date}", "ticker": row.ticker,
+            "name": row.name, "currency": row.currency, "price": price, "stop": stop,
+            "quote_at": quote.quote_at.isoformat() if quote and quote.quote_at else None}

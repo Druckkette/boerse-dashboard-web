@@ -807,27 +807,12 @@ def _shell_quote(value: str) -> str:
 def get_data_diagnostics() -> DataDiagnosticsResponse:
     from app.services.data_quality import build_data_diagnostics
 
-    result = build_data_diagnostics()
-    try:
-        settings_repository._write_json_setting("data_quality_summary", {
-            "decision_status": result.decision_status,
-            "summary": result.summary,
-            "generated_at": result.generated_at.isoformat(),
-        }, description="Last full data-quality diagnosis; header never runs a full portfolio scan")
-    except SettingsRepositoryUnavailable:
-        pass
-    return result
+    return build_data_diagnostics()
 
 
 def get_data_quality_summary() -> dict:
-    try:
-        result = settings_repository._read_json_setting("data_quality_summary")
-        generated = datetime.fromisoformat(result.get("generated_at", ""))
-        if 0 <= (datetime.now(UTC) - generated).total_seconds() <= 300:
-            return result
-    except (SettingsRepositoryUnavailable, ValueError, TypeError):
-        pass
-    return {"decision_status": "limited", "summary": "Keine aktuelle Gesamtdiagnose. Datenqualitaet in Settings pruefen.", "generated_at": None}
+    from app.services.system_quality import get_system_quality
+    return get_system_quality()
 
 
 def _settings_from_values(values: dict) -> AppSettings:

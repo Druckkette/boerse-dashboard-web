@@ -170,6 +170,7 @@ class MarketAmpelChartMarker(BaseModel):
 
 
 class MarketAmpelResponse(BaseModel):
+    component_errors: list[str] = Field(default_factory=list)
     as_of: str
     confirmed_as_of: str = ""
     quote_as_of: str = ""
@@ -178,7 +179,7 @@ class MarketAmpelResponse(BaseModel):
     ticker: str
     name: str
     source: Literal["database", "missing"]
-    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     message: str = ""
     warning_count: int
     breadth_mode: Literal["schutz", "wachsam", "rueckenwind"]
@@ -199,7 +200,7 @@ class MarketOverviewResponse(BaseModel):
     as_of: str
     as_of_time: str = ""
     source: Literal["database", "synthetic_fixture", "missing"]
-    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     message: str = ""
     phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
     phase_label: str
@@ -271,7 +272,7 @@ class BreadthResponse(BaseModel):
     as_of: str
     universe: str
     source: Literal["database", "synthetic_fixture", "missing"]
-    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     message: str = ""
     coverage_ratio: float
     loaded_universe: int = 0
@@ -424,7 +425,7 @@ class SectorRankingPoint(BaseModel):
 class SectorRankingResponse(BaseModel):
     as_of: str
     source: Literal["database", "missing", "synthetic_fixture"]
-    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     mode: Literal["daily", "weekly"]
     message: str = ""
     rows: list[SectorRankingRow]
@@ -467,9 +468,10 @@ class MarketSectorRotationGroup(BaseModel):
 
 
 class MarketDiagnosticsResponse(BaseModel):
+    component_errors: list[str] = Field(default_factory=list)
     as_of: str
     source: Literal["database", "synthetic_fixture", "missing"]
-    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     message: str = ""
     summary: str
     warning_count: int
@@ -496,7 +498,7 @@ class PriceHistoryResponse(BaseModel):
     currency: str = "USD"
     range: Literal["1m", "3m", "6m", "1y", "2y", "5y"]
     source: Literal["database", "missing"]
-    data_status: Literal["fresh", "stale", "missing", "fallback"]
+    data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     as_of: str
     expected_as_of: str = ""
     session_phase: Literal["intraday", "closed", "fallback"] = "closed"
@@ -1329,6 +1331,11 @@ class TradeJournalEntryRequest(BaseModel):
 
 
 class TradeJournalEntrySummary(BaseModel):
+    currency: str = "USD"
+    realized_pnl: float | None = None
+    source_transaction_id: str | None = None
+    trade_group_id: str | None = None
+    position_id: str | None = None
     id: str
     ticker: str
     entry_type: Literal["buy", "sell", "ex_post"]
@@ -1346,6 +1353,7 @@ class TradeJournalEntrySummary(BaseModel):
 
 
 class TradeJournalEntryDetail(TradeJournalEntrySummary):
+    sell_assessment: dict = Field(default_factory=dict)
     stop_price: float | None = None
     stop_distance_pct: float | None = None
     stop_deviation_pct: float | None = None

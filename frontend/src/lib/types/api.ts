@@ -29,7 +29,7 @@ export type MarketOverview = {
   as_of: string;
   as_of_time: string;
   source: "database" | "synthetic_fixture" | "missing";
-  data_status: "fresh" | "stale" | "missing" | "fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback" | "partial";
   message: string;
   phase: MarketPhase;
   phase_label: string;
@@ -148,6 +148,7 @@ export type MarketAmpelChartMarker = {
 };
 
 export type MarketAmpel = {
+  component_errors?: string[];
   confirmed_as_of?: string;
   quote_as_of?: string;
   intraday?: boolean;
@@ -156,7 +157,7 @@ export type MarketAmpel = {
   ticker: string;
   name: string;
   source: "database" | "missing";
-  data_status: "fresh" | "stale" | "missing" | "fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback" | "partial";
   message: string;
   warning_count: number;
   breadth_mode: "schutz" | "wachsam" | "rueckenwind";
@@ -189,7 +190,7 @@ export type Breadth = {
   as_of: string;
   universe: string;
   source: "database" | "synthetic_fixture" | "missing";
-  data_status: "fresh" | "stale" | "missing" | "fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback" | "partial";
   message: string;
   coverage_ratio: number;
   loaded_universe: number;
@@ -386,7 +387,7 @@ export type SectorRankingPoint = {
 export type SectorRanking = {
   as_of: string;
   source: "database" | "missing" | "synthetic_fixture";
-  data_status: "fresh" | "stale" | "missing" | "fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback" | "partial";
   mode: "daily" | "weekly";
   message: string;
   rows: SectorRankingRow[];
@@ -429,9 +430,10 @@ export type MarketSectorRotationGroup = {
 };
 
 export type MarketDiagnostics = {
+  component_errors?: string[];
   as_of: string;
   source: "database" | "synthetic_fixture" | "missing";
-  data_status: "fresh" | "stale" | "missing" | "fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback" | "partial";
   message: string;
   summary: string;
   warning_count: number;
@@ -696,6 +698,11 @@ export type TradeJournalEntryRequest = {
 };
 
 export type TradeJournalEntrySummary = {
+  currency?: string;
+  realized_pnl?: number | null;
+  source_transaction_id?: string | null;
+  trade_group_id?: string | null;
+  position_id?: string | null;
   id: string;
   ticker: string;
   entry_type: TradeJournalEntryType;
@@ -713,6 +720,7 @@ export type TradeJournalEntrySummary = {
 };
 
 export type TradeJournalEntryDetail = TradeJournalEntrySummary & {
+  sell_assessment?: Record<string, unknown>;
   stop_price?: number | null;
   stop_distance_pct?: number | null;
   stop_deviation_pct?: number | null;
@@ -909,7 +917,7 @@ export type PriceHistory = {
   currency: string;
   range: PriceRange;
   source: "database" | "missing";
-  data_status: "fresh" | "stale" | "missing" | "fallback";
+  data_status: "fresh" | "stale" | "missing" | "fallback" | "partial";
   as_of: string;
   expected_as_of: string;
   session_phase: "intraday" | "closed" | "fallback";

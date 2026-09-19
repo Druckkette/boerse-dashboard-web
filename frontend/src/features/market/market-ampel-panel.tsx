@@ -42,7 +42,7 @@ export function MarketAmpelPanel({
     return <section className="rounded-[24px] border border-[#e3e8ef] bg-white p-5 text-sm text-[#687386] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">Marktampel lädt...</section>;
   }
 
-  if (query.error || !query.data) {
+  if (!query.data) {
     return (
       <section className="rounded-[24px] border border-[#f0b9b5] bg-[#fff0ef] p-5 text-sm font-medium text-[#c2413b] shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
         Marktampel ist aktuell nicht erreichbar.
@@ -75,6 +75,7 @@ export function MarketAmpelPanel({
 
   return (
     <section className="space-y-4">
+      {query.isError && <p role="alert" className="rounded border border-amber-300 p-3 text-sm">Aktualisierung fehlgeschlagen. Angezeigt wird der letzte erfolgreich geladene Datenstand.</p>}
       <CompactMarketAmpel
         data={data}
         days={days}
@@ -153,6 +154,7 @@ function CompactMarketAmpel({
           <h1 className="mr-1 text-base font-semibold text-[#0f172a]">Marktampel</h1>
           <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
           <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
+          {data.component_errors?.length ? <span role="status" className="text-xs text-amber-700">{data.component_errors.join(" · ")}</span> : null}
           {data.intraday ? (
             <span className="text-xs text-[#687386]">Kurs vorläufig · Ampel bestätigt bis {data.confirmed_as_of}</span>
           ) : null}

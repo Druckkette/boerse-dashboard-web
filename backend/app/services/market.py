@@ -129,10 +129,8 @@ def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOvervi
     if snapshot is None:
         return _missing_market_overview()
 
-    ampel = get_market_ampel(ticker=clean_ticker)
     trend_ampel = _market_trend_ampel_for_ticker(clean_ticker, lookback_days=550)
-    overview = _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
-    return overview.model_copy(update={"warning_count": ampel.warning_count, "as_of_time": ampel.as_of_time})
+    return _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
 
 
 def _build_market_overview_response(clean_ticker, snapshot, trend_ampel) -> MarketOverviewResponse:
@@ -187,9 +185,17 @@ def get_market_ampel(
         else _missing_market_overview()
     )
     overview.as_of_time = bars[-1].fetched_at.isoformat() if bars[-1].fetched_at else ""
-    volatility = get_volatility()
-    intermarket = _cached_intermarket_divergence()
-    rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
+    component_errors = []
+    volatility = _optional_market_component("Volatilität", get_volatility, _empty_volatility(), component_errors)
+    intermarket = _optional_market_component("Intermarket", _cached_intermarket_divergence, [], component_errors)
+    rotation_groups, defensive_lead, defensive_spread = _optional_market_component(
+        "Sektorrotation", _cached_sector_rotation, ([], None, None), component_errors)
+    if volatility.source == "missing":
+        component_errors.append("Volatilität: keine Daten")
+    if not intermarket:
+        component_errors.append("Intermarket: keine Daten")
+    if not rotation_groups:
+        component_errors.append("Sektorrotation: keine Daten")
     response = build_market_ampel_response(
         ticker=clean_ticker,
         name=MARKET_AMPEL_INDEXES.get(clean_ticker, clean_ticker),
@@ -203,6 +209,10 @@ def get_market_ampel(
         defensive_lead=defensive_lead,
         defensive_spread_pct=defensive_spread,
     )
+    response.component_errors = component_errors
+    if component_errors and response.data_status != "missing":
+        response.data_status = "partial"
+        response.message += " Teilweise verfügbar: " + "; ".join(component_errors)
     response.chart_points = _ampel_chart_points(all_points[-clean_days:])
     response.confirmed_as_of = points[-1].date
     response.quote_as_of = all_points[-1].date
@@ -225,9 +235,10 @@ def _cached_ampel_calculation(bars: tuple[TrendAmpelBar, ...], ticker: str) -> t
 
 def _confirmed_ampel_bars(bars):
     # Stop at the first unconfirmed session: skipping it would join nonconsecutive days.
+    completed = completed_us_market_session()
     confirmed = []
     for bar in bars:
-        if not daily_bar_is_final(bar.date, bar.fetched_at):
+        if not daily_bar_is_final(bar.date, bar.fetched_at, completed=completed):
             break
         confirmed.append(bar)
     return confirmed
@@ -1003,9 +1014,17 @@ def get_market_diagnostics(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketDia
     clean_ticker = _normalize_ampel_ticker(ticker)
     overview = get_market_overview(ticker=clean_ticker)
     breadth = get_breadth()
-    volatility = get_volatility()
-    intermarket = _cached_intermarket_divergence()
-    rotation_groups, defensive_lead, defensive_spread = _cached_sector_rotation()
+    component_errors = []
+    volatility = _optional_market_component("Volatilität", get_volatility, _empty_volatility(), component_errors)
+    intermarket = _optional_market_component("Intermarket", _cached_intermarket_divergence, [], component_errors)
+    rotation_groups, defensive_lead, defensive_spread = _optional_market_component(
+        "Sektorrotation", _cached_sector_rotation, ([], None, None), component_errors)
+    if volatility.source == "missing":
+        component_errors.append("Volatilität: keine Daten")
+    if not intermarket:
+        component_errors.append("Intermarket: keine Daten")
+    if not rotation_groups:
+        component_errors.append("Sektorrotation: keine Daten")
     benchmark_drawdown_pct = _cached_benchmark_drawdown_pct(clean_ticker)
 
     checklist = _build_market_diagnostic_checks(
@@ -1019,12 +1038,13 @@ def get_market_diagnostics(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketDia
     )
     warning_count = sum(1 for item in checklist if not item.passed and item.tone in {"warning", "bad"})
     source = _diagnostics_source(overview, intermarket, rotation_groups)
-    data_status = overview.data_status if source != "missing" else "missing"
+    data_status = ("partial" if component_errors else overview.data_status) if source != "missing" else "missing"
 
     return MarketDiagnosticsResponse(
         as_of=overview.as_of,
         source=source,
         data_status=data_status,
+        component_errors=component_errors,
         message=_market_diagnostics_message(source, overview, breadth, intermarket, rotation_groups),
         summary=_market_diagnostics_summary(warning_count, defensive_lead, intermarket),
         warning_count=warning_count,
@@ -3373,3 +3393,17 @@ def _trailing_return(values: list[float | None], periods: int) -> float | None:
     if current is None or previous is None or previous <= 0:
         return None
     return (current / previous - 1) * 100
+
+
+def _empty_volatility():
+    return VolatilityResponse(as_of="", source="missing", regime="Nicht verfügbar", status_cards=[], points=[])
+
+
+def _optional_market_component(name, loader, empty, errors):
+    import logging
+    try:
+        return loader()
+    except Exception:
+        logging.getLogger(__name__).exception("Market component failed: %s", name)
+        errors.append(f"{name}: Abruf fehlgeschlagen")
+        return empty

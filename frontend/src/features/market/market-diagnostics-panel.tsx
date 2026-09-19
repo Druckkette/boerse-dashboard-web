@@ -30,7 +30,7 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
     );
   }
 
-  if (query.error || !data) {
+  if (!data) {
     return (
       <section className="rounded border border-rose-400/40 bg-rose-400/10 p-5 text-sm text-rose-100">
         Markt-Diagnose ist aktuell nicht erreichbar.
@@ -43,6 +43,7 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
 
   return (
     <section className="space-y-4">
+      {query.isError && <p role="alert" className="rounded border border-amber-300 p-3 text-sm">Aktualisierung fehlgeschlagen. Angezeigt wird der letzte erfolgreich geladene Datenstand.</p>}
       <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -58,6 +59,7 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
             </div>
             <h2 className="text-xl font-semibold tracking-normal">Tägliche Markt-Diagnose</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">{data.summary}</p>
+            {data.component_errors?.length ? <p role="status" className="text-sm text-amber-700">{data.component_errors.join(" · ")}</p> : null}
             {data.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[#77808f]">{data.message}</p>}
           </div>
           <button

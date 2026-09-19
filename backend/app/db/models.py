@@ -250,6 +250,7 @@ class EarningsEvent(Base):
 
 class Position(Base):
     __tablename__ = "positions"
+    import_trade_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
 
     id: Mapped[str] = uuid_pk()
     instrument_id: Mapped[str | None] = mapped_column(ForeignKey("instruments.id"), nullable=True)
@@ -444,6 +445,12 @@ class SellPostMortemNote(Base):
 
 class TradeJournalEntry(Base):
     __tablename__ = "trade_journal_entries"
+    source_transaction_id: Mapped[str | None] = mapped_column(ForeignKey("transactions.id"), unique=True, nullable=True)
+    trade_group_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    position_id: Mapped[str | None] = mapped_column(ForeignKey("positions.id"), nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), default="USD", server_default="USD")
+    realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sell_assessment_json: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     __table_args__ = (
         Index("ix_trade_journal_ticker_type_status", "ticker", "entry_type", "status"),
         Index("ix_trade_journal_trade_date", "trade_date"),

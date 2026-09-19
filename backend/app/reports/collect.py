@@ -34,7 +34,8 @@ def collect_report(ticker: str, trade_id: str | None = None) -> InvestmentReport
         if selected:
             # Only this trade and explicitly linked entries, never unrelated ticker history.
             root_id = selected.linked_entry_id or selected.id
-            query = query.where(or_(TradeJournalEntry.id == selected.id,
+            query = query.where(or_(TradeJournalEntry.trade_group_id == selected.trade_group_id,
+                                       TradeJournalEntry.id == selected.id) if selected.trade_group_id else or_(TradeJournalEntry.id == selected.id,
                                     TradeJournalEntry.id == root_id,
                                     TradeJournalEntry.linked_entry_id == root_id))
         journal = [_detail_from_row(row).model_dump(mode="json") for row in db.scalars(
@@ -65,6 +66,8 @@ def collect_report(ticker: str, trade_id: str | None = None) -> InvestmentReport
         snapshot = entry["stock_snapshot"]
         assessment = snapshot.get("assessment", snapshot)
         prices = snapshot.get("price_history", {})
+        if not prices and entry.get("source_transaction_id"):
+            prices = {"last_close": entry.get("price"), "last_date": entry.get("trade_date"), "currency": entry.get("currency")}
         sections.append(ReportSection("Position zum Trade-Zeitpunkt", entry["portfolio_snapshot"]))
         sections.append(ReportSection("Marktumfeld zum Trade-Zeitpunkt", entry["market_snapshot"]))
         for key, title in [("fundamentals", "Fundamentaldaten"),

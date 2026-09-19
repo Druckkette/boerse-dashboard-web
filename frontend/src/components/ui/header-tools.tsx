@@ -83,9 +83,9 @@ function DataQualityLink() {
     queryKey: ["data-quality-header"],
     queryFn: api.dataQualitySummary,
     staleTime: 60_000,
-    refetchInterval: 5 * 60_000
+    refetchInterval: 60_000
   });
-  const status = diagnostics.data?.decision_status ?? "limited";
+  const status = diagnostics.isError ? "blocked" : diagnostics.data?.decision_status;
   const Icon = status === "trusted" ? CheckCircle2 : status === "blocked" ? XCircle : AlertTriangle;
   const tone = status === "trusted"
     ? "border-[#b7e2cf] bg-[#eaf7ef] text-[#138a57]"
@@ -96,10 +96,10 @@ function DataQualityLink() {
     <Link
       className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-[10px] border px-3 text-sm font-semibold transition hover:brightness-[0.98] ${tone}`}
       href="/settings#data-quality"
-      title={diagnostics.data?.summary ?? "Datenqualität wird geprüft"}
+      title={diagnostics.isError ? "Aktueller Systemstatus konnte nicht geladen werden." : diagnostics.data?.summary ?? "Datenqualität wird geprüft"}
     >
       {diagnostics.isLoading ? <Database className="size-4 animate-pulse" /> : <Icon className="size-4" />}
-      {diagnostics.isLoading ? "Daten prüfen" : qualityLabel(status)}
+      {diagnostics.isLoading ? "Daten prüfen" : diagnostics.isError ? "Status nicht verfügbar" : status === "trusted" ? "OK" : status ? qualityLabel(status) : "Status unbekannt"}
     </Link>
   );
 }

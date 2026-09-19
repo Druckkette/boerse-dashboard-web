@@ -28,6 +28,7 @@ class PortfolioPositionRow:
     account: str = ""
     note: str = ""
     current_price_source: str = ""
+    position_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -261,6 +262,7 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                         account=position.account or "",
                         note=position.note or "",
                         current_price_source=current_price_source,
+                        position_id=position.id,
                     )
                 )
             return rows
@@ -322,6 +324,7 @@ def _list_open_positions_without_stop_price_column() -> list[PortfolioPositionRo
                         account=str(position.get("account") or ""),
                         note=str(position.get("note") or ""),
                         current_price_source=current_price_source,
+                        position_id=position.id,
                     )
                 )
             return rows
@@ -718,154 +721,9 @@ def import_trade_republic_transactions(
     file_name: str,
     replace_open_positions: bool,
 ) -> TradeRepublicImportResult:
-    try:
-        with SessionLocal() as db:
-            import_batch = ImportBatch(
-                source="trade_republic_transactions",
-                file_name=file_name,
-                status="running",
-                rows_total=len(transactions),
-                rows_imported=0,
-                metadata_json={"replace_open_positions": replace_open_positions},
-            )
-            db.add(import_batch)
-            db.flush()
-
-            imported_tickers = {item.ticker.upper().strip() for item in positions if item.ticker.strip()}
-
-            for isin, ticker in mappings.items():
-                clean_isin = str(isin or "").upper().strip()
-                clean_ticker = str(ticker or "").upper().strip()
-                if not clean_isin or not clean_ticker:
-                    continue
-                instrument = _get_or_create_instrument(db, ticker=clean_ticker, name=clean_ticker, currency="EUR")
-                row = db.scalars(
-                    select(IsinMapping).where(
-                        IsinMapping.isin == clean_isin,
-                        IsinMapping.source == "trade_republic",
-                    )
-                ).first()
-                if row is None:
-                    row = IsinMapping(
-                        isin=clean_isin,
-                        ticker=clean_ticker,
-                        instrument_id=instrument.id,
-                        source="trade_republic",
-                        confidence=1.0,
-                        metadata_json={},
-                    )
-                    db.add(row)
-                else:
-                    row.ticker = clean_ticker
-                    row.instrument_id = instrument.id
-                    row.confidence = 1.0
-
-            if replace_open_positions:
-                stale_query = select(Position).where(Position.is_open.is_(True))
-                if imported_tickers:
-                    stale_query = stale_query.where(Position.ticker.not_in(imported_tickers))
-                for position in db.scalars(stale_query).all():
-                    position.is_open = False
-                    position.closed_at = datetime.now(UTC)
-
-            positions_by_isin = {item.isin: item for item in positions}
-            position_by_ticker: dict[str, Position] = {}
-            imported_positions = 0
-            for item in positions:
-                instrument = _get_or_create_instrument(
-                    db,
-                    ticker=item.ticker,
-                    name=item.name or item.ticker,
-                    currency=item.currency or "EUR",
-                )
-                position = db.scalars(
-                    select(Position).where(Position.ticker == item.ticker, Position.is_open.is_(True)).limit(1)
-                ).first()
-                if position is None:
-                    position = Position(
-                        instrument_id=instrument.id,
-                        ticker=item.ticker,
-                        shares=item.shares,
-                        buy_price=item.avg_buy_price,
-                        buy_date=_parse_date(item.first_buy_date),
-                        currency=item.currency or "EUR",
-                        broker="Trade Republic",
-                        account="Trade Republic",
-                        note=f"TR-Transaktionsimport / ISIN {item.isin}",
-                    )
-                    db.add(position)
-                    db.flush()
-                else:
-                    position.instrument_id = instrument.id
-                    position.shares = item.shares
-                    position.buy_price = item.avg_buy_price
-                    position.buy_date = _parse_date(item.first_buy_date)
-                    position.currency = item.currency or position.currency
-                    position.broker = "Trade Republic"
-                    position.account = "Trade Republic"
-                    position.note = f"TR-Transaktionsimport / ISIN {item.isin}"
-                position_by_ticker[item.ticker] = position
-                imported_positions += 1
-
-            existing_external_ids = {
-                item
-                for item in db.scalars(
-                    select(Transaction.external_id).where(
-                        Transaction.external_id.in_([row.external_id for row in transactions])
-                    )
-                ).all()
-                if item
-            }
-            transactions_imported = 0
-            for row in transactions:
-                ticker = mappings.get(row.isin, "") if row.isin else ""
-                position = position_by_ticker.get(ticker)
-                instrument = None
-                if ticker:
-                    name = positions_by_isin.get(row.isin).name if row.isin in positions_by_isin else row.name or ticker
-                    instrument = _get_or_create_instrument(db, ticker=ticker, name=name, currency=row.currency or "EUR")
-                existing = None
-                if row.external_id in existing_external_ids:
-                    existing = db.scalars(
-                        select(Transaction).where(Transaction.external_id == row.external_id).limit(1)
-                    ).first()
-                target = existing or Transaction()
-                target.position_id = position.id if position is not None else None
-                target.instrument_id = instrument.id if instrument is not None else None
-                target.ticker = ticker
-                target.date = row.date.date()
-                target.transaction_type = row.transaction_type.lower()
-                target.shares = abs(float(row.shares or 0.0))
-                target.price = float(row.price or 0.0) if row.price else None
-                target.fees = float(row.fee or 0.0)
-                target.tax = float(row.tax or 0.0)
-                target.gross_amount = float(row.amount or 0.0)
-                target.net_amount = float(row.cash_delta)
-                target.currency = row.currency or "EUR"
-                target.broker = "Trade Republic"
-                target.external_id = row.external_id
-                target.import_id = import_batch.id
-                target.raw_json = {
-                    **row.raw,
-                    "source": "trade_republic_transactions",
-                    "isin": row.isin,
-                    "cash_delta": row.cash_delta,
-                }
-                if existing is None:
-                    db.add(target)
-                    transactions_imported += 1
-
-            import_batch.status = "done"
-            import_batch.rows_imported = imported_positions
-            import_batch.finished_at = datetime.now(UTC)
-            db.commit()
-            return TradeRepublicImportResult(
-                import_id=import_batch.id,
-                rows_imported=imported_positions,
-                transactions_imported=transactions_imported,
-            )
-    except SQLAlchemyError as exc:
-        raise PortfolioRepositoryUnavailable(str(exc)) from exc
+    from app.repositories.tr_import import import_transactions
+    return import_transactions(transactions=transactions, positions=positions, mappings=mappings,
+                               file_name=file_name, replace_open_positions=replace_open_positions)
 
 
 def _parse_date(value: str | None) -> date | None:

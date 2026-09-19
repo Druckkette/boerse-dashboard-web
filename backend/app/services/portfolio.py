@@ -1762,7 +1762,15 @@ def import_trade_republic_transaction_export(
         for item in diagnostics
         if str(item.get("ticker") or "").strip()
     }
-    reconstructed, skipped = reconstruct_open_positions(rows, ticker_by_isin)
+    from app.repositories.tr_import import merged_rows
+    from sqlalchemy.exc import SQLAlchemyError
+    try:
+        projection_rows = merged_rows(rows)
+    except SQLAlchemyError:
+        if not payload.dry_run:
+            raise PortfolioRepositoryUnavailable("Gespeicherte TR-Historie nicht erreichbar; Import abgebrochen.")
+        projection_rows = rows
+    reconstructed, skipped = reconstruct_open_positions(projection_rows, ticker_by_isin)
     fx_rate = get_eur_usd_rate()
     normalized_reconstructed = _trade_republic_positions_to_usd(reconstructed, fx_rate)
     converted_isins = {item.isin for item in reconstructed if str(item.currency or "").upper() == "EUR"}

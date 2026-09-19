@@ -25,6 +25,8 @@ REFERENCE_TR_EXPORT = next(
 
 @pytest.fixture(autouse=True)
 def fixed_fx_rate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.repositories import tr_import
+    monkeypatch.setattr(tr_import, "merged_rows", lambda rows: rows)
     monkeypatch.setattr(
         portfolio_service,
         "get_eur_usd_rate",

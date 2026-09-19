@@ -85,6 +85,11 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
         if result.get("skipped"):
             job_repository.mark_skipped(job.job_id, message=str(result.get("reason") or "Keine Positionen."), result=result)
             return result
+        from app.services.stop_alerts import deliver_stop_alerts
+        result["stop_delivery"] = deliver_stop_alerts(
+            [item["stop_observation"] for item in result.get("items", []) if item.get("stop_observation")],
+            lambda alerts: _deliver_monitor_alerts(alerts, app_settings=settings),
+        )
         result = _apply_cooldown_state(result, monitor_settings=monitor_settings, persist_state=False)
         alert_delivery = _deliver_monitor_alerts(result.get("alerts", []), app_settings=settings)
         _finalize_monitor_state(result, alert_delivery=alert_delivery)
@@ -324,6 +329,11 @@ def _append_delivery_logs(entries: list[dict[str, Any]]) -> None:
 
 
 def _format_monitor_alert_message(alert: dict[str, Any]) -> str:
+    if alert.get("kind") == "stop":
+        return (f"STOP erreicht: {alert['name']} ({alert['ticker']}) - "
+                f"Kurs {alert['current_price']:.2f} {alert['currency']}, "
+                f"Stop {alert['stop_price']:.2f} {alert['currency']}. "
+                f"Kurszeit: {alert['quote_at']}")
     if str(alert.get("kind") or "") == "stock_signal_summary":
         return _format_stock_signal_summary_message(alert)
     if str(alert.get("kind") or "atr") == "stock_signal":
@@ -350,6 +360,8 @@ def _format_monitor_alert_message(alert: dict[str, Any]) -> str:
 
 
 def _monitor_alert_title(alert: dict[str, Any]) -> str:
+    if alert.get("kind") == "stop":
+        return f"STOP erreicht: {alert['ticker']}"
     if str(alert.get("kind") or "") == "stock_signal_summary":
         return "Depot-Tagesübersicht"
     ticker = str(alert.get("ticker") or "Position")

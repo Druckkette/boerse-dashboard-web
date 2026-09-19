@@ -96,8 +96,8 @@ def price_is_current(bar_date: date | None, fetched_at: datetime | None, *, now:
     return required_time is not None and _as_utc(fetched_at) >= required_time
 
 
-def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: datetime | None = None) -> bool:
-    completed = completed_us_market_session(now)
+def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: datetime | None = None, completed: ExpectedMarketSession | None = None) -> bool:
+    completed = completed or completed_us_market_session(now)
     if bar_date > completed.date:
         return False
     if fetched_at is None:

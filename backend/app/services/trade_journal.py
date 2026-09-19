@@ -118,12 +118,13 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
     if existing is None:
         raise ValueError("Tagebucheintrag wurde nicht gefunden.")
 
-    clean = _clean_ticker(payload.ticker)
-    entry_type = _clean_entry_type(payload.entry_type)
+    imported = bool(getattr(existing, "source_transaction_id", None))
+    clean = existing.ticker if imported else _clean_ticker(payload.ticker)
+    entry_type = existing.entry_type if imported else _clean_entry_type(payload.entry_type)
     _validate_images(payload.chart_images)
-    price = _finite(payload.price)
-    shares = _finite(payload.shares)
-    linked_buy = _linked_buy(clean, payload.linked_entry_id or existing.linked_entry_id) if entry_type in {"sell", "ex_post"} else None
+    price = existing.price if imported else _finite(payload.price)
+    shares = existing.shares if imported else _finite(payload.shares)
+    linked_buy = _linked_buy(clean, payload.linked_entry_id or existing.linked_entry_id) if entry_type in {"sell", "ex_post"} and not imported else None
     realized_pnl_eur, realized_pnl_pct = _realized_pnl(linked_buy, price=price, shares=shares)
     stop_deviation_pct = _stop_deviation(linked_buy, price=price)
 
@@ -146,13 +147,18 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
         "primary_reasons": payload.primary_reasons.strip(),
         "sell_reason": payload.sell_reason.strip(),
         "questionnaire_json": payload.questionnaire,
-        "portfolio_snapshot_json": _portfolio_context(clean, price=price, shares=shares),
+        "portfolio_snapshot_json": {} if imported else _portfolio_context(clean, price=price, shares=shares),
         "chart_images_json": payload.chart_images.model_dump(),
     }
+    if getattr(existing, "source_transaction_id", None):
+        # Broker executions and FIFO results remain authoritative when editing notes.
+        for key in ("ticker", "entry_type", "status", "trade_date", "price", "shares",
+                    "linked_entry_id", "realized_pnl_eur", "realized_pnl_pct", "portfolio_snapshot_json"):
+            values.pop(key, None)
     row = journal_repository.update_entry(entry_id, values)
     if row is None:
         raise ValueError("Tagebucheintrag wurde nicht gefunden.")
-    if payload.close_with_related_buy and row.linked_entry_id:
+    if payload.close_with_related_buy and row.linked_entry_id and not getattr(row, "source_transaction_id", None):
         journal_repository.close_related_entries([row.id, row.linked_entry_id])
         row = journal_repository.get_entry(row.id) or row
     return TradeJournalEntryResponse(entry=_detail_from_row(row))
@@ -404,6 +410,11 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
         realized_pnl_eur=row.realized_pnl_eur,
         realized_pnl_pct=row.realized_pnl_pct,
         linked_entry_id=row.linked_entry_id,
+        currency=getattr(row, "currency", "USD") or "USD",
+        realized_pnl=getattr(row, "realized_pnl", None),
+        source_transaction_id=getattr(row, "source_transaction_id", None),
+        trade_group_id=getattr(row, "trade_group_id", None),
+        position_id=getattr(row, "position_id", None),
         title=_entry_title(row),
         summary=_entry_summary(row),
         created_at=_iso_datetime(row.created_at),
@@ -416,6 +427,7 @@ def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
     images = row.chart_images_json or {}
     return TradeJournalEntryDetail(
         **summary.model_dump(),
+        sell_assessment=getattr(row, "sell_assessment_json", {}) or {},
         stop_price=row.stop_price,
         stop_distance_pct=row.stop_distance_pct,
         stop_deviation_pct=row.stop_deviation_pct,
