@@ -9,7 +9,6 @@ import {
   Building2,
   CheckCircle2,
   Edit3,
-  FileDown,
   Gauge,
   ImagePlus,
   Plus,
@@ -19,6 +18,7 @@ import {
   XCircle
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReportExportButton } from "@/features/stocks/report-export-button";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { berlinDate } from "@/lib/date";
@@ -600,10 +600,7 @@ function JournalChecklist({
             <Edit3 size={15} />
             Editieren
           </button>
-          <button className="inline-flex items-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 hover:border-emerald-200" type="button" onClick={() => printEntry(entry)}>
-            <FileDown size={15} />
-            PDF / Drucken
-          </button>
+          <ReportExportButton ticker={entry.ticker} tradeId={entry.id} />
         </div>
       </div>
 
@@ -1466,11 +1463,6 @@ function holdingDays(start: string, end: string) {
   return Number.isFinite(days) ? `${Math.max(0, days)} Tage` : "-";
 }
 
-function historySummary(rows: Record<string, unknown>[], valueKey: string) {
-  if (rows.length === 0) return "-";
-  return rows.slice(0, 3).map((row) => pct(asNumber(row[valueKey]))).join(" · ");
-}
-
 function round(value: number, digits: number) {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
@@ -1478,97 +1470,4 @@ function round(value: number, digits: number) {
 
 function stringRecord(value: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, String(item ?? "")]));
-}
-
-function printEntry(entry: TradeJournalEntryDetail) {
-  const popup = window.open("", "_blank", "width=1100,height=900");
-  if (!popup) {
-    window.print();
-    return;
-  }
-  popup.document.write(printHtml(entry));
-  popup.document.close();
-  popup.focus();
-  popup.print();
-}
-
-function printHtml(entry: TradeJournalEntryDetail) {
-  const assessment = assessmentFromSnapshot(entry.stock_snapshot);
-  const scores = recordValue(assessment.scores);
-  const metrics = recordValue(assessment.metrics);
-  const fundamentals = recordValue(entry.stock_snapshot.fundamentals);
-  const fundamentalItem = recordValue(fundamentals.item);
-  const institutionalItem = recordValue(recordValue(entry.stock_snapshot.institutional_13f).item);
-  const rsItem = recordValue(recordValue(entry.stock_snapshot.relative_strength).item);
-  const checks = checksFromSnapshot(entry.stock_snapshot);
-  const checkHtml = checks.map((check) => `
-    <li class="${check.passed ? "good" : "bad"}">
-      <strong>${escapeHtml(check.label ?? "")}</strong><br />
-      <span>${escapeHtml(check.detail ?? "")}</span>
-    </li>
-  `).join("");
-  const daily = entry.chart_images.daily_chart ? `<img src="${entry.chart_images.daily_chart}" alt="Tageschart" />` : "<p>Kein Tageschart gespeichert.</p>";
-  const weekly = entry.chart_images.weekly_chart ? `<img src="${entry.chart_images.weekly_chart}" alt="Wochenchart" />` : "<p>Kein Wochenchart gespeichert.</p>";
-  return `<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <title>${escapeHtml(entry.title)}</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 32px; color: #111827; }
-    h1 { margin: 0 0 8px; }
-    h2 { margin-top: 28px; border-bottom: 1px solid #d1d5db; padding-bottom: 6px; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    .box { border: 1px solid #d1d5db; border-radius: 6px; padding: 12px; margin-top: 10px; }
-    .muted { color: #6b7280; font-size: 12px; }
-    li { margin-bottom: 8px; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; }
-    li.good { border-color: #86efac; background: #f0fdf4; }
-    li.bad { border-color: #fecdd3; background: #fff1f2; }
-    img { max-width: 100%; max-height: 520px; object-fit: contain; border: 1px solid #d1d5db; border-radius: 6px; }
-    @media print { body { margin: 18mm; } }
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(entry.title)}</h1>
-  <div class="muted">${escapeHtml(entry.summary)} · Status ${escapeHtml(entry.status)}</div>
-  <div class="grid">
-    <div class="box"><div class="muted">Preis</div><strong>${escapeHtml(money(entry.price))}</strong></div>
-    <div class="box"><div class="muted">Stopp</div><strong>${escapeHtml(money(entry.stop_price))}</strong></div>
-    <div class="box"><div class="muted">Marktampel</div><strong>${escapeHtml(marketPhaseLabel(entry.market_snapshot))}</strong></div>
-  </div>
-  <h2>Aktienbewertung</h2>
-  <div class="grid">
-    <div class="box"><div class="muted">Gesamtscore</div><strong>${escapeHtml(formatNumber(asNumber(scores.overall)))}</strong></div>
-    <div class="box"><div class="muted">Technisch</div><strong>${escapeHtml(formatNumber(asNumber(scores.technical)))}</strong></div>
-    <div class="box"><div class="muted">Fundamental</div><strong>${escapeHtml(formatNumber(asNumber(scores.fundamental)))}</strong></div>
-    <div class="box"><div class="muted">Aktueller Preis</div><strong>${escapeHtml(money(asNumber(metrics.last_close)))}</strong></div>
-    <div class="box"><div class="muted">ATR</div><strong>${escapeHtml(pct(asNumber(metrics.atr_pct)))}</strong></div>
-    <div class="box"><div class="muted">RS-Rating</div><strong>${escapeHtml(formatNumber(asNumber(metrics.rs_rating)))}</strong></div>
-  </div>
-  <h2>Fundamental / 13F / RS</h2>
-  <div class="grid">
-    <div class="box"><div class="muted">EPS Quartale</div><strong>${escapeHtml(historySummary(recordArray(fundamentalItem.eps_quarter_history), "eps_growth_yoy_pct"))}</strong></div>
-    <div class="box"><div class="muted">Umsatz Quartale</div><strong>${escapeHtml(historySummary(recordArray(fundamentalItem.revenue_quarter_history), "revenue_growth_yoy_pct"))}</strong></div>
-    <div class="box"><div class="muted">13F Halter</div><strong>${escapeHtml(formatNumber(asNumber(institutionalItem.holder_count)))}</strong></div>
-    <div class="box"><div class="muted">13F Trend</div><strong>${escapeHtml(stringValue(institutionalItem.trend) || "-")}</strong></div>
-    <div class="box"><div class="muted">RS 6M vs SPY</div><strong>${escapeHtml(pct(asNumber(rsItem.excess_return_6m)))}</strong></div>
-    <div class="box"><div class="muted">Beta</div><strong>${escapeHtml(formatNumber(asNumber(metrics.beta)))}</strong></div>
-  </div>
-  <h2>Notizen</h2>
-  <div class="box">${escapeHtml(entry.primary_reasons || entry.sell_reason || entry.basis_text || "-").replace(/\n/g, "<br />")}</div>
-  <h2>Checkliste</h2>
-  <ul>${checkHtml || "<li>Keine Checkliste gespeichert.</li>"}</ul>
-  <h2>Charts</h2>
-  <div class="box">${daily}</div>
-  <div class="box">${weekly}</div>
-</body>
-</html>`;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }

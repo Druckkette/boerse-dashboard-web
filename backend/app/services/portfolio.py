@@ -442,17 +442,21 @@ def get_buy_strength_overview(weeks: int = DEFAULT_BUY_STRENGTH_WEEKS) -> BuyStr
     )
 
 
-def get_buy_strength_assessment(ticker: str, weeks: int = DEFAULT_BUY_STRENGTH_WEEKS) -> BuyStrengthAssessmentResponse:
+def get_buy_strength_assessment(
+    ticker: str, weeks: int = DEFAULT_BUY_STRENGTH_WEEKS, *,
+    position_row: portfolio_repository.PortfolioPositionRow | None = None,
+) -> BuyStrengthAssessmentResponse:
     window_days = _buy_strength_window_days(weeks)
     clean = ticker.strip().upper()
     if not clean:
         return _missing_buy_strength_assessment("", "", "Ticker fehlt.", window_days=window_days)
 
-    row = _find_open_position_row(clean)
+    row = position_row or _find_open_position_row(clean)
     if row is None:
         return _missing_buy_strength_assessment(clean, clean, "Keine offene Portfolio-Position gefunden.", window_days=window_days)
 
-    row = _normalize_trade_republic_row_to_usd(row)
+    if position_row is None:
+        row = _normalize_trade_republic_row_to_usd(row)
     if row.buy_date is None:
         return _missing_buy_strength_assessment(
             row.ticker,

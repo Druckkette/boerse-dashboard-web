@@ -186,3 +186,35 @@ def patch_stock_fundamentals(
 @router.get("/{ticker}/institutional/13f", response_model=Institutional13FTrendResponse)
 def stock_institutional_13f(ticker: str) -> Institutional13FTrendResponse:
     return get_institutional_13f_for_ticker(ticker)
+
+
+@router.get("/{ticker}/report.pdf", response_class=Response)
+def investment_report_pdf(
+    ticker: str,
+    trade_id: str | None = Query(default=None, min_length=1, max_length=64),
+) -> Response:
+    import logging
+    import re
+    from sqlalchemy.exc import SQLAlchemyError
+    from app.reports.collect import collect_report
+    from app.reports.pdf import render_report
+
+    clean = ticker.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9^][A-Z0-9.^=-]{0,31}", clean):
+        raise HTTPException(status_code=422, detail="Ungültiger Ticker.")
+    try:
+        report = collect_report(clean, trade_id)
+        content = render_report(report)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Datenbank für PDF-Export nicht erreichbar.") from exc
+    except Exception as exc:
+        logging.getLogger(__name__).exception("PDF export failed for %s", clean)
+        raise HTTPException(status_code=500, detail="PDF konnte nicht erzeugt werden. Bitte erneut versuchen.") from exc
+    filename = f"{clean}-{'Trade' if trade_id else 'Investment'}-Report.pdf"
+    return Response(content, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    })

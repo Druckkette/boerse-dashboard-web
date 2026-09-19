@@ -92,6 +92,11 @@ def get_sell_metrics_for_position(
     )
 
 
+def preview_position_sell_decision(ticker: str) -> SellEvaluationResponse:
+    """Read-only full evaluation for exports; does not advance recommendation state."""
+    return _evaluate_position_sell_decision(ticker, None, persist_state=False)
+
+
 def evaluate_position_sell_decision(
     ticker: str,
     request: SellEvaluationRequest | None = None,

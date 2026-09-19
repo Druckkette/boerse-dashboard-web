@@ -1,4 +1,4 @@
-import { StatusChip } from "@/components/ui/status-chip";
+import { ReportExportButton } from "@/features/stocks/report-export-button";
 import { StockDetailTabs } from "@/features/stocks/stock-detail-tabs";
 
 export default async function StockDetailPage({ params }: { params: Promise<{ ticker: string }> }) {
@@ -6,13 +6,13 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
   const clean = ticker.toUpperCase();
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div className="flex min-w-0 items-baseline gap-3">
           <h1 className="text-2xl font-semibold text-[#172033]">{clean}</h1>
           <span className="text-xs font-medium uppercase tracking-[0.1em] text-[#687386]">Aktienanalyse</span>
         </div>
         <div className="shrink-0">
-          <StatusChip tone="neutral">Bewertung</StatusChip>
+          <ReportExportButton ticker={clean} />
         </div>
       </div>
       <StockDetailTabs ticker={clean} />
