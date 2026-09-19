@@ -150,3 +150,18 @@ def test_editing_imported_journal_notes_preserves_execution_and_fifo(setup_impor
     assert result.entry.realized_pnl == pnl
     assert result.entry.portfolio_snapshot == snapshot
     assert result.entry.basis_text == "Nachträgliche Notiz"
+
+
+def test_legacy_converted_position_updates_average_without_changing_stop_currency(setup_import):
+    sessions, ticker, run = setup_import
+    run([(2, "BUY", 2, 100, 0, "b1")])
+    with sessions() as db:
+        position = db.scalar(select(Position).where(Position.ticker == ticker))
+        position.currency, position.buy_price, position.stop_price = "USD", 110, 90
+        db.commit()
+    run([(3, "BUY", 2, 200, 0, "b2")])
+    with sessions() as db:
+        position = db.scalar(select(Position).where(Position.ticker == ticker))
+        assert position.shares == 4
+        assert position.buy_price == pytest.approx(165)
+        assert position.currency == "USD" and position.stop_price == 90

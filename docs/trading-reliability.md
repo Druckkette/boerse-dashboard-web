@@ -75,6 +75,11 @@ Die API liefert sources/reasons mit Datenstand; der Header aktualisiert minütli
 Ein fehlgeschlagener Statusabruf wird ausdrücklich als nicht verfügbar angezeigt.
 Der Status beschreibt Datenverfügbarkeit, keine Empfehlung zum Handeln.
 
+Bereits in USD gespeicherte Altpositionen behalten ihre Währung, ihren Stop und die
+in ihrem bisherigen Einstand enthaltene Umrechnungsbasis. Weitere Käufe aktualisieren
+den gewichteten Einstand im Verhältnis zur nativen Broker-Kostenbasis. Die exakten
+Ausführungsergebnisse im Journal bleiben davon unabhängig in Originalwährung.
+
 ## PDF und Datenmodell
 
 Die A4-ReportLab-Lösung ist in [pdf-reports.md](pdf-reports.md) beschrieben.

@@ -72,6 +72,9 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
             db.add(batch)
             db.flush()
             stored = list(db.scalars(select(Transaction).where(Transaction.broker == "Trade Republic").order_by(Transaction.created_at, Transaction.id)))
+            prior_rows = sorted((transaction_row(row) for row in stored), key=lambda row: row.event_ts)
+            prior_mappings = {transaction_row(row).isin: row.ticker for row in stored if row.ticker}
+            prior_positions, _ = reconstruct_open_positions(prior_rows, prior_mappings)
             matches = match_executions(transactions, stored)
             existing = {row.id: row for row in stored}
             by_external = {row.external_id: row for row in stored}
@@ -118,7 +121,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
                 "currency": row.currency, "shares": row.shares, "price": row.price,
                 "fees": row.fees, "tax": row.tax,
             } for i, row in enumerate(stored)])
-            journal_count = sync_journal(db, stored, events, current_positions)
+            journal_count = sync_journal(db, stored, events, current_positions, prior_positions)
             batch.status, batch.finished_at = "done", datetime.now(UTC)
             batch.rows_imported = len(current_positions)
             batch.metadata_json = {"journal_entries": journal_count, "transactions_inserted": inserted,
@@ -130,7 +133,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
-def sync_journal(db, transactions, events, current_positions):
+def sync_journal(db, transactions, events, current_positions, prior_positions=()):
     from app.services.historical_sell import assess_historical_sale
     by_id = {row.id: row for row in transactions}
     groups = defaultdict(list)
@@ -176,6 +179,13 @@ def sync_journal(db, transactions, events, current_positions):
             position.closed_at = None if position.is_open else datetime.fromisoformat(last["date"]).replace(tzinfo=UTC)
             if current and position.currency == current.currency:
                 position.buy_price = current.avg_buy_price
+            elif current:
+                # Legacy imports stored USD-converted entries. Preserve their recorded
+                # conversion basis and stop denomination while updating weighted cost.
+                prior = next((p for p in prior_positions if p.isin == current.isin), None)
+                if prior and prior.avg_buy_price > 0:
+                    stored_conversion = position.buy_price / prior.avg_buy_price
+                    position.buy_price = current.avg_buy_price * stored_conversion
             db.flush()
         root_entry = None
         for event in group:
