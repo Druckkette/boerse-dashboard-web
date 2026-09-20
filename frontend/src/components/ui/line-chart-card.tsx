@@ -47,6 +47,7 @@ type LineChartCardProps = {
   subTitle?: string;
   volumeKey?: string;
   volumeLabel?: string;
+  volumeSeries?: ChartSeries[];
   statusLabel?: string;
   statusTone?: "good" | "neutral" | "warning" | "bad";
   dateTickMode?: "ends" | "weekly";
@@ -106,6 +107,7 @@ export function LineChartCard({
   subTitle = "",
   volumeKey,
   volumeLabel = "Volumen",
+  volumeSeries = [],
   statusLabel,
   statusTone = "neutral",
   dateTickMode = "ends",
@@ -146,12 +148,17 @@ export function LineChartCard({
     () => subSeries.filter((item) => !hiddenSeries[item.key]),
     [hiddenSeries, subSeries]
   );
+  const visibleVolumeSeries = useMemo(
+    () => volumeSeries.filter((item) => !hiddenSeries[item.key]),
+    [hiddenSeries, volumeSeries]
+  );
   const toggleSeries = useMemo(
     () => [
       ...series.map((item) => ({ ...item, panel: "main" as const })),
+      ...volumeSeries.map((item) => ({ ...item, panel: "volume" as const })),
       ...subSeries.map((item) => ({ ...item, panel: "sub" as const }))
     ],
-    [series, subSeries]
+    [series, subSeries, volumeSeries]
   );
 
   const isZoomed = points.length > 0 && (normalizedRange.start > 0 || normalizedRange.end < points.length - 1);
@@ -187,7 +194,12 @@ export function LineChartCard({
   const volumeValues = volumeKey
     ? visiblePoints.map((point) => toNumber(point[volumeKey])).filter((value): value is number => value !== null)
     : [];
-  const maxVolume = volumeValues.length ? Math.max(...volumeValues) : 0;
+  const volumeSeriesValues = visiblePoints.flatMap((point) =>
+    visibleVolumeSeries
+      .map((item) => toNumber(point[item.key]))
+      .filter((value): value is number => value !== null)
+  );
+  const maxVolume = volumeValues.length || volumeSeriesValues.length ? Math.max(...volumeValues, ...volumeSeriesValues) : 0;
   const latestVisible = visiblePoints.at(-1);
   const latestPoint = points.at(-1);
   const latestClose = chartMode === "candlestick" ? toNumber(latestPoint?.close) : null;
@@ -405,6 +417,11 @@ export function LineChartCard({
                   const open = toNumber(point.open);
                   const fill = close !== null && open !== null && close < open ? DOWN_COLOR : UP_COLOR;
                   return <rect key={`${point.date}-${index}-volume`} fill={fill} height={barHeight} opacity="0.36" width={barWidth} x={x} y={volumeBottom - barHeight} />;
+                })}
+                {visibleVolumeSeries.map((item) => {
+                  const path = buildPath(visiblePoints, item.key, 0, maxVolume, volumeTop + 17, volumeBottom, plotRight);
+                  if (!path) return null;
+                  return <path key={item.key} d={path} fill="none" stroke={item.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />;
                 })}
               </g>
             )}

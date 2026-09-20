@@ -125,6 +125,14 @@ export function StockPricePanel({
             : ""
       }
       volumeKey="volume"
+      volumeSeries={[
+        {
+          key: "volumeSma21",
+          label: "Volumen SMA 21",
+          color: "#64748b",
+          formatter: formatVolume
+        }
+      ]}
       title={`${clean} ${title}`}
     />
   );
@@ -136,6 +144,7 @@ function buildTechnicalOverlayPoints(
   rsHistory: Array<{ date: string; rs: number; rs_ema21?: number | null; rs_ema50?: number | null }>
 ) {
   const closes = points.map((point) => point.close);
+  const volumes = points.map((point) => point.volume);
   const ema21 = ema(closes, 21);
   const rsVsSpy = buildRelativeStrength(points, benchmarkPoints);
   const rsByDate = new Map(rsHistory.map((point) => [point.date, point]));
@@ -146,6 +155,7 @@ function buildTechnicalOverlayPoints(
       ema21: ema21[index],
       sma50: sma(closes, index, 50),
       sma200: sma(closes, index, 200),
+      volumeSma21: nullableSma(volumes, index, 21),
       rs: rsPoint?.rs ?? rsVsSpy[index],
       rsEma21: rsPoint?.rs_ema21 ?? null,
       rsEma50: rsPoint?.rs_ema50 ?? null
@@ -229,6 +239,13 @@ function sma(values: number[], index: number, period: number) {
   return window.reduce((sum, value) => sum + value, 0) / period;
 }
 
+function nullableSma(values: Array<number | null | undefined>, index: number, period: number) {
+  if (index + 1 < period) return null;
+  const window = values.slice(index + 1 - period, index + 1);
+  if (window.some((value) => typeof value !== "number" || !Number.isFinite(value))) return null;
+  return window.reduce<number>((sum, value) => sum + (value ?? 0), 0) / period;
+}
+
 function ema(values: number[], period: number) {
   const alpha = 2 / (period + 1);
   let previous: number | null = null;
@@ -240,4 +257,10 @@ function ema(values: number[], period: number) {
 
 function formatPct(value?: number | null) {
   return formatPercent(value, 1);
+}
+
+function formatVolume(value: number) {
+  if (Math.abs(value) >= 1_000_000) return `${formatNumber(value / 1_000_000, 1)} Mio.`;
+  if (Math.abs(value) >= 1_000) return `${formatNumber(value / 1_000, 1)} Tsd.`;
+  return formatNumber(value, 0);
 }
