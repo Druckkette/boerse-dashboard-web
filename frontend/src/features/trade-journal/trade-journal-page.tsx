@@ -644,6 +644,13 @@ function JournalChecklist({
           <p className="mt-2 text-sm text-[#687386]">{String(entry.sell_assessment.method || "")}</p>
           <p className="text-sm">{String(entry.sell_assessment.cutoff || "")}</p>
           <p className="mt-2 text-sm">{String(entry.sell_assessment.message || "")}</p>
+          {entry.sell_assessment.fx_policy ? <p className="mt-2 text-sm text-[#687386]">{String(entry.sell_assessment.fx_policy)}</p> : null}
+          {Object.entries(recordValue(entry.sell_assessment.fx_carried_quotes)).map(([currency, dates]) => (
+            <details key={currency} className="mt-2 text-sm">
+              <summary>{currency}: vorherige gespeicherte Wechselkurse für {recordArray(dates).length} Kurstage verwendet</summary>
+              {recordArray(dates).map((row, index) => <p key={index}>{String(row.date)}: Wechselkurs vom {String(row.quote_date)}</p>)}
+            </details>
+          ))}
           {recordValue(entry.sell_assessment.evaluation).display_label ? <p className="mt-2 font-semibold">{String(recordValue(entry.sell_assessment.evaluation).display_label)}</p> : null}
           <p className="text-sm">{String(recordValue(entry.sell_assessment.evaluation).explanation_short || "")}</p>
           {["emergency_features", "offensive_features", "defensive_features"].map((key) => (

@@ -134,7 +134,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
 
 
 def sync_journal(db, transactions, events, current_positions, prior_positions=()):
-    from app.services.historical_sell import assess_historical_sale
+    from app.services.historical_sell import ASSESSMENT_VERSION, assess_historical_sale
     by_id = {row.id: row for row in transactions}
     groups = defaultdict(list)
     for event in events:
@@ -226,7 +226,8 @@ def sync_journal(db, transactions, events, current_positions, prior_positions=()
                         "fees": event["fees"], "tax": event["tax"], "remaining_shares": remaining if event["type"] == "buy" else event["remaining"],
                         "unallocated_shares": event["unallocated"], "allocations": event["allocations"],
                         "source_transaction_id": event["id"], "trade_group_id": group_id}
-            if event["type"] == "sell" and (any((entry.portfolio_snapshot_json or {}).get(k) != v for k, v in metadata.items()) or not entry.sell_assessment_json):
+            if event["type"] == "sell" and (any((entry.portfolio_snapshot_json or {}).get(k) != v for k, v in metadata.items()) or (entry.sell_assessment_json or {}).get("assessment_version") != ASSESSMENT_VERSION
+                    or (entry.sell_assessment_json or {}).get("status") != "available"):
                 try:
                     with db.begin_nested():
                         entry.sell_assessment_json = assess_historical_sale(db, event)

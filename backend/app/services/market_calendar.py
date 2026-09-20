@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
+from threading import RLock
 
 import exchange_calendars as xcals
 import pandas as pd
@@ -112,8 +113,17 @@ def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: date
     return _as_utc(fetched_at) >= _as_utc(calendar.session_close(session).to_pydatetime())
 
 
-@lru_cache(maxsize=1)
+_calendar_lock = RLock()
+
+
 def _xnys_calendar():
+    # functools caches results, but does not serialize concurrent cache misses.
+    with _calendar_lock:
+        return _load_xnys_calendar()
+
+
+@lru_cache(maxsize=1)
+def _load_xnys_calendar():
     return xcals.get_calendar("XNYS")
 
 

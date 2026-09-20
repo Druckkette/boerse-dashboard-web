@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,10 +9,19 @@ from app.middleware.rate_limit import InMemoryRateLimitMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Construct the exchange schedule before serving concurrent dashboard requests.
+    from app.services.market_calendar import completed_us_market_session
+    completed_us_market_session()
+    yield
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="Boerse Dashboard Web API",
+        lifespan=lifespan,
         version="0.1.0",
         description="API-first scaffold for the Streamlit-to-web migration.",
         openapi_url=f"{settings.api_v1_prefix}/openapi.json",

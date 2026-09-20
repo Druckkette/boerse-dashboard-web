@@ -165,3 +165,26 @@ def test_legacy_converted_position_updates_average_without_changing_stop_currenc
         assert position.shares == 4
         assert position.buy_price == pytest.approx(165)
         assert position.currency == "USD" and position.stop_price == 90
+
+
+def test_existing_assessment_version_is_rebuilt_once(setup_import, monkeypatch):
+    sessions, ticker, run = setup_import
+    from app.services import historical_sell
+    rows = [(2, "BUY", 3, 100, 0, "b"), (3, "SELL", 1, 120, 0, "s")]
+    run(rows)
+    with sessions() as db:
+        sale = db.scalar(select(TradeJournalEntry).where(TradeJournalEntry.ticker == ticker,
+            TradeJournalEntry.entry_type == "sell"))
+        sale.sell_assessment_json = {"status": "available", "assessment_version": 1}
+        db.commit()
+    real = historical_sell.assess_historical_sale
+    calls = []
+    def assess(db, event):
+        if event["ticker"] != ticker:
+            return real(db, event)
+        calls.append(event["id"])
+        return {"status": "available", "assessment_version": historical_sell.ASSESSMENT_VERSION}
+    monkeypatch.setattr(historical_sell, "assess_historical_sale", assess)
+    run(rows)
+    run(rows)
+    assert len(calls) == 1

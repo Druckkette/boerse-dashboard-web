@@ -53,6 +53,8 @@ LABELS = {
     "basis_text": "Ursprüngliche Begründung / Setup", "primary_reasons": "Hauptgründe",
     "sell_reason": "Verkaufsgrund", "alternative_entry_text": "Alternativer Einstieg",
     "sell_assessment": "Automatische Verkaufsbewertung", "realized_pnl": "Realisiertes Ergebnis (Eintragswährung)",
+    "fx_policy": "Historische Währungsumrechnung", "fx_carried_quotes": "Verwendete vorherige FX-Kurse",
+    "quote_date": "Datum des FX-Kurses", "date": "Kurstag",
     "fees": "Gebühren", "tax": "Steuern", "allocations": "FIFO-Kaufzuordnung",
     "cost_basis": "Einstand inklusive Kaufkosten", "net_proceeds": "Nettoverkaufserlös", "pnl": "Ergebnis",
     "remaining_shares": "Verbleibende Stückzahl", "unallocated_shares": "Nicht zugeordnete Stückzahl",
@@ -81,7 +83,7 @@ LABELS = {
     "ampel_phase": "Marktampel", "volatility_regime": "Volatilitätsregime", "breadth_mode": "Marktbreite",
 }
 # Transport/state-machine fields are not investor data. Never fetch remote chart URLs.
-SKIP = {"source_transaction_id", "trade_group_id", "position_id", "buy_transaction_id", "ticker", "id", "linked_entry_id", "key", "tone", "verdict_tone", "snapshot_schema",
+SKIP = {"assessment_version", "reason_code", "source_transaction_id", "trade_group_id", "position_id", "buy_transaction_id", "ticker", "id", "linked_entry_id", "key", "tone", "verdict_tone", "snapshot_schema",
         "next_recommendation_state", "book_references", "raw_payload", "chart_images", "stock_snapshot",
         "points", "rs_history", "history", "error"}
 

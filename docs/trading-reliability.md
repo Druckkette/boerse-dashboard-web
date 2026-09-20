@@ -22,8 +22,11 @@ wird wie bisher vorausgesetzt; unterschiedliche TR-Konten dürfen nicht vermisch
 
 Historische Verkäufe verwenden die bestehende Sell-Engine und deren heutige
 Standardregeln ausschließlich auf gespeicherten Kursen **vor dem Verkaufstag**.
-Mindestens 200 Kurs-/Benchmark-Tage und gegebenenfalls vollständige historische
-FX-Daten sind erforderlich. Fehlende Einstandsbasis, Corporate Actions mit unbekannter
+Mindestens 200 Kurs-/Benchmark-Tage und gegebenenfalls historische
+FX-Daten sind erforderlich. Bei abweichenden Feiertagen wird ausschließlich der letzte
+tatsächlich gespeicherte Kurs am oder vor dem Kurstag verwendet, höchstens vier
+Kalendertage alt. Die betroffenen Kurstage und Ursprungsdaten sind in UI und PDF
+ausgewiesen; zukünftige Kurse und größere Lücken sind ausgeschlossen. Fehlende Einstandsbasis, Corporate Actions mit unbekannter
 Kostenbasis oder fehlende Kursdaten ergeben ausdrücklich keine Bewertung. Es werden
 keine heutigen Kurse oder nicht gespeicherten damaligen manuellen Entscheidungen
 unterstellt. Diese nachträgliche Bewertung ist als solche gekennzeichnet. Gebühren und
@@ -128,3 +131,30 @@ Das Downgrade entfernt die neuen Verknüpfungs-/Bewertungsfelder und ist kein
 Produktions-Rollback ohne Datensicherung. Der normale Updatepfad ist ausschließlich
 vorwärts. Der NAS-SSH-Zugang wurde abgelehnt; das lokale Testresultat bestätigt
 keine erfolgte NAS-Bereitstellung.
+
+
+## Nachprüfung am 20.09.2026
+
+Die NAS-Bereitstellung 271d691 war erfolgreich; Migration, Postgres/Redis und PDF
+wurden über die API geprüft. Historische EUR-Verkäufe scheiterten aber an der strikt
+identischen Kalenderdatums-Zuordnung von Aktien- und FX-Kursen. Beispiel MRVL:
+Aktienkurs am 21.04.2025, letzter gespeicherter EUR/USD-Kurs am 17.04.2025.
+Die nun begrenzte historische As-of-Zuordnung behebt diese Kalenderlücke ohne neue
+Kurswerte zu erfinden. Versionierte Bewertungen werden beim nächsten NAS-Update
+neu berechnet; weiterhin fehlende Bewertungen werden bei späteren Nachträgen erneut
+versucht. Fehler unterscheiden fehlende Daten und tatsächliche Engine-Exceptions.
+Der Nachtrag gibt zusätzlich Bewertungszahlen und verbleibende Gründe aus.
+
+Bei erneuter Messung im warmen NAS-Prozess lagen Ampel und Diagnose bei rund
+0,55 Sekunden statt 13–19 Sekunden unmittelbar nach Bereitstellung. Ein lokaler
+paralleler Kaltstart reproduzierte vier Kalenderkonstruktionen bei vier Anfragen:
+functools.lru_cache verhindert konkurrierende Erstberechnungen nicht. Eine Sperre
+serialisiert jetzt den ersten Kalenderaufbau; der FastAPI-Lifespan lädt ihn vor
+Annahme von Anfragen. Datenabhängige Ampelregeln, Timeouts und Freshness bleiben
+unverändert. Tests prüfen parallele Erstzugriffe sowie die Startup-Reihenfolge.
+
+Neue Regressionstests decken Osterfeiertagslücke, Ausschluss zukünftiger oder zu
+alter FX-Werte, ungültige Kurse und die einmalige Neuberechnung älterer
+Bewertungsversionen ab. Pushover wurde lesend geprüft: aktiviert, Schlüssel
+konfiguriert, Dry-Run aus, vorhandene bestätigte Zustellungen. Es wurde kein
+künstlicher Stop gesetzt und keine Testnachricht verschickt.
