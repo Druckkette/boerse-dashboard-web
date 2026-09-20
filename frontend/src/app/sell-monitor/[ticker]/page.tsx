@@ -784,7 +784,9 @@ function buildSellChartMarkers(signals: SellSignal[], currentPrice?: number | nu
       date: signal.signal_date,
       label: `${signal.contribution_percent}% ${signal.label}`,
       value: markerValueFromSignal(signal, currentPrice),
-      color: colorForSignal(signal)
+      color: colorForSignal(signal),
+      code: "S",
+      legendLabel: "Sell-Signal"
     }));
 }
 

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import type { ChartLevel, ChartMarker } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
+import { formatNumber, formatPercent } from "@/lib/format";
 import type { PriceBarPoint, PriceRange } from "@/lib/types/api";
 
 export function StockPricePanel({
@@ -66,19 +67,19 @@ export function StockPricePanel({
           key: "ema21",
           label: "21-EMA",
           color: "#38bdf8",
-          formatter: (value) => `${value.toFixed(2)} ${history?.currency ?? "USD"}`
+          formatter: (value) => `${formatNumber(value, 2)} ${history?.currency ?? "USD"}`
         },
         {
           key: "sma50",
           label: "50-SMA",
           color: "#fbbf24",
-          formatter: (value) => `${value.toFixed(2)} ${history?.currency ?? "USD"}`
+          formatter: (value) => `${formatNumber(value, 2)} ${history?.currency ?? "USD"}`
         },
         {
           key: "sma200",
           label: "200-SMA",
           color: "#c084fc",
-          formatter: (value) => `${value.toFixed(2)} ${history?.currency ?? "USD"}`
+          formatter: (value) => `${formatNumber(value, 2)} ${history?.currency ?? "USD"}`
         }
       ]}
       levels={levels}
@@ -176,7 +177,9 @@ function buildAutoMarkers(
     date: highPoint.date,
     label: "52W High",
     value: highPoint.high ?? highPoint.close,
-    color: "#38bdf8"
+    color: "#38bdf8",
+    code: "H",
+    legendLabel: "52-Wochen-Hoch"
   });
 
   const latest = points.at(-1);
@@ -186,7 +189,9 @@ function buildAutoMarkers(
       date: latest.date,
       label: "<21EMA",
       value: latest.close,
-      color: "#fbbf24"
+      color: "#fbbf24",
+      code: "E21",
+      legendLabel: "unter EMA 21"
     });
   }
   if (latest?.sma50 && latest.close < latest.sma50) {
@@ -195,7 +200,9 @@ function buildAutoMarkers(
       date: latest.date,
       label: "<50SMA",
       value: latest.close,
-      color: "#fb7185"
+      color: "#fb7185",
+      code: "S50",
+      legendLabel: "unter SMA 50"
     });
   }
 
@@ -207,7 +214,9 @@ function buildAutoMarkers(
       date: volumePoint.date,
       label: "Vol Spike",
       value: volumePoint.close,
-      color: "#a78bfa"
+      color: "#a78bfa",
+      code: "V",
+      legendLabel: "Volumenspitze"
     });
   }
 
@@ -230,6 +239,5 @@ function ema(values: number[], period: number) {
 }
 
 function formatPct(value?: number | null) {
-  if (typeof value !== "number") return "-";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+  return formatPercent(value, 1);
 }

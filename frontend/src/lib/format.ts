@@ -1,7 +1,7 @@
-export function formatNumber(value?: number | null, digits = 2) {
+export function formatNumber(value?: number | null, digits = 2, minimumFractionDigits = 0) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "–";
   return new Intl.NumberFormat("de-DE", {
-    minimumFractionDigits: 0,
+    minimumFractionDigits,
     maximumFractionDigits: digits
   }).format(value);
 }
