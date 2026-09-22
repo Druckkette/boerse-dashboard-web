@@ -221,7 +221,12 @@ def bootstrap_market_data(self, job_id: str | None = None, payload: dict | None 
             result["steps"].append("position_monitor")
 
         result["ok"] = bool(price_result.get("success_count")) and not breadth_result.get("skipped")
-        result["partial"] = bool(price_result.get("failure_count")) or bool(rs_result.get("skipped")) or bool(monitor_result.get("skipped"))
+        result["partial"] = (
+            bool(price_result.get("failure_count"))
+            or bool(rs_result.get("skipped"))
+            or bool(monitor_result.get("skipped"))
+            or bool(monitor_result.get("partial"))
+        )
         message = "Marktdaten vollständig initialisiert." if is_initial else "Marktdaten aktualisiert."
         if result["partial"]:
             message += " Einzelne optionale Teile wurden übersprungen oder teilweise geladen."
