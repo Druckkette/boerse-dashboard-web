@@ -135,15 +135,15 @@ def _compute_sell_position_ranking_live() -> SellRankingResponse:
                 ticker,
                 metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
             )
+            evaluation = _evaluate_position_sell_decision(
+                ticker,
+                None,
+                persist_state=False,
+                metrics_request=metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
+            )
         except SellInsufficientHistoryError as exc:
             rows.append(_unavailable_ranking_item(ticker, str(context["name"]), str(exc)))
             continue
-        evaluation = _evaluate_position_sell_decision(
-            ticker,
-            None,
-            persist_state=False,
-            metrics_request=metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
-        )
         primary_signal = _primary_signal_label(evaluation)
         state = evaluation.next_recommendation_state
         rows.append(
@@ -323,18 +323,18 @@ def monitor_open_positions(
         metrics_request = _metrics_request_from_portfolio_row(row)
         try:
             metrics = get_sell_metrics_for_position(row.ticker, metrics_request)
+            evaluation = _evaluate_position_sell_decision(
+                row.ticker,
+                None,
+                persist_state=True,
+                metrics_request=metrics_request,
+            )
         except SellInsufficientHistoryError as exc:
             reason = str(exc)
             unavailable_tickers.append(row.ticker)
             ranking_items.append(_unavailable_ranking_item(row.ticker, row.name or row.ticker, reason))
             items.append({"ticker": row.ticker, "name": row.name, "skipped": True, "reason": reason})
             continue
-        evaluation = _evaluate_position_sell_decision(
-            row.ticker,
-            None,
-            persist_state=True,
-            metrics_request=metrics_request,
-        )
         price_source = str(metrics.raw_payload.metrics.get("price_data_source") or "")
         atr_pct = None
         if metrics.atr14 is not None and metrics.current_price:
