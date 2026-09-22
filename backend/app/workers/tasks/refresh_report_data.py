@@ -1,9 +1,13 @@
 """Short background packages; durable rows survive a lost broker message."""
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
 from time import monotonic
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import text
+
+from app.db.session import engine
 from app.repositories import jobs, refresh_work
 from app.services.report_refresh import refresh_report_group
 from app.workers.celery_app import celery_app
@@ -11,6 +15,17 @@ from app.workers.celery_app import celery_app
 
 def retry_delay(attempts: int) -> timedelta:
     return timedelta(hours=(2, 8, 24, 48, 96, 168)[min(max(0, attempts - 1), 5)])
+
+
+@contextmanager
+def _ticker_lock(ticker: str):
+    """Serialize statement and beta writes for one ticker across report workers."""
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.execute(text("SELECT pg_advisory_lock(7341502, hashtext(:ticker))"), {"ticker": ticker})
+        try:
+            yield
+        finally:
+            connection.execute(text("SELECT pg_advisory_unlock(7341502, hashtext(:ticker))"), {"ticker": ticker})
 
 
 @celery_app.task(name="refresh_report_data", ignore_result=True, soft_time_limit=3500, time_limit=3600)
@@ -89,7 +104,8 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
             payload = dict(item["payload"])
             if item["previous_result"].get("complete"):
                 payload.pop("event_date", None)
-            value = refresh_report_group(item["ticker"], item["data_group"], payload)
+            with _ticker_lock(item["ticker"]):
+                value = refresh_report_group(item["ticker"], item["data_group"], payload)
             complete = value["complete"]
             delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else retry_delay(item["attempts"])
             if value.get("changed"):

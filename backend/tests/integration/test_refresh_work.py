@@ -3,7 +3,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -98,3 +98,15 @@ def test_old_universe_work_does_not_outrank_new_portfolio_work(queue):
 
     assert work.claim(now=now)["ticker"] == "HELD"
     assert work.claim(now=now)["ticker"] == "OLD"
+
+
+def test_report_writes_lock_one_ticker_without_blocking_others(queue, monkeypatch):
+    from app.workers.tasks import refresh_report_data as report_task
+
+    engine = queue.kw["bind"]
+    monkeypatch.setattr(report_task, "engine", engine)
+    with report_task._ticker_lock("A"):
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as other:
+            assert not other.scalar(text("SELECT pg_try_advisory_lock(7341502, hashtext('A'))"))
+            assert other.scalar(text("SELECT pg_try_advisory_lock(7341502, hashtext('B'))"))
+            other.execute(text("SELECT pg_advisory_unlock(7341502, hashtext('B'))"))
