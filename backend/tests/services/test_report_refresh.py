@@ -72,3 +72,21 @@ def test_missing_statement_history_is_source_wait_not_worker_failure(monkeypatch
     assert result["complete"] is False
     assert result["changed"] is False
     assert "Keine verwertbaren Statements" in result["reason"]
+
+
+def test_non_periodic_filing_does_not_require_new_quarter():
+    enrichment = SimpleNamespace(fiscal_period="2026 Q2", metadata={"report_ends": {}})
+    base = {"event_date": "2026-09-16", "baseline_period": "2026 Q2"}
+
+    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "8-K"})
+    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "6-K"})
+    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-Q/A"})
+    assert not report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-Q"})
+    assert not report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-K"})
+
+
+def test_expected_period_remains_required_for_any_filing():
+    enrichment = SimpleNamespace(fiscal_period="2026 Q2", metadata={"report_ends": {"DilutedEPS": "2026-06-30"}})
+    payload = {"form": "8-K", "event_date": "2026-09-16", "expected_period": "2026-09-30"}
+
+    assert not report_refresh.expected_report_arrived(enrichment, payload)

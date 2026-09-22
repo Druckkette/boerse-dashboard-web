@@ -13,6 +13,17 @@ from app.services.settings import get_runtime_config_value
 
 
 HISTORIES = ("eps_quarter_history", "annual_eps_history", "revenue_quarter_history", "annual_revenue_history", "roe_history")
+NON_PERIOD_FILINGS = {"8-K", "8-K/A", "6-K", "6-K/A", "10-Q/A", "10-K/A", "20-F/A", "40-F/A"}
+
+
+def expected_report_arrived(enrichment, payload: dict) -> bool:
+    target = payload.get("expected_period")
+    if target:
+        ends = enrichment.metadata.get("report_ends", {})
+        return all(ends.get(key, "") >= target for key in ("DilutedEPS", "TotalRevenue"))
+    if payload.get("event_date") and payload.get("form") not in NON_PERIOD_FILINGS:
+        return bool(enrichment.fiscal_period and enrichment.fiscal_period != payload.get("baseline_period"))
+    return True
 
 
 def merge_history(old: list, new: list) -> list:
@@ -72,10 +83,7 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
             metadata[key] = merge_history(previous.metadata_json.get(key, []), histories[key])
         values["metadata_json"] = metadata
     target = payload.get("expected_period")
-    ends = enrichment.metadata.get("report_ends", {})
-    expected_arrived = all(ends.get(key, "") >= target for key in ("DilutedEPS", "TotalRevenue")) if target else True
-    if payload.get("event_date") and not target:
-        expected_arrived = bool(enrichment.fiscal_period and enrichment.fiscal_period != payload.get("baseline_period"))
+    expected_arrived = expected_report_arrived(enrichment, payload)
     complete = not fundamentals._missing_required_history_keys(values["metadata_json"]) and expected_arrived
     values["metadata_json"]["report_refresh"] = {
         "checked_at": datetime.now(UTC).isoformat(), "expected_period": target,
