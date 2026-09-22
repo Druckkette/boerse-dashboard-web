@@ -160,6 +160,7 @@ services:
       - .env.nas
     environment:
       APP_ENV: nas
+      REPORT_WORKER_ENABLED: "1"
       APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     command: ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=INFO"]
     volumes:

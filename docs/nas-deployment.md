@@ -347,6 +347,9 @@ API_ACCESS_LOG_ENABLED=1
 
 ## NAS Performance Rules
 
+- Update the NAS checkout before running `infra/update-nas.sh`: its Compose file starts the dedicated
+  `report-worker` and enables routing from the scheduler to the `reports` queue. An older Compose
+  file keeps report dispatch on the default queue so an image-only update does not strand work.
 - Keep `WORKER_CONCURRENCY=1` for market jobs. The separate report worker defaults to `REPORT_WORKER_CONCURRENCY=2`; raise it only after checking provider throttling and NAS memory usage.
 - Keep the ATR monitor on its dedicated `monitor` queue. It uses one batched Yahoo request per
   minute during the weekday monitoring window and does not execute the full Sell Engine.
