@@ -1,9 +1,11 @@
 from dataclasses import replace
 from datetime import date
+from types import SimpleNamespace
 
 from app.data_sources.provider_guard import retry_seconds
 from app.repositories.fundamentals import FundamentalSnapshotWrite
 from app.services.filing_events import parse_daily_index
+from app.services import report_refresh
 from app.services.report_refresh import content_revision, merge_history
 from app.workers.tasks.refresh_report_data import retry_delay
 
@@ -45,3 +47,28 @@ def test_backoff_is_bounded_and_honors_retry_after():
     assert retry_seconds("999999") == 86400
     assert retry_delay(1).total_seconds() == 7200
     assert retry_delay(100).days == 7
+
+
+def test_missing_beta_is_source_wait_not_worker_failure(monkeypatch):
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: SimpleNamespace(beta=None))
+    monkeypatch.setattr(report_refresh, "fetch_fundamentals", lambda *args, **kwargs: SimpleNamespace(beta=None))
+
+    result = report_refresh.refresh_report_group("SPCX", "beta", {})
+
+    assert result["complete"] is False
+    assert result["changed"] is False
+    assert "kein Beta" in result["reason"]
+
+
+def test_missing_statement_history_is_source_wait_not_worker_failure(monkeypatch):
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: None)
+    monkeypatch.setattr(report_refresh, "get_runtime_config_value", lambda key: "")
+    monkeypatch.setattr(report_refresh, "fetch_fundamental_enrichment", lambda *args, **kwargs: SimpleNamespace(**{
+        key: [] for key in report_refresh.HISTORIES
+    }))
+
+    result = report_refresh.refresh_report_group("SPCX", "statements", {})
+
+    assert result["complete"] is False
+    assert result["changed"] is False
+    assert "Keine verwertbaren Statements" in result["reason"]

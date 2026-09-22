@@ -17,6 +17,13 @@ def retry_delay(attempts: int) -> timedelta:
     return timedelta(hours=(2, 8, 24, 48, 96, 168)[min(max(0, attempts - 1), 5)])
 
 
+def source_retry_delay(item: dict) -> timedelta:
+    """Recheck urgent positions quickly, but do not churn broad missing-source work."""
+    if item.get("priority", 50) <= 40:
+        return retry_delay(item["attempts"])
+    return timedelta(days=(1, 3, 7, 14)[min(max(0, item["attempts"] - 1), 3)])
+
+
 @contextmanager
 def _ticker_lock(ticker: str):
     """Serialize statement and beta writes for one ticker across report workers."""
@@ -107,7 +114,7 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
             with _ticker_lock(item["ticker"]):
                 value = refresh_report_group(item["ticker"], item["data_group"], payload)
             complete = value["complete"]
-            delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else retry_delay(item["attempts"])
+            delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else source_retry_delay(item)
             if value.get("changed"):
                 totals["changed"] += 1
                 refresh_work.enqueue([refresh_work.WorkRequest(item["ticker"], "assessment", "update:" + datetime.now(UTC).isoformat(), datetime.now(UTC), 20)])
@@ -152,11 +159,17 @@ def _run_assessment_batch(items: list[dict], job_id: str, totals: dict) -> None:
         errors = {error["ticker"]: error["error"] for error in result.get("errors", [])}
         for item in items:
             ticker = item["ticker"]
-            if ticker in missing or ticker in errors:
+            if ticker in errors:
                 totals["failed"] += 1
                 refresh_work.finish(
                     item, result={}, status="error", delay=retry_delay(item["attempts"]),
-                    error=errors.get(ticker, "Keine bewertbaren Kursdaten."),
+                    error=errors[ticker],
+                )
+            elif ticker in missing:
+                totals["waiting_source"] += 1
+                refresh_work.finish(
+                    item, result={"complete": False, "reason": "Keine bewertbaren Kursdaten."},
+                    status="waiting_source", delay=source_retry_delay(item),
                 )
             else:
                 refresh_work.finish(item, result={"complete": True}, status="current", delay=timedelta(days=3650))

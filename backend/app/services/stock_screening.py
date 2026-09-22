@@ -123,17 +123,19 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
                 overall_score=item["overall_score"], technical_score=item["technical_score"], item_json=item,
             ))
 
-    if not writes:
+    if not writes and only_tickers is None:
         raise ValueError("Keine Aktie bewertbar. Bestehende Bestenliste bleibt erhalten; bitte Kursdaten prüfen.")
     summary = {
-        "ok": True, "universe_count": len(tickers), "records_seen": len(tickers),
+        "ok": bool(writes) or not errors, "universe_count": len(tickers), "records_seen": len(tickers),
         "records_written": len(writes), "reused_count": reused, "calculated_count": calculated,
         "missing_count": len(missing), "missing_tickers": missing, "error_count": len(errors),
         "errors": errors[:50], "partial": bool(missing or errors),
         "stale_count": sum(item.item_json["prices_stale"] for item in writes),
         "generated_at": datetime.now(UTC).isoformat(), "duration_seconds": round(monotonic() - started, 2),
-        "source_job_id": source_job_id, "as_of": max(item.as_of for item in writes).isoformat(),
+        "source_job_id": source_job_id, "as_of": max(item.as_of for item in writes).isoformat() if writes else None,
     }
+    if not writes:
+        return summary
     # Compact run statistics accompany every row so publication is one atomic transaction.
     run_summary = {key: value for key, value in summary.items() if key not in {"errors", "missing_tickers"}}
     run_summary["criteria"] = sorted({check["label"] for item in writes for check in item.item_json["checks"]})

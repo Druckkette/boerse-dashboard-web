@@ -136,7 +136,7 @@ def test_sell_ranking_stays_fresh_after_latest_market_close() -> None:
     assert result.metadata["expected_as_of"] == "2026-07-31"
 
 
-def test_sell_ranking_requires_recent_monitor_during_open_session() -> None:
+def test_sell_ranking_stays_fresh_during_same_open_session() -> None:
     session = freshness.ExpectedMarketSession(
         date=date(2026, 7, 31),
         phase="intraday",
@@ -147,6 +147,25 @@ def test_sell_ranking_requires_recent_monitor_during_open_session() -> None:
     result = freshness._sell_ranking_freshness(
         datetime(2026, 7, 31, 16, tzinfo=UTC),
         datetime(2026, 7, 31, 15, 50, tzinfo=UTC),
+        12,
+        expected_session=session,
+    )
+
+    assert result.status == "fresh"
+    assert result.metadata["expected_interval"] == "per_market_session"
+
+
+def test_sell_ranking_requires_refresh_after_market_opens() -> None:
+    session = freshness.ExpectedMarketSession(
+        date=date(2026, 7, 31),
+        phase="intraday",
+        open_at=datetime(2026, 7, 31, 13, 30, tzinfo=UTC),
+        close_at=datetime(2026, 7, 31, 20, tzinfo=UTC),
+    )
+
+    result = freshness._sell_ranking_freshness(
+        datetime(2026, 7, 31, 16, tzinfo=UTC),
+        datetime(2026, 7, 31, 12, tzinfo=UTC),
         12,
         expected_session=session,
     )
