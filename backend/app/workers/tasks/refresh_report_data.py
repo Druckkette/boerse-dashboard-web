@@ -1,4 +1,5 @@
 """Short background packages; durable rows survive a lost broker message."""
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
 from time import monotonic
@@ -16,15 +17,22 @@ def retry_delay(attempts: int) -> timedelta:
     return timedelta(hours=(2, 8, 24, 48, 96, 168)[min(max(0, attempts - 1), 5)])
 
 
+@contextmanager
+def _ticker_lock(ticker: str):
+    """Serialize statement and beta writes for one ticker across report workers."""
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.execute(text("SELECT pg_advisory_lock(7341502, hashtext(:ticker))"), {"ticker": ticker})
+        try:
+            yield
+        finally:
+            connection.execute(text("SELECT pg_advisory_unlock(7341502, hashtext(:ticker))"), {"ticker": ticker})
+
+
 @celery_app.task(name="refresh_report_data", ignore_result=True, soft_time_limit=3500, time_limit=3600)
 def refresh_report_data() -> dict:
-    with engine.connect() as connection:
-        if not connection.scalar(text("SELECT pg_try_advisory_lock(7341501)")):
-            return {"skipped": True}
-        try:
-            return _run_package()
-        finally:
-            connection.execute(text("SELECT pg_advisory_unlock(7341501)"))
+    # refresh_work.claim() uses FOR UPDATE SKIP LOCKED and a per-row lease, so
+    # separate report workers can safely process independent items in parallel.
+    return _run_package()
 
 
 def _run_package() -> dict:
@@ -46,8 +54,13 @@ def _run_package() -> dict:
             jobs.update_progress(job.job_id, progress=min(90, result["processed"] * 10),
                                  step=f"{item['data_group']}: {item['ticker']}",
                                  message="Fortsetzbare Berichtspflege; Marktzyklus bleibt unabhaengig.", result=result)
-            _run_item(item, job.job_id, result)
-            result["processed"] += 1
+            if item["data_group"] == "assessment":
+                batch = [item, *refresh_work.claim_more("assessment", limit=39)]
+                _run_assessment_batch(batch, job.job_id, result)
+                result["processed"] += len(batch)
+            else:
+                _run_item(item, job.job_id, result)
+                result["processed"] += 1
         result["duration_seconds"] = round(monotonic() - started, 2)
         if job:
             jobs.mark_done(job.job_id, result=result, message="Berichtspaket abgeschlossen; offene Arbeit wird automatisch fortgesetzt.")
@@ -87,15 +100,12 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
                     refresh_work.WorkRequest(row["ticker"], "assessment", "update:" + now.isoformat(), now, 20)
                     for row in value.get("ticker_breakdown", []) if row.get("status") == "matched"
                 ])
-        elif item["data_group"] == "assessment":
-            from app.services.stock_screening import screen_universe
-            value = screen_universe(source_job_id=job_id, only_tickers=[item["ticker"]])
-            complete, delay = True, timedelta(days=3650)
         else:
             payload = dict(item["payload"])
             if item["previous_result"].get("complete"):
                 payload.pop("event_date", None)
-            value = refresh_report_group(item["ticker"], item["data_group"], payload)
+            with _ticker_lock(item["ticker"]):
+                value = refresh_report_group(item["ticker"], item["data_group"], payload)
             complete = value["complete"]
             delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else retry_delay(item["attempts"])
             if value.get("changed"):
@@ -107,6 +117,49 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
     except Exception as exc:
         totals["failed"] += 1
         refresh_work.finish(item, result={}, status="error", delay=retry_delay(item["attempts"]), error=f"{type(exc).__name__}: {exc}")
+    finally:
+        stop.set()
+        thread.join(timeout=2)
+
+
+def _run_assessment_batch(items: list[dict], job_id: str, totals: dict) -> None:
+    from app.services.stock_screening import screen_universe
+
+    stop = Event()
+
+    def keep_alive() -> None:
+        while not stop.wait(30):
+            try:
+                refresh_work.heartbeat_many(items)
+                jobs.update_job(job_id)
+            except Exception:
+                return
+
+    thread = Thread(target=keep_alive, daemon=True)
+    thread.start()
+    try:
+        try:
+            result = screen_universe(source_job_id=job_id, only_tickers=[item["ticker"] for item in items])
+        except Exception as exc:
+            for item in items:
+                totals["failed"] += 1
+                refresh_work.finish(
+                    item, result={}, status="error", delay=retry_delay(item["attempts"]),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            return
+        missing = set(result.get("missing_tickers", []))
+        errors = {error["ticker"]: error["error"] for error in result.get("errors", [])}
+        for item in items:
+            ticker = item["ticker"]
+            if ticker in missing or ticker in errors:
+                totals["failed"] += 1
+                refresh_work.finish(
+                    item, result={}, status="error", delay=retry_delay(item["attempts"]),
+                    error=errors.get(ticker, "Keine bewertbaren Kursdaten."),
+                )
+            else:
+                refresh_work.finish(item, result={"complete": True}, status="current", delay=timedelta(days=3650))
     finally:
         stop.set()
         thread.join(timeout=2)

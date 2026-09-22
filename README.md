@@ -80,7 +80,7 @@ celery -A app.workers.celery_app.celery_app beat --loglevel=INFO
 - `ghcr.io/druckkette/boerse-dashboard-web-backend:latest`
 - `ghcr.io/druckkette/boerse-dashboard-web-frontend:latest`
 
-Main worker, bounded interactive stock worker, dedicated ATR monitor, scheduler and migrations use the same backend image. Copy `infra/.env.nas.example` to
+Main worker, parallel report worker, bounded interactive stock worker, dedicated ATR monitor, scheduler and migrations use the same backend image. Copy `infra/.env.nas.example` to
 `infra/.env.nas`, set secrets and run:
 
 ```bash
@@ -232,13 +232,13 @@ After changing `.env.nas`, recreate the affected services so the new environment
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web/infra
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker interactive-worker monitor scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker report-worker interactive-worker monitor scheduler backend
 ```
 
 FMP, Pushover, Security/Basic Auth and Neon/Postgres credentials can also be entered and tested in `/setup`.
 Saving the Neon URL does not switch the running database. Use the database target controls to choose
 between local Postgres and Neon, then click **Dienste neu starten** so `frontend`, `backend`,
-`worker`, `interactive-worker`, `monitor` and `scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
+`worker`, `report-worker`, `interactive-worker`, `monitor` and `scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
 hard-coded in the repository and are not shown as setup fields.
 
 The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
@@ -330,7 +330,7 @@ The full-universe stock assessment and filtered CSV best-list export are availab
 **Aktien > Aktienbewertung Ranking**. See [stock screening](docs/stock-screening.md)
 for data coverage, incremental reuse, worker limits and API details.
 
-- `WORKER_CONCURRENCY=1` is the default.
+- `WORKER_CONCURRENCY=1` is the default for market jobs. The separate report worker defaults to two processes and groups due stock assessments in batches of up to 40.
 - The lightweight `monitor` worker uses a separate queue and Celery `solo` pool with concurrency 1.
 - Single-stock refreshes use the separate `interactive` queue with concurrency 1, so they can run during a full market refresh without starting a second full-universe job.
 - The Jobs API rejects a second active heavy job.

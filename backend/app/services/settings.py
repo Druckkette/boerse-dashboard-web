@@ -697,12 +697,12 @@ def _env_bool(key: str, fallback: bool = False) -> bool:
 
 
 def _runtime_restart_services() -> list[str]:
-    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,monitor,scheduler,frontend,backend")
+    raw = str(os.environ.get("NAS_RESTART_SERVICES") or "worker,report-worker,monitor,scheduler,frontend,backend")
     services = [item.strip() for item in raw.split(",") if item.strip()]
     ordered = [service for service in services if service != "backend"]
     if "backend" in services:
         ordered.append("backend")
-    return ordered or ["worker", "monitor", "scheduler", "frontend", "backend"]
+    return ordered or ["worker", "report-worker", "monitor", "scheduler", "frontend", "backend"]
 
 
 def _nas_compose_project() -> str:

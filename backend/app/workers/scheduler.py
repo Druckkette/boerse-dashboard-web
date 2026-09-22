@@ -42,8 +42,8 @@ def get_beat_schedule() -> dict:
     return {
         "report-work-dispatch": {
             "task": "refresh_report_data",
-            "schedule": crontab(minute="*"),
-            "options": {"expires": 55},
+            "schedule": 30.0,
+            "options": {"expires": 90},
         },
         "smart-market-refresh-afternoon": {
             "task": "smart_refresh_market_data",

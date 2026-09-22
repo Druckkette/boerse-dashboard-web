@@ -50,8 +50,9 @@ def claim(*, allow_sec: bool = False, now: datetime | None = None) -> dict | Non
         )
         if not allow_sec:
             query = query.where(RefreshWorkItem.data_group != "sec13f")
-        # Aging prevents new high-priority events from permanently starving repairs.
-        score = RefreshWorkItem.priority - func.extract("epoch", now - RefreshWorkItem.due_at) / 3600
+        # Ageing helps overdue work, but cannot outrank newly due portfolio/earnings work.
+        age_hours = func.extract("epoch", now - RefreshWorkItem.due_at) / 3600
+        score = RefreshWorkItem.priority - func.least(age_hours, 20)
         row = db.scalar(query.order_by(score, RefreshWorkItem.due_at, RefreshWorkItem.key)
                         .with_for_update(skip_locked=True).limit(1))
         if row is None:
@@ -67,6 +68,33 @@ def claim(*, allow_sec: bool = False, now: datetime | None = None) -> dict | Non
         return item
 
 
+def claim_more(data_group: str, *, limit: int, now: datetime | None = None) -> list[dict]:
+    """Lease more due items of one group for a bounded batch."""
+    if limit <= 0:
+        return []
+    now = now or datetime.now(UTC)
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(RefreshWorkItem).where(
+                RefreshWorkItem.data_group == data_group,
+                RefreshWorkItem.due_at <= now,
+                or_(RefreshWorkItem.status != "running", RefreshWorkItem.lease_until < now),
+            ).order_by(RefreshWorkItem.priority, RefreshWorkItem.due_at, RefreshWorkItem.key)
+            .with_for_update(skip_locked=True).limit(limit)
+        ).all()
+        items = []
+        for row in rows:
+            row.status = "running"
+            row.lease_token = str(uuid4())
+            row.lease_until = now + timedelta(minutes=5)
+            row.attempts += 1
+            items.append({"key": row.key, "ticker": row.ticker, "data_group": row.data_group,
+                          "revision": row.revision, "token": row.lease_token, "attempts": row.attempts,
+                          "payload": dict(row.payload_json), "previous_result": dict(row.result_json)})
+        db.commit()
+        return items
+
+
 def heartbeat(item: dict) -> bool:
     with SessionLocal() as db:
         row = db.get(RefreshWorkItem, item["key"], with_for_update=True)
@@ -75,6 +103,17 @@ def heartbeat(item: dict) -> bool:
         row.lease_until = datetime.now(UTC) + timedelta(minutes=5)
         db.commit()
         return True
+
+
+def heartbeat_many(items: list[dict]) -> None:
+    tokens = {item["key"]: item["token"] for item in items}
+    with SessionLocal() as db:
+        rows = db.scalars(select(RefreshWorkItem).where(RefreshWorkItem.key.in_(tokens))).all()
+        deadline = datetime.now(UTC) + timedelta(minutes=5)
+        for row in rows:
+            if row.lease_token == tokens[row.key]:
+                row.lease_until = deadline
+        db.commit()
 
 
 def finish(item: dict, *, result: dict, status: str, delay: timedelta, error: str = "") -> bool:

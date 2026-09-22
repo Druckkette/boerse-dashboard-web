@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from celery import Celery
 
 from app.core_config import get_settings
@@ -12,6 +14,7 @@ result_backend = settings.celery_result_backend or settings.redis_url
 task_time_limit = max(60 * 60, int(settings.celery_task_time_limit_seconds))
 task_soft_time_limit = max(60, min(int(settings.celery_task_soft_time_limit_seconds), task_time_limit - 60))
 visibility_timeout = max(task_time_limit + 60 * 60, int(settings.celery_visibility_timeout_seconds))
+report_queue = "reports" if os.environ.get("REPORT_WORKER_ENABLED", "").lower() in {"1", "true", "yes", "on"} else "default"
 
 celery_app = Celery("boerse_dashboard_web", broker=broker_url, backend=result_backend)
 celery_app.conf.update(
@@ -31,6 +34,7 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_default_queue="default",
     task_routes={
+        "refresh_report_data": {"queue": report_queue},
         "position_atr_monitor": {"queue": "monitor"},
         "pushover_test": {"queue": "monitor"},
         "refresh_stock_detail": {"queue": "interactive"},

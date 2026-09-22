@@ -83,7 +83,7 @@ services:
       APP_ENV: hetzner
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       BACKEND_CACHE_DIR: /app/.cache
-    command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default"]
+    command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default,reports"]
     volumes:
       - backend_cache:/app/.cache
       - worker_logs:/app/logs
