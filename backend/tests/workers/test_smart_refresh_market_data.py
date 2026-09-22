@@ -428,6 +428,36 @@ def test_smart_refresh_task_runs_only_planned_actions(monkeypatch: pytest.Monkey
     assert updated.status == "done"
 
 
+def test_short_ipo_history_marks_smart_refresh_partial_not_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(smart_module, "get_data_diagnostics", lambda: _diagnostics(open_positions_count=1))
+    monkeypatch.setattr(
+        smart_module,
+        "get_freshness",
+        lambda: _freshness(prices="fresh", breadth="fresh", rs="fresh", sell_ranking="stale"),
+    )
+    monkeypatch.setattr(smart_module, "get_universe_status", lambda key: _universe(key=key))
+    monkeypatch.setattr(
+        smart_module,
+        "monitor_open_positions",
+        lambda tickers=None: {
+            "ok": True,
+            "partial": True,
+            "unavailable_count": 1,
+            "unavailable_tickers": ["SPCX"],
+        },
+    )
+
+    job = job_repository.create_job("smart_refresh_market_data", {"mode": "smart"})
+    result = smart_module.smart_refresh_market_data.run(job.job_id, job.payload)
+    updated = job_repository.get_job(job.job_id)
+
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["results"]["position_monitor"]["unavailable_tickers"] == ["SPCX"]
+    assert updated is not None
+    assert updated.status == "done"
+
+
 def test_scheduled_smart_refresh_runs_market_snapshot_path(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 

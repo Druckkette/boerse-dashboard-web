@@ -62,6 +62,10 @@ class SellMarketDataUnavailableError(RuntimeError):
     pass
 
 
+class SellInsufficientHistoryError(SellMarketDataUnavailableError):
+    """A position has not traded long enough for a reliable sell decision."""
+
+
 def get_sell_metrics_for_position(
     ticker: str,
     request: SellMetricsRequest | None = None,
@@ -126,10 +130,14 @@ def _compute_sell_position_ranking_live() -> SellRankingResponse:
     for context in _ranking_contexts():
         ticker = str(context["ticker"])
         metrics_request = context.get("metrics_request")
-        metrics_response = get_sell_metrics_for_position(
-            ticker,
-            metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
-        )
+        try:
+            metrics_response = get_sell_metrics_for_position(
+                ticker,
+                metrics_request if isinstance(metrics_request, SellMetricsRequest) else None,
+            )
+        except SellInsufficientHistoryError as exc:
+            rows.append(_unavailable_ranking_item(ticker, str(context["name"]), str(exc)))
+            continue
         evaluation = _evaluate_position_sell_decision(
             ticker,
             None,
@@ -176,6 +184,8 @@ def _with_data_quality(
     row: SellPositionRankingItem,
     quality_by_ticker: dict[str, dict[str, str]],
 ) -> SellPositionRankingItem:
+    if row.data_quality_status == "blocked":
+        return row
     quality = quality_by_ticker.get(row.ticker.upper())
     if quality is None:
         return row.model_copy(
@@ -189,6 +199,21 @@ def _with_data_quality(
             "data_quality_status": quality["status"],
             "data_quality_detail": quality["detail"],
         }
+    )
+
+
+def _unavailable_ranking_item(ticker: str, name: str, reason: str) -> SellPositionRankingItem:
+    return SellPositionRankingItem(
+        ticker=ticker,
+        name=name,
+        pnl_pct=0.0,
+        health_score=0.0,
+        recommendation_pct=0,
+        status="Halten",
+        reason=reason,
+        pending_status="halten",
+        data_quality_status="blocked",
+        data_quality_detail=reason,
     )
 
 
@@ -292,10 +317,18 @@ def monitor_open_positions(
 
     items: list[dict[str, Any]] = []
     ranking_items: list[SellPositionRankingItem] = []
+    unavailable_tickers: list[str] = []
     live_quotes = _position_monitor_live_quotes(portfolio_rows)
     for row in portfolio_rows:
         metrics_request = _metrics_request_from_portfolio_row(row)
-        metrics = get_sell_metrics_for_position(row.ticker, metrics_request)
+        try:
+            metrics = get_sell_metrics_for_position(row.ticker, metrics_request)
+        except SellInsufficientHistoryError as exc:
+            reason = str(exc)
+            unavailable_tickers.append(row.ticker)
+            ranking_items.append(_unavailable_ranking_item(row.ticker, row.name or row.ticker, reason))
+            items.append({"ticker": row.ticker, "name": row.name, "skipped": True, "reason": reason})
+            continue
         evaluation = _evaluate_position_sell_decision(
             row.ticker,
             None,
@@ -361,8 +394,11 @@ def monitor_open_positions(
     )
     return {
         "ok": True,
+        "partial": bool(unavailable_tickers),
         "records_seen": len(portfolio_rows),
-        "records_written": len(items),
+        "records_written": len(items) - len(unavailable_tickers),
+        "unavailable_count": len(unavailable_tickers),
+        "unavailable_tickers": unavailable_tickers,
         "ranking_snapshot_written": snapshot_count,
         "items": items,
     }
@@ -933,7 +969,7 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
     price_frame = _price_frame_from_cache(request.ticker)
     price_frame = _sell_frame_in_currency(price_frame, request.ticker, request.currency)
     if len(price_frame) < MINIMUM_SELL_PRICE_BARS:
-        raise SellMarketDataUnavailableError(
+        raise SellInsufficientHistoryError(
             f"{request.ticker}: nur {len(price_frame)} Kurszeilen im Price Cache; "
             f"mindestens {MINIMUM_SELL_PRICE_BARS} werden für den Verkaufsmonitor benötigt."
         )

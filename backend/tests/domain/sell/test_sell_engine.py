@@ -427,6 +427,94 @@ def test_monitor_open_positions_persists_recommendation_state(monkeypatch: pytes
     assert [row.ticker for row in ranking.rows] == ["AAPL"]
 
 
+def test_ipo_with_short_history_blocks_only_its_sell_decision(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        PortfolioPositionRow(
+            ticker=ticker, name=ticker, shares=3, entry_price=100, current_price=130,
+            currency="USD", buy_date=date(2026, 6, 1), broker="Test", account="Main",
+        )
+        for ticker in ("AAPL", "SPCX")
+    ]
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: rows)
+    monkeypatch.setattr(sell_service, "_position_monitor_live_quotes", lambda positions: {})
+    spcx_periods = {"count": 70}
+    monkeypatch.setattr(
+        sell_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, *args, **kwargs: _price_bars(
+            start=100, step=0.2, periods=spcx_periods["count"] if ticker == "SPCX" else 280,
+        ),
+    )
+    monkeypatch.setattr(
+        sell_service,
+        "get_position_quality_by_ticker",
+        lambda: {ticker: {"status": "trusted", "detail": "Aktueller Kurs."} for ticker in ("AAPL", "SPCX")},
+    )
+
+    result = sell_service.monitor_open_positions()
+    ranking = get_sell_position_ranking()
+
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["records_seen"] == 2
+    assert result["records_written"] == 1
+    assert result["unavailable_tickers"] == ["SPCX"]
+    assert result["ranking_snapshot_written"] == 2
+    assert sell_service.sell_state_repository.get_recommendation_state("SPCX") is None
+    assert sell_service.sell_state_repository.get_recommendation_state("AAPL") is not None
+    spcx = next(row for row in ranking.rows if row.ticker == "SPCX")
+    assert spcx.data_quality_status == "blocked"
+    assert "70 Kurszeilen" in spcx.data_quality_detail
+    assert spcx.recommendation_pct == 0
+
+    spcx_periods["count"] = 280
+    recovered = sell_service.monitor_open_positions()
+    refreshed_spcx = next(row for row in get_sell_position_ranking().rows if row.ticker == "SPCX")
+    assert recovered["partial"] is False
+    assert recovered["records_written"] == 2
+    assert refreshed_spcx.data_quality_status == "trusted"
+    assert sell_service.sell_state_repository.get_recommendation_state("SPCX") is not None
+
+
+def test_short_benchmark_history_still_fails_monitor(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = PortfolioPositionRow(
+        ticker="AAPL", name="Apple", shares=3, entry_price=100, current_price=130,
+        currency="USD", buy_date=date(2026, 6, 1), broker="Test", account="Main",
+    )
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: [row])
+    monkeypatch.setattr(sell_service, "_position_monitor_live_quotes", lambda positions: {})
+    monkeypatch.setattr(
+        sell_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, *args, **kwargs: _price_bars(start=100, step=0.2, periods=70 if ticker == "SPY" else 280),
+    )
+
+    with pytest.raises(sell_service.SellMarketDataUnavailableError, match="Benchmark-Zeilen"):
+        sell_service.monitor_open_positions()
+
+
+def test_live_ranking_keeps_short_history_ipo_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = PortfolioPositionRow(
+        ticker="SPCX", name="SpaceX", shares=3, entry_price=100, current_price=130,
+        currency="USD", buy_date=date(2026, 6, 1), broker="Test", account="Main",
+    )
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: [row])
+    monkeypatch.setattr(sell_service.sell_state_repository, "list_ranking_snapshot", lambda: ([], None, ""))
+    monkeypatch.setattr(sell_service, "get_position_quality_by_ticker", lambda: {})
+    monkeypatch.setattr(
+        sell_service.prices_repository,
+        "list_price_bars",
+        lambda ticker, *args, **kwargs: _price_bars(start=100, step=0.2, periods=70 if ticker == "SPCX" else 280),
+    )
+
+    ranking = get_sell_position_ranking()
+
+    assert ranking.source == "live"
+    assert [item.ticker for item in ranking.rows] == ["SPCX"]
+    assert ranking.rows[0].data_quality_status == "blocked"
+    assert "70 Kurszeilen" in ranking.rows[0].data_quality_detail
+
+
 def test_monitor_open_positions_reports_atr_threshold_crossing(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [
         PortfolioPositionRow(
