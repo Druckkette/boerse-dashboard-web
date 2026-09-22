@@ -143,7 +143,7 @@ def _sell_ranking_freshness(
     detail = f"Vorberechneter Verkaufsmonitor-Snapshot für {position_count} Positionen."
     metadata = {
         "position_count": position_count,
-        "expected_interval_minutes": 1,
+        "expected_interval": "per_market_session",
         **_session_metadata(expected_session),
     }
     if latest is None:
@@ -152,7 +152,11 @@ def _sell_ranking_freshness(
     generated_at = _as_utc(latest)
     lag_minutes = _lag_minutes(now, generated_at)
     if expected_session.phase == "intraday":
-        is_fresh = lag_minutes <= 5
+        is_fresh = (
+            generated_at >= expected_session.open_at
+            if expected_session.open_at is not None
+            else generated_at.date() >= expected_session.date
+        )
     elif expected_session.close_at is not None:
         is_fresh = generated_at >= expected_session.close_at
     else:

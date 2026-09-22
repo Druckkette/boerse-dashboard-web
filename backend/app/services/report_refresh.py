@@ -39,11 +39,11 @@ def content_revision(row) -> str:
 def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
     previous = fundamentals.get_latest_fundamentals(ticker)
     if group == "beta":
+        if previous is None:
+            return {"complete": False, "changed": False, "reason": "Zuerst Statement-Snapshot aufbauen."}
         fetched = fetch_fundamentals(ticker, include_holders=False, include_calendar=False)
         if fetched.beta is None:
-            raise RuntimeError("Provider liefert kein Beta; bestehende Daten bleiben erhalten.")
-        if previous is None:
-            raise RuntimeError("Zuerst Statement-Snapshot aufbauen.")
+            return {"complete": False, "changed": False, "reason": "Provider liefert kein Beta; bestehende Daten bleiben erhalten."}
         values = {field.name: getattr(previous, field.name) for field in fields(fundamentals.FundamentalSnapshotWrite)}
         write = fundamentals.FundamentalSnapshotWrite(**values)
         write = replace(write, beta=fetched.beta)
@@ -58,7 +58,7 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
     )
     histories = {key: getattr(enrichment, key) for key in HISTORIES}
     if not any(histories.values()):
-        raise RuntimeError("Keine verwertbaren Statements; bestehende Historie bleibt erhalten.")
+        return {"complete": False, "changed": False, "reason": "Keine verwertbaren Statements; bestehende Historie bleibt erhalten."}
     empty = {field.name: None for field in fields(FetchedFundamentals)}
     empty.update(ticker=ticker, as_of=date.today(), source="", fiscal_period="")
     write = _to_write(FetchedFundamentals(**empty), enrichment)

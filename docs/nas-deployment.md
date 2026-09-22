@@ -350,6 +350,9 @@ API_ACCESS_LOG_ENABLED=1
 - Update the NAS checkout before running `infra/update-nas.sh`: its Compose file starts the dedicated
   `report-worker` and enables routing from the scheduler to the `reports` queue. An older Compose
   file keeps report dispatch on the default queue so an image-only update does not strand work.
+- `waiting_source` means the provider has not supplied enough statements, beta or price history;
+  it is not a worker failure. Tracked positions and new report events retry promptly, while
+  untracked universe gaps back off over 1, 3, 7 and 14 days. New filings requeue immediately.
 - Keep `WORKER_CONCURRENCY=1` for market jobs. The separate report worker defaults to `REPORT_WORKER_CONCURRENCY=2`; raise it only after checking provider throttling and NAS memory usage.
 - Keep the ATR monitor on its dedicated `monitor` queue. It uses one batched Yahoo request per
   minute during the weekday monitoring window and does not execute the full Sell Engine.

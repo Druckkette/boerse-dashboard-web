@@ -24,7 +24,7 @@ def inputs():
 @pytest.fixture
 def storage(monkeypatch):
     state = {"rows": [], "publications": 0}
-    monkeypatch.setattr(screening.stock_assessments, "list_all_snapshots", lambda: state["rows"])
+    monkeypatch.setattr(screening.stock_assessments, "list_all_snapshots", lambda tickers=None: state["rows"])
 
     def publish(rows, **kwargs):
         state["rows"] = [SimpleNamespace(ticker=row.ticker, item_json=row.item_json) for row in rows]
@@ -118,6 +118,38 @@ def test_missing_prices_reported_and_not_scored_as_real_candidates(monkeypatch, 
     assert result["partial"]
     assert result["records_written"] == 1
     assert not storage["rows"][0].item_json["fundamentals_available"]
+
+
+def test_missing_prices_in_report_batch_do_not_fail_or_replace_snapshots(monkeypatch, storage):
+    monkeypatch.setattr(screening, "_load_assessment_inputs", lambda *args, **kwargs: [
+        ("EMPTY", None, {**inputs(), "bars": []}),
+    ])
+
+    result = screening.screen_universe(only_tickers=["EMPTY"])
+
+    assert result["records_seen"] == 1
+    assert result["records_written"] == 0
+    assert result["missing_tickers"] == ["EMPTY"]
+    assert result["errors"] == []
+    assert storage["publications"] == 0
+
+
+def test_calculation_error_in_report_batch_remains_an_error(monkeypatch, storage):
+    monkeypatch.setattr(screening, "_load_assessment_inputs", lambda *args, **kwargs: [
+        ("BROKEN", None, inputs()),
+    ])
+
+    def fail(*args, **kwargs):
+        raise ValueError("invalid calculation")
+
+    monkeypatch.setattr(screening.assessment, "compute_stock_assessment", fail)
+
+    result = screening.screen_universe(only_tickers=["BROKEN"])
+
+    assert result["ok"] is False
+    assert result["errors"] == [{"ticker": "BROKEN", "error": "ValueError: invalid calculation"}]
+    assert result["missing_tickers"] == []
+    assert storage["publications"] == 0
 
 
 @pytest.mark.parametrize("failure", [MarketRepositoryUnavailable("database offline"), JobCancelled("cancelled")])

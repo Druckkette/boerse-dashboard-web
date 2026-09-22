@@ -62,7 +62,8 @@ def claim(*, allow_sec: bool = False, now: datetime | None = None) -> dict | Non
         row.lease_until = now + timedelta(minutes=5)
         row.attempts += 1
         item = {"key": row.key, "ticker": row.ticker, "data_group": row.data_group,
-                "revision": row.revision, "token": row.lease_token, "attempts": row.attempts,
+                "revision": row.revision, "priority": row.priority,
+                "token": row.lease_token, "attempts": row.attempts,
                 "payload": dict(row.payload_json), "previous_result": dict(row.result_json)}
         db.commit()
         return item
@@ -89,7 +90,8 @@ def claim_more(data_group: str, *, limit: int, now: datetime | None = None) -> l
             row.lease_until = now + timedelta(minutes=5)
             row.attempts += 1
             items.append({"key": row.key, "ticker": row.ticker, "data_group": row.data_group,
-                          "revision": row.revision, "token": row.lease_token, "attempts": row.attempts,
+                          "revision": row.revision, "priority": row.priority,
+                          "token": row.lease_token, "attempts": row.attempts,
                           "payload": dict(row.payload_json), "previous_result": dict(row.result_json)})
         db.commit()
         return items
