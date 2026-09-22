@@ -1,6 +1,6 @@
 # NAS Deployment
 
-This deployment target runs the same backend image for API, worker, scheduler and migrations.
+This deployment target runs the same backend image for API, worker, report worker, scheduler and migrations.
 
 ## GHCR Login
 
@@ -158,7 +158,7 @@ recreate the containers that read the variable:
 
 ```bash
 cd /volume1/docker/boerse-dashboard-web/infra
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker interactive-worker monitor scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker report-worker interactive-worker monitor scheduler backend
 ```
 
 Saving a Neon URL only stores and tests the candidate. It does not switch the app. Use the
@@ -168,15 +168,15 @@ Saving a Neon URL only stores and tests the candidate. It does not switch the ap
    `alembic upgrade head` against the selected target; the target is not changed if migration fails.
 2. Click **Dienste neu starten**.
 
-The button restarts `worker`, the bounded `interactive-worker`, the dedicated `monitor`, `scheduler`, `frontend` and then `backend` through the Docker socket. This replaces
+The button restarts `worker`, `report-worker`, the bounded `interactive-worker`, the dedicated `monitor`, `scheduler`, `frontend` and then `backend` through the Docker socket. This replaces
 running the following command manually for normal runtime database switches:
 
 ```bash
-docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker interactive-worker monitor scheduler backend
+docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --force-recreate frontend worker report-worker interactive-worker monitor scheduler backend
 ```
 
 For Neon/Postgres and Security/Basic Auth, the setup screen writes `/app/runtime/runtime.env` into
-the persistent `backend_runtime` volume. Backend, worker, interactive worker, monitor, scheduler and frontend mount that file so
+the persistent `backend_runtime` volume. Backend, worker, report worker, interactive worker, monitor, scheduler and frontend mount that file so
 saved runtime settings survive normal container pulls/recreates. A switch to an empty Neon database
 can still require re-entering values because the active database is the source of truth.
 
@@ -191,11 +191,16 @@ Redis and image/deployment values remain Compose defaults and are intentionally 
 Use Synology Task Scheduler to run:
 
 ```bash
+git -C /volume1/docker/boerse-dashboard-web pull --ff-only
 cd /volume1/docker/boerse-dashboard-web/infra
 ./update-nas.sh
 ```
 
-The script pulls GHCR images, runs Alembic migrations and restarts services without deleting volumes.
+The Git update is required when Compose gains a service such as `report-worker`. The update script
+pulls GHCR images, runs Alembic migrations and restarts services without deleting volumes. Confirm
+that `docker compose --env-file .env.nas -f docker-compose.nas.yml ps report-worker` shows a running
+worker after the first update, then watch `/api/v1/jobs/report-work` to verify that the due count
+falls over time.
 Migration `0010_job_heartbeat` lets the app recognize abandoned worker jobs. Queued jobs without a
 heartbeat for 30 minutes and running jobs without a heartbeat for 90 minutes are marked failed and
 no longer block a new refresh after a NAS/worker restart.
@@ -342,7 +347,7 @@ API_ACCESS_LOG_ENABLED=1
 
 ## NAS Performance Rules
 
-- Keep `WORKER_CONCURRENCY=1` on DS220+ until measured otherwise.
+- Keep `WORKER_CONCURRENCY=1` for market jobs. The separate report worker defaults to `REPORT_WORKER_CONCURRENCY=2`; raise it only after checking provider throttling and NAS memory usage.
 - Keep the ATR monitor on its dedicated `monitor` queue. It uses one batched Yahoo request per
   minute during the weekday monitoring window and does not execute the full Sell Engine.
 - Keep the single-stock `interactive-worker` at concurrency 1. It may overlap a full refresh, but only for one explicitly requested ticker.

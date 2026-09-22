@@ -8,6 +8,14 @@ def test_celery_beat_uses_german_market_update_timezone() -> None:
     assert celery_app.conf.timezone == "Europe/Berlin"
 
 
+def test_report_work_has_its_own_queue_and_30_second_dispatch() -> None:
+    schedule = get_beat_schedule()["report-work-dispatch"]
+    route = celery_app.amqp.router.route({}, "refresh_report_data", (), {})
+
+    assert schedule["schedule"] == 30.0
+    assert route["queue"].name == "reports"
+
+
 def test_smart_market_refresh_runs_afternoon_and_evening() -> None:
     schedule = get_beat_schedule()
 

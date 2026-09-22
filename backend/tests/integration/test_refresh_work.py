@@ -72,3 +72,29 @@ def test_archive_work_only_claimed_when_allowed(queue):
     work.enqueue([request(group="sec13f")])
     assert work.claim() is None
     assert work.claim(allow_sec=True)["data_group"] == "sec13f"
+
+
+def test_batch_claims_use_distinct_leases_and_cannot_be_reclaimed(queue):
+    due = datetime.now(UTC) - timedelta(minutes=1)
+    work.enqueue([work.WorkRequest(ticker, "assessment", "baseline", due) for ticker in ("A", "B", "C")])
+
+    first = work.claim()
+    rest = work.claim_more("assessment", limit=39)
+
+    assert first is not None
+    assert {first["ticker"], *(item["ticker"] for item in rest)} == {"A", "B", "C"}
+    assert work.claim() is None
+    work.heartbeat_many([first, *rest])
+    for item in [first, *rest]:
+        assert work.finish(item, result={"complete": True}, status="current", delay=timedelta(days=1))
+
+
+def test_old_universe_work_does_not_outrank_new_portfolio_work(queue):
+    now = datetime.now(UTC)
+    work.enqueue([
+        work.WorkRequest("OLD", "beta", "baseline", now - timedelta(days=4), priority=80),
+        work.WorkRequest("HELD", "statements", "baseline", now - timedelta(minutes=1), priority=10),
+    ])
+
+    assert work.claim(now=now)["ticker"] == "HELD"
+    assert work.claim(now=now)["ticker"] == "OLD"

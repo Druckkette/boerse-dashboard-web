@@ -35,7 +35,7 @@ fi
 
 echo "Backup file:  ${BACKUP_FILE}"
 echo "== Stopping app services before restore =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" stop frontend backend worker monitor scheduler || true
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" stop frontend backend worker report-worker monitor scheduler || true
 
 echo "== Restoring database objects =="
 case "${BACKUP_FILE}" in

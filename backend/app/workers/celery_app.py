@@ -31,6 +31,7 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_default_queue="default",
     task_routes={
+        "refresh_report_data": {"queue": "reports"},
         "position_atr_monitor": {"queue": "monitor"},
         "pushover_test": {"queue": "monitor"},
         "refresh_stock_detail": {"queue": "interactive"},
