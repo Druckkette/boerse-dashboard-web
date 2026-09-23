@@ -144,7 +144,7 @@ def test_partial_sec_uses_yahoo_then_fmp_only_if_still_missing(monkeypatch):
     monkeypatch.setattr(client, "bulk_status", lambda: {"fetched_at": pd.Timestamp.now(tz="UTC").isoformat()})
     partial = {"DilutedEPS": _complete_raw()["DilutedEPS"]}
     monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *args, **kwargs: (partial, "SEC sec_bulk_cache currency=USD"))
-    monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: (_complete_raw(), "yfinance statements"))
+    monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: ({**_complete_raw(), "_statement_currency": "USD"}, "yfinance statements"))
     monkeypatch.setattr(client, "fetch_quarterly_fmp", lambda *args, **kwargs: pytest.fail("FMP called"))
     result = client.fetch_fundamental_enrichment("TEST", sec_user_agent="test contact@example.com", fmp_api_key="key")
     assert result.metadata["fallbacks_used"] == ["yfinance"]
@@ -152,12 +152,24 @@ def test_partial_sec_uses_yahoo_then_fmp_only_if_still_missing(monkeypatch):
     assert result.metadata["data_sources"]["revenue"] == "yfinance"
     monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: (None, "Yahoo leer"))
     calls = []
-    monkeypatch.setattr(client, "fetch_quarterly_fmp", lambda *args, **kwargs: (calls.append(1) or _complete_raw(), "FMP stable"))
+    monkeypatch.setattr(client, "fetch_quarterly_fmp", lambda *args, **kwargs: (calls.append(1) or {**_complete_raw(), "_statement_currency": "USD"}, "FMP stable"))
     result = client.fetch_fundamental_enrichment("TEST", sec_user_agent="test contact@example.com", fmp_api_key="key")
     assert calls == [1]
     assert result.metadata["fallbacks_used"] == ["yfinance", "fmp"]
     result = client.fetch_fundamental_enrichment("TEST", sec_user_agent="test contact@example.com", fmp_api_key="")
     assert result.metadata["fallbacks_used"] == ["yfinance"]
+
+
+def test_mismatched_statement_currency_is_not_merged(monkeypatch):
+    monkeypatch.setattr(client, "record_provider_event", lambda *args: None)
+    monkeypatch.setattr(client, "bulk_status", lambda: {"fetched_at": pd.Timestamp.now(tz="UTC").isoformat()})
+    partial = {"DilutedEPS": _complete_raw()["DilutedEPS"]}
+    monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *args, **kwargs: (partial, "SEC sec_bulk_cache currency=USD"))
+    monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: ({**_complete_raw(), "_statement_currency": "EUR"}, "yfinance statements"))
+    result = client.fetch_fundamental_enrichment("TEST", sec_user_agent="agent", fmp_api_key="")
+    assert result.metadata["data_sources"]["revenue"] is None
+    assert result.metadata["reason_code"] == "waiting_yahoo_data"
+    assert "TotalRevenue" not in result.metadata["series_lengths"]
 
 
 def test_previous_snapshot_keeps_history_on_partial_provider(monkeypatch):
