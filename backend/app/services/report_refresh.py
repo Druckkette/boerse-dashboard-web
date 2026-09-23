@@ -51,13 +51,17 @@ def cached_price_beta(ticker: str, *, min_returns: int = 90) -> float | None:
         return None
     x = [market[day] / market[previous] - 1 for previous, day in zip(days, days[1:])]
     y = [stock[day] / stock[previous] - 1 for previous, day in zip(days, days[1:])]
+    # A 500% daily move in adjusted closes usually indicates a bad adjustment,
+    # ticker reuse or a split discontinuity. Do not fit a beta to that series.
+    if any(abs(value) > 5 for value in y):
+        return None
     mean_x = sum(x) / len(x)
     mean_y = sum(y) / len(y)
     variance = sum((value - mean_x) ** 2 for value in x)
     if variance <= 1e-12:
         return None
     beta = sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y)) / variance
-    return round(beta, 4) if isfinite(beta) else None
+    return round(beta, 4) if isfinite(beta) and abs(beta) <= 10 else None
 
 
 def expected_report_arrived(enrichment, payload: dict) -> bool:

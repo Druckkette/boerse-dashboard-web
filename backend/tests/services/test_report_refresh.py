@@ -79,6 +79,23 @@ def test_cached_price_beta_uses_aligned_adjusted_returns(monkeypatch):
     assert report_refresh.cached_price_beta("SPY") == 1.0
 
 
+def test_cached_price_beta_rejects_split_like_adjustment_error(monkeypatch):
+    first = date.today() - timedelta(days=100)
+    market = [100.0]
+    stock = [50.0]
+    for index in range(1, 101):
+        change = 0.001 + (index % 11 - 5) * 0.003
+        market.append(market[-1] * (1 + change))
+        stock.append(stock[-1] * (7 if index == 50 else 1 + 1.5 * change))
+    bars = {
+        "TEST": [SimpleNamespace(date=first + timedelta(days=index), adj_close=value) for index, value in enumerate(stock)],
+        "SPY": [SimpleNamespace(date=first + timedelta(days=index), adj_close=value) for index, value in enumerate(market)],
+    }
+    monkeypatch.setattr(report_refresh.prices, "list_price_bars_for_tickers", lambda *args, **kwargs: bars)
+
+    assert report_refresh.cached_price_beta("TEST") is None
+
+
 def test_cached_beta_avoids_provider_request(monkeypatch):
     previous = FundamentalSnapshotWrite("TEST", date.today(), beta=None, metadata_json={})
     monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: previous)
