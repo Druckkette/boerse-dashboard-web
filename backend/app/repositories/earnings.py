@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import EarningsEvent
 from app.db.session import SessionLocal
+from app.data_sources.source_priority import source_rank
 
 
 @dataclass(frozen=True)
@@ -33,11 +34,15 @@ def next_earnings_dates(tickers: list[str]) -> dict[str, date]:
         return {}
     try:
         with SessionLocal() as db:
-            return dict(db.execute(
-                select(EarningsEvent.ticker, func.min(EarningsEvent.event_date))
+            rows = db.execute(
+                select(EarningsEvent.ticker, EarningsEvent.event_date, EarningsEvent.source)
                 .where(EarningsEvent.ticker.in_(tickers), EarningsEvent.event_date >= date.today())
-                .group_by(EarningsEvent.ticker)
-            ).all())
+            ).all()
+            result = {}
+            for ticker, event_date, source in sorted(rows, key=lambda row: (
+                source_rank("earnings_date", row[2]), row[1])):
+                result.setdefault(ticker, event_date)
+            return result
     except SQLAlchemyError as exc:
         raise EarningsRepositoryUnavailable(str(exc)) from exc
 
@@ -148,17 +153,27 @@ def priority_tickers_for_fundamentals(
 
 
 def next_earnings_date(ticker: str, *, from_date: date | None = None) -> date | None:
+    event = next_earnings_event(ticker, from_date=from_date)
+    return event[0] if event else None
+
+
+def next_earnings_event(ticker: str, *, from_date: date | None = None,
+                        include_fmp: bool = True) -> tuple[date, str] | None:
     clean = ticker.strip().upper()
     if not clean:
         return None
     try:
         with SessionLocal() as db:
-            return db.scalar(
-                select(func.min(EarningsEvent.event_date)).where(
+            rows = db.execute(
+                select(EarningsEvent.event_date, EarningsEvent.source).where(
                     EarningsEvent.ticker == clean,
                     EarningsEvent.event_date >= (from_date or date.today()),
                 )
-            )
+            ).all()
+            if not include_fmp:
+                rows = [row for row in rows if row[1] != "fmp"]
+            best = min(rows, key=lambda row: (source_rank("earnings_date", row[1]), row[0])) if rows else None
+            return (best[0], best[1]) if best else None
     except SQLAlchemyError as exc:
         raise EarningsRepositoryUnavailable(str(exc)) from exc
 

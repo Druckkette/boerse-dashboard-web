@@ -350,9 +350,12 @@ API_ACCESS_LOG_ENABLED=1
 - Update the NAS checkout before running `infra/update-nas.sh`: its Compose file starts the dedicated
   `report-worker` and enables routing from the scheduler to the `reports` queue. An older Compose
   file keeps report dispatch on the default queue so an image-only update does not strand work.
-- `waiting_source` means the provider has not supplied enough statements, beta or price history;
-  it is not a worker failure. Tracked positions and new report events retry promptly, while
-  untracked universe gaps back off over 1, 3, 7 and 14 days. New filings requeue immediately.
+- `waiting_source` means the current check has no sufficient data yet; it is not a worker failure.
+  The result includes a precise `reason_code`: `waiting_sec_data`, `waiting_yahoo_data`,
+  `waiting_fmp_fallback`, `unsupported_taxonomy`, `missing_history`, `rate_limited` or
+  `provider_error`. Tracked positions and new report events retry promptly, while untracked
+  universe gaps back off over 1, 3, 7 and 14 days. New filings requeue immediately. A 429 does
+  not erase existing history or imply permanent absence of financial data.
 - Keep `WORKER_CONCURRENCY=1` for market jobs. The separate report worker defaults to `REPORT_WORKER_CONCURRENCY=2`; raise it only after checking provider throttling and NAS memory usage.
 - Keep the ATR monitor on its dedicated `monitor` queue. It uses one batched Yahoo request per
   minute during the weekday monitoring window and does not execute the full Sell Engine.
@@ -364,3 +367,13 @@ API_ACCESS_LOG_ENABLED=1
 - Redis is capped with `REDIS_MAXMEMORY` and `allkeys-lru`.
 - API endpoints should return prepared snapshots from Postgres/cache, not live Pandas recomputes.
 - Worker logs and backend cache use separate volumes and can be pruned independently of Postgres.
+- The SEC Company Facts bulk ZIP lives in the shared `backend_cache` volume at
+  `/app/.cache/sec_companyfacts/companyfacts.zip`. The daily 10:30 Berlin task downloads to a
+  temporary file, validates it and atomically replaces the old ZIP. Keep free space for two
+  copies during download. If the download fails, the old archive remains usable. The scheduler
+  only dispatches and therefore does not need the cache volume; the report worker and ordinary
+  worker both mount it. Multiple workers coordinate via a file lock and Redis rate guard.
+- `GET /api/v1/jobs/report-work` exposes cache status and today's provider counters. A normal
+  run with complete local/SEC history should show zero FMP requests for those stocks; Yahoo and
+  FMP are only used for gaps. The estimate/actual earnings columns remain optional and are not
+  required for rankings or buy decisions.

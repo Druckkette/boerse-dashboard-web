@@ -6,6 +6,7 @@ from math import isnan
 from typing import Any
 
 import pandas as pd
+from app.data_sources.provider_usage import record_provider_event
 
 
 LIVE_QUOTE_MAX_AGE = timedelta(minutes=30)
@@ -392,6 +393,7 @@ def _normalize_download_frame(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 def _safe_info(ticker: Any) -> dict:
     try:
+        record_provider_event("yahoo_requests")
         info = ticker.get_info()
     except Exception:
         try:
@@ -418,6 +420,7 @@ def _normalize_percent(value: float | None) -> float | None:
 
 def _next_earnings_date(ticker: Any) -> date | None:
     try:
+        record_provider_event("yahoo_requests")
         frame = ticker.get_earnings_dates(limit=12)
     except Exception:
         return None

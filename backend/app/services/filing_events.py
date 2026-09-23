@@ -3,9 +3,9 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 import hashlib
 
-import requests
 
 from app.data_sources.fundamentals_client import _sec_cik_map
+from app.data_sources.sec_request import sec_get
 from app.repositories import fundamentals, universes
 from app.repositories.refresh_work import WorkRequest, enqueue
 from app.repositories.settings import _read_json_setting, _write_json_setting
@@ -56,7 +56,7 @@ def discover_filing_events(*, today: date | None = None) -> dict:
             continue
         quarter = (day.month - 1) // 3 + 1
         url = f"https://www.sec.gov/Archives/edgar/daily-index/{day.year}/QTR{quarter}/master.{day:%Y%m%d}.idx"
-        response = requests.get(url, headers={"User-Agent": agent}, timeout=15)
+        response = sec_get(url, user_agent=agent, timeout=15)
         if response.status_code == 404:
             continue
         response.raise_for_status()

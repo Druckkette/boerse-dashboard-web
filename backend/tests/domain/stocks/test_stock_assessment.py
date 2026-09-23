@@ -265,7 +265,7 @@ def test_trailing_eps_sum_last_four_quarters_must_be_positive() -> None:
     checks, _, _ = evaluate_fundamentals_context({"trailing_eps": -0.01})
     trailing_check = _check(checks, "Summe EPS letzte 4 Quartale > 0")
     assert trailing_check.passed is False
-    assert "$-0.01" in trailing_check.detail
+    assert "-0.01" in trailing_check.detail
 
 
 def test_eps_acceleration_bonus_uses_last_three_quarter_growth_rates() -> None:

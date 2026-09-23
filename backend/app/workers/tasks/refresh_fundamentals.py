@@ -67,6 +67,7 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
         "failed_tickers": [],
         "records_seen": 0,
         "records_written": 0,
+        "provider_usage": {},
         "items": [],
         "earnings_priority_tickers": [
             ticker for ticker in selected_tickers if ticker in set(earnings_tickers)
@@ -110,6 +111,8 @@ def refresh_fundamentals(self, job_id: str | None = None, payload: dict | None =
             result["success_count"] += 1
             result["records_seen"] += int(item.get("records_seen") or 0)
             result["records_written"] += int(item.get("records_written") or 0)
+            for metric, count in (item.get("provider_usage") or {}).items():
+                result["provider_usage"][metric] = result["provider_usage"].get(metric, 0) + count
 
         result["ok"] = result["failure_count"] == 0 and (result["success_count"] > 0 or result["skipped_count"] > 0)
         result["partial"] = (result["success_count"] > 0 and result["failure_count"] > 0) or result["deferred_count"] > 0

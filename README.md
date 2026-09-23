@@ -102,8 +102,10 @@ The Settings page shows a non-blocking system status for Postgres, Alembic migra
 The same diagnostic is available at `/api/v1/readiness` for local NAS checks.
 For Pushover alerts, set `PUSHOVER_USER_KEY` and `PUSHOVER_APP_TOKEN` in `.env.nas`; the Settings
 page only shows whether those env vars are configured and can start a non-blocking test job.
-For deeper stock fundamentals, optionally set `FMP_API_KEY`; without it the worker keeps using
-yfinance plus SEC Company Facts where available.
+Fundamentals use SEC Company Facts first (US-GAAP and IFRS), then locally calculated growth,
+TTM EPS, ROE and margin. Yahoo/yfinance fills missing statements, beta and earnings dates;
+FMP is an optional final fallback for missing statement histories or earnings dates. The app
+can run with an empty `FMP_API_KEY`.
 For real SEC/13F refreshes, set `SEC_USER_AGENT` in `.env.nas` to a project name plus a real contact
 email, for example `boerse-dashboard-web name@example.com`.
 
@@ -171,9 +173,9 @@ For the NAS, "current" is implemented by data class rather than by reloading eve
   timestamp is mapped to the preceding US trading day. One US session of provider lag is accepted;
   older files are reported as stale. Because this provider maintains its own universe, external RS
   freshness requires at least 4,000 dated ratings instead of local-universe coverage.
-- At 15:50 and 22:20 the Earnings Calendar is refreshed. FMP is used when the configured plan
-  permits the stable calendar endpoint; on missing keys, quota exhaustion or provider errors the
-  app automatically falls back to Nasdaq's public calendar for the rolling next 35 days.
+- At 15:50 and 22:20 the Earnings Calendar is refreshed from Nasdaq's public calendar for the
+  rolling next 35 days. If Nasdaq has no usable dates, tracked stocks use Yahoo; FMP is an optional
+  final fallback. Stored EPS and revenue estimates are optional and are not required by rankings.
   Fundamentals rotate oldest-first in batches of 250 with a 14-day freshness window. Open portfolio
   positions, watchlist/recent tickers and companies reporting from three days ago through tomorrow
   are forced to the front of the next batch.
@@ -241,9 +243,24 @@ between local Postgres and Neon, then click **Dienste neu starten** so `frontend
 `worker`, `report-worker`, `interactive-worker`, `monitor` and `scheduler` reload the generated runtime env file. General Compose defaults such as Redis stay
 hard-coded in the repository and are not shown as setup fields.
 
-The Fundamentals job stores a compact yfinance snapshot and, when configured, enriches quarterly
-EPS/revenue growth and acceleration with FMP and SEC Company Facts. `FMP_API_KEY` is optional and
-belongs only in `.env.nas` or your local private `.env`.
+The Fundamentals job reads the shared SEC `companyfacts.zip` archive, then live Company Facts for
+new filings or missing CIKs. SEC values are merged with existing history; growth, acceleration,
+TTM EPS, ROE and margin are calculated locally. Yahoo fills gaps. FMP statement calls occur only
+when required history, net income or equity still cannot be sourced. FMP growth, ratios, beta
+profile and per-ticker earnings calls are no longer part of the normal flow. `FMP_API_KEY` is
+optional and belongs only in `.env.nas` or a private `.env`.
+
+The `refresh_sec_companyfacts_bulk` task runs daily at 10:30 Europe/Berlin. It downloads once per
+shared cache volume, validates the archive and atomically replaces the old copy. A failed download
+keeps the previous valid copy. `BACKEND_CACHE_DIR` defaults to `/app/.cache` in Docker; the
+`backend_cache` named volume is shared by backend and workers. Keep enough free space for both
+the existing and incoming archive during replacement. The SEC request gate uses shared Redis and
+allows at most five requests per second across workers. A 429/403 starts a shared cooldown.
+
+`GET /api/v1/jobs/report-work` and the Berichtspflege panel show the SEC cache timestamp and
+daily provider counters (`sec_requests`, `sec_bulk_downloads`, `yahoo_requests`, `fmp_requests`,
+429 counts, cache hits and fallbacks). Each fundamentals job also records provider usage. Counts
+describe provider operations attempted; yfinance may issue more than one HTTP request internally.
 
 The same jobs can still be started through `POST /api/v1/jobs` for automation, but manual NAS
 operation should use the dashboard.

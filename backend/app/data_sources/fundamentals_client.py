@@ -10,16 +10,40 @@ import requests
 
 from app.data_sources.fmp_client import (
     FMP_BALANCE_SHEET_URL,
-    FMP_EARNINGS_URL,
-    FMP_INCOME_STATEMENT_GROWTH_URL,
     FMP_INCOME_STATEMENT_URL,
-    FMP_PROFILE_URL,
-    FMP_RATIOS_TTM_URL,
     compact_fmp_response_body,
 )
+from app.data_sources.provider_guard import guarded_fmp_get
+from app.data_sources.provider_usage import current_provider_usage, record_provider_event
+from app.data_sources.sec_companyfacts_cache import bulk_status, load_companyfacts
+from app.data_sources.sec_request import SecRequestError, sec_get
+from app.data_sources.source_priority import SOURCE_PRIORITY
 
 
 QuarterlyRaw = dict[str, pd.Series | float]
+
+SEC_FORMS = {"10-Q", "10-Q/A", "10-K", "10-K/A", "20-F", "20-F/A",
+             "40-F", "40-F/A", "6-K", "6-K/A"}
+SEC_CONCEPTS = {
+    "DilutedEPS": {
+        "us-gaap": ("EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted",
+                    "IncomeLossFromContinuingOperationsPerDilutedShare"),
+        "ifrs-full": ("DilutedEarningsLossPerShare", "DilutedEarningsLossPerShareFromContinuingOperations"),
+    },
+    "TotalRevenue": {
+        "us-gaap": ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"),
+        "ifrs-full": ("Revenue", "RevenueFromContractsWithCustomers"),
+    },
+    "NetIncome": {
+        "us-gaap": ("NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"),
+        "ifrs-full": ("ProfitLoss", "ProfitLossAttributableToOwnersOfParent"),
+    },
+    "StockholdersEquity": {
+        "us-gaap": ("StockholdersEquity", "StockholdersEquityAttributableToParent", "Equity"),
+        "ifrs-full": ("EquityAttributableToOwnersOfParent", "Equity"),
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -61,53 +85,101 @@ def fetch_fundamental_enrichment(
     sec_user_agent: str = "",
     timeout: int = 15,
     statements_only: bool = False,
+    previous_metadata: dict[str, Any] | None = None,
+    force_live_sec: bool = False,
 ) -> FundamentalEnrichment:
     clean = ticker.strip().upper()
     notes: list[str] = []
-    raw: QuarterlyRaw | None = None
-    fmp_profile: dict[str, Any] = {}
-    fmp_next_earnings_date: date | None = None
-
-    if fmp_api_key:
-        fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout, **({"minimal": True} if statements_only else {}))
-        if fmp_note:
-            notes.append(fmp_note)
-        raw = merge_quarterly_raw(fmp_raw, raw)
-        if not statements_only:
-            fmp_profile, fmp_profile_note = fetch_fmp_profile(clean, fmp_api_key, timeout=timeout)
-            if fmp_profile_note:
-                notes.append(fmp_profile_note)
-            fmp_next_earnings_date, fmp_earnings_note = fetch_fmp_next_earnings_date(clean, fmp_api_key, timeout=timeout)
-            if fmp_earnings_note:
-                notes.append(fmp_earnings_note)
-    else:
-        notes.append("FMP: kein API-Key")
-
-    if sec_user_agent and (not statements_only or _needs_yfinance_statement_history(raw)):
-        sec_raw, sec_note = fetch_quarterly_sec_companyfacts(clean, sec_user_agent, timeout=timeout)
-        if sec_note:
-            notes.append(sec_note)
-        raw = merge_quarterly_raw(raw, sec_raw)
+    raw = _raw_from_previous_metadata(previous_metadata or {})
+    sources: dict[str, str] = {}
+    for key in raw or {}:
+        sources[key] = "local_snapshot"
+    fallback: list[str] = []
+    reason_code = ""
+    statement_currency = ((previous_metadata or {}).get("enrichment") or {}).get("statement_currency", "USD")
+    if raw and not _needs_fmp_statement_data(raw) and not force_live_sec:
+        notes.append("Vollständiger lokaler Snapshot")
+        record_provider_event("cache_hits")
+    elif sec_user_agent:
+        sec_raw, sec_note = fetch_quarterly_sec_companyfacts(clean, sec_user_agent,
+                                                               timeout=timeout, force_live=force_live_sec)
+        notes.append(sec_note)
+        if "currency=" in sec_note:
+            statement_currency = sec_note.rsplit("currency=", 1)[-1].split()[0]
+        if sec_raw:
+            raw = merge_quarterly_raw(sec_raw, raw)
+            source = "sec_bulk_cache" if "bulk" in sec_note else "sec_companyfacts_live"
+            for key in sec_raw:
+                sources[key] = source
+            if source == "sec_bulk_cache" and not force_live_sec and _needs_fmp_statement_data(raw):
+                try:
+                    fetched_at = datetime.fromisoformat(str(bulk_status().get("fetched_at", "")))
+                except ValueError:
+                    fetched_at = None
+                if fetched_at is None or (datetime.now(fetched_at.tzinfo) - fetched_at).total_seconds() > 36 * 3600:
+                    live_raw, live_note = fetch_quarterly_sec_companyfacts(clean, sec_user_agent,
+                                                                           timeout=timeout, force_live=True)
+                    notes.append(live_note)
+                    if live_raw:
+                        raw = merge_quarterly_raw(live_raw, raw)
+                        for key in live_raw:
+                            sources[key] = "sec_companyfacts_live"
+        if "live_rate_limited" in sec_note:
+            reason_code = "rate_limited"
+        elif "live_provider_error" in sec_note:
+            reason_code = "provider_error"
+        elif not sec_raw and "rate_limited" in sec_note:
+            reason_code = "rate_limited"
+        elif not sec_raw and "unsupported_taxonomy" in sec_note:
+            reason_code = "unsupported_taxonomy"
+        elif not sec_raw:
+            reason_code = "waiting_sec_data"
     elif not sec_user_agent:
-        notes.append("SEC: kein User-Agent")
-
-    if _needs_yfinance_statement_history(raw):
+        notes.append("SEC_USER_AGENT fehlt")
+        reason_code = "waiting_sec_data"
+    if _needs_fmp_statement_data(raw):
+        record_provider_event("fallback_used")
+        fallback.append("yfinance")
         yf_raw, yf_note = fetch_yfinance_statement_history(clean)
-        if yf_note:
-            notes.append(yf_note)
+        notes.append(yf_note)
         raw = merge_quarterly_raw(raw, yf_raw)
+        if yf_raw:
+            for key in yf_raw:
+                sources.setdefault(key, "yfinance")
+        elif not reason_code:
+            reason_code = "waiting_yahoo_data"
+
+    if _needs_fmp_statement_data(raw) and fmp_api_key:
+        record_provider_event("fallback_used")
+        fallback.append("fmp")
+        fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout, minimal=True,
+                                                needed_fields=_missing_fmp_fields(raw))
+        notes.append(fmp_note)
+        raw = merge_quarterly_raw(raw, fmp_raw)
+        if fmp_raw:
+            for key in fmp_raw:
+                sources.setdefault(key, "fmp")
+        elif "Rate Limited" in fmp_note:
+            reason_code = "rate_limited"
+        else:
+            reason_code = "waiting_fmp_fallback"
 
     enrichment = compute_fundamental_enrichment(clean, raw, notes=notes)
     metadata = {
         **enrichment.metadata,
-        "fmp_profile": _compact_metadata(fmp_profile),
+        "data_sources": {
+            "eps": sources.get("DilutedEPS") or sources.get("AnnualDilutedEPS"),
+            "revenue": sources.get("TotalRevenue") or sources.get("AnnualTotalRevenue"),
+            "net_income": sources.get("NetIncome") or sources.get("AnnualNetIncome"),
+            "equity": sources.get("StockholdersEquity") or sources.get("AnnualStockholdersEquity"),
+        },
+        "fallbacks_used": fallback,
+        "fmp_requests_used": current_provider_usage().get("fmp_requests", 0),
+        "statement_currency": statement_currency,
+        "source_priority": list(SOURCE_PRIORITY["statements"]),
+        "reason_code": reason_code if _needs_fmp_statement_data(raw) else "",
     }
-    return replace(
-        enrichment,
-        beta=_float_or_none(fmp_profile.get("beta")),
-        next_earnings_date=fmp_next_earnings_date,
-        metadata=metadata,
-    )
+    return replace(enrichment, metadata=metadata)
 
 
 def fetch_quarterly_fmp(
@@ -116,6 +188,7 @@ def fetch_quarterly_fmp(
     *,
     timeout: int = 15,
     minimal: bool = False,
+    needed_fields: set[str] | None = None,
 ) -> tuple[QuarterlyRaw | None, str]:
     if not api_key:
         return None, "FMP: kein API-Key"
@@ -139,30 +212,18 @@ def fetch_quarterly_fmp(
             {"symbol": ticker.upper(), "period": "annual", "limit": 8, "apikey": api_key},
             _raw_from_fmp_annual_balance_sheet,
         ),
-        (
-            "FMP stable Wachstum quartalsweise",
-            FMP_INCOME_STATEMENT_GROWTH_URL,
-            {"symbol": ticker.upper(), "period": "quarter", "limit": 40, "apikey": api_key},
-            _raw_from_fmp_quarterly_growth,
-        ),
-        (
-            "FMP stable Wachstum jaehrlich",
-            FMP_INCOME_STATEMENT_GROWTH_URL,
-            {"symbol": ticker.upper(), "period": "annual", "limit": 8, "apikey": api_key},
-            _raw_from_fmp_annual_growth,
-        ),
     ]
     errors: list[str] = []
     raw: QuarterlyRaw = {}
     for label, url, params, parser in attempts:
-        if minimal and "Wachstum" in label and not _needs_yfinance_statement_history(raw):
-            continue
+        if needed_fields is not None:
+            relevant = ({"AnnualStockholdersEquity"} if "Bilanz" in label else
+                        {"AnnualDilutedEPS", "AnnualTotalRevenue", "AnnualNetIncome"} if "jaehrlich" in label else
+                        {"DilutedEPS", "TotalRevenue", "NetIncome"})
+            if not relevant & needed_fields:
+                continue
         try:
-            if minimal:
-                from app.data_sources.provider_guard import guarded_fmp_get
-                response = guarded_fmp_get(url, params=params, timeout=timeout)
-            else:
-                response = requests.get(url, params=params, timeout=timeout)
+            response = guarded_fmp_get(url, params=params, timeout=timeout)
         except requests.exceptions.Timeout:
             errors.append(f"{label}: Timeout")
             continue
@@ -202,81 +263,9 @@ def fetch_quarterly_fmp(
             errors.append(f"{label}: Keine verwertbaren Daten")
 
     if raw and any(isinstance(value, pd.Series) and not value.empty for value in raw.values()):
-        if not minimal or _roe_pct(raw) is None or _profit_margin_pct(raw) is None:
-            _merge_fmp_ttm_ratios(raw, ticker, api_key, timeout=timeout)
         return raw, "FMP stable"
 
     return None, " | ".join(errors) if errors else "FMP: keine Quartalsdaten"
-
-
-def fetch_fmp_profile(
-    ticker: str,
-    api_key: str,
-    *,
-    timeout: int = 15,
-) -> tuple[dict[str, Any], str]:
-    if not api_key:
-        return {}, "FMP Profile: kein API-Key"
-    try:
-        response = requests.get(
-            FMP_PROFILE_URL,
-            params={"symbol": ticker.upper(), "apikey": api_key},
-            timeout=min(timeout, 10),
-        )
-    except requests.exceptions.Timeout:
-        return {}, "FMP Profile: Timeout"
-    except requests.exceptions.ConnectionError as exc:
-        return {}, f"FMP Profile: Verbindung {str(exc)[:60]}"
-    if response.status_code != 200:
-        body = compact_fmp_response_body(response)
-        return {}, f"FMP Profile: HTTP {response.status_code}" + (f" ({body})" if body else "")
-    try:
-        payload = response.json()
-    except ValueError:
-        return {}, "FMP Profile: Ungueltiges JSON"
-    item = payload[0] if isinstance(payload, list) and payload else payload if isinstance(payload, dict) else {}
-    if not isinstance(item, dict) or not item:
-        return {}, "FMP Profile: Leere Antwort"
-    return item, "FMP Profile"
-
-
-def fetch_fmp_next_earnings_date(
-    ticker: str,
-    api_key: str,
-    *,
-    timeout: int = 15,
-) -> tuple[date | None, str]:
-    if not api_key:
-        return None, "FMP Earnings: kein API-Key"
-    try:
-        response = requests.get(
-            FMP_EARNINGS_URL,
-            params={"symbol": ticker.upper(), "apikey": api_key},
-            timeout=min(timeout, 10),
-        )
-    except requests.exceptions.Timeout:
-        return None, "FMP Earnings: Timeout"
-    except requests.exceptions.ConnectionError as exc:
-        return None, f"FMP Earnings: Verbindung {str(exc)[:60]}"
-    if response.status_code != 200:
-        body = compact_fmp_response_body(response)
-        return None, f"FMP Earnings: HTTP {response.status_code}" + (f" ({body})" if body else "")
-    try:
-        payload = response.json()
-    except ValueError:
-        return None, "FMP Earnings: Ungueltiges JSON"
-    rows = payload if isinstance(payload, list) else [payload] if isinstance(payload, dict) else []
-    today = date.today()
-    dates = [
-        parsed
-        for row in rows
-        if isinstance(row, dict)
-        for parsed in [_parse_date(row.get("date") or row.get("epsDate") or row.get("fiscalDateEnding"))]
-        if parsed is not None and parsed >= today
-    ]
-    if not dates:
-        return None, "FMP Earnings: kein kommender Termin"
-    return min(dates), "FMP Earnings"
 
 
 def fetch_quarterly_sec_companyfacts(
@@ -284,6 +273,7 @@ def fetch_quarterly_sec_companyfacts(
     user_agent: str,
     *,
     timeout: int = 15,
+    force_live: bool = False,
 ) -> tuple[QuarterlyRaw | None, str]:
     clean = ticker.upper().strip()
     if not clean:
@@ -291,82 +281,78 @@ def fetch_quarterly_sec_companyfacts(
     if not user_agent.strip():
         return None, "SEC: kein User-Agent"
 
-    headers = {"User-Agent": user_agent.strip()}
     try:
         cik = _sec_cik_map(user_agent.strip(), timeout).get(clean, "")
         if not cik:
             return None, "SEC: Ticker nicht im CIK-Universum"
-
-        facts_response = requests.get(
-            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
-            headers=headers,
-            timeout=timeout,
-        )
-        if facts_response.status_code != 200:
-            return None, f"SEC Facts HTTP {facts_response.status_code}"
-        facts_payload = facts_response.json()
+        facts_payload, source = load_companyfacts(cik, user_agent, timeout=timeout, force_live=force_live)
     except requests.exceptions.Timeout:
         return None, "SEC: Timeout"
     except requests.exceptions.ConnectionError as exc:
         return None, f"SEC: Verbindung {str(exc)[:60]}"
     except ValueError:
         return None, "SEC: Ungueltiges JSON"
-    except RuntimeError as exc:
-        return None, f"SEC: {exc}"
+    except SecRequestError as exc:
+        return None, f"SEC {exc.reason_code}: {exc}"
+    except (RuntimeError, requests.RequestException) as exc:
+        return None, f"SEC provider_error: {exc}"
 
-    facts = (((facts_payload or {}).get("facts") or {}).get("us-gaap") or {})
-    raw: QuarterlyRaw = {}
-    eps = _extract_sec_quarterly_series(
-        facts,
-        concepts=[
-            "EarningsPerShareDiluted",
-            "EarningsPerShareBasicAndDiluted",
-            "IncomeLossFromContinuingOperationsPerDilutedShare",
-        ],
-        unit_keys=["USD/shares"],
-        duration_min=75,
-        duration_max=110,
-    )
-    revenue = _extract_sec_quarterly_series(
-        facts,
-        concepts=[
-            "Revenues",
-            "RevenueFromContractWithCustomerExcludingAssessedTax",
-            "RevenueFromContractWithCustomerIncludingAssessedTax",
-            "SalesRevenueNet",
-        ],
-        unit_keys=["USD"],
-        duration_min=75,
-        duration_max=110,
-    )
-    net_income = _extract_sec_quarterly_series(
-        facts,
-        concepts=["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
-        unit_keys=["USD"],
-        duration_min=75,
-        duration_max=110,
-    )
-    equity = _extract_sec_point_series(
-        facts,
-        concepts=[
-            "StockholdersEquity",
-            "StockholdersEquityAttributableToParent",
-            "Equity",
-            "LiabilitiesAndStockholdersEquity",
-        ],
-        unit_keys=["USD"],
-    )
-    if eps is not None:
-        raw["DilutedEPS"] = eps
-    if revenue is not None:
-        raw["TotalRevenue"] = revenue
-    if net_income is not None:
-        raw["NetIncome"] = net_income
-    if equity is not None:
-        raw["StockholdersEquity"] = equity
+    fact_data = (facts_payload or {}).get("facts") or {}
+    currency = _sec_statement_currency(fact_data)
+    if currency is None:
+        return None, "SEC unsupported_taxonomy: widersprüchliche Währungseinheiten"
+    raw = _raw_from_sec_facts(fact_data, currency=currency)
     if not raw:
-        return None, "SEC: keine Quartalsdaten"
-    return raw, "SEC ergaenzt"
+        return None, "SEC unsupported_taxonomy: keine sicher zuordenbaren standardisierten Fakten"
+    return raw, f"SEC {source} currency={currency}"
+
+
+def _sec_statement_currency(facts_by_taxonomy: dict[str, Any]) -> str | None:
+    sets: list[set[str]] = []
+    for key, by_taxonomy in SEC_CONCEPTS.items():
+        currencies = set()
+        for taxonomy, concepts in by_taxonomy.items():
+            facts = facts_by_taxonomy.get(taxonomy) or {}
+            for concept in concepts:
+                for unit in ((facts.get(concept) or {}).get("units") or {}):
+                    base = unit.removesuffix("/shares") if key == "DilutedEPS" else unit
+                    if base.isalpha() and len(base) == 3 and (unit.endswith("/shares") == (key == "DilutedEPS")):
+                        currencies.add(base)
+        if currencies:
+            sets.append(currencies)
+    if not sets:
+        return "USD"
+    common = set.intersection(*sets)
+    if "USD" in common:
+        return "USD"
+    return next(iter(common)) if len(common) == 1 else None
+
+
+def _raw_from_sec_facts(facts_by_taxonomy: dict[str, Any], *, currency: str = "USD") -> QuarterlyRaw:
+    raw: QuarterlyRaw = {}
+    for key, by_taxonomy in SEC_CONCEPTS.items():
+        for taxonomy in ("us-gaap", "ifrs-full"):
+            facts = facts_by_taxonomy.get(taxonomy) or {}
+            concepts = list(by_taxonomy[taxonomy])
+            unit = [f"{currency}/shares"] if key == "DilutedEPS" else [currency]
+            if key == "StockholdersEquity":
+                points = _extract_sec_point_series(facts, concepts=concepts, unit_keys=unit)
+                if points is not None:
+                    raw[key] = _merge_series_prefer_primary(raw.get(key), points)
+                    raw["AnnualStockholdersEquity"] = _merge_series_prefer_primary(
+                        raw.get("AnnualStockholdersEquity"), points)
+            else:
+                quarter = _extract_sec_quarterly_series(facts, concepts=concepts, unit_keys=unit,
+                                                        duration_min=60, duration_max=120)
+                annual = _extract_sec_duration_series(facts, concepts=concepts, unit_keys=unit,
+                                                      duration_min=330, duration_max=380)
+                if quarter is not None:
+                    raw[key] = _merge_series_prefer_primary(raw.get(key), quarter)
+                if annual is not None:
+                    annual_key = {"DilutedEPS": "AnnualDilutedEPS", "TotalRevenue": "AnnualTotalRevenue",
+                                  "NetIncome": "AnnualNetIncome"}[key]
+                    raw[annual_key] = _merge_series_prefer_primary(raw.get(annual_key), annual)
+    return raw
 
 
 def fetch_yfinance_statement_history(ticker: str) -> tuple[QuarterlyRaw | None, str]:
@@ -391,8 +377,7 @@ def fetch_yfinance_statement_history(ticker: str) -> tuple[QuarterlyRaw | None, 
 
 @lru_cache(maxsize=4)
 def _sec_cik_map(user_agent: str, timeout: int) -> dict[str, str]:
-    headers = {"User-Agent": user_agent}
-    response = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers, timeout=timeout)
+    response = sec_get("https://www.sec.gov/files/company_tickers.json", user_agent=user_agent, timeout=timeout)
     if response.status_code != 200:
         raise RuntimeError(f"SEC CIK HTTP {response.status_code}")
     payload = response.json()
@@ -429,6 +414,23 @@ def merge_quarterly_raw(primary: QuarterlyRaw | None, secondary: QuarterlyRaw | 
         except Exception:
             merged[key] = primary_value
     return merged
+
+
+def _raw_from_previous_metadata(metadata: dict[str, Any]) -> QuarterlyRaw | None:
+    serialized = (metadata.get("enrichment") or {}).get("raw_series") or metadata.get("raw_series") or {}
+    result: QuarterlyRaw = {}
+    for key, rows in serialized.items():
+        if not isinstance(rows, dict):
+            continue
+        values = {}
+        for period, number in rows.items():
+            stamp = pd.to_datetime(period, errors="coerce")
+            value = _float_or_none(number)
+            if not pd.isna(stamp) and value is not None:
+                values[stamp] = value
+        if values:
+            result[key] = pd.Series(values).sort_index(ascending=False)
+    return result or None
 
 
 def compute_fundamental_enrichment(
@@ -501,6 +503,12 @@ def compute_fundamental_enrichment(
             "annual_roe": [_roe_point_payload(point) for point in roe_history],
             "series_lengths": {
                 key: int(len(value)) for key, value in raw.items() if isinstance(value, pd.Series)
+            },
+            "raw_series": {
+                key: {str(pd.Timestamp(index).date()): float(number) for index, number in value.items()}
+                for key, value in raw.items() if isinstance(value, pd.Series)
+                and key in {"DilutedEPS", "TotalRevenue", "NetIncome", "StockholdersEquity",
+                            "AnnualDilutedEPS", "AnnualTotalRevenue", "AnnualNetIncome", "AnnualStockholdersEquity"}
             },
         },
     )
@@ -596,7 +604,13 @@ def annual_roe_history(raw: QuarterlyRaw) -> list[GrowthPoint]:
         if income is None or equity in (None, 0):
             points.append(GrowthPoint(str(year), None, "missing_equity", income, equity))
             continue
-        points.append(GrowthPoint(str(year), round(float(income / equity * 100), 1), None, income, equity))
+        prior_equity = equity_by_year.get(year - 1)
+        denominator = (equity + prior_equity) / 2 if prior_equity is not None else equity
+        if denominator == 0:
+            points.append(GrowthPoint(str(year), None, "missing_equity", income, denominator))
+            continue
+        points.append(GrowthPoint(str(year), round(float(income / denominator * 100), 1), None,
+                                  income, denominator))
     return points
 
 
@@ -775,76 +789,6 @@ def _raw_from_fmp_annual_balance_sheet(rows: list[dict[str, Any]]) -> QuarterlyR
     return {"AnnualStockholdersEquity": pd.Series(equity).sort_index(ascending=False)}
 
 
-def _raw_from_fmp_quarterly_growth(rows: list[dict[str, Any]]) -> QuarterlyRaw:
-    eps_growth: dict[pd.Timestamp, float] = {}
-    revenue_growth: dict[pd.Timestamp, float] = {}
-    for row in rows:
-        ts = _fmp_statement_timestamp(row)
-        if pd.isna(ts):
-            continue
-        eps_value = _first_float_value(
-            row,
-            "growthEPSDiluted",
-            "growthEpsDiluted",
-            "growthEPS",
-            "epsDilutedGrowth",
-            "epsdilutedGrowth",
-            "epsGrowth",
-        )
-        revenue_value = _first_float_value(
-            row,
-            "growthRevenue",
-            "revenueGrowth",
-            "growthTotalRevenue",
-            "totalRevenueGrowth",
-        )
-        if eps_value is not None:
-            eps_growth[ts] = eps_value
-        if revenue_value is not None:
-            revenue_growth[ts] = revenue_value
-    raw: QuarterlyRaw = {}
-    if eps_growth:
-        raw["QuarterlyDilutedEPSGrowthPct"] = pd.Series(eps_growth).sort_index(ascending=False)
-    if revenue_growth:
-        raw["QuarterlyRevenueGrowthPct"] = pd.Series(revenue_growth).sort_index(ascending=False)
-    return raw
-
-
-def _raw_from_fmp_annual_growth(rows: list[dict[str, Any]]) -> QuarterlyRaw:
-    eps_growth: dict[pd.Timestamp, float] = {}
-    revenue_growth: dict[pd.Timestamp, float] = {}
-    for row in rows:
-        ts = _fmp_statement_timestamp(row)
-        if pd.isna(ts):
-            continue
-        eps_value = _first_float_value(
-            row,
-            "growthEPSDiluted",
-            "growthEpsDiluted",
-            "growthEPS",
-            "epsDilutedGrowth",
-            "epsdilutedGrowth",
-            "epsGrowth",
-        )
-        revenue_value = _first_float_value(
-            row,
-            "growthRevenue",
-            "revenueGrowth",
-            "growthTotalRevenue",
-            "totalRevenueGrowth",
-        )
-        if eps_value is not None:
-            eps_growth[ts] = eps_value
-        if revenue_value is not None:
-            revenue_growth[ts] = revenue_value
-    raw: QuarterlyRaw = {}
-    if eps_growth:
-        raw["AnnualDilutedEPSGrowthPct"] = pd.Series(eps_growth).sort_index(ascending=False)
-    if revenue_growth:
-        raw["AnnualRevenueGrowthPct"] = pd.Series(revenue_growth).sort_index(ascending=False)
-    return raw
-
-
 def _raw_from_yfinance_statements(
     *,
     quarterly_income_stmt: pd.DataFrame | None,
@@ -965,31 +909,6 @@ def _fmp_statement_timestamp(row: dict[str, Any]) -> pd.Timestamp:
         return pd.NaT
 
 
-def _merge_fmp_ttm_ratios(raw: QuarterlyRaw, ticker: str, api_key: str, *, timeout: int) -> None:
-    attempts = [
-        (FMP_RATIOS_TTM_URL, {"symbol": ticker.upper(), "apikey": api_key}),
-    ]
-    for url, params in attempts:
-        try:
-            response = requests.get(url, params=params, timeout=min(timeout, 10))
-        except requests.RequestException:
-            continue
-        if response.status_code != 200:
-            continue
-        try:
-            payload = response.json()
-        except ValueError:
-            continue
-        item = payload[0] if isinstance(payload, list) and payload else payload if isinstance(payload, dict) else {}
-        roe = _float_or_none(item.get("returnOnEquityTTM"))
-        margin = _float_or_none(item.get("netProfitMarginTTM"))
-        if roe is not None:
-            raw["_roe_ttm"] = roe
-        if margin is not None:
-            raw["_pm_ttm"] = margin
-        return
-
-
 def _extract_sec_duration_series(
     facts: dict[str, Any],
     *,
@@ -1000,12 +919,13 @@ def _extract_sec_duration_series(
 ) -> pd.Series | None:
     by_end: dict[pd.Timestamp, tuple[pd.Timestamp, float]] = {}
     for concept in concepts:
+        concept_by_end: dict[pd.Timestamp, tuple[pd.Timestamp, float]] = {}
         units = ((facts.get(concept) or {}).get("units") or {})
         for unit_key in unit_keys:
             for item in units.get(unit_key) or []:
-                if str(item.get("form") or "") not in {"10-Q", "10-K"}:
+                if str(item.get("form") or "") not in SEC_FORMS:
                     continue
-                if str(item.get("fp") or "") not in {"Q1", "Q2", "Q3", "Q4"}:
+                if str(item.get("fp") or "") not in {"Q1", "Q2", "Q3", "Q4", "FY"}:
                     continue
                 end = pd.to_datetime(item.get("end"), errors="coerce")
                 value = _float_or_none(item.get("val"))
@@ -1022,9 +942,11 @@ def _extract_sec_duration_series(
                         continue
                 filed = pd.to_datetime(item.get("filed"), errors="coerce")
                 filed = filed if not pd.isna(filed) else pd.Timestamp.min
-                previous = by_end.get(end)
+                previous = concept_by_end.get(end)
                 if previous is None or filed > previous[0]:
-                    by_end[end] = (filed, value)
+                    concept_by_end[end] = (filed, value)
+        for end, value in concept_by_end.items():
+            by_end.setdefault(end, value)
     return _series_from_by_end(by_end)
 
 
@@ -1062,12 +984,14 @@ def _extract_sec_derived_q4_series(
             annual_items = [
                 item
                 for item in valid_items
-                if item["form"] == "10-K" and item["fp"] == "FY" and 330 <= item["days"] <= 380
+                if item["form"] in {"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
+                and item["fp"] == "FY" and 330 <= item["days"] <= 380
             ]
             ytd_q3_items = [
                 item
                 for item in valid_items
-                if item["form"] == "10-Q" and item["fp"] == "Q3" and 240 <= item["days"] <= 290
+                if item["form"] in {"10-Q", "10-Q/A", "6-K", "6-K/A"}
+                and item["fp"] == "Q3" and 240 <= item["days"] <= 290
             ]
             for annual in annual_items:
                 candidates = [
@@ -1088,7 +1012,7 @@ def _extract_sec_derived_q4_series(
 def _sec_duration_item(item: dict[str, Any]) -> dict[str, Any] | None:
     form = str(item.get("form") or "")
     fp = str(item.get("fp") or "")
-    if form not in {"10-Q", "10-K"}:
+    if form not in SEC_FORMS:
         return None
     end = pd.to_datetime(item.get("end"), errors="coerce")
     start = pd.to_datetime(item.get("start"), errors="coerce")
@@ -1130,7 +1054,7 @@ def _extract_sec_point_series(
         units = ((facts.get(concept) or {}).get("units") or {})
         for unit_key in unit_keys:
             for item in units.get(unit_key) or []:
-                if str(item.get("form") or "") not in {"10-Q", "10-K"}:
+                if str(item.get("form") or "") not in SEC_FORMS:
                     continue
                 end = pd.to_datetime(item.get("end"), errors="coerce")
                 value = _float_or_none(item.get("val"))
@@ -1222,27 +1146,35 @@ def _trailing_sum(value: Any, *, periods: int) -> float | None:
     series = pd.to_numeric(value, errors="coerce").dropna().sort_index(ascending=False)
     if len(series) < periods:
         return None
-    return round(float(series.iloc[:periods].sum()), 2)
+    latest = series.iloc[:periods]
+    dates = [pd.to_datetime(index, errors="coerce") for index in latest.index]
+    if any(pd.isna(stamp) for stamp in dates) or any(
+        not 60 <= (newer - older).days <= 120 for newer, older in zip(dates, dates[1:])
+    ):
+        return None
+    return round(float(latest.sum()), 2)
 
 
 def _roe_pct(raw: QuarterlyRaw) -> float | None:
-    fmp_value = _ratio_to_pct(raw.get("_roe_ttm"))
-    if fmp_value is not None:
-        return fmp_value
     ttm_income = _trailing_sum(raw.get("NetIncome"), periods=4)
     equity = raw.get("StockholdersEquity")
+    if not isinstance(equity, pd.Series):
+        equity = raw.get("AnnualStockholdersEquity")
     if ttm_income is None or not isinstance(equity, pd.Series):
         return None
     equity_series = pd.to_numeric(equity, errors="coerce").dropna().sort_index(ascending=False)
-    if equity_series.empty or float(equity_series.iloc[0]) == 0:
+    if equity_series.empty:
         return None
-    return round(float(ttm_income / float(equity_series.iloc[0]) * 100), 1)
+    latest = float(equity_series.iloc[0])
+    one_year_ago = equity_series[(equity_series.index <= equity_series.index[0] - pd.Timedelta(days=330))
+                                 & (equity_series.index >= equity_series.index[0] - pd.Timedelta(days=400))]
+    denominator = (latest + float(one_year_ago.iloc[0])) / 2 if not one_year_ago.empty else latest
+    if denominator == 0:
+        return None
+    return round(float(ttm_income / denominator * 100), 1)
 
 
 def _profit_margin_pct(raw: QuarterlyRaw) -> float | None:
-    fmp_value = _ratio_to_pct(raw.get("_pm_ttm"))
-    if fmp_value is not None:
-        return fmp_value
     ttm_income = _trailing_sum(raw.get("NetIncome"), periods=4)
     ttm_revenue = _trailing_sum(raw.get("TotalRevenue"), periods=4)
     if ttm_income is None or ttm_revenue in (None, 0):
@@ -1271,6 +1203,26 @@ def _needs_yfinance_statement_history(raw: QuarterlyRaw | None) -> bool:
     )
 
 
+def _needs_fmp_statement_data(raw: QuarterlyRaw | None) -> bool:
+    return bool(_missing_fmp_fields(raw))
+
+
+def _missing_fmp_fields(raw: QuarterlyRaw | None) -> set[str]:
+    raw = raw or {}
+    missing = set()
+    for metric, quarterly_key, annual_key in (("eps", "DilutedEPS", "AnnualDilutedEPS"),
+                                              ("revenue", "TotalRevenue", "AnnualTotalRevenue")):
+        if _usable_growth_count(quarterly_yoy_growth(raw, metric)) < 3:
+            missing.add(quarterly_key)
+        if _usable_growth_count(annual_yoy_growth(raw, metric)) < 3:
+            missing.add(annual_key)
+    if _trailing_sum(raw.get("NetIncome"), periods=4) is None:
+        missing.add("NetIncome")
+    if not isinstance(raw.get("StockholdersEquity"), pd.Series) and not isinstance(raw.get("AnnualStockholdersEquity"), pd.Series):
+        missing.add("AnnualStockholdersEquity")
+    return missing
+
+
 def _usable_growth_count(points: list[GrowthPoint]) -> int:
     return sum(
         1
@@ -1295,6 +1247,7 @@ def _payload_rows(payload: Any) -> list[dict[str, Any]]:
 def _safe_yfinance_frame(ticker: Any, *attributes: str) -> pd.DataFrame | None:
     for attribute in attributes:
         try:
+            record_provider_event("yahoo_requests")
             value = getattr(ticker, attribute)
         except Exception:
             continue

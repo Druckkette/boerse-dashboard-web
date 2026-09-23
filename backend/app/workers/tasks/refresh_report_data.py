@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 
 from app.db.session import engine
+from app.data_sources.provider_usage import capture_provider_usage
 from app.repositories import jobs, refresh_work
 from app.services.report_refresh import refresh_report_group
 from app.workers.celery_app import celery_app
@@ -111,8 +112,12 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
             payload = dict(item["payload"])
             if item["previous_result"].get("complete"):
                 payload.pop("event_date", None)
-            with _ticker_lock(item["ticker"]):
-                value = refresh_report_group(item["ticker"], item["data_group"], payload)
+            with capture_provider_usage() as provider_usage:
+                with _ticker_lock(item["ticker"]):
+                    value = refresh_report_group(item["ticker"], item["data_group"], payload)
+            value["provider_usage"] = dict(provider_usage)
+            for metric, count in provider_usage.items():
+                totals.setdefault("provider_usage", {})[metric] = totals.setdefault("provider_usage", {}).get(metric, 0) + count
             complete = value["complete"]
             delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else source_retry_delay(item)
             if value.get("changed"):

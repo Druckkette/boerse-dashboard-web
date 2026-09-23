@@ -15,7 +15,6 @@ from typing import Any
 from urllib.parse import urljoin
 
 import pandas as pd
-import requests
 
 
 SEC_13F_DATASETS_URL = "https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets"
@@ -274,7 +273,8 @@ def sec_headers(sec_user_agent: str = "") -> dict[str, str]:
 
 
 def fetch_text(url: str, timeout: int = 30, *, sec_user_agent: str = "") -> str:
-    response = requests.get(url, headers=sec_headers(sec_user_agent), timeout=timeout)
+    from app.data_sources.sec_request import sec_get
+    response = sec_get(url, user_agent=sec_headers(sec_user_agent)["User-Agent"], timeout=timeout)
     response.raise_for_status()
     return response.text
 
@@ -345,7 +345,9 @@ def download_dataset(link: DatasetLink, cache_dir: Path, *, sec_user_agent: str 
 
     tmp_path: Path | None = None
     try:
-        with requests.get(link.url, headers=headers, stream=True, timeout=120) as response:
+        from app.data_sources.sec_request import sec_get
+        with sec_get(link.url, user_agent=headers["User-Agent"], headers=headers,
+                     stream=True, timeout=120) as response:
             if response.status_code == 304 and target.exists():
                 return target
             response.raise_for_status()
@@ -373,7 +375,9 @@ def download_dataset(link: DatasetLink, cache_dir: Path, *, sec_user_agent: str 
 
 
 def fetch_sec_company_symbol_records(universe: set[str], *, sec_user_agent: str = "") -> list[SymbolRecord]:
-    response = requests.get(SEC_COMPANY_TICKERS_EXCHANGE_URL, headers=sec_headers(sec_user_agent), timeout=30)
+    from app.data_sources.sec_request import sec_get
+    response = sec_get(SEC_COMPANY_TICKERS_EXCHANGE_URL,
+                       user_agent=sec_headers(sec_user_agent)["User-Agent"], timeout=30)
     response.raise_for_status()
     payload = response.json()
     fields = payload.get("fields") or []

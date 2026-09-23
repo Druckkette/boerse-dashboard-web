@@ -139,12 +139,15 @@ def finish(item: dict, *, result: dict, status: str, delay: timedelta, error: st
 def summary() -> dict:
     now = datetime.now(UTC)
     with SessionLocal() as db:
+        reason = case((RefreshWorkItem.status == "waiting_source",
+                       func.coalesce(RefreshWorkItem.result_json["reason_code"].astext, "missing_history")),
+                      else_="")
         counts = db.execute(select(
-            RefreshWorkItem.data_group, RefreshWorkItem.status, func.count(),
+            RefreshWorkItem.data_group, RefreshWorkItem.status, reason, func.count(),
             func.count().filter(RefreshWorkItem.due_at <= now),
             func.min(RefreshWorkItem.due_at).filter(RefreshWorkItem.due_at > now),
         )
-                            .group_by(RefreshWorkItem.data_group, RefreshWorkItem.status)).all()
+                            .group_by(RefreshWorkItem.data_group, RefreshWorkItem.status, reason)).all()
         due = db.scalar(select(func.count()).select_from(RefreshWorkItem).where(RefreshWorkItem.due_at <= now)) or 0
         oldest = db.scalar(select(func.min(RefreshWorkItem.due_at)).where(RefreshWorkItem.due_at <= now))
         next_due = db.scalar(select(func.min(RefreshWorkItem.due_at)).where(RefreshWorkItem.due_at > now))
@@ -152,7 +155,8 @@ def summary() -> dict:
             RefreshWorkItem.status == "running", RefreshWorkItem.lease_until > now,
         ).limit(5)).all()
         return {"due_count": due, "oldest_due_at": oldest, "next_due_at": next_due, "groups": [
-            {"group": group, "status": status, "count": count, "due_count": due_count,
+            {"group": group, "status": status, "reason_code": reason_code,
+             "count": count, "due_count": due_count,
              "next_due_at": next_check}
-            for group, status, count, due_count, next_check in counts
+            for group, status, reason_code, count, due_count, next_check in counts
         ], "active": [{"ticker": row.ticker, "group": row.data_group, "lease_until": row.lease_until} for row in active]}
