@@ -779,6 +779,41 @@ class StockScreeningResponse(BaseModel):
     criteria: list[str] = Field(default_factory=list)
 
 
+class TopDailyStockItem(BaseModel):
+    rank: int
+    previous_rank: int | None = None
+    ticker: str
+    name: str
+    last_close: float | None = None
+    daily_opportunity_score: float
+    quality_score: int
+    daily_dynamics_score: float
+    overall_score: int
+    overall_score_delta: float | None = None
+    technical_score: float
+    technical_score_delta: float | None = None
+    fundamental_score: float
+    moving_average_score: float
+    chart_behavior_score: int
+    rs_rating: int | None = None
+    rs_rating_delta: float | None = None
+    relative_performance_1d: float | None = None
+    relative_performance_5d: float | None = None
+    volume_ratio: float | None = None
+    dollar_volume_mio: float | None = None
+    positive_changes: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    components: dict[str, float] = Field(default_factory=dict)
+
+
+class TopDailyStockResponse(BaseModel):
+    as_of: str | None = None
+    generated_at: datetime | None = None
+    status: Literal["current", "stale", "not_ready"]
+    rows: list[TopDailyStockItem] = Field(default_factory=list)
+
+
 class StockScreeningFilters(BaseModel):
     min_score: int = Field(default=0, ge=0, le=100)
     min_rs: int = Field(default=0, ge=0, le=99)

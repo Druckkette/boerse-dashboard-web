@@ -23,6 +23,8 @@ def inputs():
 
 @pytest.fixture
 def storage(monkeypatch):
+    from app.services import daily_opportunities
+    monkeypatch.setattr(daily_opportunities, "refresh_top_daily", lambda writes: {"qualified_count": 0})
     state = {"rows": [], "publications": 0}
     monkeypatch.setattr(screening.stock_assessments, "list_all_snapshots", lambda tickers=None: state["rows"])
 

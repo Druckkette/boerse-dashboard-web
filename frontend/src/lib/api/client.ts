@@ -50,6 +50,7 @@ import type {
   StockAssessmentCompare,
   StockAssessmentRanking,
   StockScreening,
+  TopDailyStockResponse,
   StockSearchResponse,
   StockSignalChanges,
   StockFundamentals,
@@ -205,6 +206,7 @@ export const api = {
   stockRs: (ticker: string) => getJson<RsRatingDetail>(`/stocks/${ticker}/rs`),
   stockAssessment: (ticker: string) => getJson<StockAssessment>(`/stocks/${ticker}/assessment`),
   stockScreening: (params = "") => getJson<StockScreening>("/stocks/screening?" + params),
+  topDailyStocks: () => getJson<TopDailyStockResponse>("/stocks/top-daily"),
   exportStockScreening: async (params: string) => {
     const response = await safeFetch("/stocks/screening/export?" + params, { cache: "no-store" });
     if (!response.ok) throw new Error(await errorMessage(response));

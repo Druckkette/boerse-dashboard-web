@@ -1206,6 +1206,40 @@ export type StockScreening = {
   rows: StockScreeningItem[];
 };
 
+export type TopDailyStockItem = {
+  rank: number;
+  previous_rank: number | null;
+  ticker: string;
+  name: string;
+  last_close: number | null;
+  daily_opportunity_score: number;
+  quality_score: number;
+  daily_dynamics_score: number;
+  overall_score: number;
+  overall_score_delta: number | null;
+  technical_score: number;
+  technical_score_delta: number | null;
+  fundamental_score: number;
+  moving_average_score: number;
+  chart_behavior_score: number;
+  rs_rating: number | null;
+  rs_rating_delta: number | null;
+  relative_performance_1d: number | null;
+  relative_performance_5d: number | null;
+  volume_ratio: number | null;
+  dollar_volume_mio: number | null;
+  positive_changes: string[];
+  reasons: string[];
+  warnings: string[];
+};
+
+export type TopDailyStockResponse = {
+  as_of: string | null;
+  generated_at: string | null;
+  status: "current" | "stale" | "not_ready";
+  rows: TopDailyStockItem[];
+};
+
 export type StockAssessmentCompareItem = {
   rank: number;
   ticker: string;
