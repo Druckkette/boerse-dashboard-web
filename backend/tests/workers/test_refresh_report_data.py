@@ -69,3 +69,24 @@ def test_missing_beta_finishes_as_waiting_source(monkeypatch):
     assert totals["waiting_source"] == 1
     assert finished[0]["status"] == "waiting_source"
     assert finished[0]["delay"].days == 1
+
+
+def test_beta_backfill_defers_assessment_until_beta_work_is_drained(monkeypatch):
+    item = {
+        "key": "beta:TEST", "ticker": "TEST", "data_group": "beta", "priority": 80,
+        "attempts": 1, "payload": {}, "previous_result": {},
+    }
+    queued = []
+    finished = []
+    monkeypatch.setattr(report_task, "_ticker_lock", lambda ticker: nullcontext())
+    monkeypatch.setattr(report_task, "refresh_report_group", lambda *args: {"complete": True, "changed": True})
+    monkeypatch.setattr(report_task.refresh_work, "enqueue", lambda requests: queued.extend(requests))
+    monkeypatch.setattr(report_task.refresh_work, "finish", lambda item, **kwargs: finished.append(kwargs))
+
+    totals = {"completed": 0, "failed": 0, "waiting_source": 0, "changed": 0}
+    report_task._run_item(item, "report-job", totals)
+
+    assert queued[0].data_group == "assessment"
+    assert queued[0].priority == 90
+    assert totals["completed"] == 1
+    assert finished[0]["status"] == "current"

@@ -122,7 +122,12 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
             delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else source_retry_delay(item)
             if value.get("changed"):
                 totals["changed"] += 1
-                refresh_work.enqueue([refresh_work.WorkRequest(item["ticker"], "assessment", "update:" + datetime.now(UTC).isoformat(), datetime.now(UTC), 20)])
+                now = datetime.now(UTC)
+                # A beta backfill can update hundreds of tickers. Let the local
+                # calculations finish before the more expensive assessments,
+                # which are then claimed in batches of up to 40.
+                priority = 90 if item["data_group"] == "beta" else 20
+                refresh_work.enqueue([refresh_work.WorkRequest(item["ticker"], "assessment", "update:" + now.isoformat(), now, priority)])
         if not complete:
             totals["waiting_source"] += 1
         else:
