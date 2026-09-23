@@ -49,8 +49,8 @@ PUSHOVER_DRY_RUN=0
 FMP_API_KEY=...
 ```
 
-`FMP_API_KEY` is optional. When present, the Fundamentals worker uses it for deeper quarterly EPS
-and revenue history; when absent, the worker still uses yfinance and configured SEC data.
+`FMP_API_KEY` is optional. SEC Companyfacts is the primary statement source; yfinance fills
+remaining gaps. FMP is used only if required history is still unavailable and a key is configured.
 
 After restart, open `/settings` and run **Pushover-Testjob**. If either secret is missing, the job is
 marked `skipped` instead of crashing the app.
@@ -74,10 +74,9 @@ The freshness check follows the NYSE calendar and requires at least 95% current 
 plus the complete set of index, volatility, equal-weight and sector helper symbols. If this quality
 gate fails, Breadth and locally computed RS are not rebuilt from a partial price set.
 
-The Earnings Calendar runs at 15:50 and 22:20, immediately before the two main refreshes. FMP is
-the primary provider when its configured plan permits the stable calendar endpoint. Without a key,
-after quota exhaustion or on a provider error, the worker automatically uses Nasdaq's public
-calendar for a rolling 35-day window. Fundamentals are different from market prices: the NAS
+The Earnings Calendar runs at 15:50 and 22:20, immediately before the two main refreshes. Nasdaq
+is the primary provider for a rolling 35-day window; Yahoo and optional FMP are fallbacks.
+Fundamentals are different from market prices: the NAS
 processes at most 250 oldest or missing snapshots per run and rotates the full universe over a
 14-day freshness window. Companies with earnings from three days ago through tomorrow are
 refreshed first, even if their snapshot would otherwise still be considered fresh. Opening a stock
@@ -200,7 +199,9 @@ The Git update is required when Compose gains a service such as `report-worker`.
 pulls GHCR images, runs Alembic migrations and restarts services without deleting volumes. Confirm
 that `docker compose --env-file .env.nas -f docker-compose.nas.yml ps report-worker` shows a running
 worker after the first update, then watch `/api/v1/jobs/report-work` to verify that the due count
-falls over time.
+falls over time. A low due count means the worker has caught up with scheduled checks; it does
+not mean every ticker has complete statement history. Check `current` and `waiting_source`
+counts separately.
 Migration `0010_job_heartbeat` lets the app recognize abandoned worker jobs. Queued jobs without a
 heartbeat for 30 minutes and running jobs without a heartbeat for 90 minutes are marked failed and
 no longer block a new refresh after a NAS/worker restart.

@@ -43,6 +43,7 @@ def test_deduplication_and_retry_survive_replanning(queue):
     assert work.claim() is None
     group = work.summary()["groups"][0]
     assert (group["group"], group["status"], group["count"], group["due_count"]) == ("statements", "waiting_source", 1, 0)
+    assert group["checked_24h"] == 1
     assert group["next_due_at"] is not None
 
 

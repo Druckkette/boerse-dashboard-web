@@ -12,7 +12,7 @@ def test_report_work_uses_default_queue_until_dedicated_worker_is_enabled() -> N
     schedule = get_beat_schedule()["report-work-dispatch"]
     route = celery_app.amqp.router.route({}, "refresh_report_data", (), {})
 
-    assert schedule["schedule"] == 30.0
+    assert schedule["schedule"] == 60.0
     assert route["queue"].name == "default"
 
 

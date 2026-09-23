@@ -30,6 +30,7 @@ class ReportWorkGroup(BaseModel):
     reason_code: str = ""
     count: int
     due_count: int = 0
+    checked_24h: int = 0
     next_due_at: datetime | None = None
 
 

@@ -7,6 +7,7 @@ from math import isfinite
 
 from app.core_config import get_settings
 from app.data_sources.fundamentals_client import fetch_fundamental_enrichment
+from app.data_sources.sec_companyfacts_cache import bulk_status
 from app.data_sources.yfinance_client import FetchedFundamentals, fetch_fundamentals
 from app.repositories import fundamentals, prices
 from app.services.fundamentals import _to_write, merge_snapshot_write
@@ -14,7 +15,21 @@ from app.services.settings import get_runtime_config_value
 
 
 HISTORIES = ("eps_quarter_history", "annual_eps_history", "revenue_quarter_history", "annual_revenue_history", "roe_history")
-NON_PERIOD_FILINGS = {"8-K", "8-K/A", "6-K", "6-K/A", "10-Q/A", "10-K/A", "20-F/A", "40-F/A"}
+PERIODIC_FILINGS = {"10-Q", "10-K", "20-F", "40-F"}
+
+def filing_needs_live_sec(payload: dict) -> bool:
+    """Only bypass the bulk archive for filings it cannot yet contain."""
+    if not payload.get("filing"):
+        return False
+    status = bulk_status()
+    if not status.get("available"):
+        return True
+    try:
+        fetched = datetime.fromisoformat(str(status.get("fetched_at", ""))).date()
+        filed = date.fromisoformat(str(payload.get("event_date", "")))
+    except ValueError:
+        return True
+    return filed >= fetched
 
 
 def cached_price_beta(ticker: str, *, min_returns: int = 90) -> float | None:
@@ -50,7 +65,14 @@ def expected_report_arrived(enrichment, payload: dict) -> bool:
     if target:
         ends = enrichment.metadata.get("report_ends", {})
         return all(ends.get(key, "") >= target for key in ("DilutedEPS", "TotalRevenue"))
-    if payload.get("event_date") and payload.get("form") not in NON_PERIOD_FILINGS:
+    # An older index hit has already had a chance to enter the newer bulk
+    # archive. A just-filed periodic report must show a changed period or be
+    # checked again after the next archive refresh; SEC may publish XBRL later.
+    if payload.get("filing"):
+        if payload.get("form") in PERIODIC_FILINGS and filing_needs_live_sec(payload):
+            return bool(enrichment.fiscal_period and enrichment.fiscal_period != payload.get("baseline_period"))
+        return True
+    if payload.get("event_date"):
         return bool(enrichment.fiscal_period and enrichment.fiscal_period != payload.get("baseline_period"))
     return True
 
@@ -109,7 +131,8 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT") or settings.sec_user_agent,
         statements_only=True,
         previous_metadata=previous.metadata_json if previous else None,
-        force_live_sec=bool(payload.get("filing")),
+        force_live_sec=filing_needs_live_sec(payload),
+        refresh_sec=bool(payload.get("filing")),
     )
     histories = {key: getattr(enrichment, key) for key in HISTORIES}
     if not any(histories.values()):

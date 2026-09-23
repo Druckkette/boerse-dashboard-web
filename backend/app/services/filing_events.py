@@ -12,7 +12,10 @@ from app.repositories.settings import _read_json_setting, _write_json_setting
 from app.services.settings import get_runtime_config_value
 
 
-REPORT_FORMS = {"10-Q", "10-Q/A", "10-K", "10-K/A", "8-K", "8-K/A", "6-K", "6-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
+# 8-K reports frequently announce earnings but contain no structured
+# companyfacts. The earnings calendar has its own event path; only forms that
+# can contribute statement facts should enqueue a statement refresh here.
+REPORT_FORMS = {"10-Q", "10-Q/A", "10-K", "10-K/A", "6-K", "6-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}
 
 
 def parse_daily_index(content: str, tickers_by_cik: dict[str, list[str]]) -> list[WorkRequest]:

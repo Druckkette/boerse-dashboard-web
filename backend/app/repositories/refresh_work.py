@@ -146,6 +146,7 @@ def summary() -> dict:
             RefreshWorkItem.data_group, RefreshWorkItem.status, reason, func.count(),
             func.count().filter(RefreshWorkItem.due_at <= now),
             func.min(RefreshWorkItem.due_at).filter(RefreshWorkItem.due_at > now),
+            func.count().filter(RefreshWorkItem.checked_at >= now - timedelta(hours=24)),
         )
                             .group_by(RefreshWorkItem.data_group, RefreshWorkItem.status, reason)).all()
         due = db.scalar(select(func.count()).select_from(RefreshWorkItem).where(RefreshWorkItem.due_at <= now)) or 0
@@ -156,7 +157,7 @@ def summary() -> dict:
         ).limit(5)).all()
         return {"due_count": due, "oldest_due_at": oldest, "next_due_at": next_due, "groups": [
             {"group": group, "status": status, "reason_code": reason_code,
-             "count": count, "due_count": due_count,
+             "count": count, "due_count": due_count, "checked_24h": checked_24h,
              "next_due_at": next_check}
-            for group, status, reason_code, count, due_count, next_check in counts
+            for group, status, reason_code, count, due_count, next_check, checked_24h in counts
         ], "active": [{"ticker": row.ticker, "group": row.data_group, "lease_until": row.lease_until} for row in active]}
