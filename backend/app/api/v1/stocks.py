@@ -20,6 +20,7 @@ from app.schemas import (
     StockAssessmentResponse,
     StockScreeningResponse,
     StockScreeningFilters,
+    TopDailyStockResponse,
     StockSearchResponse,
     StockSignalChangesResponse,
 )
@@ -43,6 +44,13 @@ from app.services.stocks import (
 
 
 router = APIRouter()
+
+
+@router.get("/top-daily", response_model=TopDailyStockResponse)
+def top_daily_stocks() -> TopDailyStockResponse:
+    from app.services.daily_opportunities import get_top_daily
+
+    return TopDailyStockResponse.model_validate(get_top_daily())
 
 
 @router.get("/screening", response_model=StockScreeningResponse)

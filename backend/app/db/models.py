@@ -408,6 +408,28 @@ class StockAssessmentSnapshot(Base):
     item_json: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
+class DailyStockOpportunity(Base):
+    """Compact score history; one row per ticker and actual market session."""
+
+    __tablename__ = "daily_stock_opportunities"
+    __table_args__ = (Index("ix_daily_stock_opportunities_day_rank", "as_of", "rank"),)
+
+    as_of: Mapped[date] = mapped_column(Date, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(32), primary_key=True)
+    overall_score: Mapped[int] = mapped_column(Integer)
+    technical_score: Mapped[float] = mapped_column(Float)
+    fundamental_score: Mapped[float] = mapped_column(Float)
+    moving_average_score: Mapped[float] = mapped_column(Float)
+    chart_behavior_score: Mapped[int] = mapped_column(Integer)
+    rs_rating: Mapped[int | None] = mapped_column(Integer)
+    signals_json: Mapped[list] = mapped_column(JSONB, default=list)
+    daily_dynamics_score: Mapped[float | None] = mapped_column(Float)
+    daily_opportunity_score: Mapped[float | None] = mapped_column(Float)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    details_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TrancheLog(Base):
     __tablename__ = "tranche_log"
     __table_args__ = (Index("ix_tranche_log_ticker_date", "ticker", "date"),)

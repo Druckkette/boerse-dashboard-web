@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import csv
+import logging
 from io import StringIO
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, date, datetime
@@ -20,6 +21,7 @@ from app.workers.tasks.common import raise_if_cancelled
 
 
 BATCH_SIZE = 40
+logger = logging.getLogger(__name__)
 
 
 def _json_default(value):
@@ -109,6 +111,10 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
                     item["fundamentals_available"] = result.fundamentals_available
                     item["rs_line_available"] = inputs["rs_context"].get("ema21") is not None
                     item["institutional_available"] = bool(inputs["institutional_context"])
+                    item["volume_ratio_50d"] = result.metrics.volume_ratio_50d
+                    item["next_earnings_date"] = result.earnings.next_earnings_date if result.earnings else None
+                    item["positive_signals"] = [signal.label for signal in result.chart_signals if signal.category == "positive"]
+                    item["negative_signals"] = [signal.label for signal in result.chart_signals if signal.category == "negative"]
                     item["_input_fingerprint"] = fingerprint
                 except (ValueError, TypeError, ArithmeticError) as exc:
                     errors.append({"ticker": ticker, "error": f"{type(exc).__name__}: {exc}"[:200]})
@@ -144,6 +150,17 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
     if source_job_id:
         raise_if_cancelled(source_job_id)
     stock_assessments.replace_snapshots(writes, source_job_id=source_job_id, **({"replace_all": False} if only_tickers is not None else {}))
+    if only_tickers is None:
+        # A compact read of prepared scores and recent bars; no second assessment pass.
+        from app.services.daily_opportunities import refresh_top_daily
+        try:
+            summary["top_daily"] = refresh_top_daily(writes)
+        except Exception as exc:
+            # The market and assessment publication must remain usable even if
+            # this optional shortlist cannot be generated yet.
+            logger.exception("Daily stock shortlist refresh failed")
+            summary["top_daily"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
+            summary["partial"] = True
     return summary
 
 

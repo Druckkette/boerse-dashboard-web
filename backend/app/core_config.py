@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     api_rate_limit_requests: int = 120
     api_rate_limit_window_seconds: int = 60
     api_access_log_enabled: bool = False
+    daily_quality_weight: float = Field(default=0.65, ge=0, le=1)
+    daily_min_quality: int = Field(default=70, ge=0, le=100)
+    daily_min_rs: int = Field(default=80, ge=1, le=99)
+    daily_min_fundamental: float = Field(default=50, ge=0, le=100)
+    daily_min_trend: float = Field(default=50, ge=0, le=100)
+    daily_min_price: float = Field(default=15, ge=0)
+    daily_min_dollar_volume_mio: float = Field(default=30, ge=0)
     cors_origins: list[AnyHttpUrl | str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
