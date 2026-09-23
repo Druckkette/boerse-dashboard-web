@@ -21,7 +21,7 @@ const reasonLabels: Record<string, string> = {
   waiting_yahoo_data: "Yahoo-Daten fehlen vorübergehend",
   waiting_fmp_fallback: "optionaler FMP-Ersatz wird später erneut geprüft",
   unsupported_taxonomy: "kein sicher zuordenbarer SEC-Finanzwert",
-  missing_history: "für die Berechnung fehlen noch frühere Berichtsperioden",
+  missing_history: "für diese Prüfung fehlen noch frühere Daten",
   rate_limited: "Datenquelle hat das Abruflimit erreicht; Wiederholung geplant",
   provider_error: "Datenquelle vorübergehend nicht erreichbar",
 };
@@ -41,7 +41,7 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
     </p>
     <p className="mt-1 text-xs text-[#687386]">{waiting.toLocaleString("de-DE")} Einträge warten auf Daten oder vollständige Historien. Sie sind heute keine fälligen Abrufe. Nächste Prüfung: {formatDate(data.next_due_at)}.</p>
     <details className="mt-3"><summary className="cursor-pointer font-medium">Datenbereiche und Wartezustände erklären</summary>
-      <p className="mt-2 text-xs text-[#687386]">Die Zahlen zählen Prüfaufträge, keine verschiedenen Aktien. Eine Aktie kann mehrfach vorkommen. „Geprüft“ heißt: Daten sind geprüft und der nächste Kontrolltermin steht fest. Nur „jetzt fällig“ zählt die gerade anstehenden Prüfungen.</p>
+      <p className="mt-2 text-xs text-[#687386]">Die Zahlen zählen Prüfaufträge, keine verschiedenen Aktien. Eine Aktie kann mehrfach vorkommen. „Geprüft“ heißt: aktuell keine Arbeit offen. Folgebewertungen werden bei Datenänderungen neu angestoßen. Nur „jetzt fällig“ zählt die gerade anstehenden Prüfungen.</p>
       <ul className="mt-3 grid gap-3 sm:grid-cols-2">
         {[...byGroup].map(([group, items]) => {
           const count = (status: string) => items.filter((item) => item.status === status).reduce((sum, item) => sum + item.count, 0);
@@ -49,7 +49,7 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
           const next = items.map((item) => item.next_due_at).filter((value): value is string => !!value).sort()[0] ?? null;
           return <li key={group} className="rounded-lg border border-[#e3e8ef] p-3">
             <strong className="text-[#172033]">{groupLabels[group] ?? group}</strong>
-            <p className="mt-1">{due.toLocaleString("de-DE")} jetzt fällig · {count("current").toLocaleString("de-DE")} geprüft, nächste Kontrolle geplant · {count("queued").toLocaleString("de-DE")} Erstprüfung geplant</p>
+            <p className="mt-1">{due.toLocaleString("de-DE")} jetzt fällig · {count("current").toLocaleString("de-DE")} {group === "assessment" ? "geprüft, Neubewertung bei Datenänderung" : "geprüft, Kontrolle geplant"} · {count("queued").toLocaleString("de-DE")} Erstprüfung geplant</p>
             {count("waiting_source") > 0 && <p className="mt-1 text-amber-800">{count("waiting_source").toLocaleString("de-DE")} warten auf Daten: {missingExplanations[group] ?? "Quelldaten noch unvollständig"}.</p>}
             {items.filter((item) => item.status === "waiting_source" && item.reason_code && item.count).map((item) => <p key={item.reason_code} className="mt-1 text-xs text-amber-800">{item.count.toLocaleString("de-DE")}: {reasonLabels[item.reason_code] ?? item.reason_code}</p>)}
             {count("error") > 0 && <p className="mt-1 text-red-700">{count("error").toLocaleString("de-DE")} Abruffehler, Wiederholung geplant.</p>}
