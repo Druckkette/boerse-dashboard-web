@@ -108,6 +108,11 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
     if group == "beta":
         if previous is None:
             return {"complete": False, "changed": False, "reason": "Zuerst Statement-Snapshot aufbauen."}
+        previous_bad_local_beta = (
+            previous.beta is not None
+            and ((previous.metadata_json or {}).get("data_sources") or {}).get("beta") == "local_price_cache"
+            and (not isfinite(float(previous.beta)) or abs(previous.beta) > 10)
+        )
         beta = cached_price_beta(ticker)
         source = "Gespeicherte Aktien- und SPY-Kurse"
         beta_source = "local_price_cache"
@@ -116,9 +121,20 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
             beta = fetched.beta
             source = "Yahoo Finance"
             beta_source = "yfinance"
+        if beta is not None and (not isfinite(float(beta)) or abs(beta) > 10):
+            beta = None
         if beta is None:
-            return {"complete": False, "changed": False, "reason_code": "waiting_yahoo_data",
-                    "reason": "Kein Anbieter-Beta und weniger als 90 gemeinsame Kurstage mit SPY."}
+            if previous_bad_local_beta:
+                values = {field.name: getattr(previous, field.name) for field in fields(fundamentals.FundamentalSnapshotWrite)}
+                metadata = {**(previous.metadata_json or {}), "data_sources": {
+                    **((previous.metadata_json or {}).get("data_sources") or {}), "beta": "unavailable",
+                }}
+                fundamentals.upsert_fundamentals(fundamentals.FundamentalSnapshotWrite(
+                    **{**values, "beta": None, "metadata_json": metadata}
+                ))
+            return {"complete": False, "changed": previous_bad_local_beta,
+                    "reason_code": "waiting_yahoo_data",
+                    "reason": "Kein belastbares Beta aus Kursen oder Yahoo verfügbar."}
         values = {field.name: getattr(previous, field.name) for field in fields(fundamentals.FundamentalSnapshotWrite)}
         write = fundamentals.FundamentalSnapshotWrite(**values)
         metadata = {**(write.metadata_json or {}), "data_sources": {
