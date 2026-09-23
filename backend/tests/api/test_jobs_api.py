@@ -77,10 +77,11 @@ def test_ranking_reuses_running_market_cycle(monkeypatch):
 def test_report_work_status_and_unavailable_database(monkeypatch):
     from app.repositories import refresh_work
     from sqlalchemy.exc import SQLAlchemyError
-    monkeypatch.setattr(refresh_work, "summary", lambda: {"due_count": 7, "groups": [], "active": [], "oldest_due_at": None})
+    monkeypatch.setattr(refresh_work, "summary", lambda: {"due_count": 7, "groups": [], "active": [], "oldest_due_at": None, "next_due_at": datetime.now(UTC)})
     response = client.get("/api/v1/jobs/report-work")
     assert response.status_code == 200
     assert response.json()["due_count"] == 7
+    assert response.json()["next_due_at"] is not None
     def fail():
         raise SQLAlchemyError("unavailable")
     monkeypatch.setattr(refresh_work, "summary", fail)

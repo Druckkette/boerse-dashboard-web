@@ -317,7 +317,7 @@ export const api = {
     postJson<{ entry: TrancheLogEntry; tranche_log: TrancheLogEntry[] }>(`/sell/${ticker}/tranches`, body),
   snoozeSellSignal: (ticker: string, body: { snoozed_pct: number; days: number }) =>
     postJson<{ state: { snoozed_until: string; snoozed_pct: number } }>(`/sell/${ticker}/snooze`, body),
-  reportWork: () => getJson<{ due_count: number; oldest_due_at: string | null; groups: { group: string; status: string; count: number }[]; active: { ticker: string; group: string; lease_until: string | null }[] }>("/jobs/report-work"),
+  reportWork: () => getJson<{ due_count: number; oldest_due_at: string | null; next_due_at: string | null; groups: { group: string; status: string; count: number; due_count: number; next_due_at: string | null }[]; active: { ticker: string; group: string; lease_until: string | null }[] }>("/jobs/report-work"),
   jobProgress: async (jobId: string) => {
     const payload = await getJson<{ job: Job }>(`/jobs/${jobId}?compact=true`);
     return payload.job;

@@ -1,19 +1,46 @@
 """Small report-group fetches; preserve valid history on partial provider responses."""
 from dataclasses import asdict, fields, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 import hashlib
 import json
+from math import isfinite
 
 from app.core_config import get_settings
 from app.data_sources.fundamentals_client import fetch_fundamental_enrichment
 from app.data_sources.yfinance_client import FetchedFundamentals, fetch_fundamentals
-from app.repositories import fundamentals
+from app.repositories import fundamentals, prices
 from app.services.fundamentals import _to_write
 from app.services.settings import get_runtime_config_value
 
 
 HISTORIES = ("eps_quarter_history", "annual_eps_history", "revenue_quarter_history", "annual_revenue_history", "roe_history")
 NON_PERIOD_FILINGS = {"8-K", "8-K/A", "6-K", "6-K/A", "10-Q/A", "10-K/A", "20-F/A", "40-F/A"}
+
+
+def cached_price_beta(ticker: str, *, min_returns: int = 90) -> float | None:
+    """Estimate one-year market beta from locally cached adjusted daily closes."""
+    if ticker == "SPY":
+        return 1.0
+    bars = prices.list_price_bars_for_tickers([ticker, "SPY"], start_date=date.today() - timedelta(days=400))
+
+    def closes(rows: list) -> dict[date, float]:
+        return {row.date: float(row.adj_close) for row in rows
+                if row.adj_close is not None and isfinite(float(row.adj_close)) and row.adj_close > 0}
+
+    stock = closes(bars.get(ticker, []))
+    market = closes(bars.get("SPY", []))
+    days = sorted(stock.keys() & market.keys())[-253:]
+    if len(days) < min_returns + 1 or days[-1] < date.today() - timedelta(days=14):
+        return None
+    x = [market[day] / market[previous] - 1 for previous, day in zip(days, days[1:])]
+    y = [stock[day] / stock[previous] - 1 for previous, day in zip(days, days[1:])]
+    mean_x = sum(x) / len(x)
+    mean_y = sum(y) / len(y)
+    variance = sum((value - mean_x) ** 2 for value in x)
+    if variance <= 1e-12:
+        return None
+    beta = sum((a - mean_x) * (b - mean_y) for a, b in zip(x, y)) / variance
+    return round(beta, 4) if isfinite(beta) else None
 
 
 def expected_report_arrived(enrichment, payload: dict) -> bool:
@@ -52,14 +79,19 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
     if group == "beta":
         if previous is None:
             return {"complete": False, "changed": False, "reason": "Zuerst Statement-Snapshot aufbauen."}
-        fetched = fetch_fundamentals(ticker, include_holders=False, include_calendar=False)
-        if fetched.beta is None:
-            return {"complete": False, "changed": False, "reason": "Provider liefert kein Beta; bestehende Daten bleiben erhalten."}
+        beta = cached_price_beta(ticker)
+        source = "Gespeicherte Aktien- und SPY-Kurse"
+        if beta is None:
+            fetched = fetch_fundamentals(ticker, include_holders=False, include_calendar=False)
+            beta = fetched.beta
+            source = "Yahoo Finance"
+        if beta is None:
+            return {"complete": False, "changed": False, "reason": "Kein Anbieter-Beta und weniger als 90 gemeinsame Kurstage mit SPY."}
         values = {field.name: getattr(previous, field.name) for field in fields(fundamentals.FundamentalSnapshotWrite)}
         write = fundamentals.FundamentalSnapshotWrite(**values)
-        write = replace(write, beta=fetched.beta)
+        write = replace(write, beta=beta)
         row = fundamentals.upsert_fundamentals(write)
-        return {"complete": True, "changed": content_revision(previous) != content_revision(row), "beta": row.beta}
+        return {"complete": True, "changed": content_revision(previous) != content_revision(row), "beta": row.beta, "source": source}
 
     settings = get_settings()
     enrichment = fetch_fundamental_enrichment(
