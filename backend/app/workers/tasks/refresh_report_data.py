@@ -46,7 +46,7 @@ def refresh_report_data() -> dict:
 def _run_package() -> dict:
     started = monotonic()
     job = None
-    result = {"processed": 0, "failed": 0, "waiting_source": 0, "changed": 0}
+    result = {"processed": 0, "completed": 0, "failed": 0, "waiting_source": 0, "changed": 0}
     try:
         for _ in range(8):
             if monotonic() - started >= 120:
@@ -125,6 +125,8 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
                 refresh_work.enqueue([refresh_work.WorkRequest(item["ticker"], "assessment", "update:" + datetime.now(UTC).isoformat(), datetime.now(UTC), 20)])
         if not complete:
             totals["waiting_source"] += 1
+        else:
+            totals["completed"] = totals.get("completed", 0) + 1
         refresh_work.finish(item, result=value, status="current" if complete else "waiting_source", delay=delay)
     except Exception as exc:
         totals["failed"] += 1
@@ -177,6 +179,7 @@ def _run_assessment_batch(items: list[dict], job_id: str, totals: dict) -> None:
                     status="waiting_source", delay=source_retry_delay(item),
                 )
             else:
+                totals["completed"] = totals.get("completed", 0) + 1
                 refresh_work.finish(item, result={"complete": True}, status="current", delay=timedelta(days=3650))
     finally:
         stop.set()

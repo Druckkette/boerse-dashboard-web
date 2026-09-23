@@ -2,9 +2,31 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from app.data_sources.yfinance_client import FetchedPriceBar
 from app.services import prices as prices_service
 from app.services.market_calendar import ExpectedMarketSession
+
+
+@pytest.fixture(autouse=True)
+def no_report_database(monkeypatch):
+    monkeypatch.setattr(prices_service.refresh_work, "wake_price_dependents", lambda tickers: {"beta": 0, "assessment": 0})
+
+
+def test_price_batch_wakes_only_report_work_with_written_bars(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(prices_service, "_refresh_price_cache_chunk", lambda symbols, **kwargs: [
+        {"ticker": "AAA", "records_written": 2},
+        {"ticker": "BBB", "records_written": 0},
+    ])
+    monkeypatch.setattr(prices_service.refresh_work, "wake_price_dependents", lambda tickers: calls.append(tickers) or {"beta": 1, "assessment": 0})
+
+    prices_service.refresh_price_cache_for_symbols([
+        prices_service.PriceRefreshSymbol("AAA"), prices_service.PriceRefreshSymbol("BBB")
+    ])
+
+    assert calls == [["AAA"]]
 
 
 def test_missing_price_history_does_not_generate_synthetic_market_data(monkeypatch) -> None:
