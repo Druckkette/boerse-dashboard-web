@@ -32,6 +32,7 @@ def test_due_assessments_are_screened_together_and_failures_are_retried(monkeypa
 
     assert calls == [("report-job", ["A", "B", "C"])]
     assert result["processed"] == 3
+    assert result["completed"] == 1
     assert result["failed"] == 1
     assert result["waiting_source"] == 1
     assert [(ticker, details["status"]) for ticker, details in finished] == [

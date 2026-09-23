@@ -202,6 +202,13 @@ worker after the first update, then watch `/api/v1/jobs/report-work` to verify t
 falls over time. A low due count means the worker has caught up with scheduled checks; it does
 not mean every ticker has complete statement history. Check `current` and `waiting_source`
 counts separately.
+When a price import supplies at least 50 usable trading days for an assessment,
+or at least 91 aligned stock/SPY days for a waiting beta, the price stage brings
+that report check forward. Other missing-source checks retain their backoff; a
+new price bar alone does not trigger another SEC, Yahoo statement, or FMP fetch.
+Each `refresh_report_data` job result reports `processed`, `completed`, `changed`,
+`waiting_source`, and `failed`. `completed` measures work that actually left the
+waiting state; repeated checks with no new data are visible separately.
 Migration `0010_job_heartbeat` lets the app recognize abandoned worker jobs. Queued jobs without a
 heartbeat for 30 minutes and running jobs without a heartbeat for 90 minutes are marked failed and
 no longer block a new refresh after a NAS/worker restart.

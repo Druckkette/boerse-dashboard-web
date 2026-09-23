@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from app.data_sources.yfinance_client import FetchedPriceBar, fetch_daily_price_bars, fetch_daily_price_bars_batch
+from app.repositories import refresh_work
 from app.repositories.prices import (
     PriceBarWrite,
     PriceRepositoryUnavailable,
@@ -38,6 +40,7 @@ YFINANCE_PERIOD_BY_RANGE: dict[PriceRange, str] = {
 }
 
 DEFAULT_INCREMENTAL_PRICE_OVERLAP_DAYS = 1
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -135,7 +138,7 @@ def refresh_price_cache_for_ticker(
         else None
     )
     fetched = fetch_daily_price_bars(fetch_symbol, period=period, start=start_date, timeout=timeout)
-    return _write_price_cache_result(
+    result = _write_price_cache_result(
         ticker=clean,
         yahoo_symbol=fetch_symbol,
         fetched=fetched,
@@ -145,6 +148,8 @@ def refresh_price_cache_for_ticker(
         overlap_days=overlap_days,
         batch=False,
     )
+    _wake_price_dependents([result])
+    return result
 
 
 def refresh_price_cache_for_symbols(
@@ -166,17 +171,31 @@ def refresh_price_cache_for_symbols(
     chunk_size = max(1, min(250, int(batch_size)))
     for index in range(0, len(normalized), chunk_size):
         chunk = normalized[index : index + chunk_size]
-        results.extend(
-            _refresh_price_cache_chunk(
-                chunk,
-                period=period,
-                range_key=range_key,
-                incremental=incremental,
-                timeout=timeout,
-                overlap_days=overlap_days,
-            )
+        chunk_results = _refresh_price_cache_chunk(
+            chunk,
+            period=period,
+            range_key=range_key,
+            incremental=incremental,
+            timeout=timeout,
+            overlap_days=overlap_days,
         )
+        results.extend(chunk_results)
+        _wake_price_dependents(chunk_results)
     return results
+
+
+def _wake_price_dependents(results: list[dict]) -> None:
+    changed = [item["ticker"] for item in results if item.get("records_written", 0) > 0]
+    if not changed:
+        return
+    try:
+        woken = refresh_work.wake_price_dependents(changed)
+        if any(woken.values()):
+            logger.info("Price refresh woke report work: %s", woken)
+    except Exception:
+        # A completed price refresh must remain published even if the optional
+        # report queue is temporarily unavailable. Its backoff still applies.
+        logger.exception("Could not wake report work after price refresh")
 
 
 def _refresh_price_cache_chunk(

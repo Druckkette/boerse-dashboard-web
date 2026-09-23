@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models import RefreshWorkItem
@@ -39,6 +39,67 @@ def enqueue(requests: list[WorkRequest]) -> int:
             }, where=(new.revision != "baseline") & (new.revision > RefreshWorkItem.revision)))
         db.commit()
     return len(requests)
+
+
+def wake_price_dependents(tickers: list[str]) -> dict[str, int]:
+    """Retry waiting work only when newly available prices can satisfy its gate.
+
+    The ordinary baseline planner deliberately preserves backoff. A price update
+    is new evidence, so it may bring the next check forward without resetting
+    attempts or discarding the previous diagnostic result.
+    """
+    clean = sorted({ticker.strip().upper() for ticker in tickers if ticker.strip()})
+    if not clean:
+        return {"beta": 0, "assessment": 0}
+    # Updating SPY can complete an otherwise unchanged stock/SPY overlap.
+    include_all_beta = "SPY" in clean
+    statement = text("""
+        WITH candidates AS (
+            SELECT w.key, w.data_group, w.checked_at, i.id AS instrument_id
+            FROM refresh_work_items w
+            JOIN instruments i ON i.ticker = w.ticker
+            WHERE w.status = 'waiting_source'
+              AND w.data_group IN ('beta', 'assessment')
+              AND w.due_at > now()
+              AND (w.ticker = ANY(:tickers) OR (:all_beta AND w.data_group = 'beta'))
+        ), eligible AS (
+            SELECT c.key, c.data_group
+            FROM candidates c
+            JOIN LATERAL (
+                SELECT count(DISTINCT p.date) AS days,
+                       max(p.date) AS newest,
+                       count(DISTINCT p.date) FILTER (WHERE spy.date IS NOT NULL) AS common_days,
+                       max(p.date) FILTER (WHERE spy.date IS NOT NULL) AS newest_common
+                FROM price_bars p
+                LEFT JOIN price_bars spy
+                  ON spy.date = p.date
+                 AND spy.instrument_id = (SELECT id FROM instruments WHERE ticker = 'SPY' LIMIT 1)
+                 AND spy.adj_close > 0
+                WHERE p.instrument_id = c.instrument_id
+                  AND p.date >= current_date - 400
+                  AND p.adj_close > 0
+            ) bars ON true
+            WHERE (c.data_group = 'assessment'
+                   AND bars.days >= 50 AND bars.newest > c.checked_at::date)
+               OR (c.data_group = 'beta'
+                   AND bars.common_days >= 91
+                   AND bars.newest_common >= current_date - 14
+                   AND (bars.newest > c.checked_at::date OR :all_beta))
+        ), changed AS (
+            UPDATE refresh_work_items w
+            SET due_at = now(), status = 'queued'
+            FROM eligible e
+            WHERE w.key = e.key AND w.status = 'waiting_source'
+            RETURNING w.data_group
+        )
+        SELECT data_group, count(*) FROM changed GROUP BY data_group
+    """)
+    with SessionLocal() as db:
+        rows = db.execute(statement, {"tickers": clean, "all_beta": include_all_beta}).all()
+        db.commit()
+    counts = {"beta": 0, "assessment": 0}
+    counts.update({group: count for group, count in rows})
+    return counts
 
 
 def claim(*, allow_sec: bool = False, now: datetime | None = None) -> dict | None:
