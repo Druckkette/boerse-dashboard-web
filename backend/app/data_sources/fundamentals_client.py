@@ -87,6 +87,7 @@ def fetch_fundamental_enrichment(
     statements_only: bool = False,
     previous_metadata: dict[str, Any] | None = None,
     force_live_sec: bool = False,
+    refresh_sec: bool = False,
 ) -> FundamentalEnrichment:
     clean = ticker.strip().upper()
     notes: list[str] = []
@@ -98,7 +99,7 @@ def fetch_fundamental_enrichment(
     reason_code = ""
     statement_currency = ((previous_metadata or {}).get("enrichment") or {}).get("statement_currency", "USD")
     has_known_currency = bool(raw) and statement_currency != "unknown"
-    if raw and not _needs_fmp_statement_data(raw) and not force_live_sec:
+    if raw and not _needs_fmp_statement_data(raw) and not force_live_sec and not refresh_sec:
         notes.append("Vollständiger lokaler Snapshot")
         record_provider_event("cache_hits")
     elif sec_user_agent:
@@ -199,7 +200,11 @@ def fetch_fundamental_enrichment(
         "fmp_requests_used": current_provider_usage().get("fmp_requests", 0),
         "statement_currency": statement_currency,
         "source_priority": list(SOURCE_PRIORITY["statements"]),
-        "reason_code": reason_code if _needs_fmp_statement_data(raw) else "",
+        # A failed live check for a newly filed report must remain visible even
+        # when the older cached history itself is complete.
+        "reason_code": reason_code if _needs_fmp_statement_data(raw) or (
+            force_live_sec and reason_code in {"rate_limited", "provider_error"}
+        ) else "",
     }
     return replace(enrichment, metadata=metadata)
 
@@ -444,9 +449,14 @@ def merge_quarterly_raw(primary: QuarterlyRaw | None, secondary: QuarterlyRaw | 
             merged.setdefault(key, secondary_value)
             continue
         try:
-            merged[key] = pd.concat([primary_value, secondary_value[~secondary_value.index.isin(primary_value.index)]]).sort_index(
-                ascending=False
-            )
+            # Provider period ends may differ by a few days. Preserve the
+            # primary source rather than adding a duplicate fiscal period.
+            primary_dates = pd.to_datetime(primary_value.index, errors="coerce")
+            keep = [
+                all(abs((date - primary_date).days) > 10 for primary_date in primary_dates if not pd.isna(primary_date))
+                for date in pd.to_datetime(secondary_value.index, errors="coerce")
+            ]
+            merged[key] = pd.concat([primary_value, secondary_value[keep]]).sort_index(ascending=False)
         except Exception:
             merged[key] = primary_value
     return merged
@@ -557,27 +567,39 @@ def quarterly_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
     growth_points = _growth_points_from_growth_series(growth_series, annual=False)
     if not isinstance(series, pd.Series):
         return growth_points[:3]
-    values = pd.to_numeric(series, errors="coerce").dropna().sort_index(ascending=False)
-    if len(values) < 2:
+    periods = _distinct_quarter_periods(series)
+    if len(periods) < 2:
         return growth_points[:3]
 
-    buckets: dict[tuple[int, int], float] = {}
-    for index, value in values.items():
-        ts = pd.to_datetime(index, errors="coerce")
-        if pd.isna(ts):
-            continue
-        yq = (int(ts.year), int(ts.quarter))
-        buckets.setdefault(yq, float(value))
-    if not buckets:
-        return []
-
+    # Fiscal quarter ends can move across calendar-quarter boundaries (for
+    # example March 31 versus April 1). Compare dates about one fiscal year
+    # apart, and collapse duplicate SEC/Yahoo dates for the same period.
     points: list[GrowthPoint] = []
-    for year, quarter in sorted(buckets.keys(), reverse=True)[:3]:
-        current = buckets[(year, quarter)]
-        previous = buckets.get((year - 1, quarter))
-        label = f"{year} Q{quarter}"
+    for current_end, current in periods[:3]:
+        candidates = [
+            (abs((current_end - previous_end).days - 364), previous)
+            for previous_end, previous in periods
+            if 330 <= (current_end - previous_end).days <= 400
+        ]
+        previous = min(candidates, default=(0, None))[1]
+        label = f"{int(current_end.year)} Q{int(current_end.quarter)}"
         points.append(_growth_point(label, current, previous))
     return _prefer_growth_history(points, growth_points)
+
+
+def _distinct_quarter_periods(series: Any) -> list[tuple[pd.Timestamp, float]]:
+    if not isinstance(series, pd.Series):
+        return []
+    values = pd.to_numeric(series, errors="coerce").dropna().sort_index(ascending=False)
+    periods: list[tuple[pd.Timestamp, float]] = []
+    for index, value in values.items():
+        stamp = pd.to_datetime(index, errors="coerce")
+        if pd.isna(stamp):
+            continue
+        if periods and (periods[-1][0] - stamp).days < 45:
+            continue
+        periods.append((stamp, float(value)))
+    return periods
 
 
 def annual_yoy_growth(raw: QuarterlyRaw, field: str) -> list[GrowthPoint]:
@@ -1195,18 +1217,15 @@ def _is_accelerating(points: list[GrowthPoint]) -> bool | None:
 
 
 def _trailing_sum(value: Any, *, periods: int) -> float | None:
-    if not isinstance(value, pd.Series):
+    dated = _distinct_quarter_periods(value)
+    if len(dated) < periods:
         return None
-    series = pd.to_numeric(value, errors="coerce").dropna().sort_index(ascending=False)
-    if len(series) < periods:
-        return None
-    latest = series.iloc[:periods]
-    dates = [pd.to_datetime(index, errors="coerce") for index in latest.index]
-    if any(pd.isna(stamp) for stamp in dates) or any(
-        not 60 <= (newer - older).days <= 120 for newer, older in zip(dates, dates[1:])
+    latest = dated[:periods]
+    if any(
+        not 60 <= (newer[0] - older[0]).days <= 120 for newer, older in zip(latest, latest[1:])
     ):
         return None
-    return round(float(latest.sum()), 2)
+    return round(sum(number for _, number in latest), 2)
 
 
 def _roe_pct(raw: QuarterlyRaw) -> float | None:

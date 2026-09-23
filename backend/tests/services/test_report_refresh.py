@@ -31,6 +31,7 @@ def test_filing_discovery_filters_and_deduplicates():
         "CIK|Company Name|Form Type|Date Filed|Filename",
         "123|Test|10-Q|2026-09-11|edgar/data/123/0001.txt",
         "123|Test|10-Q/A|2026-09-12|edgar/data/123/0002.txt",
+        "123|Test|8-K|2026-09-13|edgar/data/123/0005.txt",
         "123|Test|4|2026-09-13|edgar/data/123/0003.txt",
         "999|Other|10-K|2026-09-13|edgar/data/999/0004.txt",
     ])
@@ -103,15 +104,38 @@ def test_missing_statement_history_is_source_wait_not_worker_failure(monkeypatch
     assert "Keine verwertbaren Statements" in result["reason"]
 
 
-def test_non_periodic_filing_does_not_require_new_quarter():
+def test_filing_is_a_change_trigger_after_bulk_has_been_updated(monkeypatch):
+    monkeypatch.setattr(report_refresh, "bulk_status", lambda: {
+        "available": True, "fetched_at": "2026-09-23T09:12:00+00:00",
+    })
     enrichment = SimpleNamespace(fiscal_period="2026 Q2", metadata={"report_ends": {}})
     base = {"event_date": "2026-09-16", "baseline_period": "2026 Q2"}
 
-    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "8-K"})
-    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "6-K"})
-    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-Q/A"})
+    for form in ("6-K", "10-Q/A", "10-Q", "10-K"):
+        assert report_refresh.expected_report_arrived(enrichment, {**base, "form": form, "filing": "edgar/data/1/filing.txt"})
+    assert not report_refresh.expected_report_arrived(enrichment, base)
+
+
+def test_fresh_periodic_filing_waits_for_sec_facts(monkeypatch):
+    monkeypatch.setattr(report_refresh, "bulk_status", lambda: {
+        "available": True, "fetched_at": "2026-09-15T09:12:00+00:00",
+    })
+    enrichment = SimpleNamespace(fiscal_period="2026 Q2", metadata={"report_ends": {}})
+    base = {"filing": "edgar/data/1/filing.txt", "event_date": "2026-09-16", "baseline_period": "2026 Q2"}
     assert not report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-Q"})
-    assert not report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-K"})
+    assert report_refresh.expected_report_arrived(enrichment, {**base, "form": "10-Q/A"})
+    assert report_refresh.expected_report_arrived(SimpleNamespace(fiscal_period="2026 Q3", metadata={}),
+                                                  {**base, "form": "10-Q"})
+
+
+def test_old_filing_uses_newer_bulk_cache_without_live_sec(monkeypatch):
+    monkeypatch.setattr(report_refresh, "bulk_status", lambda: {
+        "available": True, "fetched_at": "2026-09-23T09:12:00+00:00",
+    })
+    assert not report_refresh.filing_needs_live_sec({"filing": "f", "event_date": "20260909"})
+    assert report_refresh.filing_needs_live_sec({"filing": "f", "event_date": "20260923"})
+    monkeypatch.setattr(report_refresh, "bulk_status", lambda: {"available": False})
+    assert report_refresh.filing_needs_live_sec({"filing": "f", "event_date": "20260909"})
 
 
 def test_expected_period_remains_required_for_any_filing():

@@ -47,8 +47,8 @@ def get_beat_schedule() -> dict:
         },
         "report-work-dispatch": {
             "task": "refresh_report_data",
-            "schedule": 30.0,
-            "options": {"expires": 90},
+            "schedule": 60.0,
+            "options": {"expires": 180},
         },
         "smart-market-refresh-afternoon": {
             "task": "smart_refresh_market_data",

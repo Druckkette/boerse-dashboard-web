@@ -127,6 +127,43 @@ def test_growth_special_cases(current, previous, flag, growth):
     assert point.growth_pct == growth
 
 
+def test_quarterly_growth_matches_fiscal_dates_across_calendar_boundary():
+    # A restaurant's fiscal Q1 ended April 1 last year and March 31 this year.
+    # The December 30/31 entries are duplicate provider dates for one period.
+    values = pd.Series({
+        pd.Timestamp("2026-06-30"): 0.86,
+        pd.Timestamp("2026-03-31"): 0.41,
+        pd.Timestamp("2025-12-31"): 0.58,
+        pd.Timestamp("2025-12-30"): 0.58,
+        pd.Timestamp("2025-07-01"): 0.97,
+        pd.Timestamp("2025-04-01"): 0.58,
+        pd.Timestamp("2024-12-31"): 0.22,
+    })
+    points = client.quarterly_yoy_growth({"DilutedEPS": values}, "eps")
+    assert len(points) == 3
+    assert [point.previous for point in points] == [0.97, 0.58, 0.22]
+    assert [point.growth_pct for point in points] == [-11.3, -29.3, 163.6]
+    assert client._usable_growth_count(points) == 3
+
+
+def test_nearby_provider_period_dates_do_not_break_ttm_or_replace_sec():
+    sec = pd.Series({pd.Timestamp("2025-12-30"): 0.58})
+    yahoo = pd.Series({pd.Timestamp("2025-12-31"): 0.59,
+                       pd.Timestamp("2025-09-30"): 0.02})
+    merged = client.merge_quarterly_raw({"DilutedEPS": sec}, {"DilutedEPS": yahoo})
+    assert len(merged["DilutedEPS"]) == 2
+    assert merged["DilutedEPS"].loc[pd.Timestamp("2025-12-30")] == 0.58
+
+    with_old_duplicate = pd.Series({
+        pd.Timestamp("2026-06-30"): 0.86,
+        pd.Timestamp("2026-03-31"): 0.41,
+        pd.Timestamp("2025-12-31"): 0.58,
+        pd.Timestamp("2025-12-30"): 0.58,
+        pd.Timestamp("2025-09-30"): 0.02,
+    })
+    assert client._trailing_sum(with_old_duplicate, periods=4) == 1.87
+
+
 def test_complete_sec_avoids_yahoo_and_fmp(monkeypatch):
     monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *args, **kwargs: (_complete_raw(), "SEC sec_bulk_cache currency=USD"))
     monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: pytest.fail("Yahoo called"))
@@ -187,6 +224,36 @@ def test_previous_snapshot_keeps_history_on_partial_provider(monkeypatch):
     merged = merge_snapshot_write(old, new)
     assert merged.trailing_eps == 7.0
     assert len(merged.metadata_json["eps_quarter_history"]) == 2
+
+
+def test_filing_rechecks_bulk_even_with_complete_local_history(monkeypatch):
+    raw = _complete_raw()
+    metadata = client.compute_fundamental_enrichment("TEST", raw).metadata
+    calls = []
+    monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *args, **kwargs: (
+        calls.append(kwargs) or raw, "SEC sec_bulk_cache currency=USD"
+    ))
+    monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: pytest.fail("Yahoo called"))
+    monkeypatch.setattr(client, "record_provider_event", lambda *args: None)
+    client.fetch_fundamental_enrichment(
+        "TEST", sec_user_agent="agent", previous_metadata={"enrichment": metadata},
+        refresh_sec=True,
+    )
+    assert calls == [{"timeout": 15, "force_live": False}]
+
+
+def test_fresh_filing_keeps_sec_rate_limit_reason_with_old_complete_data(monkeypatch):
+    raw = _complete_raw()
+    metadata = client.compute_fundamental_enrichment("TEST", raw).metadata
+    monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *args, **kwargs: (
+        raw, "SEC sec_bulk_cache_live_rate_limited currency=USD"
+    ))
+    monkeypatch.setattr(client, "record_provider_event", lambda *args: None)
+    result = client.fetch_fundamental_enrichment(
+        "TEST", sec_user_agent="agent", previous_metadata={"enrichment": metadata},
+        force_live_sec=True, refresh_sec=True,
+    )
+    assert result.metadata["reason_code"] == "rate_limited"
 
 
 def _zip_bytes(value=1):
