@@ -20,7 +20,7 @@ from app.data_sources.sec_request import SecRequestError, sec_get
 from app.data_sources.source_priority import SOURCE_PRIORITY
 
 
-QuarterlyRaw = dict[str, pd.Series | float]
+QuarterlyRaw = dict[str, pd.Series | float | str]
 
 SEC_FORMS = {"10-Q", "10-Q/A", "10-K", "10-K/A", "20-F", "20-F/A",
              "40-F", "40-F/A", "6-K", "6-K/A"}
@@ -97,6 +97,7 @@ def fetch_fundamental_enrichment(
     fallback: list[str] = []
     reason_code = ""
     statement_currency = ((previous_metadata or {}).get("enrichment") or {}).get("statement_currency", "USD")
+    has_known_currency = bool(raw) and statement_currency != "unknown"
     if raw and not _needs_fmp_statement_data(raw) and not force_live_sec:
         notes.append("Vollständiger lokaler Snapshot")
         record_provider_event("cache_hits")
@@ -108,6 +109,7 @@ def fetch_fundamental_enrichment(
             statement_currency = sec_note.rsplit("currency=", 1)[-1].split()[0]
         if sec_raw:
             raw = merge_quarterly_raw(sec_raw, raw)
+            has_known_currency = True
             source = "sec_bulk_cache" if "bulk" in sec_note else "sec_companyfacts_live"
             for key in sec_raw:
                 sources[key] = source
@@ -142,6 +144,16 @@ def fetch_fundamental_enrichment(
         fallback.append("yfinance")
         yf_raw, yf_note = fetch_yfinance_statement_history(clean)
         notes.append(yf_note)
+        yf_currency = (yf_raw or {}).get("_statement_currency")
+        if yf_raw and has_known_currency and yf_currency != statement_currency:
+            notes.append(f"Yahoo-Berichtswährung {yf_currency or 'unbekannt'} passt nicht zu {statement_currency}; Werte verworfen")
+            yf_raw = None
+            reason_code = "waiting_yahoo_data"
+        elif yf_raw and yf_currency:
+            statement_currency = str(yf_currency)
+            has_known_currency = True
+        elif yf_raw and not has_known_currency:
+            statement_currency = "unknown"
         raw = merge_quarterly_raw(raw, yf_raw)
         if yf_raw:
             for key in yf_raw:
@@ -155,6 +167,16 @@ def fetch_fundamental_enrichment(
         fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout, minimal=True,
                                                 needed_fields=_missing_fmp_fields(raw))
         notes.append(fmp_note)
+        fmp_currency = (fmp_raw or {}).get("_statement_currency")
+        if fmp_raw and has_known_currency and fmp_currency != statement_currency:
+            notes.append(f"FMP-Berichtswährung {fmp_currency or 'unbekannt'} passt nicht zu {statement_currency}; Werte verworfen")
+            fmp_raw = None
+            reason_code = "waiting_fmp_fallback"
+        elif fmp_raw and fmp_currency:
+            statement_currency = str(fmp_currency)
+            has_known_currency = True
+        elif fmp_raw and not has_known_currency:
+            statement_currency = "unknown"
         raw = merge_quarterly_raw(raw, fmp_raw)
         if fmp_raw:
             for key in fmp_raw:
@@ -258,6 +280,11 @@ def fetch_quarterly_fmp(
             continue
 
         parsed = parser(rows)
+        existing_currency = raw.get("_statement_currency")
+        incoming_currency = parsed.get("_statement_currency")
+        if existing_currency and incoming_currency != existing_currency:
+            errors.append(f"{label}: abweichende Berichtswährung")
+            continue
         raw = merge_quarterly_raw(raw, parsed) or raw
         if not any(isinstance(value, pd.Series) and not value.empty for value in parsed.values()):
             errors.append(f"{label}: Keine verwertbaren Daten")
@@ -368,6 +395,15 @@ def fetch_yfinance_statement_history(ticker: str) -> tuple[QuarterlyRaw | None, 
             annual_income_stmt=_safe_yfinance_frame(yf_ticker, "income_stmt", "financials"),
             annual_balance_sheet=_safe_yfinance_frame(yf_ticker, "balance_sheet"),
         )
+        if raw:
+            try:
+                record_provider_event("yahoo_requests")
+                info = yf_ticker.get_info()
+                currency = str((info or {}).get("financialCurrency") or "").upper()
+                if len(currency) == 3 and currency.isalpha():
+                    raw["_statement_currency"] = currency
+            except Exception:
+                pass
     except Exception as exc:
         return None, f"yfinance Statements: {type(exc).__name__}: {str(exc)[:80]}"
     if not raw:
@@ -725,6 +761,9 @@ def _raw_from_fmp_income_statement(rows: list[dict[str, Any]]) -> QuarterlyRaw:
         raw["TotalRevenue"] = pd.Series(revenue).sort_index(ascending=False)
     if net_income:
         raw["NetIncome"] = pd.Series(net_income).sort_index(ascending=False)
+    currency = _fmp_statement_currency(rows)
+    if currency:
+        raw["_statement_currency"] = currency
     return raw
 
 
@@ -760,6 +799,9 @@ def _raw_from_fmp_annual_income_statement(rows: list[dict[str, Any]]) -> Quarter
         raw["AnnualTotalRevenue"] = pd.Series(revenue).sort_index(ascending=False)
     if net_income:
         raw["AnnualNetIncome"] = pd.Series(net_income).sort_index(ascending=False)
+    currency = _fmp_statement_currency(rows)
+    if currency:
+        raw["_statement_currency"] = currency
     return raw
 
 
@@ -786,7 +828,19 @@ def _raw_from_fmp_annual_balance_sheet(rows: list[dict[str, Any]]) -> QuarterlyR
             equity[ts] = value
     if not equity:
         return {}
-    return {"AnnualStockholdersEquity": pd.Series(equity).sort_index(ascending=False)}
+    raw: QuarterlyRaw = {"AnnualStockholdersEquity": pd.Series(equity).sort_index(ascending=False)}
+    currency = _fmp_statement_currency(rows)
+    if currency:
+        raw["_statement_currency"] = currency
+    return raw
+
+
+def _fmp_statement_currency(rows: list[dict[str, Any]]) -> str:
+    for row in rows:
+        value = str(row.get("reportedCurrency") or row.get("reportingCurrency") or "").upper()
+        if len(value) == 3 and value.isalpha():
+            return value
+    return ""
 
 
 def _raw_from_yfinance_statements(
