@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 from app.data_sources.earnings_client import EarningsCalendarEntry
 from app.services import earnings
 
 
-def test_refresh_earnings_calendar_falls_back_to_nasdaq(monkeypatch) -> None:
+def test_refresh_earnings_calendar_uses_nasdaq_without_fmp(monkeypatch) -> None:
     captured = {}
 
     def fail_fmp(**kwargs):
@@ -46,11 +47,28 @@ def test_refresh_earnings_calendar_falls_back_to_nasdaq(monkeypatch) -> None:
 
     assert result["ok"] is True
     assert result["source"] == "nasdaq"
-    assert "HTTP 429" in result["fallback_reason"]
+    assert "fallback_reason" not in result
     assert result["records_written"] == 1
     assert captured["nasdaq_window"] == (
         date(2026, 7, 27),
         min(date(2026, 12, 1), date.today() + timedelta(days=35)),
     )
-    assert captured["replace"]["replace_sources"] == ("fmp", "nasdaq")
+    assert captured["replace"]["replace_sources"] == ("nasdaq",)
     assert captured["rows"][0].source == "nasdaq"
+
+
+def test_nasdaq_missing_uses_yahoo_before_fmp(monkeypatch) -> None:
+    from app.repositories import portfolio
+    from app.services import workspace
+
+    monkeypatch.setattr(earnings, "fetch_nasdaq_earnings_calendar", lambda **kwargs: [])
+    monkeypatch.setattr(portfolio, "list_open_positions", lambda: [SimpleNamespace(ticker="AAPL")])
+    monkeypatch.setattr(workspace, "get_workspace_state", lambda: SimpleNamespace(watchlist=[], recent_tickers=[]))
+    monkeypatch.setattr(earnings, "fetch_fmp_earnings_calendar", lambda **kwargs: (_ for _ in ()).throw(AssertionError("FMP called")))
+    monkeypatch.setattr(earnings, "fetch_yfinance_earnings_calendar", lambda **kwargs: [
+        EarningsCalendarEntry("AAPL", date.today() + timedelta(days=5), None, "", None, None,
+                              None, None, "yfinance", {})])
+    monkeypatch.setattr(earnings.earnings_repository, "replace_earnings_window", lambda rows, **kwargs: len(rows))
+    result = earnings.refresh_earnings_calendar(api_key="key")
+    assert result["source"] == "yfinance"
+    assert result["records_written"] == 1

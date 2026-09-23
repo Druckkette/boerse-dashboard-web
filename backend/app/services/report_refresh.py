@@ -9,7 +9,7 @@ from app.core_config import get_settings
 from app.data_sources.fundamentals_client import fetch_fundamental_enrichment
 from app.data_sources.yfinance_client import FetchedFundamentals, fetch_fundamentals
 from app.repositories import fundamentals, prices
-from app.services.fundamentals import _to_write
+from app.services.fundamentals import _to_write, merge_snapshot_write
 from app.services.settings import get_runtime_config_value
 
 
@@ -31,6 +31,8 @@ def cached_price_beta(ticker: str, *, min_returns: int = 90) -> float | None:
     market = closes(bars.get("SPY", []))
     days = sorted(stock.keys() & market.keys())[-253:]
     if len(days) < min_returns + 1 or days[-1] < date.today() - timedelta(days=14):
+        return None
+    if any((day - previous).days > 10 for previous, day in zip(days, days[1:])):
         return None
     x = [market[day] / market[previous] - 1 for previous, day in zip(days, days[1:])]
     y = [stock[day] / stock[previous] - 1 for previous, day in zip(days, days[1:])]
@@ -69,6 +71,7 @@ def merge_history(old: list, new: list) -> list:
 def content_revision(row) -> str:
     data = asdict(row)
     data.pop("as_of", None)
+    data.pop("source", None)
     metadata = data.get("metadata_json") or {}
     data["metadata_json"] = {key: metadata.get(key) for key in HISTORIES}
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
@@ -81,15 +84,22 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
             return {"complete": False, "changed": False, "reason": "Zuerst Statement-Snapshot aufbauen."}
         beta = cached_price_beta(ticker)
         source = "Gespeicherte Aktien- und SPY-Kurse"
+        beta_source = "local_price_cache"
         if beta is None:
             fetched = fetch_fundamentals(ticker, include_holders=False, include_calendar=False)
             beta = fetched.beta
             source = "Yahoo Finance"
+            beta_source = "yfinance"
         if beta is None:
-            return {"complete": False, "changed": False, "reason": "Kein Anbieter-Beta und weniger als 90 gemeinsame Kurstage mit SPY."}
+            return {"complete": False, "changed": False, "reason_code": "waiting_yahoo_data",
+                    "reason": "Kein Anbieter-Beta und weniger als 90 gemeinsame Kurstage mit SPY."}
         values = {field.name: getattr(previous, field.name) for field in fields(fundamentals.FundamentalSnapshotWrite)}
         write = fundamentals.FundamentalSnapshotWrite(**values)
-        write = replace(write, beta=beta)
+        metadata = {**(write.metadata_json or {}), "data_sources": {
+            **((write.metadata_json or {}).get("data_sources") or {}),
+            "beta": beta_source,
+        }}
+        write = replace(write, beta=beta, metadata_json=metadata)
         row = fundamentals.upsert_fundamentals(write)
         return {"complete": True, "changed": content_revision(previous) != content_revision(row), "beta": row.beta, "source": source}
 
@@ -98,31 +108,34 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
         ticker, fmp_api_key=get_runtime_config_value("FMP_API_KEY") or settings.fmp_api_key,
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT") or settings.sec_user_agent,
         statements_only=True,
+        previous_metadata=previous.metadata_json if previous else None,
+        force_live_sec=bool(payload.get("filing")),
     )
     histories = {key: getattr(enrichment, key) for key in HISTORIES}
     if not any(histories.values()):
-        return {"complete": False, "changed": False, "reason": "Keine verwertbaren Statements; bestehende Historie bleibt erhalten."}
+        complete = bool(previous and not fundamentals._missing_required_history_keys(previous.metadata_json)
+                        and not (payload.get("filing") and getattr(enrichment, "metadata", {}).get("reason_code")))
+        return {"complete": complete, "changed": False,
+                "reason_code": getattr(enrichment, "metadata", {}).get("reason_code") or "missing_history",
+                "reason": "Keine verwertbaren Statements; bestehende Historie bleibt erhalten."}
     empty = {field.name: None for field in fields(FetchedFundamentals)}
     empty.update(ticker=ticker, as_of=date.today(), source="", fiscal_period="")
     write = _to_write(FetchedFundamentals(**empty), enrichment)
-    values = asdict(write)
-    if previous:
-        for key, value in values.items():
-            if value is None or value == "":
-                values[key] = getattr(previous, key)
-        metadata = {**previous.metadata_json, **values["metadata_json"]}
-        for key in HISTORIES:
-            metadata[key] = merge_history(previous.metadata_json.get(key, []), histories[key])
-        values["metadata_json"] = metadata
+    values = asdict(merge_snapshot_write(previous, write))
     target = payload.get("expected_period")
     expected_arrived = expected_report_arrived(enrichment, payload)
-    complete = not fundamentals._missing_required_history_keys(values["metadata_json"]) and expected_arrived
+    complete = (not fundamentals._missing_required_history_keys(values["metadata_json"]) and expected_arrived
+                and not (payload.get("filing") and enrichment.metadata.get("reason_code") in {"rate_limited", "provider_error"}))
+    reason_code = enrichment.metadata.get("reason_code") or (
+        "waiting_sec_data" if not expected_arrived else "missing_history" if not complete else "")
     values["metadata_json"]["report_refresh"] = {
         "checked_at": datetime.now(UTC).isoformat(), "expected_period": target,
         "event_date": payload.get("event_date"), "complete": complete,
         "status": "current" if complete else "waiting_source",
+        "reason_code": reason_code,
     }
     row = fundamentals.upsert_fundamentals(fundamentals.FundamentalSnapshotWrite(**values))
     return {"complete": complete, "changed": previous is None or content_revision(previous) != content_revision(row),
             "fiscal_period": row.fiscal_period, "expected_period": target,
+            "reason_code": reason_code,
             "reason": "Aktuelle Berichtsperiode und Historien vorhanden." if complete else "Erwartete Periode oder Historie fehlt noch."}

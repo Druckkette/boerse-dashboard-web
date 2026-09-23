@@ -7,6 +7,7 @@ import requests
 from redis import Redis, RedisError
 
 from app.core_config import get_settings
+from app.data_sources.provider_usage import record_provider_event
 
 
 def retry_seconds(value: str | None, default: int = 900) -> int:
@@ -29,7 +30,7 @@ def guarded_fmp_get(url: str, *, params: dict, timeout: int):
         try:
             remaining = max(client.ttl(global_key), client.ttl(endpoint_key))
         except RedisError:
-            remaining = 0
+            remaining = 900  # fail closed: all workers must share the FMP cooldown
         if remaining > 0:
             response = requests.Response()
             response.status_code = 429
@@ -37,8 +38,14 @@ def guarded_fmp_get(url: str, *, params: dict, timeout: int):
             response.headers["Retry-After"] = str(remaining)
             return response
         response = requests.get(url, params=params, timeout=timeout)
+        record_provider_event("fmp_requests")
+        if response.status_code == 429:
+            record_provider_event("fmp_429_count")
         if response.status_code in {401, 403, 429}:
-            seconds = retry_seconds(response.headers.get("Retry-After"), 900 if response.status_code == 429 else 21600)
+            seconds = retry_seconds(getattr(response, "headers", {}).get("Retry-After"),
+                                    86400 if response.status_code == 429 else 21600)
+            if response.status_code == 429:
+                seconds = max(1800, seconds)
             # A tariff restriction on one endpoint need not block all other endpoints.
             key = endpoint_key if response.status_code == 403 else global_key
             try:

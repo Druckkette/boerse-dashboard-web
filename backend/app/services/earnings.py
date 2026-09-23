@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from app.data_sources.earnings_client import (
     fetch_fmp_earnings_calendar,
     fetch_nasdaq_earnings_calendar,
+    fetch_yfinance_earnings_calendar,
 )
 from app.repositories import earnings as earnings_repository
 from app.repositories.earnings import EarningsEventWrite
@@ -20,32 +21,41 @@ def refresh_earnings_calendar(
     effective_start = start_date or today - timedelta(days=5)
     effective_end = end_date or today + timedelta(days=120)
     entries = []
-    source = "fmp"
+    source = "nasdaq"
     fallback_reason = ""
-    if api_key.strip():
-        try:
-            entries = fetch_fmp_earnings_calendar(
-                api_key=api_key,
-                start_date=effective_start,
-                end_date=effective_end,
-            )
-        except RuntimeError as exc:
-            fallback_reason = str(exc)
-    else:
-        fallback_reason = "FMP_API_KEY ist nicht gesetzt."
-
-    if not entries:
-        source = "nasdaq"
-        fallback_end = min(effective_end, today + timedelta(days=35))
+    fallback_end = min(effective_end, today + timedelta(days=35))
+    try:
         entries = fetch_nasdaq_earnings_calendar(
             start_date=effective_start,
             end_date=fallback_end,
         )
-        effective_end = fallback_end
+    except RuntimeError as exc:
+        fallback_reason = str(exc)
+    effective_end = fallback_end
+    if not entries:
+        source = "yfinance"
+        try:
+            from app.repositories import portfolio as portfolio_repository
+            from app.services.workspace import get_workspace_state
+            workspace = get_workspace_state()
+            tickers = [row.ticker for row in portfolio_repository.list_open_positions()]
+            tickers.extend(workspace.watchlist)
+            tickers.extend(workspace.recent_tickers)
+            entries = fetch_yfinance_earnings_calendar(start_date=effective_start,
+                                                       end_date=effective_end, tickers=tickers)
+        except Exception as exc:
+            fallback_reason = f"{fallback_reason}; Yahoo: {type(exc).__name__}"
+    if not entries and api_key.strip():
+        source = "fmp"
+        try:
+            entries = fetch_fmp_earnings_calendar(api_key=api_key, start_date=effective_start,
+                                                  end_date=effective_end)
+        except RuntimeError as exc:
+            fallback_reason = f"{fallback_reason}; {exc}"
     if not entries:
         raise RuntimeError(
             "Earnings-Kalender enthält für das angefragte Fenster keine Termine."
-            + (f" FMP: {fallback_reason}" if fallback_reason else "")
+            + (f" {fallback_reason}" if fallback_reason else "")
         )
     writes = [
         EarningsEventWrite(
@@ -66,7 +76,7 @@ def refresh_earnings_calendar(
         writes,
         start_date=effective_start,
         end_date=effective_end,
-        replace_sources=("fmp", "nasdaq"),
+        replace_sources=(source,),
     )
     result = {
         "ok": True,

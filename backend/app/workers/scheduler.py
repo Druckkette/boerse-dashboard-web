@@ -40,6 +40,11 @@ def get_beat_schedule() -> dict:
     in Smart Refresh and also run monthly as a backup because SEC artefacts are large.
     """
     return {
+        "refresh-sec-companyfacts-bulk-daily": {
+            "task": "refresh_sec_companyfacts_bulk",
+            "schedule": crontab(hour=10, minute=30),
+            "options": {"expires": 12 * 60 * 60},
+        },
         "report-work-dispatch": {
             "task": "refresh_report_data",
             "schedule": 30.0,

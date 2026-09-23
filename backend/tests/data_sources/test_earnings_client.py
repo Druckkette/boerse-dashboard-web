@@ -46,7 +46,7 @@ def test_fmp_earnings_calendar_uses_stable_endpoint_and_date_window(monkeypatch)
             ],
         )
 
-    monkeypatch.setattr(earnings_client.requests, "get", fake_get)
+    monkeypatch.setattr(earnings_client, "guarded_fmp_get", fake_get)
     rows = earnings_client.fetch_fmp_earnings_calendar(
         api_key="test-key",
         start_date=date(2026, 7, 31),
@@ -66,8 +66,8 @@ def test_fmp_earnings_calendar_uses_stable_endpoint_and_date_window(monkeypatch)
 
 def test_fmp_earnings_calendar_preserves_error_body(monkeypatch) -> None:
     monkeypatch.setattr(
-        earnings_client.requests,
-        "get",
+        earnings_client,
+        "guarded_fmp_get",
         lambda *args, **kwargs: _Response(403, {}, "plan does not permit this endpoint"),
     )
 

@@ -669,12 +669,18 @@ def _fundamental_item(row: FundamentalSnapshotRow) -> StockFundamentalsItem:
 
 
 def _next_earnings_date(row: FundamentalSnapshotRow) -> date | None:
-    if row.next_earnings_date is not None and row.next_earnings_date >= date.today():
+    try:
+        calendar_event = earnings_repository.next_earnings_event(row.ticker, include_fmp=False)
+        if calendar_event is not None:
+            return calendar_event[0]
+    except earnings_repository.EarningsRepositoryUnavailable:
+        pass
+    if row.next_earnings_date and row.next_earnings_date >= date.today():
         return row.next_earnings_date
     try:
         return earnings_repository.next_earnings_date(row.ticker)
     except earnings_repository.EarningsRepositoryUnavailable:
-        return row.next_earnings_date
+        return None
 
 
 def _eps_history_from_metadata(metadata: dict | None) -> list[dict[str, Any]]:

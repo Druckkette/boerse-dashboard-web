@@ -425,7 +425,7 @@ def evaluate_fundamentals_context(
             category="fundamental",
             label="Summe EPS letzte 4 Quartale > 0",
             passed=trailing_eps is not None and trailing_eps > 0,
-            detail=f"${trailing_eps:.2f}" if trailing_eps is not None else "Nicht verfügbar",
+            detail=f"{trailing_eps:.2f}" if trailing_eps is not None else "Nicht verfügbar",
         )
     )
 

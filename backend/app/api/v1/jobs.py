@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
 from app.repositories import refresh_work
+from app.data_sources.provider_usage import usage_today
+from app.data_sources.sec_companyfacts_cache import bulk_status
 
 
 router = APIRouter()
@@ -25,6 +27,7 @@ def list_job_runs(limit: int = Query(default=50, ge=1, le=200)) -> JobListRespon
 class ReportWorkGroup(BaseModel):
     group: str
     status: str
+    reason_code: str = ""
     count: int
     due_count: int = 0
     next_due_at: datetime | None = None
@@ -42,12 +45,16 @@ class ReportWorkStatus(BaseModel):
     next_due_at: datetime | None = None
     groups: list[ReportWorkGroup]
     active: list[ReportWorkActive]
+    provider_usage: dict[str, int] = {}
+    sec_bulk_cache: dict = {}
 
 
 @router.get("/report-work", response_model=ReportWorkStatus)
 def report_work_status() -> ReportWorkStatus:
     try:
-        return ReportWorkStatus.model_validate(refresh_work.summary())
+        return ReportWorkStatus.model_validate({**refresh_work.summary(),
+                                                 "provider_usage": usage_today(),
+                                                 "sec_bulk_cache": bulk_status()})
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=503, detail="Berichtswarteschlange nicht erreichbar. Migration und Datenbank pruefen.") from exc
 

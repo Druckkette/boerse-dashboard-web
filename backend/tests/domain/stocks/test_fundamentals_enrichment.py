@@ -7,8 +7,6 @@ import pandas as pd
 from app.data_sources.fundamentals_client import (
     FundamentalEnrichment,
     compute_fundamental_enrichment,
-    fetch_fmp_next_earnings_date,
-    fetch_fmp_profile,
     fetch_quarterly_fmp,
     annual_yoy_growth,
     _extract_sec_duration_series,
@@ -17,11 +15,7 @@ from app.data_sources.fundamentals_client import (
 )
 from app.data_sources.fmp_client import (
     FMP_BALANCE_SHEET_URL,
-    FMP_EARNINGS_URL,
-    FMP_INCOME_STATEMENT_GROWTH_URL,
     FMP_INCOME_STATEMENT_URL,
-    FMP_PROFILE_URL,
-    FMP_RATIOS_TTM_URL,
 )
 from app.data_sources.yfinance_client import FetchedFundamentals
 from app.repositories.fundamentals import FundamentalSnapshotRow
@@ -357,48 +351,24 @@ def test_fetch_quarterly_fmp_uses_stable_endpoints(monkeypatch) -> None:
                     {"year": "2024", "totalStockholdersEquity": 700.0},
                 ]
             )
-        if url == FMP_INCOME_STATEMENT_GROWTH_URL and params.get("period") == "quarter":
-            return FakeResponse(
-                [
-                    {"date": "2026-03-31", "growthEPSDiluted": 0.6, "growthRevenue": 0.2},
-                    {"fiscalYear": "2025", "period": "Q4", "growthEPSDiluted": 0.5, "growthRevenue": 0.184},
-                ]
-            )
-        if url == FMP_INCOME_STATEMENT_GROWTH_URL and params.get("period") == "annual":
-            return FakeResponse(
-                [
-                    {"calendarYear": "2025", "growthEPSDiluted": 0.44, "growthRevenue": 0.35},
-                    {"calendarYear": "2024", "growthEPSDiluted": 0.31, "growthRevenue": 0.25},
-                ]
-            )
-        return FakeResponse([{"returnOnEquityTTM": 0.34, "netProfitMarginTTM": 0.18}])
-
     import app.data_sources.fundamentals_client as fundamentals_client
 
-    monkeypatch.setattr(fundamentals_client.requests, "get", fake_get)
+    monkeypatch.setattr(fundamentals_client, "guarded_fmp_get", fake_get)
 
     raw, note = fetch_quarterly_fmp("aapl", "test-key")
 
     assert raw is not None
     assert note == "FMP stable"
     assert [call["url"] for call in calls] == [
-        FMP_INCOME_STATEMENT_URL,
-        FMP_INCOME_STATEMENT_URL,
-        FMP_BALANCE_SHEET_URL,
-        FMP_INCOME_STATEMENT_GROWTH_URL,
-        FMP_INCOME_STATEMENT_GROWTH_URL,
-        FMP_RATIOS_TTM_URL,
+        FMP_INCOME_STATEMENT_URL, FMP_INCOME_STATEMENT_URL, FMP_BALANCE_SHEET_URL,
     ]
     assert calls[0]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 40, "apikey": "test-key"}
     assert calls[1]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
     assert calls[2]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
-    assert calls[3]["params"] == {"symbol": "AAPL", "period": "quarter", "limit": 40, "apikey": "test-key"}
-    assert calls[4]["params"] == {"symbol": "AAPL", "period": "annual", "limit": 8, "apikey": "test-key"}
-    assert calls[5]["params"] == {"symbol": "AAPL", "apikey": "test-key"}
     assert "AnnualDilutedEPS" in raw
     assert "AnnualStockholdersEquity" in raw
-    assert "QuarterlyDilutedEPSGrowthPct" in raw
-    assert "AnnualRevenueGrowthPct" in raw
+    assert "QuarterlyDilutedEPSGrowthPct" not in raw
+    assert "AnnualRevenueGrowthPct" not in raw
 
 
 def test_fetch_quarterly_fmp_returns_response_body_on_403(monkeypatch) -> None:
@@ -411,63 +381,13 @@ def test_fetch_quarterly_fmp_returns_response_body_on_403(monkeypatch) -> None:
 
     import app.data_sources.fundamentals_client as fundamentals_client
 
-    monkeypatch.setattr(fundamentals_client.requests, "get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(fundamentals_client, "guarded_fmp_get", lambda *args, **kwargs: FakeResponse())
 
     raw, note = fetch_quarterly_fmp("aapl", "test-key")
 
     assert raw is None
     assert "Zugriff verweigert" in note
     assert "Legacy Endpoint" in note
-
-
-def test_fetch_fmp_profile_uses_stable_profile_endpoint(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    class FakeResponse:
-        status_code = 200
-        text = "[]"
-
-        def json(self):
-            return [{"symbol": "SNDK", "companyName": "SanDisk Corporation", "beta": 1.42}]
-
-    import app.data_sources.fundamentals_client as fundamentals_client
-
-    def fake_get(url, *, params, timeout):
-        calls.append({"url": url, "params": params, "timeout": timeout})
-        return FakeResponse()
-
-    monkeypatch.setattr(fundamentals_client.requests, "get", fake_get)
-
-    profile, note = fetch_fmp_profile("sndk", "test-key")
-
-    assert note == "FMP Profile"
-    assert profile["beta"] == 1.42
-    assert calls == [{"url": FMP_PROFILE_URL, "params": {"symbol": "SNDK", "apikey": "test-key"}, "timeout": 10}]
-
-
-def test_fetch_fmp_next_earnings_date_uses_stable_earnings_endpoint(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    class FakeResponse:
-        status_code = 200
-        text = "[]"
-
-        def json(self):
-            return [{"symbol": "SNDK", "date": "2099-08-05"}]
-
-    import app.data_sources.fundamentals_client as fundamentals_client
-
-    def fake_get(url, *, params, timeout):
-        calls.append({"url": url, "params": params, "timeout": timeout})
-        return FakeResponse()
-
-    monkeypatch.setattr(fundamentals_client.requests, "get", fake_get)
-
-    earnings_date, note = fetch_fmp_next_earnings_date("sndk", "test-key")
-
-    assert note == "FMP Earnings"
-    assert earnings_date == date(2099, 8, 5)
-    assert calls == [{"url": FMP_EARNINGS_URL, "params": {"symbol": "SNDK", "apikey": "test-key"}, "timeout": 10}]
 
 
 def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> None:
@@ -545,11 +465,15 @@ def test_refresh_fundamentals_prefers_enriched_quarterly_values(monkeypatch) -> 
         metadata={"notes": ["FMP stable"]},
     )
 
-    monkeypatch.setattr(fundamentals_service, "fetch_fundamentals", lambda ticker, include_holders: fetched)
+    monkeypatch.setattr(fundamentals_service, "get_latest_fundamentals", lambda ticker: None)
+    monkeypatch.setattr(fundamentals_service.earnings_repository, "next_earnings_event", lambda ticker, **kwargs: None)
+    from app.services import report_refresh
+    monkeypatch.setattr(report_refresh, "cached_price_beta", lambda ticker: None)
+    monkeypatch.setattr(fundamentals_service, "fetch_fundamentals", lambda ticker, **kwargs: fetched)
     monkeypatch.setattr(
         fundamentals_service,
         "fetch_fundamental_enrichment",
-        lambda ticker, fmp_api_key, sec_user_agent: enrichment,
+        lambda ticker, **kwargs: enrichment,
     )
 
     def fake_upsert(payload):

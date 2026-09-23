@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from app.data_sources.fmp_client import FMP_EARNINGS_CALENDAR_URL, compact_fmp_response_body
+from app.data_sources.provider_guard import guarded_fmp_get
 
 
 NASDAQ_EARNINGS_CALENDAR_URL = "https://api.nasdaq.com/api/calendar/earnings"
@@ -45,7 +46,7 @@ def fetch_fmp_earnings_calendar(
     if not api_key.strip():
         raise RuntimeError("FMP_API_KEY ist für den Earnings-Kalender nicht gesetzt.")
     try:
-        response = requests.get(
+        response = guarded_fmp_get(
             FMP_EARNINGS_CALENDAR_URL,
             params={
                 "from": start_date.isoformat(),
@@ -162,6 +163,28 @@ def fetch_nasdaq_earnings_calendar(
             "Nasdaq Earnings-Kalender konnte für keinen Handelstag geladen werden"
             + (f": {detail}" if detail else ".")
         )
+    return entries
+
+
+def fetch_yfinance_earnings_calendar(*, start_date: date, end_date: date,
+                                     tickers: list[str]) -> list[EarningsCalendarEntry]:
+    """Bounded fallback for tracked stocks when Nasdaq has no usable dates."""
+    import yfinance as yf
+    from app.data_sources.yfinance_client import _next_earnings_date
+
+    entries = []
+    for ticker in list(dict.fromkeys(tickers))[:100]:
+        try:
+            event_date = _next_earnings_date(yf.Ticker(ticker))
+        except Exception:
+            continue
+        if event_date is None or not start_date <= event_date <= end_date:
+            continue
+        entries.append(EarningsCalendarEntry(ticker=ticker, event_date=event_date,
+                                            fiscal_date_ending=None, time="",
+                                            eps_estimated=None, eps_actual=None,
+                                            revenue_estimated=None, revenue_actual=None,
+                                            source="yfinance", raw={"fallback": "yfinance"}))
     return entries
 
 
