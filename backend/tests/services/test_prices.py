@@ -19,6 +19,27 @@ def test_missing_price_history_does_not_generate_synthetic_market_data(monkeypat
     assert result.last_close is None
 
 
+def test_full_batch_passes_overlap_to_writer(monkeypatch) -> None:
+    monkeypatch.setattr(prices_service, "upsert_price_bars", lambda ticker, bars, **kwargs: len(list(bars)))
+    monkeypatch.setattr(
+        prices_service,
+        "fetch_daily_price_bars_batch",
+        lambda symbols, **kwargs: {symbol: [_bar(date(2026, 9, 22))] for symbol in symbols},
+    )
+
+    result = prices_service.refresh_price_cache_for_symbols(
+        [prices_service.PriceRefreshSymbol(ticker="AHLPD", yahoo_symbol="AHL-PD")],
+        range_key="1y",
+        incremental=False,
+        overlap_days=5,
+    )
+
+    assert result[0]["ok"] is True
+    assert result[0]["ticker"] == "AHLPD"
+    assert result[0]["yahoo_symbol"] == "AHL-PD"
+    assert result[0]["overlap_days"] == 5
+
+
 def test_incremental_batch_keeps_cached_symbols_incremental_when_missing_symbol_is_present(monkeypatch) -> None:
     latest_dates = {"AAA": date(2026, 6, 17), "BBB": None}
     fetch_calls: list[dict] = []

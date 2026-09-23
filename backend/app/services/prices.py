@@ -201,6 +201,7 @@ def _refresh_price_cache_chunk(
             start=None,
             latest_by_ticker=latest_by_ticker,
             timeout=timeout,
+            overlap_days=overlap_days,
         )
 
     grouped_by_start: dict[date | None, list[PriceRefreshSymbol]] = {}
