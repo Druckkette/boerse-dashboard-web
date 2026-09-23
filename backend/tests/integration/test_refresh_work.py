@@ -41,7 +41,9 @@ def test_deduplication_and_retry_survive_replanning(queue):
     assert work.finish(item, result={"complete": False}, status="waiting_source", delay=timedelta(hours=2))
     work.enqueue([request()])
     assert work.claim() is None
-    assert work.summary()["groups"] == [{"group": "statements", "status": "waiting_source", "count": 1}]
+    group = work.summary()["groups"][0]
+    assert (group["group"], group["status"], group["count"], group["due_count"]) == ("statements", "waiting_source", 1, 0)
+    assert group["next_due_at"] is not None
 
 
 def test_expired_lease_and_old_owner_cannot_finish(queue):

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Square, X } from 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
+import { ReportWorkOverview } from "@/components/ui/report-work-status";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 
@@ -97,9 +98,7 @@ export function StockAssessmentRankingPanel() {
         </div>}
         {reportWork.data && <div className="border-t border-[#e3e8ef] pt-3 text-sm text-[#475569]" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-2"><strong>Berichtspflege im Hintergrund</strong><Link href="/jobs" className="text-teal-800 underline">Jobs öffnen</Link></div>
-          <p>{reportWork.data.due_count} fällige Aufgaben · {reportWork.data.active.length ? reportWork.data.active.map((item) => `${item.ticker}: ${item.group}`).join(", ") : "Kein Paket aktiv"}</p>
-          {reportWork.data.oldest_due_at && <p className="text-xs">Älteste fällige Aufgabe: {new Date(reportWork.data.oldest_due_at).toLocaleString("de-DE")}</p>}
-          <details className="mt-2"><summary className="cursor-pointer">Datenbereiche und Wartezustände</summary><ul className="mt-2 space-y-1">{reportWork.data.groups.map((group) => <li key={`${group.group}:${group.status}`}>{({ statements: "EPS / Umsatz / ROE", beta: "Beta", sec13f: "13F", assessment: "Folgebewertung" } as Record<string, string>)[group.group] ?? group.group}: {group.count} · {({ queued: "eingeplant", running: "läuft", current: "geprüft / nächster Check geplant", waiting_source: "Daten der Quelle noch unvollständig", error: "Fehler / erneuter Versuch geplant" } as Record<string, string>)[group.status] ?? group.status}</li>)}</ul></details>
+          <ReportWorkOverview data={reportWork.data} compact />
         </div>}
         {reportWork.error && <p role="status" className="text-sm text-amber-800">Berichtspflege-Status nicht verfügbar. Datenbankmigration und Jobs prüfen.</p>}
         {error && <p role="alert" className="text-sm text-red-700">{error instanceof Error ? error.message : "Bestenliste konnte nicht geladen werden."}</p>}

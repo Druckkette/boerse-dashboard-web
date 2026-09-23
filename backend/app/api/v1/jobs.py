@@ -26,6 +26,8 @@ class ReportWorkGroup(BaseModel):
     group: str
     status: str
     count: int
+    due_count: int = 0
+    next_due_at: datetime | None = None
 
 
 class ReportWorkActive(BaseModel):
@@ -37,6 +39,7 @@ class ReportWorkActive(BaseModel):
 class ReportWorkStatus(BaseModel):
     due_count: int
     oldest_due_at: datetime | None = None
+    next_due_at: datetime | None = None
     groups: list[ReportWorkGroup]
     active: list[ReportWorkActive]
 

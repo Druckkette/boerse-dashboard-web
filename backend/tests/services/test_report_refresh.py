@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from app.data_sources.provider_guard import retry_seconds
@@ -51,13 +51,42 @@ def test_backoff_is_bounded_and_honors_retry_after():
 
 def test_missing_beta_is_source_wait_not_worker_failure(monkeypatch):
     monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: SimpleNamespace(beta=None))
+    monkeypatch.setattr(report_refresh, "cached_price_beta", lambda ticker: None)
     monkeypatch.setattr(report_refresh, "fetch_fundamentals", lambda *args, **kwargs: SimpleNamespace(beta=None))
 
     result = report_refresh.refresh_report_group("SPCX", "beta", {})
 
     assert result["complete"] is False
     assert result["changed"] is False
-    assert "kein Beta" in result["reason"]
+    assert "Kein Anbieter-Beta" in result["reason"]
+
+
+def test_cached_price_beta_uses_aligned_adjusted_returns(monkeypatch):
+    first = date.today() - timedelta(days=100)
+    market = [100.0]
+    stock = [50.0]
+    for index in range(1, 101):
+        change = 0.001 + (index % 11 - 5) * 0.003
+        market.append(market[-1] * (1 + change))
+        stock.append(stock[-1] * (1 + 1.5 * change))
+    bars = {
+        "TEST": [SimpleNamespace(date=first + timedelta(days=index), adj_close=value) for index, value in enumerate(stock)],
+        "SPY": [SimpleNamespace(date=first + timedelta(days=index), adj_close=value) for index, value in enumerate(market)],
+    }
+    monkeypatch.setattr(report_refresh.prices, "list_price_bars_for_tickers", lambda *args, **kwargs: bars)
+    assert report_refresh.cached_price_beta("TEST") == 1.5
+    assert report_refresh.cached_price_beta("SPY") == 1.0
+
+
+def test_cached_beta_avoids_provider_request(monkeypatch):
+    previous = FundamentalSnapshotWrite("TEST", date.today(), beta=None, metadata_json={})
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: previous)
+    monkeypatch.setattr(report_refresh, "cached_price_beta", lambda ticker: 1.25)
+    monkeypatch.setattr(report_refresh, "fetch_fundamentals", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("provider called")))
+    monkeypatch.setattr(report_refresh.fundamentals, "upsert_fundamentals", lambda write: write)
+    result = report_refresh.refresh_report_group("TEST", "beta", {})
+    assert result["complete"] and result["changed"]
+    assert result["beta"] == 1.25
 
 
 def test_missing_statement_history_is_source_wait_not_worker_failure(monkeypatch):
