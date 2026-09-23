@@ -59,7 +59,26 @@ def test_missing_beta_is_source_wait_not_worker_failure(monkeypatch):
 
     assert result["complete"] is False
     assert result["changed"] is False
-    assert "Kein Anbieter-Beta" in result["reason"]
+    assert "Kein belastbares Beta" in result["reason"]
+
+
+def test_invalid_cached_local_beta_is_removed_when_fallback_is_missing(monkeypatch):
+    previous = FundamentalSnapshotWrite(
+        "TEST", date.today(), beta=-19.9,
+        metadata_json={"data_sources": {"beta": "local_price_cache"}},
+    )
+    writes = []
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: previous)
+    monkeypatch.setattr(report_refresh, "cached_price_beta", lambda ticker: None)
+    monkeypatch.setattr(report_refresh, "fetch_fundamentals", lambda *args, **kwargs: SimpleNamespace(beta=None))
+    monkeypatch.setattr(report_refresh.fundamentals, "upsert_fundamentals", lambda write: writes.append(write) or write)
+
+    result = report_refresh.refresh_report_group("TEST", "beta", {})
+
+    assert result["complete"] is False
+    assert result["changed"] is True
+    assert writes[0].beta is None
+    assert writes[0].metadata_json["data_sources"]["beta"] == "unavailable"
 
 
 def test_cached_price_beta_uses_aligned_adjusted_returns(monkeypatch):
@@ -77,6 +96,23 @@ def test_cached_price_beta_uses_aligned_adjusted_returns(monkeypatch):
     monkeypatch.setattr(report_refresh.prices, "list_price_bars_for_tickers", lambda *args, **kwargs: bars)
     assert report_refresh.cached_price_beta("TEST") == 1.5
     assert report_refresh.cached_price_beta("SPY") == 1.0
+
+
+def test_cached_price_beta_rejects_split_like_adjustment_error(monkeypatch):
+    first = date.today() - timedelta(days=100)
+    market = [100.0]
+    stock = [50.0]
+    for index in range(1, 101):
+        change = 0.001 + (index % 11 - 5) * 0.003
+        market.append(market[-1] * (1 + change))
+        stock.append(stock[-1] * (7 if index == 50 else 1 + 1.5 * change))
+    bars = {
+        "TEST": [SimpleNamespace(date=first + timedelta(days=index), adj_close=value) for index, value in enumerate(stock)],
+        "SPY": [SimpleNamespace(date=first + timedelta(days=index), adj_close=value) for index, value in enumerate(market)],
+    }
+    monkeypatch.setattr(report_refresh.prices, "list_price_bars_for_tickers", lambda *args, **kwargs: bars)
+
+    assert report_refresh.cached_price_beta("TEST") is None
 
 
 def test_cached_beta_avoids_provider_request(monkeypatch):
