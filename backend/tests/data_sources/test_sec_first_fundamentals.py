@@ -164,6 +164,38 @@ def test_nearby_provider_period_dates_do_not_break_ttm_or_replace_sec():
     assert client._trailing_sum(with_old_duplicate, periods=4) == 1.87
 
 
+def test_annual_growth_matches_early_january_fiscal_year_and_keeps_recent_data():
+    annual_eps = pd.Series({
+        pd.Timestamp("2026-01-03"): 0.73,
+        pd.Timestamp("2024-12-28"): -5.61,
+        pd.Timestamp("2023-12-30"): 0.5,
+        pd.Timestamp("2022-12-31"): 7.65,
+    })
+    annual_revenue = pd.Series({
+        pd.Timestamp("2026-01-03"): 8601.0,
+        pd.Timestamp("2024-12-28"): 9094.0,
+        pd.Timestamp("2023-12-30"): 9209.0,
+        pd.Timestamp("2022-12-31"): 9148.0,
+    })
+    old_quarters = pd.Series({
+        pd.Timestamp(f"{year}-{month:02d}-28"): float(year - 2015)
+        for year in range(2019, 2023) for month in (3, 6, 9, 12)
+    })
+    eps = client.annual_yoy_growth({"AnnualDilutedEPS": annual_eps, "DilutedEPS": old_quarters}, "eps")
+    revenue = client.annual_yoy_growth({"AnnualTotalRevenue": annual_revenue}, "revenue")
+    assert [point.label for point in eps] == ["2025", "2024", "2023"]
+    assert [point.previous for point in eps] == [-5.61, 0.5, 7.65]
+    assert eps[0].flag == "turnaround"
+    assert client._usable_growth_count(eps) == 3
+    assert [point.label for point in revenue] == ["2025", "2024", "2023"]
+    assert [point.previous for point in revenue] == [9094.0, 9209.0, 9148.0]
+    assert client._missing_fmp_fields({
+        "DilutedEPS": old_quarters, "TotalRevenue": old_quarters,
+        "AnnualDilutedEPS": annual_eps, "AnnualTotalRevenue": annual_revenue,
+    }) == {"NetIncome", "AnnualStockholdersEquity"}
+    assert client._latest_numeric_growth(eps) is None
+
+
 def test_complete_sec_avoids_yahoo_and_fmp(monkeypatch):
     monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *args, **kwargs: (_complete_raw(), "SEC sec_bulk_cache currency=USD"))
     monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *args: pytest.fail("Yahoo called"))

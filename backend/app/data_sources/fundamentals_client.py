@@ -673,14 +673,25 @@ def annual_roe_history(raw: QuarterlyRaw) -> list[GrowthPoint]:
 
 
 def _annual_yoy_from_series(series: pd.Series) -> list[GrowthPoint]:
-    values_by_year = _year_value_map(series)
-    if not values_by_year:
-        return []
+    values = pd.to_numeric(series, errors="coerce").dropna().sort_index(ascending=False)
+    periods: list[tuple[pd.Timestamp, float]] = []
+    for index, value in values.items():
+        stamp = pd.to_datetime(index, errors="coerce")
+        if pd.isna(stamp):
+            continue
+        if periods and (periods[-1][0] - stamp).days < 180:
+            continue
+        periods.append((stamp, float(value)))
     points: list[GrowthPoint] = []
-    for year in sorted(values_by_year.keys(), reverse=True)[:3]:
-        current = values_by_year[year]
-        previous = values_by_year.get(year - 1)
-        points.append(_growth_point(str(year), current, previous))
+    for end, current in periods[:3]:
+        candidates = [
+            (abs((end - prior_end).days - 364), prior)
+            for prior_end, prior in periods
+            if 330 <= (end - prior_end).days <= 400
+        ]
+        previous = min(candidates, default=(0, None))[1]
+        fiscal_year = int(end.year) - (end.month <= 2)
+        points.append(_growth_point(str(fiscal_year), current, previous))
     return points
 
 
@@ -694,7 +705,7 @@ def _growth_points_from_growth_series(value: Any, *, annual: bool) -> list[Growt
         if pd.isna(ts):
             label = str(index)
         elif annual:
-            label = str(int(ts.year))
+            label = str(int(ts.year) - (ts.month <= 2))
         else:
             label = f"{int(ts.year)} Q{int(ts.quarter)}"
         points.append(GrowthPoint(label, _normalize_growth_pct(float(growth)), None, None, None))
@@ -706,6 +717,12 @@ def _prefer_growth_history(primary: list[GrowthPoint], fallback: list[GrowthPoin
         return fallback[:3]
     if not fallback:
         return primary[:3]
+    # Never replace a newly reported annual/quarterly period with more complete
+    # but older growth data derived from a different source or calendar buckets.
+    if fallback[0].label < primary[0].label:
+        return primary[:3]
+    if fallback[0].label > primary[0].label:
+        return fallback[:3]
     primary_quality = _growth_history_quality(primary)
     fallback_quality = _growth_history_quality(fallback)
     if fallback_quality > primary_quality:
@@ -1199,10 +1216,9 @@ def _roe_point_payload(point: GrowthPoint) -> dict[str, Any]:
 
 
 def _latest_numeric_growth(points: list[GrowthPoint]) -> float | None:
-    for point in points:
-        if point.growth_pct is not None:
-            return point.growth_pct
-    return None
+    # A turnaround or unavailable latest comparison cannot be replaced by an
+    # older year's percentage without mislabeling the current period.
+    return points[0].growth_pct if points else None
 
 
 def _is_accelerating(points: list[GrowthPoint]) -> bool | None:
