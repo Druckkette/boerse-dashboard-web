@@ -262,6 +262,12 @@ def reclassify_batch(*, after_ticker: str = "", limit: int = 250) -> dict:
                 metadata = snapshot.metadata_json
             row = work.get(ticker)
             missing = _missing_required_history_keys({**metadata, "instrument_type": kind})
+            stale_current_reason = bool(row and ((row.result_json or {}).get("reason_code") or row.error))
+            if row and _normalize_complete_current_row(row, kind, missing, metadata):
+                if stale_current_reason:
+                    counts["complete_current_rows_normalized"] += 1
+                counts[kind] += 1
+                continue
             reason = inapplicable_reason(kind)
             if not reason and row and row.status != "running":
                 previous_reason = (row.result_json or {}).get("reason_code", "")
@@ -316,6 +322,19 @@ def _needs_first_operating_diagnostic(kind: str, metadata: dict, missing: list[s
     """Queue a cached SEC diagnosis once; regular filing checks remain separate."""
     return (kind in {"operating_company", "unknown"} and bool(missing) and
             not payload.get("diagnostic_only") and _older_operating_gap(metadata))
+
+
+def _normalize_complete_current_row(row: RefreshWorkItem, kind: str, missing: list[str], metadata: dict) -> bool:
+    """Keep a complete operating snapshot free of stale gap/error codes."""
+    if (row.status != "current" or missing or kind not in {"operating_company", "unknown"} or
+            metadata.get("predecessor_ciks")):
+        return False
+    result = row.result_json or {}
+    if result.get("reason_code") or row.error:
+        row.result_json = {**result, "reason_code": "", "complete": True,
+                           "reason": "Vollständige vergleichbare Berichtshistorie vorhanden."}
+        row.error = ""
+    return True
 
 
 def problem_counts() -> dict:
