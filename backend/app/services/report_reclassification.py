@@ -286,13 +286,14 @@ def reclassify_batch(*, after_ticker: str = "", limit: int = 250) -> dict:
                             counts["avoided_yahoo_fallbacks"] += 1
                             counts["avoided_sec_requests"] += 1
                     row.error = ""
-                elif kind in {"operating_company", "unknown"} and missing and _older_operating_gap(metadata):
+                elif _needs_first_operating_diagnostic(kind, metadata, missing, row.payload_json or {}):
                     row.status = "queued"
                     row.due_at = now
                     row.priority = min(row.priority, 20)
                     row.payload_json = {**(row.payload_json or {}), "diagnostic_only": True}
                     counts["operating_diagnostics_queued"] += 1
-                elif ticker == "XOM" and not metadata.get("predecessor_ciks"):
+                elif ticker == "XOM" and not metadata.get("predecessor_ciks") and not (
+                        row.payload_json or {}).get("diagnostic_only"):
                     row.status = "queued"
                     row.due_at = now
                     row.priority = min(row.priority, 20)
@@ -309,6 +310,12 @@ def _older_operating_gap(metadata: dict) -> bool:
                for key in ("annual_eps_history", "annual_revenue_history")) and any(
         _usable_history_count(_metadata_history(metadata, key)) < 3
         for key in ("eps_quarter_history", "revenue_quarter_history"))
+
+
+def _needs_first_operating_diagnostic(kind: str, metadata: dict, missing: list[str], payload: dict) -> bool:
+    """Queue a cached SEC diagnosis once; regular filing checks remain separate."""
+    return (kind in {"operating_company", "unknown"} and bool(missing) and
+            not payload.get("diagnostic_only") and _older_operating_gap(metadata))
 
 
 def problem_counts() -> dict:

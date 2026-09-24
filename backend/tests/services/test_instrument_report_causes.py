@@ -121,6 +121,16 @@ def test_sec_submissions_forms_identify_fund_without_sic(monkeypatch):
     assert result["sec_forms"] == ["N-CEN", "N-CSR"]
     assert classify_instrument(name="Example Inc", sec_forms=row.metadata_json["sec_forms"]) == "closed_end_fund"
 
+
+def test_completed_operating_diagnostic_is_not_immediately_queued_again():
+    history = [{"current": 4, "previous": 2}] * 3
+    metadata = {"annual_eps_history": history, "annual_revenue_history": history,
+                "eps_quarter_history": history[:1], "revenue_quarter_history": history[:1]}
+    needs_first = report_reclassification._needs_first_operating_diagnostic
+    assert needs_first("operating_company", metadata, ["eps_quarter_history"], {})
+    assert not needs_first("operating_company", metadata, ["eps_quarter_history"],
+                           {"diagnostic_only": True})
+
 def test_non_operating_report_skips_all_statement_providers(monkeypatch):
     previous = FundamentalSnapshotWrite("EVF", date.today(), metadata_json={})
     writes = []
