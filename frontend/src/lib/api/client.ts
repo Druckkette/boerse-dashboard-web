@@ -317,7 +317,8 @@ export const api = {
     postJson<{ entry: TrancheLogEntry; tranche_log: TrancheLogEntry[] }>(`/sell/${ticker}/tranches`, body),
   snoozeSellSignal: (ticker: string, body: { snoozed_pct: number; days: number }) =>
     postJson<{ state: { snoozed_until: string; snoozed_pct: number } }>(`/sell/${ticker}/snooze`, body),
-  reportWork: () => getJson<{ due_count: number; oldest_due_at: string | null; next_due_at: string | null; groups: { group: string; status: string; reason_code: string; count: number; due_count: number; checked_24h: number; next_due_at: string | null }[]; active: { ticker: string; group: string; lease_until: string | null }[]; provider_usage: Record<string, number>; sec_bulk_cache: { available?: boolean; fetched_at?: string; bytes?: number; error?: string } }>("/jobs/report-work"),
+  reportWork: () => getJson<{ generated_at: string; due_count: number; oldest_due_at: string | null; next_due_at: string | null; groups: { group: string; status: string; reason_code: string; count: number; due_count: number; checked_24h: number; next_due_at: string | null }[]; active: { ticker: string; group: string; lease_until: string | null }[]; provider_usage: Record<string, number>; sec_bulk_cache: { available?: boolean; fetched_at?: string; bytes?: number; error?: string } }>("/jobs/report-work"),
+  reportMissingCsvUrl: () => `${getApiBaseUrl()}/jobs/report-work/missing.csv`,
   jobProgress: async (jobId: string) => {
     const payload = await getJson<{ job: Job }>(`/jobs/${jobId}?compact=true`);
     return payload.job;
