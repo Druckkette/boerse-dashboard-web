@@ -103,6 +103,7 @@ export function MarketAmpelPanel({
         hideTextHeader
         points={chartPoints}
         chartMode="candlestick"
+        showPreviousCloseChange
         volumeKey="volume"
         markers={data.chart_markers}
         levels={[
