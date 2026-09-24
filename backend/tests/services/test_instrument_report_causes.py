@@ -50,6 +50,9 @@ def test_sec_forms_identify_foreign_reporting():
                                sec_sic="6770", sec_forms=["10-Q"]) == "spac"
     assert classify_instrument(name="Graf Global Corp. Class A ordinary shares",
                                sec_sic="8742", sec_forms=["10-Q"]) == "operating_company"
+    assert classify_instrument(name="BlackRock Resources Inc", sec_forms=["N-CSR", "N-CEN"],
+                               previous_type="operating_company") == "closed_end_fund"
+    assert classify_instrument(name="BlackRock Income Trust Inc", sec_forms=["N-CSRS"]) == "investment_trust"
 
 
 def test_backfill_reads_foreign_forms_from_existing_companyfacts():
@@ -87,12 +90,36 @@ def test_sec_sic_verification_requires_same_cik(monkeypatch):
     assert report_reclassification.verify_sec_sic("TONT")["sec_sic"] == "6770"
     assert row.metadata_json["sec_sic_cik"] == "0001897463"
     assert len(commits) == 1
-
     payload["cik"] = 9999999
     with pytest.raises(ValueError, match="CIK mismatch"):
         report_reclassification.verify_sec_sic("TONT")
     assert len(commits) == 1
 
+
+def test_sec_submissions_forms_identify_fund_without_sic(monkeypatch):
+    row = SimpleNamespace(metadata_json={"primary_cik": "0001234567"})
+
+    class FakeDB:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def scalar(self, _query):
+            return row
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(report_reclassification, "SessionLocal", FakeDB)
+    monkeypatch.setattr("app.services.settings.get_runtime_config_value", lambda key: "agent")
+    payload = {"cik": 1234567, "filings": {"recent": {"form": ["N-CSR", "N-CEN"]}}}
+    response = SimpleNamespace(json=lambda: payload, raise_for_status=lambda: None)
+    monkeypatch.setattr("app.data_sources.sec_request.sec_get", lambda *a, **k: response)
+    result = report_reclassification.verify_sec_registrant("TEST")
+    assert result["sec_forms"] == ["N-CEN", "N-CSR"]
+    assert classify_instrument(name="Example Inc", sec_forms=row.metadata_json["sec_forms"]) == "closed_end_fund"
 
 def test_non_operating_report_skips_all_statement_providers(monkeypatch):
     previous = FundamentalSnapshotWrite("EVF", date.today(), metadata_json={})
