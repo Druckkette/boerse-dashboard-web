@@ -12,6 +12,7 @@ from app.domain.market.volatility import compute_volatility_dashboard, summarize
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
 from app.services.market import (
     _breadth_metadata_with_legacy_fallback,
+    _index_ad_confirmation,
     _mcclellan_label,
     _tone_for_mcclellan,
     build_market_snapshot,
@@ -59,6 +60,43 @@ def test_compute_breadth_series_is_reproducible() -> None:
 def test_mcclellan_interpretation_uses_neutral_zone(value: float, label: str, tone: str) -> None:
     assert _mcclellan_label(value) == label
     assert _tone_for_mcclellan(value) == tone
+
+
+def test_ad_line_confirmation_handles_negative_reference_high(monkeypatch: pytest.MonkeyPatch) -> None:
+    start = date(2025, 1, 2)
+    bars = [
+        SimpleNamespace(
+            date=start + timedelta(days=index),
+            high=100.0,
+            close=100.0,
+        )
+        for index in range(21)
+    ]
+    points = [
+        SimpleNamespace(
+            date=(start + timedelta(days=index)).isoformat(),
+            ad_line=-30_000.0 + index * 100.0,
+        )
+        for index in range(20)
+    ]
+    # Prior 20-session A/D high is -28,100. The latest value -28,000 is a
+    # genuine new high despite the entire cumulative line remaining negative.
+    points.append(
+        SimpleNamespace(
+            date=(start + timedelta(days=20)).isoformat(),
+            ad_line=-28_000.0,
+        )
+    )
+    monkeypatch.setattr(
+        "app.services.market._load_cached_index_ohlcv",
+        lambda *_args, **_kwargs: (bars, "^IXIC"),
+    )
+
+    index_at_high, ad_at_high, detail = _index_ad_confirmation(points, index_ticker="^IXIC")
+
+    assert index_at_high is True
+    assert ad_at_high is True
+    assert "bestätigen" in detail
 
 
 def test_breadth_coverage_tracks_the_actual_daily_sample() -> None:
