@@ -2564,7 +2564,8 @@ def _ampel_change_cards(
                 title=f"Heute {index_name}",
                 value=f"{latest.pct_change:+.2f}%",
                 detail=f"Schlusskurs {_format_number(latest.close)}",
-                detail2=f"Index Stand: {_format_date_de(latest.date)} {_format_time_de(as_of_time)}".strip(),
+                detail2=(f"Kursdatum: {_format_date_de(latest.date)}"
+                         + (f" · Cache-Abruf: {_format_time_de(as_of_time)}" if as_of_time else "")),
                 detail3=f"52W-Hoch: {_format_optional_pct(latest.dist_52w_pct)}",
                 tone="good" if latest.pct_change >= 0 else "bad",
                 arrow="up" if latest.pct_change >= 0 else "down",

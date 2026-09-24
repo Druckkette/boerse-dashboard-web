@@ -55,6 +55,7 @@ type LineChartCardProps = {
   isLoading?: boolean;
   error?: unknown;
   hideTextHeader?: boolean;
+  showPreviousCloseChange?: boolean;
 };
 
 const DEFAULT_WIDTH = 1000;
@@ -114,7 +115,8 @@ export function LineChartCard({
   showHorizontalGrid = true,
   isLoading,
   error,
-  hideTextHeader = false
+  hideTextHeader = false,
+  showPreviousCloseChange = false
 }: LineChartCardProps) {
   const chartRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
@@ -333,6 +335,8 @@ export function LineChartCard({
   const hoveredPoint = hover ? visiblePoints[hover.index] : null;
   const hoveredX = hover ? xForIndex(hover.index, visiblePoints.length, plotRight) : null;
   const activePoint = hoveredPoint ?? latestVisible;
+  const activeIndex = hover ? normalizedRange.start + hover.index : normalizedRange.end;
+  const previousClose = showPreviousCloseChange && activeIndex > 0 ? toNumber(points[activeIndex - 1]?.close) : null;
 
   return (
     <section
@@ -379,7 +383,7 @@ export function LineChartCard({
         onDoubleClick={resetZoom}
       >
         {!isLoading && !hasError && !empty && activePoint && (
-          <ChartHoverReadout chartMode={chartMode} point={activePoint} series={visibleSeries} volumeKey={volumeKey} isHovered={Boolean(hoveredPoint)} isLatest={activePoint === latestPoint} />
+          <ChartHoverReadout chartMode={chartMode} point={activePoint} series={visibleSeries} volumeKey={volumeKey} isHovered={Boolean(hoveredPoint)} isLatest={activePoint === latestPoint} previousClose={previousClose} />
         )}
         {isLoading && <ChartMessage>Daten werden geladen...</ChartMessage>}
         {hasError && <ChartMessage tone="error">Chart-Daten konnten nicht geladen werden.</ChartMessage>}
@@ -589,12 +593,13 @@ function AxisLabel({ canvasWidth, color, plotRight, text, y }: { canvasWidth: nu
   );
 }
 
-function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isLatest }: { chartMode: "line" | "candlestick"; point: ChartDatum; series: ChartSeries[]; volumeKey?: string; isHovered: boolean; isLatest: boolean }) {
+function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isLatest, previousClose }: { chartMode: "line" | "candlestick"; point: ChartDatum; series: ChartSeries[]; volumeKey?: string; isHovered: boolean; isLatest: boolean; previousClose: number | null }) {
   const open = toNumber(point.open);
   const high = toNumber(point.high);
   const low = toNumber(point.low);
   const close = toNumber(point.close);
   const dayChange = open !== null && open !== 0 && close !== null ? ((close - open) / open) * 100 : null;
+  const previousCloseChange = previousClose !== null && previousClose !== 0 && close !== null ? ((close - previousClose) / previousClose) * 100 : null;
   const volume = volumeKey ? toNumber(point[volumeKey]) : null;
 
   return (
@@ -604,7 +609,8 @@ function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isL
         {chartMode === "candlestick" && (
           <>
             <HoverValue label="O" value={open} /><HoverValue label="H" value={high} /><HoverValue label="T" value={low} /><HoverValue label="S" value={close} />
-            {dayChange !== null && <span className={dayChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>{formatPercent(dayChange, 2)}</span>}
+            {dayChange !== null && <span className={dayChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>Seit Eröffnung {formatPercent(dayChange, 2)}</span>}
+            {previousCloseChange !== null && <span className={previousCloseChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>Zum Vortag {formatPercent(previousCloseChange, 2)}</span>}
             {volume !== null && <span className="text-[var(--muted)]">Vol. <span className="font-semibold text-[var(--text)]">{formatCompact(volume)}</span></span>}
           </>
         )}
