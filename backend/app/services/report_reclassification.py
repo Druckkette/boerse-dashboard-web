@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 import csv
 import json
+import re
 from io import StringIO
 from datetime import UTC, datetime, timedelta
 import zipfile
@@ -64,6 +65,43 @@ def verify_sec_sic(ticker: str) -> dict:
     if not result["sec_sic"].isdigit():
         raise ValueError(f"SEC SIC missing for {ticker.strip().upper()}")
     return result
+
+
+def verify_suspected_fund_filings(*, limit: int = 100) -> dict:
+    """Check ambiguous, still-open fund-like rows against SEC submissions once.
+
+    This narrow probe uses the SEC ticker index and registrant filings. A name
+    only selects candidates; N-CSR/N-CSRS is required for classification.
+    Successful checks are timestamped so a rerun resumes with unchecked rows.
+    """
+    with SessionLocal() as db:
+        rows = db.execute(select(Instrument.ticker, Instrument.name, Instrument.metadata_json)
+                          .join(RefreshWorkItem, RefreshWorkItem.ticker == Instrument.ticker)
+                          .where(RefreshWorkItem.data_group == "statements",
+                                 RefreshWorkItem.status.in_(("waiting_source", "error", "queued")))
+                          .order_by(Instrument.ticker)).all()
+    candidates = []
+    for ticker, name, metadata in rows:
+        saved = metadata or {}
+        if saved.get("sec_filing_checked_at") or inapplicable_reason(saved.get("instrument_type", "")):
+            continue
+        title = (name or "").lower()
+        if (re.search(r"\btrust\b|shares of beneficial", title) or
+                title.startswith(("blackrock", "gabelli", "general american investors", "central securities"))):
+            candidates.append(ticker)
+    counts: Counter = Counter()
+    errors = []
+    for ticker in candidates[:max(1, min(limit, 500))]:
+        try:
+            result = verify_sec_registrant(ticker)
+            counts["verified"] += 1
+            if set(result["sec_forms"]) & {"N-CSR", "N-CSRS"}:
+                counts["fund_filings_found"] += 1
+        except Exception as exc:
+            counts["errors"] += 1
+            if len(errors) < 10:
+                errors.append({"ticker": ticker, "error": type(exc).__name__})
+    return {**dict(counts), "candidates": len(candidates), "errors_sample": errors}
 
 
 def _cached_sec_forms(facts: dict) -> tuple[list[str], str | None]:
@@ -300,6 +338,7 @@ def run_full_reclassification(*, batch_size: int = 250) -> dict:
     """Run from the deployed backend with `python -m app.services.report_reclassification`."""
     before = problem_counts()
     evidence = enrich_stored_instrument_evidence()
+    fund_filings = verify_suspected_fund_filings()
     totals: Counter = Counter()
     cursor = ""
     with capture_provider_usage() as usage:
@@ -310,6 +349,7 @@ def run_full_reclassification(*, batch_size: int = 250) -> dict:
             if not cursor:
                 break
     return {"before": before, "after": problem_counts(), "evidence": evidence,
+            "targeted_sec_filing_checks": fund_filings,
             "reclassified": dict(totals),
             "fmp_requests_during_backfill": usage.get("fmp_requests", 0)}
 
