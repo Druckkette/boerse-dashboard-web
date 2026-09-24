@@ -124,6 +124,18 @@ def history_gap_reason(metadata: dict, missing: list[str], provider_reason: str 
     if "revenue_quarter_history" in missing or "annual_revenue_history" in missing:
         if concepts.get("TotalRevenue") and not diagnostics.get("revenue_concept"):
             return "unsupported_taxonomy"
+    latest_quarter = diagnostics.get("quarterly_latest_end") or {}
+    try:
+        eps_recent = (date.today() - date.fromisoformat(latest_quarter["DilutedEPS"])).days <= 2 * 366
+    except (KeyError, TypeError, ValueError):
+        eps_recent = False
+    try:
+        revenue_recent = (date.today() - date.fromisoformat(latest_quarter["TotalRevenue"])).days <= 2 * 366
+    except (KeyError, TypeError, ValueError):
+        revenue_recent = False
+    if (("eps_quarter_history" in missing and revenue_recent and not eps_recent) or
+        ("revenue_quarter_history" in missing and eps_recent and not revenue_recent)):
+        return "unsupported_taxonomy"
     lengths = ((metadata.get("enrichment") or {}).get("series_lengths") or
                metadata.get("series_lengths") or {})
     annual = max(int(lengths.get(key) or 0) for key in ("AnnualDilutedEPS", "AnnualTotalRevenue"))
@@ -133,7 +145,7 @@ def history_gap_reason(metadata: dict, missing: list[str], provider_reason: str 
         young_listing = bool(listing_date and (date.today() - date.fromisoformat(str(listing_date))).days < 4 * 366)
     except ValueError:
         young_listing = False
-    if diagnostics.get("forms_seen") and annual and annual < 4 and quarterly < 7 and young_listing:
+    if diagnostics.get("forms_seen") and annual < 4 and quarterly < 7 and (annual > 0 or young_listing):
         return "insufficient_operating_history"
     if diagnostics.get("verified_source_gap"):
         return "actual_missing_history"

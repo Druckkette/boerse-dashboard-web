@@ -42,6 +42,8 @@ def test_sec_forms_identify_foreign_reporting():
     assert classify_instrument(name="MicroSectors Leveraged ETNs due 2038") == "etn"
     assert classify_instrument(name="Synthetic Fixed-Income Securities Inc STRATS") == "structured_security"
     assert classify_instrument(name="PPlus Tr GSC-2 Tr Ctf Fltg Rate") == "structured_security"
+    assert classify_instrument(name="StoneBridge Acquisition II Corporation") == "spac"
+    assert classify_instrument(name="Archimedes Tech SPAC Partners II Co") == "spac"
 
 
 def test_backfill_reads_foreign_forms_from_existing_companyfacts():
@@ -128,6 +130,24 @@ def test_young_issuer_and_rate_limit_have_separate_causes():
                            "DilutedEPS": 3, "TotalRevenue": 3}}
     assert report_refresh.history_gap_reason(metadata, ["eps_quarter_history"]) == "insufficient_operating_history"
     assert report_refresh.history_gap_reason(metadata, ["eps_quarter_history"], "provider_rate_limited") == "provider_rate_limited"
+    metadata.pop("listing_date")
+    assert report_refresh.history_gap_reason(metadata, ["eps_quarter_history"]) == "insufficient_operating_history"
+
+
+def test_recent_peer_statement_with_stale_eps_is_technical_gap():
+    metadata = {"instrument_type": "operating_company", "statement_diagnostics": {
+        "forms_seen": ["10-K", "10-Q"],
+        "quarterly_latest_end": {"DilutedEPS": "2020-06-30", "TotalRevenue": date.today().isoformat()},
+    }}
+    assert report_refresh.history_gap_reason(metadata, ["eps_quarter_history"]) == "unsupported_taxonomy"
+
+
+def test_available_for_sale_tags_are_not_revenue_candidates():
+    facts = {"us-gaap": {"AvailableForSaleSecurities": {"units": {"USD": [
+        {"form": "10-K", "filed": "2025-02-01", "end": "2024-12-31", "val": 100},
+    ]}}}}
+    diagnostics = client._sec_fact_diagnostics(facts, {}, currency="USD")
+    assert diagnostics["relevant_xbrl_concepts"]["TotalRevenue"] == []
 
 
 def test_normal_us_filer_has_four_complete_comparison_histories():
