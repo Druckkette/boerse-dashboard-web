@@ -57,7 +57,7 @@ function EtfMetric({ label, values }: { label: string; values: Record<string, un
   const drawdown = readNumber(values.drawdown_from_high_pct);
   const benchmarkName = typeof values.benchmark_name === "string" ? values.benchmark_name : "Benchmark";
   const relativeTone: Tone =
-    relativeDayPct === undefined ? "neutral" : relativeDayPct >= 0 ? "good" : relativeDayPct > -0.3 ? "neutral" : "warning";
+    relativeDayPct === undefined ? "neutral" : relativeDayPct >= 0 ? "good" : "warning";
   return <div className="rounded-[9px] bg-[#f7f9fb] px-3 py-2 text-xs">
     <div className="flex items-center justify-between gap-3">
       <span className="font-semibold text-[#172033]">{label}</span>
