@@ -35,6 +35,7 @@ celery_app.conf.update(
     task_default_queue="default",
     task_routes={
         "refresh_report_data": {"queue": report_queue},
+        "reclassify_report_history": {"queue": report_queue},
         "refresh_sec_companyfacts_bulk": {"queue": report_queue},
         "position_atr_monitor": {"queue": "monitor"},
         "pushover_test": {"queue": "monitor"},
@@ -42,6 +43,7 @@ celery_app.conf.update(
     },
     imports=(
         "app.workers.tasks.refresh_report_data",
+        "app.workers.tasks.reclassify_report_history",
         "app.workers.tasks.refresh_sec_companyfacts_bulk",
         "app.workers.tasks.smart_refresh_market_data",
         "app.workers.tasks.bootstrap_market_data",

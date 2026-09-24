@@ -201,7 +201,9 @@ def summary() -> dict:
     now = datetime.now(UTC)
     with SessionLocal() as db:
         reason = case((RefreshWorkItem.status == "waiting_source",
-                       func.coalesce(RefreshWorkItem.result_json["reason_code"].astext, "missing_history")),
+                       func.coalesce(RefreshWorkItem.result_json["reason_code"].astext, "unknown_data_gap")),
+                      (RefreshWorkItem.status == "current",
+                       func.coalesce(RefreshWorkItem.result_json["reason_code"].astext, "")),
                       else_="")
         counts = db.execute(select(
             RefreshWorkItem.data_group, RefreshWorkItem.status, reason, func.count(),

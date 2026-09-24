@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+from app.domain.stocks.instrument_type import inapplicable_reason
 
 
 AssessmentCategory = Literal["fundamental", "technical", "trend", "risk"]
@@ -186,7 +187,7 @@ def compute_stock_assessment(
     drivers, warnings = _build_drivers_and_warnings(
         checks,
         chart_signals,
-        fundamentals_available=fundamentals_available,
+        fundamentals_available=fundamentals_available or bool(inapplicable_reason(str(fundamentals.get("instrument_type") or ""))),
         earnings=earnings,
     )
 
@@ -384,6 +385,11 @@ def evaluate_fundamentals_context(
     institutional_context: Mapping[str, Any] | None = None,
 ) -> tuple[list[AssessmentCheck], float, bool]:
     fundamentals = dict(fundamentals_context or {})
+    instrument_type = str(fundamentals.get("instrument_type") or "unknown")
+    if inapplicable_reason(instrument_type):
+        return ([AssessmentCheck(category="fundamental", label="Operative Fundamentalkriterien",
+                                 passed=True, detail="Fundamentalkriterium für diesen Wertpapiertyp nicht anwendbar.")],
+                50.0, False)
     institutional = dict(institutional_context or {})
     available = _has_fundamental_data(fundamentals)
     checks: list[AssessmentCheck] = []
@@ -461,7 +467,19 @@ def evaluate_fundamentals_context(
     )
 
     checks.append(_institutional_support_check(fundamentals, institutional))
-    score = _fundamental_checklist_score_100(checks, fundamentals)
+    if instrument_type == "foreign_private_issuer":
+        excluded = {"EPS-Wachstum letzte 3 Quartale jeweils >=20% YoY",
+                    "Bonus: EPS-Beschleunigung letzte 3 Quartale", "Summe EPS letzte 4 Quartale > 0",
+                    "Umsatz-Wachstum letzte 3 Quartale jeweils >=20% YoY",
+                    "Bonus: Umsatz-Beschleunigung letzte 3 Quartale"}
+        checks = [check for check in checks if check.label not in excluded]
+        margin_score = min(max(margin or 0, 0) / 25.0, 1.0) * 25.0
+        score = round(_eps_three_year_score(fundamentals, unit=25.0)
+                      + _revenue_three_year_score(fundamentals, unit=25.0)
+                      + _roe_three_year_score(fundamentals, unit=25.0)
+                      + margin_score, 1)
+    else:
+        score = _fundamental_checklist_score_100(checks, fundamentals)
     return checks, score if available else 50.0, available
 
 

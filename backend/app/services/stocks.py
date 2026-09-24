@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db.models import Instrument
 from app.db.session import SessionLocal
 from app.domain.stocks.assessment import StockAssessmentResult, compute_stock_assessment
+from app.domain.stocks.instrument_type import classify_instrument
 from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import market as market_repository
 from app.repositories import earnings as earnings_repository
@@ -196,6 +197,14 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
     fundamentals_row = _safe_latest_fundamentals(clean)
     institutional_row = _safe_latest_13f(clean)
     fundamentals_context = _fundamentals_context(fundamentals_row)
+    profile = fundamentals_repository.get_instrument_profile(clean)
+    if profile:
+        meta = profile.get("metadata") or {}
+        fundamentals_context["instrument_type"] = classify_instrument(
+            ticker=clean, name=profile.get("name", ""), asset_class=profile.get("asset_class", ""),
+            etf=str((meta.get("nasdaq_listing") or {}).get("etf", "")),
+            nextshares=str((meta.get("nasdaq_listing") or {}).get("nextshares", "")),
+            sec_forms=meta.get("sec_forms"), previous_type=meta.get("instrument_type", ""))
     institutional_context = _institutional_context(institutional_row)
     rs_context = _rs_context(rs_row)
     result = compute_stock_assessment(
@@ -519,6 +528,10 @@ def _load_assessment_inputs(
             raise
         fundamentals_by_ticker = {}
     try:
+        instrument_profiles = fundamentals_repository.get_instrument_profiles_for_tickers(clean_tickers)
+    except SQLAlchemyError:
+        instrument_profiles = {}
+    try:
         institutional_by_ticker = sec13f_repository.get_latest_trends_for_tickers(clean_tickers)
     except Sec13FRepositoryUnavailable:
         if strict:
@@ -564,12 +577,21 @@ def _load_assessment_inputs(
             computed_row=computed_rs_rows.get(ticker),
             load_computed=False,
         )
+        context = _fundamentals_context(
+            fundamentals_by_ticker.get(ticker), load_earnings=False, next_earnings=earnings_dates.get(ticker),
+        )
+        profile = instrument_profiles.get(ticker) or {}
+        if profile:
+            meta = profile.get("metadata") or {}
+            context["instrument_type"] = classify_instrument(
+                ticker=ticker, name=profile.get("name", ""), asset_class=profile.get("asset_class", ""),
+                etf=str((meta.get("nasdaq_listing") or {}).get("etf", "")),
+                nextshares=str((meta.get("nasdaq_listing") or {}).get("nextshares", "")),
+                sec_forms=meta.get("sec_forms"), previous_type=meta.get("instrument_type", ""))
         results.append((ticker, rs_row, {
             "bars": bars_by_ticker.get(ticker, []),
             "rs_context": rs_context,
-            "fundamentals_context": _fundamentals_context(
-                fundamentals_by_ticker.get(ticker), load_earnings=False, next_earnings=earnings_dates.get(ticker),
-            ),
+            "fundamentals_context": context,
             "institutional_context": _institutional_context(institutional_by_ticker.get(ticker)),
         }))
     return results
@@ -599,6 +621,7 @@ def _fundamentals_context(
         "source": row.source,
         "fiscal_period": row.fiscal_period,
         "report_refresh": row.metadata_json.get("report_refresh"),
+        "instrument_type": row.metadata_json.get("instrument_type", "unknown"),
         "quarterly_eps_growth_pct": row.quarterly_eps_growth_pct,
         "annual_eps_growth_pct": row.annual_eps_growth_pct,
         "quarterly_revenue_growth_pct": row.quarterly_revenue_growth_pct,

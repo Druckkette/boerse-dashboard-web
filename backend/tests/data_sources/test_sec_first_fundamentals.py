@@ -285,7 +285,7 @@ def test_fresh_filing_keeps_sec_rate_limit_reason_with_old_complete_data(monkeyp
         "TEST", sec_user_agent="agent", previous_metadata={"enrichment": metadata},
         force_live_sec=True, refresh_sec=True,
     )
-    assert result.metadata["reason_code"] == "rate_limited"
+    assert result.metadata["reason_code"] == "provider_rate_limited"
 
 
 def _zip_bytes(value=1):

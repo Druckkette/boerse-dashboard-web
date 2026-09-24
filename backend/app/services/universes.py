@@ -49,6 +49,7 @@ def refresh_us_common_stock_universe() -> dict:
         source=fetched.source,
         tickers=fetched.tickers,
         metadata=fetched.metadata,
+        instruments=fetched.instruments,
     )
     return {
         "ok": True,

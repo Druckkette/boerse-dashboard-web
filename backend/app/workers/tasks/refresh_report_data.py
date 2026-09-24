@@ -18,8 +18,14 @@ def retry_delay(attempts: int) -> timedelta:
     return timedelta(hours=(2, 8, 24, 48, 96, 168)[min(max(0, attempts - 1), 5)])
 
 
-def source_retry_delay(item: dict) -> timedelta:
+def source_retry_delay(item: dict, result: dict | None = None) -> timedelta:
     """Recheck urgent positions quickly, but do not churn broad missing-source work."""
+    if (result or item.get("previous_result") or {}).get("reason_code") == "provider_rate_limited":
+        return timedelta(hours=24)
+    if (result or item.get("previous_result") or {}).get("reason_code") in {
+        "foreign_filer_reporting_structure", "insufficient_operating_history", "actual_missing_history",
+    }:
+        return timedelta(days=30)
     if item.get("priority", 50) <= 40:
         return retry_delay(item["attempts"])
     return timedelta(days=(1, 3, 7, 14)[min(max(0, item["attempts"] - 1), 3)])
@@ -119,7 +125,10 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
             for metric, count in provider_usage.items():
                 totals.setdefault("provider_usage", {})[metric] = totals.setdefault("provider_usage", {}).get(metric, 0) + count
             complete = value["complete"]
-            delay = timedelta(days=7 if item["data_group"] == "beta" else 14) if complete else source_retry_delay(item)
+            delay = (timedelta(days=90 if value.get("reason_code") == "spac_no_operating_history" else
+                               365 if value.get("reason_code") in {"not_applicable_for_instrument_type", "non_operating_security"} else
+                               7 if item["data_group"] == "beta" else 14)
+                     if complete else source_retry_delay(item, value))
             if value.get("changed"):
                 totals["changed"] += 1
                 now = datetime.now(UTC)

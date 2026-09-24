@@ -12,6 +12,8 @@ from app.core_config import get_settings
 METRICS = (
     "sec_requests", "sec_bulk_downloads", "sec_429_count", "yahoo_requests",
     "fmp_requests", "fmp_429_count", "cache_hits", "fallback_used",
+    "avoided_sec_requests", "avoided_yahoo_fallbacks", "avoided_fmp_fallbacks",
+    "instrument_type_skipped",
 )
 _current: ContextVar[Counter | None] = ContextVar("provider_usage", default=None)
 

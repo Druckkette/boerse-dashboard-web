@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import FundamentalSnapshot, Instrument
 from app.db.session import SessionLocal
+from app.domain.stocks.instrument_type import required_histories
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,39 @@ def get_latest_fundamentals(ticker: str) -> FundamentalSnapshotRow | None:
             return _to_row(row) if row else None
     except SQLAlchemyError as exc:
         raise FundamentalsRepositoryUnavailable(str(exc)) from exc
+
+
+def get_instrument_profile(ticker: str) -> dict:
+    """Reusable persisted exchange and SEC classification, without a provider call."""
+    try:
+        with SessionLocal() as db:
+            row = db.scalar(select(Instrument).where(Instrument.ticker == ticker.strip().upper()))
+            return {"ticker": row.ticker, "name": row.name, "asset_class": row.asset_class,
+                    "metadata": row.metadata_json or {}} if row else {}
+    except SQLAlchemyError:
+        return {}
+
+
+def get_instrument_profiles_for_tickers(tickers: list[str]) -> dict[str, dict]:
+    if not tickers:
+        return {}
+    with SessionLocal() as db:
+        rows = db.scalars(select(Instrument).where(Instrument.ticker.in_(tickers))).all()
+        return {row.ticker: {"ticker": row.ticker, "name": row.name,
+                             "asset_class": row.asset_class, "metadata": row.metadata_json or {}}
+                for row in rows}
+
+
+def save_instrument_classification(ticker: str, kind: str, *, source: str,
+                                   sec_forms: list[str] | None = None) -> None:
+    with SessionLocal() as db:
+        row = db.scalar(select(Instrument).where(Instrument.ticker == ticker.strip().upper()))
+        if row is None:
+            return
+        row.metadata_json = {**(row.metadata_json or {}), "instrument_type": kind,
+                             "classification_source": source,
+                             **({"sec_forms": sec_forms} if sec_forms is not None else {})}
+        db.commit()
 
 
 def get_latest_fundamentals_for_tickers(tickers: list[str]) -> dict[str, FundamentalSnapshotRow]:
@@ -253,12 +287,7 @@ def _refresh_state_from_snapshot(
 
 
 def _missing_required_history_keys(metadata: dict) -> list[str]:
-    required = [
-        "eps_quarter_history",
-        "annual_eps_history",
-        "revenue_quarter_history",
-        "annual_revenue_history",
-    ]
+    required = required_histories(metadata.get("instrument_type", "unknown"))
     return [key for key in required if _usable_history_count(_metadata_history(metadata, key)) < 3]
 
 
