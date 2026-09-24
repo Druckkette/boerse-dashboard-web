@@ -12,6 +12,8 @@ from app.domain.market.volatility import compute_volatility_dashboard, summarize
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
 from app.services.market import (
     _breadth_metadata_with_legacy_fallback,
+    _mcclellan_label,
+    _tone_for_mcclellan,
     build_market_snapshot,
     compute_breadth_series,
     compute_sector_ranking,
@@ -41,6 +43,22 @@ def test_compute_breadth_series_is_reproducible() -> None:
     # With a perfectly constant 2:1 advance/decline mix, both EMAs converge to
     # the same value and the oscillator is neutral.
     assert latest.mcclellan == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    ("value", "label", "tone"),
+    [
+        (31.0, "Konstruktiv", "good"),
+        (10.0, "Neutral / uneindeutig", "neutral"),
+        (-10.0, "Neutral / uneindeutig", "neutral"),
+        (-32.7, "Schwach", "warning"),
+        (-55.0, "Impuls abwärts", "bad"),
+        (105.0, "Stark positiv / überdehnt", "good"),
+    ],
+)
+def test_mcclellan_interpretation_uses_neutral_zone(value: float, label: str, tone: str) -> None:
+    assert _mcclellan_label(value) == label
+    assert _tone_for_mcclellan(value) == tone
 
 
 def test_breadth_coverage_tracks_the_actual_daily_sample() -> None:
