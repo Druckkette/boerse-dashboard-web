@@ -97,11 +97,15 @@ def upsert_universe_members(
                 if detail.get("name"):
                     instrument.name = detail["name"][:255]
                 current = instrument.metadata_json or {}
+                old_listing_name = (current.get("nasdaq_listing") or {}).get("name")
+                if old_listing_name and old_listing_name != detail.get("name"):
+                    current = {key: value for key, value in current.items()
+                               if key not in {"sec_sic", "sec_sic_description", "sec_sic_cik",
+                                              "sec_sic_checked_at", "sec_sic_evidence"}}
                 kind = detail.get("instrument_type") or "unknown"
                 if kind == "unknown" and current.get("instrument_type"):
                     kind = current["instrument_type"]
-                old_listing_name = (current.get("nasdaq_listing") or {}).get("name")
-                if (current.get("classification_source") == "sec_companyfacts"
+                if (current.get("classification_source") in {"sec_companyfacts", "sec_submissions"}
                     and kind == "operating_company" and current.get("instrument_type")
                     and (old_listing_name is None or old_listing_name == detail.get("name"))):
                     kind = current["instrument_type"]

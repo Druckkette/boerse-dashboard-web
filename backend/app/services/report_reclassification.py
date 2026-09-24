@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 import csv
 import json
+import re
 from io import StringIO
 from datetime import UTC, datetime, timedelta
 import zipfile
@@ -16,6 +17,93 @@ from app.domain.stocks.instrument_type import classify_instrument, inapplicable_
 from app.repositories.fundamentals import _missing_required_history_keys, _metadata_history, _usable_history_count
 from app.services.report_refresh import history_gap_reason
 from app.data_sources.provider_usage import capture_provider_usage
+
+
+def verify_sec_registrant(ticker: str) -> dict:
+    """Persist official SEC SIC and filing forms after matching the registrant CIK."""
+    from app.core_config import get_settings
+    from app.data_sources.fundamentals_client import _sec_cik_map
+    from app.data_sources.sec_request import sec_get
+    from app.services.settings import get_runtime_config_value
+
+    clean = ticker.strip().upper()
+    with SessionLocal() as db:
+        instrument = db.scalar(select(Instrument).where(Instrument.ticker == clean))
+        if instrument is None:
+            raise ValueError(f"Unknown ticker: {clean}")
+        metadata = instrument.metadata_json or {}
+        agent = get_runtime_config_value("SEC_USER_AGENT") or get_settings().sec_user_agent
+        cik = str(metadata.get("primary_cik") or _sec_cik_map(agent, 15).get(clean) or "").zfill(10)
+        if not cik.isdigit() or cik == "0000000000":
+            raise ValueError(f"No verified SEC CIK for {clean}")
+        url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        response = sec_get(url, user_agent=agent, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        if str(payload.get("cik") or "").zfill(10) != cik:
+            raise ValueError(f"SEC CIK mismatch for {clean}")
+        sic = str(payload.get("sic") or "")
+        recent = ((payload.get("filings") or {}).get("recent") or {})
+        forms = sorted({str(form).upper().removesuffix("/A") for form in recent.get("form") or []
+                        if isinstance(form, str)} | set(metadata.get("sec_forms") or []))
+        verified = {"primary_cik": cik, "sec_forms": forms,
+                    "sec_filing_checked_at": datetime.now(UTC).isoformat(),
+                    "sec_filing_evidence": url}
+        if sic.isdigit():
+            verified.update({"sec_sic": sic, "sec_sic_description": payload.get("sicDescription") or "",
+                             "sec_sic_cik": cik, "sec_sic_checked_at": datetime.now(UTC).isoformat(),
+                             "sec_sic_evidence": url})
+        instrument.metadata_json = {**metadata, **verified}
+        db.commit()
+    return {"ticker": clean, "primary_cik": cik, "sec_sic": sic,
+            "sic_description": payload.get("sicDescription") or "", "sec_forms": forms, "evidence": url}
+
+
+def verify_sec_sic(ticker: str) -> dict:
+    """Verify a SEC SIC; retained for callers that require a numeric SIC."""
+    result = verify_sec_registrant(ticker)
+    if not result["sec_sic"].isdigit():
+        raise ValueError(f"SEC SIC missing for {ticker.strip().upper()}")
+    return result
+
+
+def verify_suspected_fund_filings(*, limit: int = 150) -> dict:
+    """Check ambiguous, still-open fund-like rows against SEC submissions once.
+
+    This narrow probe uses the SEC ticker index and registrant filings. A name
+    only selects candidates; N-CSR/N-CSRS is required for classification.
+    Successful checks are timestamped so a rerun resumes with unchecked rows.
+    """
+    with SessionLocal() as db:
+        rows = db.execute(select(Instrument.ticker, Instrument.name, Instrument.metadata_json,
+                                 RefreshWorkItem.result_json)
+                          .join(RefreshWorkItem, RefreshWorkItem.ticker == Instrument.ticker)
+                          .where(RefreshWorkItem.data_group == "statements",
+                                 RefreshWorkItem.status.in_(("waiting_source", "error", "queued")))
+                          .order_by(Instrument.ticker)).all()
+    candidates = []
+    for ticker, name, metadata, result in rows:
+        saved = metadata or {}
+        if saved.get("sec_filing_checked_at") or inapplicable_reason(saved.get("instrument_type", "")):
+            continue
+        title = (name or "").lower()
+        if ((result or {}).get("reason_code") == "provider_error" or
+                re.search(r"\btrust\b|shares of beneficial", title) or
+                title.startswith(("blackrock", "gabelli", "general american investors", "central securities"))):
+            candidates.append(ticker)
+    counts: Counter = Counter()
+    errors = []
+    for ticker in candidates[:max(1, min(limit, 500))]:
+        try:
+            result = verify_sec_registrant(ticker)
+            counts["verified"] += 1
+            if set(result["sec_forms"]) & {"N-CSR", "N-CSRS"}:
+                counts["fund_filings_found"] += 1
+        except Exception as exc:
+            counts["errors"] += 1
+            if len(errors) < 10:
+                errors.append({"ticker": ticker, "error": type(exc).__name__})
+    return {**dict(counts), "candidates": len(candidates), "errors_sample": errors}
 
 
 def _cached_sec_forms(facts: dict) -> tuple[list[str], str | None]:
@@ -92,12 +180,17 @@ def enrich_stored_instrument_evidence() -> dict:
                     counts["nasdaq_listings_found"] += 1
                 if archive and ticker in waiting and ticker in sec_map:
                     cik = SEC_SUCCESSORS.get(ticker, {}).get("primary_cik") or sec_map[ticker]
+                    if old.get("sec_sic_cik") and old["sec_sic_cik"] != cik:
+                        for key in ("sec_sic", "sec_sic_description", "sec_sic_cik",
+                                    "sec_sic_checked_at", "sec_sic_evidence"):
+                            new.pop(key, None)
                     try:
                         with archive.open(f"CIK{cik}.json") as source:
                             facts = (json.load(source).get("facts") or {})
                         forms, latest_annual = _cached_sec_forms(facts)
                         if forms:
-                            new["sec_forms"] = forms
+                            new["sec_forms"] = sorted(set(forms) | {form for form in old.get("sec_forms") or []
+                                                                       if form in {"N-CSR", "N-CSRS"}})
                             new["sec_latest_annual_form"] = latest_annual
                             new["primary_cik"] = cik
                             counts["sec_forms_found"] += 1
@@ -147,16 +240,21 @@ def reclassify_batch(*, after_ticker: str = "", limit: int = 250) -> dict:
             latest_annual = diagnostics.get("latest_annual_form") or saved.get("sec_latest_annual_form")
             forms = ([latest_annual] if latest_annual else
                      diagnostics.get("forms_seen") or saved.get("sec_forms") or [])
+            forms = list(dict.fromkeys([*forms, *(form for form in saved.get("sec_forms") or []
+                                            if form in {"N-CSR", "N-CSRS"})]))
             listing = saved.get("nasdaq_listing") or {}
             kind = classify_instrument(ticker=ticker, name=instrument.name, asset_class=instrument.asset_class,
                                        etf=str(listing.get("etf") or ""),
                                        nextshares=str(listing.get("nextshares") or ""),
+                                       sec_sic=saved.get("sec_sic") or "",
                                        sec_forms=forms, previous_type=saved.get("instrument_type", ""))
             if kind == "unknown":
                 kind = metadata.get("instrument_type") or "unknown"
             if saved.get("instrument_type") != kind:
                 instrument.metadata_json = {**saved, "instrument_type": kind,
-                                            "classification_source": "backfill_existing_evidence",
+                                            "classification_source": ("sec_submissions" if saved.get("sec_sic") == "6770" or
+                                                                      set(forms) & {"N-CSR", "N-CSRS"}
+                                                                      else "backfill_existing_evidence"),
                                             "sec_forms": forms}
                 counts["types_changed"] += 1
             if snapshot and metadata.get("instrument_type") != kind:
@@ -242,6 +340,7 @@ def run_full_reclassification(*, batch_size: int = 250) -> dict:
     """Run from the deployed backend with `python -m app.services.report_reclassification`."""
     before = problem_counts()
     evidence = enrich_stored_instrument_evidence()
+    fund_filings = verify_suspected_fund_filings()
     totals: Counter = Counter()
     cursor = ""
     with capture_provider_usage() as usage:
@@ -252,6 +351,7 @@ def run_full_reclassification(*, batch_size: int = 250) -> dict:
             if not cursor:
                 break
     return {"before": before, "after": problem_counts(), "evidence": evidence,
+            "targeted_sec_filing_checks": fund_filings,
             "reclassified": dict(totals),
             "fmp_requests_during_backfill": usage.get("fmp_requests", 0)}
 

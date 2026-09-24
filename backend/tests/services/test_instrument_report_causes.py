@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -11,6 +12,7 @@ from app.repositories.fundamentals import _missing_required_history_keys
 from app.services import report_refresh
 from app.services.report_missing_export import build_missing_rows
 from app.services.report_reclassification import _cached_sec_forms
+from app.services import report_reclassification
 
 
 @pytest.mark.parametrize(("name", "flags", "kind"), [
@@ -44,6 +46,13 @@ def test_sec_forms_identify_foreign_reporting():
     assert classify_instrument(name="PPlus Tr GSC-2 Tr Ctf Fltg Rate") == "structured_security"
     assert classify_instrument(name="StoneBridge Acquisition II Corporation") == "spac"
     assert classify_instrument(name="Archimedes Tech SPAC Partners II Co") == "spac"
+    assert classify_instrument(name="Graf Global Corp. Class A ordinary shares",
+                               sec_sic="6770", sec_forms=["10-Q"]) == "spac"
+    assert classify_instrument(name="Graf Global Corp. Class A ordinary shares",
+                               sec_sic="8742", sec_forms=["10-Q"]) == "operating_company"
+    assert classify_instrument(name="BlackRock Resources Inc", sec_forms=["N-CSR", "N-CEN"],
+                               previous_type="operating_company") == "closed_end_fund"
+    assert classify_instrument(name="BlackRock Income Trust Inc", sec_forms=["N-CSRS"]) == "investment_trust"
 
 
 def test_backfill_reads_foreign_forms_from_existing_companyfacts():
@@ -55,6 +64,62 @@ def test_backfill_reads_foreign_forms_from_existing_companyfacts():
     assert forms == ["20-F", "6-K"]
     assert latest_annual == "20-F"
 
+
+def test_sec_sic_verification_requires_same_cik(monkeypatch):
+    row = SimpleNamespace(metadata_json={"primary_cik": "0001897463"})
+    commits = []
+
+    class FakeDB:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def scalar(self, _query):
+            return row
+
+        def commit(self):
+            commits.append(True)
+
+    monkeypatch.setattr(report_reclassification, "SessionLocal", FakeDB)
+    monkeypatch.setattr("app.services.settings.get_runtime_config_value", lambda key: "agent")
+    payload = {"cik": 1897463, "sic": "6770", "sicDescription": "Blank Checks"}
+    response = SimpleNamespace(json=lambda: payload, raise_for_status=lambda: None)
+    monkeypatch.setattr("app.data_sources.sec_request.sec_get", lambda *a, **k: response)
+    assert report_reclassification.verify_sec_sic("TONT")["sec_sic"] == "6770"
+    assert row.metadata_json["sec_sic_cik"] == "0001897463"
+    assert len(commits) == 1
+    payload["cik"] = 9999999
+    with pytest.raises(ValueError, match="CIK mismatch"):
+        report_reclassification.verify_sec_sic("TONT")
+    assert len(commits) == 1
+
+
+def test_sec_submissions_forms_identify_fund_without_sic(monkeypatch):
+    row = SimpleNamespace(metadata_json={"primary_cik": "0001234567"})
+
+    class FakeDB:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def scalar(self, _query):
+            return row
+
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(report_reclassification, "SessionLocal", FakeDB)
+    monkeypatch.setattr("app.services.settings.get_runtime_config_value", lambda key: "agent")
+    payload = {"cik": 1234567, "filings": {"recent": {"form": ["N-CSR", "N-CEN"]}}}
+    response = SimpleNamespace(json=lambda: payload, raise_for_status=lambda: None)
+    monkeypatch.setattr("app.data_sources.sec_request.sec_get", lambda *a, **k: response)
+    result = report_reclassification.verify_sec_registrant("TEST")
+    assert result["sec_forms"] == ["N-CEN", "N-CSR"]
+    assert classify_instrument(name="Example Inc", sec_forms=row.metadata_json["sec_forms"]) == "closed_end_fund"
 
 def test_non_operating_report_skips_all_statement_providers(monkeypatch):
     previous = FundamentalSnapshotWrite("EVF", date.today(), metadata_json={})
