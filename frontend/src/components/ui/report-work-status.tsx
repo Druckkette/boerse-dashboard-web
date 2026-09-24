@@ -35,12 +35,17 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
   for (const item of data.groups) byGroup.set(item.group, [...(byGroup.get(item.group) ?? []), item]);
   const waiting = data.groups.reduce((sum, item) => sum + (item.status === "waiting_source" ? item.count : 0), 0);
   const waitingDue = data.groups.reduce((sum, item) => sum + (item.status === "waiting_source" ? item.due_count : 0), 0);
+  const archiveAgeHours = data.sec_bulk_cache.fetched_at
+    ? (new Date(data.generated_at).getTime() - new Date(data.sec_bulk_cache.fetched_at).getTime()) / 3_600_000
+    : null;
   return <div className={compact ? "text-sm" : "mt-2 text-sm"}>
     <p><strong>{data.due_count.toLocaleString("de-DE")} jetzt fällig</strong>
       {data.due_count > 0 && data.oldest_due_at ? ` · älteste Fälligkeit: ${formatDate(data.oldest_due_at)}` : ""}
       {data.active.length ? ` · in Arbeit: ${data.active.map((item) => `${item.ticker} (${groupLabels[item.group] ?? item.group})`).join(", ")}` : " · aktuell kein Paket aktiv"}
     </p>
     <p className="mt-1 text-xs text-[#687386]">{waiting.toLocaleString("de-DE")} Einträge mit unvollständiger Datenhistorie; {waitingDue.toLocaleString("de-DE")} davon jetzt zur erneuten Prüfung fällig. Nächster geplanter Termin: {formatDate(data.next_due_at)}.</p>
+    <p className="mt-1 text-xs text-[#687386]">Live-Stand: {formatDate(data.generated_at)} · Abrufzahlen zählen seit 00:00 UTC.</p>
+    <a className="mt-2 inline-block rounded border border-[#cbd5e1] px-3 py-1.5 font-medium text-[#172033] hover:bg-[#f1f5f9]" href={api.reportMissingCsvUrl()} download="fehlende-berichtsdaten.csv">Fehlende Daten als CSV exportieren</a>
     <details className="mt-3"><summary className="cursor-pointer font-medium">Datenbereiche und Wartezustände erklären</summary>
       <p className="mt-2 text-xs text-[#687386]">Die Zahlen zählen Prüfaufträge, keine verschiedenen Aktien. Eine Aktie kann mehrfach vorkommen. „Geprüft“ heißt: aktuell keine Arbeit offen. Folgebewertungen werden bei Datenänderungen neu angestoßen. Nur „jetzt fällig“ zählt die gerade anstehenden Prüfungen.</p>
       <ul className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -61,7 +66,8 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
           </li>;
         })}
       </ul>
-      <p className="mt-3 text-xs text-[#687386]">Externe Abrufe heute: SEC {data.provider_usage.sec_requests ?? 0}, Yahoo {data.provider_usage.yahoo_requests ?? 0}, FMP {data.provider_usage.fmp_requests ?? 0}. SEC-Archiv: {data.sec_bulk_cache.available ? `verfügbar, Stand ${formatDate(data.sec_bulk_cache.fetched_at ?? null)}` : "noch nicht verfügbar"}.</p>
+      <p className="mt-3 text-xs text-[#687386]">Externe Abrufe seit 00:00 UTC: SEC {data.provider_usage.sec_requests ?? 0}, Yahoo {data.provider_usage.yahoo_requests ?? 0}, FMP {data.provider_usage.fmp_requests ?? 0}. SEC-Archiv: {data.sec_bulk_cache.available ? `letzter erfolgreicher Download ${formatDate(data.sec_bulk_cache.fetched_at ?? null)}` : "noch nicht verfügbar"}. Geplanter Download täglich um 10:30 Uhr Berliner Zeit.</p>
+      {archiveAgeHours !== null && archiveAgeHours > 30 && <p className="mt-1 text-xs text-amber-800">SEC-Archiv älter als 30 Stunden. Der vorhandene Cache bleibt nutzbar; geplanten Download und Worker-Logs prüfen.</p>}
     </details>
   </div>;
 }
