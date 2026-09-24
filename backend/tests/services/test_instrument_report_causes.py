@@ -131,6 +131,13 @@ def test_completed_operating_diagnostic_is_not_immediately_queued_again():
     assert not needs_first("operating_company", metadata, ["eps_quarter_history"],
                            {"diagnostic_only": True})
 
+
+def test_complete_xom_predecessor_history_keeps_its_positive_cause():
+    metadata = {"instrument_type": "operating_company", "primary_cik": "0002115436",
+                "predecessor_ciks": ["0000034088"]}
+    assert report_refresh.history_gap_reason(metadata, [], "unknown_data_gap") == "predecessor_cik_history_merged"
+    assert report_refresh.history_gap_reason(metadata, ["eps_quarter_history"]) != "predecessor_cik_history_merged"
+
 def test_non_operating_report_skips_all_statement_providers(monkeypatch):
     previous = FundamentalSnapshotWrite("EVF", date.today(), metadata_json={})
     writes = []
