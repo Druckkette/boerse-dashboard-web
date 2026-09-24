@@ -25,11 +25,12 @@ class UniverseFetchResult:
     source: str
     tickers: list[str]
     metadata: dict
+    instruments: dict[str, dict] | None = None
 
 
 def fetch_us_common_stock_universe(*, timeout: int = 30) -> UniverseFetchResult:
-    nasdaq_tickers, nasdaq_source = _fetch_first_working(NASDAQ_LISTED_URLS, parse_nasdaq_listed_text, timeout)
-    nyse_tickers, nyse_source = _fetch_first_working(OTHER_LISTED_URLS, parse_otherlisted_text, timeout)
+    nasdaq_tickers, nasdaq_source, nasdaq_text = _fetch_first_working(NASDAQ_LISTED_URLS, parse_nasdaq_listed_text, timeout)
+    nyse_tickers, nyse_source, nyse_text = _fetch_first_working(OTHER_LISTED_URLS, parse_otherlisted_text, timeout)
     tickers = list(dict.fromkeys([*nasdaq_tickers, *nyse_tickers]))
     if len(tickers) < 100:
         raise RuntimeError("Nasdaq Trader universe returned too few common-stock tickers.")
@@ -44,6 +45,8 @@ def fetch_us_common_stock_universe(*, timeout: int = 30) -> UniverseFetchResult:
             "nasdaq_source_url": nasdaq_source,
             "nyse_source_url": nyse_source,
         },
+        instruments={**_listing_details(nasdaq_text, "symbol"),
+                     **_listing_details(nyse_text, "cqs symbol", "nasdaq symbol", "act symbol")},
     )
 
 
@@ -108,21 +111,44 @@ def normalize_tickers(values: list[str]) -> list[str]:
     return list(dict.fromkeys(tickers))
 
 
-def _fetch_first_working(urls: list[str], parser, timeout: int) -> tuple[list[str], str]:
+def _fetch_first_working(urls: list[str], parser, timeout: int) -> tuple[list[str], str, str]:
     headers = {"User-Agent": "boerse-dashboard-web", "Accept": "text/plain,*/*"}
-    best: tuple[list[str], str] = ([], "")
+    best: tuple[list[str], str, str] = ([], "", "")
     for url in urls:
         try:
             response = requests.get(url, headers=headers, timeout=timeout)
             response.raise_for_status()
             tickers = parser(response.text)
             if len(tickers) > len(best[0]):
-                best = (tickers, url)
+                best = (tickers, url, response.text)
             if len(tickers) >= 500:
-                return tickers, url
+                return tickers, url, response.text
         except requests.RequestException:
             continue
     return best
+
+
+def _listing_details(text: str, *symbol_columns: str) -> dict[str, dict]:
+    from app.domain.stocks.instrument_type import classify_instrument
+
+    frame = _read_pipe_table(text)
+    if frame.empty:
+        return {}
+    columns = _lower_cols(frame)
+    details: dict[str, dict] = {}
+    for _, row in frame.iterrows():
+        symbol = next((str(row.get(columns[col]) or "").strip() for col in symbol_columns
+                       if col in columns and str(row.get(columns[col]) or "").strip()), "")
+        clean = normalize_tickers([symbol])
+        if not clean:
+            continue
+        name = str(row.get(columns.get("security name", ""), "") or "")
+        etf = str(row.get(columns.get("etf", ""), "") or "")
+        nextshares = str(row.get(columns.get("nextshares", ""), "") or "")
+        details[clean[0]] = {"name": name, "etf": etf, "nextshares": nextshares,
+                             "instrument_type": classify_instrument(ticker=clean[0], name=name, etf=etf, nextshares=nextshares),
+                             "classification_source": "nasdaq_trader"}
+    return details
 
 
 def _read_pipe_table(text: str) -> pd.DataFrame:

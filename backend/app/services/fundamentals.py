@@ -12,6 +12,9 @@ from app.repositories.earnings import EarningsEventWrite
 from app.repositories.fundamentals import (FundamentalSnapshotWrite, get_latest_fundamentals,
                                           upsert_fundamentals)
 from app.services.settings import get_runtime_config_value
+from app.domain.stocks.instrument_type import classify_instrument, inapplicable_reason
+from app.data_sources.provider_usage import record_provider_event
+from app.repositories import fundamentals as fundamentals_repository
 
 
 def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True) -> dict:
@@ -20,14 +23,37 @@ def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True
         raise ValueError("ticker must not be empty")
 
     previous = get_latest_fundamentals(clean)
+    profile = fundamentals_repository.get_instrument_profile(clean)
+    profile_metadata = profile.get("metadata") or {}
+    kind = classify_instrument(ticker=clean, name=profile.get("name", ""), asset_class=profile.get("asset_class", ""),
+                               etf=str((profile_metadata.get("nasdaq_listing") or {}).get("etf", "")),
+                               nextshares=str((profile_metadata.get("nasdaq_listing") or {}).get("nextshares", "")),
+                               sec_forms=profile_metadata.get("sec_forms"),
+                               previous_type=profile_metadata.get("instrument_type", ""))
+    if inapplicable_reason(kind):
+        if profile and kind != profile_metadata.get("instrument_type"):
+            fundamentals_repository.save_instrument_classification(clean, kind, source="instrument_profile")
+        for metric in ("avoided_sec_requests", "avoided_yahoo_fallbacks", "avoided_fmp_fallbacks",
+                       "instrument_type_skipped"):
+            record_provider_event(metric)
+        return {"ticker": clean, "ok": True, "records_seen": 0, "records_written": 0,
+                "instrument_type": kind, "reason_code": inapplicable_reason(kind),
+                "provider_usage": {}}
     settings = get_settings()
     with capture_provider_usage() as usage:
         enrichment = fetch_fundamental_enrichment(
             clean,
             fmp_api_key=get_runtime_config_value("FMP_API_KEY") or settings.fmp_api_key,
             sec_user_agent=get_runtime_config_value("SEC_USER_AGENT") or settings.sec_user_agent,
-            previous_metadata=previous.metadata_json if previous else None,
+            previous_metadata={**(previous.metadata_json if previous else {}), "instrument_type": kind},
         )
+        found_kind = enrichment.metadata.get("instrument_type") or kind
+        diagnostics = enrichment.metadata.get("statement_diagnostics") or {}
+        forms = ([diagnostics["latest_annual_form"]] if diagnostics.get("latest_annual_form") else
+                 diagnostics.get("forms_seen") or [])
+        if found_kind != "unknown" and profile and (found_kind != profile_metadata.get("instrument_type") or forms != profile_metadata.get("sec_forms", [])):
+            fundamentals_repository.save_instrument_classification(clean, found_kind, source="sec_companyfacts",
+                                                                    sec_forms=forms)
         try:
             calendar_event = earnings_repository.next_earnings_event(clean, include_fmp=False)
         except earnings_repository.EarningsRepositoryUnavailable:
@@ -138,6 +164,12 @@ def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -
         beta=enrichment.beta if enrichment.beta is not None else fetched.beta,
         metadata_json={
             "provider": enrichment.source or fetched.source,
+            "instrument_type": enrichment.metadata.get("instrument_type", "unknown"),
+            "listing_date": enrichment.metadata.get("listing_date"),
+            "statement_diagnostics": enrichment.metadata.get("statement_diagnostics", {}),
+            "primary_cik": enrichment.metadata.get("primary_cik"),
+            "predecessor_ciks": enrichment.metadata.get("predecessor_ciks", []),
+            "sec_ciks": enrichment.metadata.get("sec_ciks", []),
             "refresh_mode": "worker",
             "enrichment": enrichment.metadata,
             "data_sources": {

@@ -246,7 +246,9 @@ hard-coded in the repository and are not shown as setup fields.
 The Fundamentals job reads the shared SEC `companyfacts.zip` archive, then live Company Facts for
 new filings or missing CIKs. SEC values are merged with existing history; growth, acceleration,
 TTM EPS, ROE and margin are calculated locally. Yahoo fills gaps. FMP statement calls occur only
-when required history, net income or equity still cannot be sourced. FMP growth, ratios, beta
+when applicable history, net income or equity still cannot be sourced. Funds, SPACs and structured
+securities skip operating-company statement checks; foreign filers require annual histories but
+not US-style quarterly histories. FMP growth, ratios, beta
 profile and per-ticker earnings calls are no longer part of the normal flow. `FMP_API_KEY` is
 optional and belongs only in `.env.nas` or a private `.env`.
 
@@ -259,8 +261,21 @@ allows at most five requests per second across workers. A 429/403 starts a share
 
 `GET /api/v1/jobs/report-work` and the Berichtspflege panel show the SEC cache timestamp and
 daily provider counters (`sec_requests`, `sec_bulk_downloads`, `yahoo_requests`, `fmp_requests`,
-429 counts, cache hits and fallbacks). Each fundamentals job also records provider usage. Counts
+429 counts, cache hits, fallbacks and skipped potential statement requests by instrument type). Each fundamentals job also records provider usage. Counts
 describe provider operations attempted; yfinance may issue more than one HTTP request internally.
+
+After deploying the classification change, run the one-time, restartable backfill inside the
+backend container (from `infra/`):
+
+```sh
+docker compose --env-file .env.nas -f docker-compose.nas.yml exec backend python -m app.services.report_reclassification
+```
+
+It prints before/after cause counts. The backfill reads the two Nasdaq Trader bulk listings and
+one SEC ticker index, then inspects the existing local SEC Companyfacts archive; it makes no
+per-ticker SEC, Yahoo or FMP requests. Mature operating companies with complete annual data and missing quarterly data
+are queued for a separate SEC-only diagnosis. The report CSV keeps informational rows for funds,
+SPACs and foreign reporting structures, with their cause and next action.
 
 The same jobs can still be started through `POST /api/v1/jobs` for automation, but manual NAS
 operation should use the dashboard.

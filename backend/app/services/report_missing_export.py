@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from app.db.session import engine
 from app.repositories.fundamentals import _metadata_history, _usable_history_count
+from app.domain.stocks.instrument_type import inapplicable_reason, required_histories
 
 
 HISTORIES = {
@@ -17,6 +18,13 @@ HISTORIES = {
     "revenue_quarter_history": "Umsatz: Quartalsvergleiche",
     "annual_revenue_history": "Umsatz: Jahresvergleiche",
 }
+INSTRUMENT_LABELS = {
+    "operating_company": "Operating Company", "foreign_private_issuer": "Foreign Private Issuer",
+    "spac": "SPAC", "closed_end_fund": "Closed-End Fund", "investment_trust": "Investment Trust",
+    "etf": "ETF", "etn": "ETN", "structured_security": "Structured Security",
+    "preferred_stock": "Preferred Stock", "warrant": "Warrant", "right": "Right", "unit": "Unit",
+    "other_non_operating_security": "Other Non-Operating Security", "unknown": "Unknown",
+}
 REASONS = {
     "waiting_sec_data": "Erwartete SEC-Berichtsperiode noch nicht veröffentlicht oder strukturiert verfügbar",
     "waiting_yahoo_data": "Yahoo liefert derzeit keinen ergänzenden Wert",
@@ -24,12 +32,43 @@ REASONS = {
     "unsupported_taxonomy": "Kein sicher zuordenbarer SEC-Finanzwert",
     "missing_history": "Zu wenige vergleichbare veröffentlichte Perioden",
     "rate_limited": "Optionaler Datenanbieter begrenzt; erneute Prüfung geplant",
+    "provider_rate_limited": "Datenanbieter begrenzt; Daten konnten derzeit nicht vollständig abgerufen werden",
     "provider_error": "Datenanbieter vorübergehend nicht erreichbar",
+    "not_applicable_for_instrument_type": "Fundamentalkriterium für diesen Wertpapiertyp nicht anwendbar.",
+    "spac_no_operating_history": "SPAC – operative Fundamentaldaten noch nicht sinnvoll verfügbar.",
+    "foreign_filer_reporting_structure": "Ausländischer Emittent veröffentlicht keine vergleichbare US-Quartalsstruktur.",
+    "insufficient_operating_history": "Unternehmen besitzt noch keine ausreichende veröffentlichte Historie für drei Vergleichsperioden.",
+    "actual_missing_history": "Veröffentlichte, vergleichbare SEC-Perioden fehlen tatsächlich.",
+    "unknown_data_gap": "Ursache der Datenlücke noch ungeklärt.",
+    "predecessor_cik_gap": "Vorgänger-CIK konnte noch nicht vollständig ausgewertet werden.",
+    "predecessor_cik_history_merged": "Historie aus Vorgänger- und Nachfolger-CIK verbunden.",
+    "non_operating_security": "Keine operative Unternehmensaktie.",
 }
 HEADERS = (
     "Ticker", "Datenbereich", "Status", "Fehlender Wert", "Vorhanden", "Benötigt",
     "Warum", "Letzte Meldung", "Letzte Prüfung (UTC)", "Nächste Prüfung (UTC)",
+    "Instrumententyp", "Ursachencode", "Datenquelle", "SEC-CIK", "Vorgänger-CIK", "Nächste sinnvolle Aktion",
 )
+
+
+def _next_action(reason_code: str) -> str:
+    return {
+        "not_applicable_for_instrument_type": "Keine weitere Abfrage notwendig",
+        "non_operating_security": "Keine operative Fundamentalanalyse nötig",
+        "spac_no_operating_history": "Nach De-SPAC erneut klassifizieren",
+        "foreign_filer_reporting_structure": "Jahresberichte weiter auswerten",
+        "insufficient_operating_history": "Nach nächstem Filing erneut prüfen",
+        "provider_rate_limited": "Nach Provider-Cooldown erneut abrufen",
+        "provider_error": "Provider später erneut prüfen",
+        "waiting_sec_data": "Nach nächster SEC-Bulk-Aktualisierung prüfen",
+        "waiting_yahoo_data": "Yahoo-Fallback nach Backoff erneut prüfen",
+        "waiting_fmp_fallback": "Optionalen FMP-Fallback später prüfen",
+        "unsupported_taxonomy": "XBRL-Konzept fachlich prüfen",
+        "predecessor_cik_gap": "Vorgänger-CIK und SEC-Verknüpfung prüfen",
+        "predecessor_cik_history_merged": "Keine; verbundene Historie überwachen",
+        "actual_missing_history": "Nach nächstem veröffentlichten Bericht prüfen",
+        "unknown_data_gap": "SEC-Parsing, CIK und Konzepte diagnostizieren",
+    }.get(reason_code, "Quelle erneut prüfen")
 
 
 def _safe_cell(value: object) -> str:
@@ -52,18 +91,39 @@ def build_missing_rows(work_items: list[dict], snapshots: dict[str, dict],
         reason_code = result.get("reason_code") or ""
         reason = REASONS.get(reason_code, "")
         message = item.get("error") or result.get("reason") or ""
-        common = (ticker, group, status)
+        metadata = snapshot.get("metadata_json") or {}
+        instrument_type = (snapshot.get("instrument_type") or result.get("instrument_type") or
+                           metadata.get("instrument_type") or "unknown")
+        common = (ticker, group, reason_code if status == "current" and reason_code else status)
         tail = (_safe_cell(message), _iso(item.get("checked_at")), _iso(item.get("due_at")))
+        identity = tuple(_safe_cell(part) for part in (
+            INSTRUMENT_LABELS.get(instrument_type, instrument_type), reason_code,
+            metadata.get("provider") or snapshot.get("source") or "",
+            metadata.get("primary_cik") or result.get("primary_cik") or "", ", ".join(metadata.get("predecessor_ciks") or
+                result.get("predecessor_ciks") or (metadata.get("statement_diagnostics") or
+                result.get("statement_diagnostics") or {}).get("candidate_predecessor_ciks") or []),
+            _next_action(reason_code),
+        ))
 
         def add(field: str, available: object, required: object, why: str) -> None:
-            rows.append(tuple(_safe_cell(part) for part in (*common, field, available, required, why)) + tail)
+            rows.append(tuple(_safe_cell(part) for part in (*common, field, available, required, why)) + tail + identity)
 
         if group == "statements":
-            metadata = snapshot.get("metadata_json") or {}
-            if not snapshot:
+            if inapplicable_reason(instrument_type):
+                add("EPS-/Umsatz-Historie", "nicht anwendbar", "nicht anwendbar",
+                    reason or REASONS[inapplicable_reason(instrument_type)])
+            elif reason_code in {"foreign_filer_reporting_structure", "predecessor_cik_history_merged"} and status == "current":
+                keys = (("annual_eps_history", "annual_revenue_history") if
+                        reason_code == "foreign_filer_reporting_structure" else HISTORIES)
+                count = min(_usable_history_count(_metadata_history(metadata, key)) for key in keys)
+                add("Jahresvergleiche" if reason_code == "foreign_filer_reporting_structure" else
+                    "Verbundene Berichtshistorie", count, 3, reason)
+            elif "metadata_json" not in snapshot and "as_of" not in snapshot:
                 add("Fundamental-Snapshot", 0, 1, reason or "Noch keine verwertbaren Statements gespeichert")
             else:
                 for key, label in HISTORIES.items():
+                    if key not in required_histories(instrument_type):
+                        continue
                     count = _usable_history_count(_metadata_history(metadata, key))
                     if count < 3:
                         add(label, count, 3, reason or "Zu wenige vergleichbare veröffentlichte Perioden")
@@ -108,7 +168,10 @@ def missing_report_csv() -> str:
         work_items = [dict(row) for row in connection.execute(text("""
             SELECT ticker, data_group, status, result_json, payload_json, error, checked_at, due_at
             FROM refresh_work_items
-            WHERE ticker <> '*' AND status IN ('waiting_source', 'error', 'queued')
+            WHERE ticker <> '*' AND (status IN ('waiting_source', 'error', 'queued')
+              OR (status = 'current' AND result_json->>'reason_code' IN
+                  ('not_applicable_for_instrument_type', 'non_operating_security', 'spac_no_operating_history',
+                   'foreign_filer_reporting_structure', 'predecessor_cik_history_merged')))
               AND data_group IN ('statements', 'beta', 'assessment')
             ORDER BY ticker, data_group
         """)).mappings()]
@@ -116,10 +179,16 @@ def missing_report_csv() -> str:
         snapshots = {}
         if tickers:
             snapshots = {row["ticker"]: dict(row) for row in connection.execute(text("""
-                SELECT DISTINCT ON (ticker) ticker, metadata_json, fiscal_period, beta, as_of
+                SELECT DISTINCT ON (ticker) ticker, metadata_json, fiscal_period, beta, as_of, source
                 FROM fundamental_snapshots WHERE ticker = ANY(:tickers)
                 ORDER BY ticker, as_of DESC, updated_at DESC
             """), {"tickers": tickers}).mappings()}
+        if tickers:
+            for row in connection.execute(text("""
+                SELECT ticker, metadata_json->>'instrument_type' AS instrument_type
+                FROM instruments WHERE ticker = ANY(:tickers)
+            """), {"tickers": tickers}).mappings():
+                snapshots.setdefault(row["ticker"], {})["instrument_type"] = row["instrument_type"]
         price_tickers = sorted({item["ticker"] for item in work_items
                                 if item["data_group"] in {"beta", "assessment"}})
         price_stats = {}

@@ -52,6 +52,7 @@ def upsert_universe_members(
     source: str,
     tickers: list[str],
     metadata: dict | None = None,
+    instruments: dict[str, dict] | None = None,
 ) -> UniverseStatusRow:
     clean_key = key.strip()
     clean_tickers = list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))
@@ -78,8 +79,8 @@ def upsert_universe_members(
             universe.source = source or universe.source
             universe.metadata_json = {**(metadata or {}), "member_count": len(clean_tickers), "updated_at": now.isoformat()}
 
-            instruments = db.scalars(select(Instrument).where(Instrument.ticker.in_(clean_tickers))).all()
-            by_ticker = {instrument.ticker.upper(): instrument for instrument in instruments}
+            stored_instruments = db.scalars(select(Instrument).where(Instrument.ticker.in_(clean_tickers))).all()
+            by_ticker = {instrument.ticker.upper(): instrument for instrument in stored_instruments}
             for ticker in clean_tickers:
                 if ticker in by_ticker:
                     continue
@@ -87,6 +88,29 @@ def upsert_universe_members(
                 db.add(instrument)
                 db.flush()
                 by_ticker[ticker] = instrument
+
+            for ticker in clean_tickers:
+                detail = (instruments or {}).get(ticker) or {}
+                if not detail:
+                    continue
+                instrument = by_ticker[ticker]
+                if detail.get("name"):
+                    instrument.name = detail["name"][:255]
+                current = instrument.metadata_json or {}
+                kind = detail.get("instrument_type") or "unknown"
+                if kind == "unknown" and current.get("instrument_type"):
+                    kind = current["instrument_type"]
+                old_listing_name = (current.get("nasdaq_listing") or {}).get("name")
+                if (current.get("classification_source") == "sec_companyfacts"
+                    and kind == "operating_company" and current.get("instrument_type")
+                    and (old_listing_name is None or old_listing_name == detail.get("name"))):
+                    kind = current["instrument_type"]
+                    source_label = "sec_companyfacts"
+                else:
+                    source_label = detail.get("classification_source")
+                instrument.metadata_json = {**current, "nasdaq_listing": detail,
+                                            "instrument_type": kind,
+                                            "classification_source": source_label}
 
             existing = db.scalars(
                 select(UniverseMember).where(UniverseMember.universe_id == universe.id, UniverseMember.valid_to.is_(None))

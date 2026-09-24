@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -43,6 +43,13 @@ SEC_CONCEPTS = {
         "us-gaap": ("StockholdersEquity", "StockholdersEquityAttributableToParent", "Equity"),
         "ifrs-full": ("EquityAttributableToOwnersOfParent", "Equity"),
     },
+}
+
+# The 2026 Exxon redomiciliation is documented in the 2026-Q2 10-Q, Note 1.
+# Do not infer successor relationships from similar names or ticker reuse.
+SEC_SUCCESSORS = {
+    "XOM": {"primary_cik": "0002115436", "predecessor_ciks": ["0000034088"],
+            "evidence": "https://investor.exxonmobil.com/sec-filings/all-sec-filings/content/0000034088-26-000093/xom-20260630.htm"},
 }
 
 
@@ -88,18 +95,35 @@ def fetch_fundamental_enrichment(
     previous_metadata: dict[str, Any] | None = None,
     force_live_sec: bool = False,
     refresh_sec: bool = False,
+    allow_fallbacks: bool = True,
 ) -> FundamentalEnrichment:
     clean = ticker.strip().upper()
     notes: list[str] = []
     raw = _raw_from_previous_metadata(previous_metadata or {})
     sources: dict[str, str] = {}
+    previous_sources = ((previous_metadata or {}).get("data_sources") or
+                        ((previous_metadata or {}).get("enrichment") or {}).get("data_sources") or {})
     for key in raw or {}:
-        sources[key] = "local_snapshot"
+        domain = ("eps" if "EPS" in key else "revenue" if "Revenue" in key else
+                  "net_income" if "NetIncome" in key else "equity" if "Equity" in key else "")
+        sources[key] = previous_sources.get(domain) or "local_snapshot"
     fallback: list[str] = []
     reason_code = ""
+    instrument_type = ((previous_metadata or {}).get("instrument_type") or
+                       ((previous_metadata or {}).get("enrichment") or {}).get("instrument_type") or "unknown")
+    from app.domain.stocks.instrument_type import classify_instrument, inapplicable_reason
+    if instrument_type == "unknown":
+        instrument_type = classify_instrument(ticker=clean)
+    if inapplicable_reason(instrument_type):
+        for metric in ("avoided_sec_requests", "avoided_yahoo_fallbacks", "avoided_fmp_fallbacks",
+                       "instrument_type_skipped"):
+            record_provider_event(metric)
+        return FundamentalEnrichment(metadata={"ticker": clean, "instrument_type": instrument_type,
+                                               "reason_code": inapplicable_reason(instrument_type),
+                                               "fallbacks_used": []})
     statement_currency = ((previous_metadata or {}).get("enrichment") or {}).get("statement_currency", "USD")
     has_known_currency = bool(raw) and statement_currency != "unknown"
-    if raw and not _needs_fmp_statement_data(raw) and not force_live_sec and not refresh_sec:
+    if raw and not _needs_fmp_statement_data(raw, instrument_type) and not force_live_sec and not refresh_sec:
         notes.append("Vollständiger lokaler Snapshot")
         record_provider_event("cache_hits")
     elif sec_user_agent:
@@ -110,11 +134,17 @@ def fetch_fundamental_enrichment(
             statement_currency = sec_note.rsplit("currency=", 1)[-1].split()[0]
         if sec_raw:
             raw = merge_quarterly_raw(sec_raw, raw)
-            has_known_currency = True
+            has_known_currency = has_known_currency or any(isinstance(value, pd.Series) for value in sec_raw.values())
             source = "sec_bulk_cache" if "bulk" in sec_note else "sec_companyfacts_live"
             for key in sec_raw:
                 sources[key] = source
-            if source == "sec_bulk_cache" and not force_live_sec and _needs_fmp_statement_data(raw):
+            sec_diagnostic = sec_raw.get("_sec_diagnostics") or {}
+            sec_forms = ([sec_diagnostic["latest_annual_form"]] if sec_diagnostic.get("latest_annual_form") else
+                         sec_diagnostic.get("forms_seen") or [])
+            if sec_forms:
+                from app.domain.stocks.instrument_type import classify_instrument
+                instrument_type = classify_instrument(sec_forms=sec_forms, previous_type=instrument_type)
+            if source == "sec_bulk_cache" and not force_live_sec and _needs_fmp_statement_data(raw, instrument_type):
                 try:
                     fetched_at = datetime.fromisoformat(str(bulk_status().get("fetched_at", "")))
                 except ValueError:
@@ -127,20 +157,33 @@ def fetch_fundamental_enrichment(
                         raw = merge_quarterly_raw(live_raw, raw)
                         for key in live_raw:
                             sources[key] = "sec_companyfacts_live"
-        if "live_rate_limited" in sec_note:
-            reason_code = "rate_limited"
+        if "live_rate_limited" in sec_note or "predecessor_rate_limited" in sec_note:
+            reason_code = "provider_rate_limited"
         elif "live_provider_error" in sec_note:
             reason_code = "provider_error"
         elif not sec_raw and "rate_limited" in sec_note:
-            reason_code = "rate_limited"
-        elif not sec_raw and "unsupported_taxonomy" in sec_note:
+            reason_code = "provider_rate_limited"
+        elif not sec_raw and any(marker in sec_note for marker in ("provider_error", "Timeout", "Verbindung", "Ungueltiges JSON")):
+            reason_code = "provider_error"
+        elif "unsupported_taxonomy" in sec_note:
             reason_code = "unsupported_taxonomy"
         elif not sec_raw:
             reason_code = "waiting_sec_data"
     elif not sec_user_agent:
         notes.append("SEC_USER_AGENT fehlt")
         reason_code = "waiting_sec_data"
-    if _needs_fmp_statement_data(raw):
+    sec_diagnostics = ((raw or {}).get("_sec_diagnostics") or
+                       (previous_metadata or {}).get("statement_diagnostics") or
+                       ((previous_metadata or {}).get("enrichment") or {}).get("statement_diagnostics") or {})
+    if sec_diagnostics.get("forms_seen"):
+        from app.domain.stocks.instrument_type import classify_instrument
+        classification_forms = ([sec_diagnostics["latest_annual_form"]] if sec_diagnostics.get("latest_annual_form") else
+                                sec_diagnostics["forms_seen"])
+        instrument_type = classify_instrument(sec_forms=classification_forms,
+                                              previous_type=instrument_type)
+    # A throttled SEC read says nothing about the existence of history. Wait
+    # for its cooldown rather than launching additional provider traffic.
+    if _needs_fmp_statement_data(raw, instrument_type) and reason_code != "provider_rate_limited" and allow_fallbacks:
         record_provider_event("fallback_used")
         fallback.append("yfinance")
         yf_raw, yf_note = fetch_yfinance_statement_history(clean)
@@ -159,14 +202,16 @@ def fetch_fundamental_enrichment(
         if yf_raw:
             for key in yf_raw:
                 sources.setdefault(key, "yfinance")
+        elif any(marker in yf_note.lower() for marker in ("429", "rate limit", "ratelimit")):
+            reason_code = "provider_rate_limited"
         elif not reason_code:
             reason_code = "waiting_yahoo_data"
 
-    if _needs_fmp_statement_data(raw) and fmp_api_key:
+    if _needs_fmp_statement_data(raw, instrument_type) and fmp_api_key and reason_code != "provider_rate_limited" and allow_fallbacks:
         record_provider_event("fallback_used")
         fallback.append("fmp")
         fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout, minimal=True,
-                                                needed_fields=_missing_fmp_fields(raw))
+                                                needed_fields=_missing_fmp_fields_for_type(raw, instrument_type))
         notes.append(fmp_note)
         fmp_currency = (fmp_raw or {}).get("_statement_currency")
         if fmp_raw and has_known_currency and fmp_currency != statement_currency:
@@ -182,10 +227,14 @@ def fetch_fundamental_enrichment(
         if fmp_raw:
             for key in fmp_raw:
                 sources.setdefault(key, "fmp")
-        elif "Rate Limited" in fmp_note:
-            reason_code = "rate_limited"
         else:
-            reason_code = "waiting_fmp_fallback"
+            if any(marker in fmp_note for marker in
+                   ("HTTP ", "Timeout", "Verbindung", "Ungueltiges JSON", "Zugriff verweigert")):
+                reason_code = "provider_error"
+            elif reason_code != "unsupported_taxonomy":
+                reason_code = "waiting_fmp_fallback"
+        if "Rate Limited" in fmp_note:
+            reason_code = "provider_rate_limited"
 
     enrichment = compute_fundamental_enrichment(clean, raw, notes=notes)
     metadata = {
@@ -199,11 +248,18 @@ def fetch_fundamental_enrichment(
         "fallbacks_used": fallback,
         "fmp_requests_used": current_provider_usage().get("fmp_requests", 0),
         "statement_currency": statement_currency,
+        "listing_date": enrichment.metadata.get("listing_date") or (previous_metadata or {}).get("listing_date") or
+                        ((previous_metadata or {}).get("enrichment") or {}).get("listing_date"),
         "source_priority": list(SOURCE_PRIORITY["statements"]),
+        "instrument_type": instrument_type,
+        "statement_diagnostics": sec_diagnostics,
+        "primary_cik": sec_diagnostics.get("primary_cik"),
+        "predecessor_ciks": sec_diagnostics.get("predecessor_ciks", []),
+        "sec_ciks": sec_diagnostics.get("sec_ciks", []),
         # A failed live check for a newly filed report must remain visible even
         # when the older cached history itself is complete.
-        "reason_code": reason_code if _needs_fmp_statement_data(raw) or (
-            force_live_sec and reason_code in {"rate_limited", "provider_error"}
+        "reason_code": reason_code if _needs_fmp_statement_data(raw, instrument_type) or (
+            force_live_sec and reason_code in {"provider_rate_limited", "provider_error"}
         ) else "",
     }
     return replace(enrichment, metadata=metadata)
@@ -295,7 +351,7 @@ def fetch_quarterly_fmp(
             errors.append(f"{label}: Keine verwertbaren Daten")
 
     if raw and any(isinstance(value, pd.Series) and not value.empty for value in raw.values()):
-        return raw, "FMP stable"
+        return raw, "FMP stable" + (" | Rate Limited" if any("Rate Limited" in error for error in errors) else "")
 
     return None, " | ".join(errors) if errors else "FMP: keine Quartalsdaten"
 
@@ -314,10 +370,17 @@ def fetch_quarterly_sec_companyfacts(
         return None, "SEC: kein User-Agent"
 
     try:
-        cik = _sec_cik_map(user_agent.strip(), timeout).get(clean, "")
+        mapped_cik = _sec_cik_map(user_agent.strip(), timeout).get(clean, "")
+        relation = SEC_SUCCESSORS.get(clean)
+        cik = relation["primary_cik"] if relation else mapped_cik
         if not cik:
             return None, "SEC: Ticker nicht im CIK-Universum"
-        facts_payload, source = load_companyfacts(cik, user_agent, timeout=timeout, force_live=force_live)
+        try:
+            facts_payload, source = load_companyfacts(cik, user_agent, timeout=timeout, force_live=force_live)
+        except requests.HTTPError as exc:
+            if not relation or getattr(exc.response, "status_code", None) != 404:
+                raise
+            facts_payload, source = {}, "successor_companyfacts_pending"
     except requests.exceptions.Timeout:
         return None, "SEC: Timeout"
     except requests.exceptions.ConnectionError as exc:
@@ -334,9 +397,98 @@ def fetch_quarterly_sec_companyfacts(
     if currency is None:
         return None, "SEC unsupported_taxonomy: widersprüchliche Währungseinheiten"
     raw = _raw_from_sec_facts(fact_data, currency=currency)
-    if not raw:
-        return None, "SEC unsupported_taxonomy: keine sicher zuordenbaren standardisierten Fakten"
-    return raw, f"SEC {source} currency={currency}"
+    diagnostics = _sec_fact_diagnostics(fact_data, raw, currency=currency)
+    predecessor_ciks: list[str] = []
+    predecessor_errors: list[str] = []
+    for previous_cik in (relation or {}).get("predecessor_ciks", []):
+        try:
+            previous_payload, _ = load_companyfacts(previous_cik, user_agent, timeout=timeout,
+                                                    force_live=False)
+            previous_facts = (previous_payload or {}).get("facts") or {}
+            if _sec_statement_currency(previous_facts) != currency:
+                predecessor_errors.append(f"{previous_cik}: currency mismatch")
+                continue
+            previous_raw = _raw_from_sec_facts(previous_facts, currency=currency)
+            if previous_raw:
+                raw = merge_quarterly_raw(raw, previous_raw) or raw
+                predecessor_ciks.append(previous_cik)
+                previous_diagnostics = _sec_fact_diagnostics(previous_facts, previous_raw, currency=currency)
+                diagnostics["forms_seen"] = sorted(set(diagnostics["forms_seen"]) | set(previous_diagnostics["forms_seen"]))
+                for field_name, concept_names in previous_diagnostics["relevant_xbrl_concepts"].items():
+                    diagnostics["relevant_xbrl_concepts"][field_name] = sorted(set(
+                        diagnostics["relevant_xbrl_concepts"].get(field_name, [])) | set(concept_names))
+                for key in ("eps_concept", "revenue_concept", "net_income_concept", "equity_concept"):
+                    diagnostics[key] = diagnostics.get(key) or previous_diagnostics.get(key)
+                if (previous_diagnostics.get("latest_annual_filed") or "") > (diagnostics.get("latest_annual_filed") or ""):
+                    diagnostics["latest_annual_form"] = previous_diagnostics["latest_annual_form"]
+                    diagnostics["latest_annual_filed"] = previous_diagnostics["latest_annual_filed"]
+            else:
+                predecessor_errors.append(f"{previous_cik}: no standardized facts")
+        except (SecRequestError, requests.RequestException, ValueError, RuntimeError) as exc:
+            predecessor_errors.append(f"{previous_cik}: {type(exc).__name__}")
+    diagnostics["quarterly_periods_found"] = {key: len(raw.get(key, [])) for key in ("DilutedEPS", "TotalRevenue")}
+    diagnostics["annual_periods_found"] = {key: len(raw.get(key, [])) for key in ("AnnualDilutedEPS", "AnnualTotalRevenue")}
+    diagnostics.update({"primary_cik": cik, "predecessor_ciks": predecessor_ciks,
+                        "sec_ciks": [cik, *predecessor_ciks],
+                        "candidate_predecessor_ciks": (relation or {}).get("predecessor_ciks", []),
+                        "predecessor_errors": predecessor_errors,
+                        "relationship_evidence": (relation or {}).get("evidence")})
+    raw["_sec_diagnostics"] = diagnostics
+    if not any(isinstance(value, pd.Series) and not value.empty for value in raw.values()):
+        return raw, "SEC unsupported_taxonomy: keine sicher zuordenbaren standardisierten Fakten"
+    suffix = " predecessor_rate_limited" if any("SecRequestError" in error for error in predecessor_errors) else ""
+    return raw, f"SEC {source} currency={currency}{suffix}"
+
+
+def _sec_fact_diagnostics(facts: dict[str, Any], raw: QuarterlyRaw, *, currency: str) -> dict:
+    forms: set[str] = set()
+    annual_forms: dict[str, str] = {}
+    units_seen: set[str] = set()
+    concepts_seen: dict[str, list[str]] = {}
+    used: dict[str, str] = {}
+    for field_name, by_taxonomy in SEC_CONCEPTS.items():
+        relevant: list[str] = []
+        for taxonomy, concepts in by_taxonomy.items():
+            namespace = facts.get(taxonomy) or {}
+            for concept, payload in namespace.items():
+                if field_name == "TotalRevenue" and not any(word in concept.lower() for word in ("revenue", "sales")):
+                    continue
+                if field_name == "DilutedEPS" and not any(word in concept.lower() for word in ("earningspershare", "pershare")):
+                    continue
+                if field_name not in {"TotalRevenue", "DilutedEPS"} and concept not in concepts:
+                    continue
+                units = payload.get("units") or {}
+                units_seen.update(units)
+                for rows in units.values():
+                    forms.update(str(item.get("form")) for item in rows if item.get("form") in SEC_FORMS)
+                    for item in rows:
+                        form_name = str(item.get("form") or "").removesuffix("/A")
+                        if form_name in {"10-K", "20-F", "40-F"} and item.get("filed"):
+                            annual_forms[form_name] = max(annual_forms.get(form_name, ""), str(item["filed"]))
+                relevant.append(f"{taxonomy}:{concept}")
+                if concept in concepts and field_name not in used:
+                    unit = [f"{currency}/shares"] if field_name == "DilutedEPS" else [currency]
+                    if field_name == "StockholdersEquity":
+                        valid = _extract_sec_point_series(namespace, concepts=[concept], unit_keys=unit)
+                    else:
+                        valid = _extract_sec_quarterly_series(namespace, concepts=[concept], unit_keys=unit,
+                                                              duration_min=60, duration_max=120)
+                        if valid is None:
+                            valid = _extract_sec_duration_series(namespace, concepts=[concept], unit_keys=unit,
+                                                                 duration_min=330, duration_max=380)
+                    if valid is not None:
+                        used[field_name] = f"{taxonomy}:{concept}"
+        concepts_seen[field_name] = sorted(set(relevant))
+    return {"relevant_xbrl_concepts": concepts_seen, "eps_concept": used.get("DilutedEPS"),
+            "revenue_concept": used.get("TotalRevenue"), "net_income_concept": used.get("NetIncome"),
+            "equity_concept": used.get("StockholdersEquity"),
+            "unit": currency if any(isinstance(value, pd.Series) and not value.empty for value in raw.values()) else None,
+            "units_seen": sorted(units_seen),
+            "quarterly_periods_found": {key: len(raw.get(key, [])) for key in ("DilutedEPS", "TotalRevenue")},
+            "annual_periods_found": {key: len(raw.get(key, [])) for key in ("AnnualDilutedEPS", "AnnualTotalRevenue")},
+            "forms_seen": sorted(forms),
+            "latest_annual_form": max(annual_forms, key=annual_forms.get) if annual_forms else None,
+            "latest_annual_filed": max(annual_forms.values()) if annual_forms else None}
 
 
 def _sec_statement_currency(facts_by_taxonomy: dict[str, Any]) -> str | None:
@@ -407,6 +559,9 @@ def fetch_yfinance_statement_history(ticker: str) -> tuple[QuarterlyRaw | None, 
                 currency = str((info or {}).get("financialCurrency") or "").upper()
                 if len(currency) == 3 and currency.isalpha():
                     raw["_statement_currency"] = currency
+                first_trade = (info or {}).get("firstTradeDateEpochUtc")
+                if isinstance(first_trade, (int, float)) and first_trade > 0:
+                    raw["_listing_date"] = datetime.fromtimestamp(first_trade, UTC).date().isoformat()
             except Exception:
                 pass
     except Exception as exc:
@@ -524,7 +679,7 @@ def compute_fundamental_enrichment(
             "ticker": ticker.upper(),
             "report_ends": {
                 key: str(pd.Timestamp(value.index.max()).date())
-                for key, value in raw.items() if key in {"DilutedEPS", "TotalRevenue"}
+                for key, value in raw.items() if key in {"DilutedEPS", "TotalRevenue", "AnnualDilutedEPS", "AnnualTotalRevenue"}
                 and isinstance(value, pd.Series) and not value.empty
             },
             "notes": notes,
@@ -550,6 +705,7 @@ def compute_fundamental_enrichment(
             "series_lengths": {
                 key: int(len(value)) for key, value in raw.items() if isinstance(value, pd.Series)
             },
+            "listing_date": raw.get("_listing_date"),
             "raw_series": {
                 key: {str(pd.Timestamp(index).date()): float(number) for index, number in value.items()}
                 for key, value in raw.items() if isinstance(value, pd.Series)
@@ -1292,8 +1448,15 @@ def _needs_yfinance_statement_history(raw: QuarterlyRaw | None) -> bool:
     )
 
 
-def _needs_fmp_statement_data(raw: QuarterlyRaw | None) -> bool:
-    return bool(_missing_fmp_fields(raw))
+def _needs_fmp_statement_data(raw: QuarterlyRaw | None, instrument_type: str = "unknown") -> bool:
+    return bool(_missing_fmp_fields_for_type(raw, instrument_type))
+
+
+def _missing_fmp_fields_for_type(raw: QuarterlyRaw | None, instrument_type: str) -> set[str]:
+    missing = _missing_fmp_fields(raw)
+    if instrument_type == "foreign_private_issuer":
+        return missing & {"AnnualDilutedEPS", "AnnualTotalRevenue"}
+    return missing
 
 
 def _missing_fmp_fields(raw: QuarterlyRaw | None) -> set[str]:

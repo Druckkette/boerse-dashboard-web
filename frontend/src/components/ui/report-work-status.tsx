@@ -21,8 +21,18 @@ const reasonLabels: Record<string, string> = {
   waiting_yahoo_data: "Yahoo-Daten fehlen vorübergehend",
   waiting_fmp_fallback: "optionaler FMP-Ersatz wird später erneut geprüft",
   unsupported_taxonomy: "kein sicher zuordenbarer SEC-Finanzwert",
-  missing_history: "für diese Prüfung fehlen noch frühere Daten",
+  missing_history: "ältere Prüfung ohne genaue Ursache; erneute Klassifizierung nötig",
+  actual_missing_history: "vergleichbare veröffentlichte Perioden fehlen tatsächlich",
+  insufficient_operating_history: "Unternehmen besitzt noch keine ausreichende veröffentlichte Historie",
+  foreign_filer_reporting_structure: "ausländischer Emittent ohne vergleichbare US-Quartalsstruktur; Jahresdaten werden weiter genutzt",
+  not_applicable_for_instrument_type: "Fundamentalkriterium für diesen Wertpapiertyp nicht anwendbar",
+  non_operating_security: "keine operative Unternehmensaktie",
+  spac_no_operating_history: "SPAC – operative Fundamentaldaten noch nicht sinnvoll verfügbar",
+  predecessor_cik_gap: "historische Daten des Vorgänger-CIK noch nicht vollständig ausgewertet",
+  predecessor_cik_history_merged: "Historie aus Vorgänger- und Nachfolger-CIK verbunden",
+  unknown_data_gap: "Ursache der Datenlücke wird untersucht",
   rate_limited: "Datenquelle hat das Abruflimit erreicht; Wiederholung geplant",
+  provider_rate_limited: "Datenquelle ist begrenzt; Abruf nach Cooldown geplant",
   provider_error: "Datenquelle vorübergehend nicht erreichbar",
 };
 
@@ -43,7 +53,7 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
       {data.due_count > 0 && data.oldest_due_at ? ` · älteste Fälligkeit: ${formatDate(data.oldest_due_at)}` : ""}
       {data.active.length ? ` · in Arbeit: ${data.active.map((item) => `${item.ticker} (${groupLabels[item.group] ?? item.group})`).join(", ")}` : " · aktuell kein Paket aktiv"}
     </p>
-    <p className="mt-1 text-xs text-[#687386]">{waiting.toLocaleString("de-DE")} Einträge mit unvollständiger Datenhistorie; {waitingDue.toLocaleString("de-DE")} davon jetzt zur erneuten Prüfung fällig. Nächster geplanter Termin: {formatDate(data.next_due_at)}.</p>
+    <p className="mt-1 text-xs text-[#687386]">{waiting.toLocaleString("de-DE")} offene Prüfaufträge; {waitingDue.toLocaleString("de-DE")} davon jetzt zur erneuten Prüfung fällig. Nächster geplanter Termin: {formatDate(data.next_due_at)}.</p>
     <p className="mt-1 text-xs text-[#687386]">Live-Stand: {formatDate(data.generated_at)} · Abrufzahlen zählen seit 00:00 UTC.</p>
     <a className="mt-2 inline-block rounded border border-[#cbd5e1] px-3 py-1.5 font-medium text-[#172033] hover:bg-[#f1f5f9]" href={api.reportMissingCsvUrl()} download="fehlende-berichtsdaten.csv">Fehlende Daten als CSV exportieren</a>
     <details className="mt-3"><summary className="cursor-pointer font-medium">Datenbereiche und Wartezustände erklären</summary>
@@ -60,6 +70,7 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
             <p className="mt-1 text-xs text-[#687386]">{checked.toLocaleString("de-DE")} verschiedene Prüfaufträge in den letzten 24 Stunden bearbeitet.</p>
             {count("waiting_source") > 0 && <p className="mt-1 text-amber-800">{count("waiting_source").toLocaleString("de-DE")} warten auf Daten: {missingExplanations[group] ?? "Quelldaten noch unvollständig"}.</p>}
             {items.filter((item) => item.status === "waiting_source" && item.reason_code && item.count).map((item) => <p key={item.reason_code} className="mt-1 text-xs text-amber-800">{item.count.toLocaleString("de-DE")}: {reasonLabels[item.reason_code] ?? item.reason_code}</p>)}
+            {items.filter((item) => item.status === "current" && item.reason_code && item.count).map((item) => <p key={`current-${item.reason_code}`} className="mt-1 text-xs text-[#687386]">{item.count.toLocaleString("de-DE")}: {reasonLabels[item.reason_code] ?? item.reason_code}</p>)}
             {count("error") > 0 && <p className="mt-1 text-red-700">{count("error").toLocaleString("de-DE")} Abruffehler, Wiederholung geplant.</p>}
             {count("running") > 0 && <p className="mt-1">{count("running").toLocaleString("de-DE")} in Bearbeitung.</p>}
             {next && <p className="mt-1 text-xs text-[#687386]">Nächster Termin: {formatDate(next)}</p>}
@@ -67,6 +78,7 @@ export function ReportWorkOverview({ data, compact = false }: { data: ReportWork
         })}
       </ul>
       <p className="mt-3 text-xs text-[#687386]">Externe Abrufe seit 00:00 UTC: SEC {data.provider_usage.sec_requests ?? 0}, Yahoo {data.provider_usage.yahoo_requests ?? 0}, FMP {data.provider_usage.fmp_requests ?? 0}. SEC-Archiv: {data.sec_bulk_cache.available ? `letzter erfolgreicher Download ${formatDate(data.sec_bulk_cache.fetched_at ?? null)}` : "noch nicht verfügbar"}. Geplanter Download täglich um 10:30 Uhr Berliner Zeit.</p>
+      <p className="mt-1 text-xs text-[#687386]">Durch Instrumententyp übersprungene potenzielle Abrufe: SEC {data.provider_usage.avoided_sec_requests ?? 0}, Yahoo {data.provider_usage.avoided_yahoo_fallbacks ?? 0}, FMP {data.provider_usage.avoided_fmp_fallbacks ?? 0}; übersprungene Ticker {data.provider_usage.instrument_type_skipped ?? 0}.</p>
       {archiveAgeHours !== null && archiveAgeHours > 30 && <p className="mt-1 text-xs text-amber-800">SEC-Archiv älter als 30 Stunden. Der vorhandene Cache bleibt nutzbar; geplanten Download und Worker-Logs prüfen.</p>}
     </details>
   </div>;
