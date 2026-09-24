@@ -202,6 +202,14 @@ worker after the first update, then watch `/api/v1/jobs/report-work` to verify t
 falls over time. A low due count means the worker has caught up with scheduled checks; it does
 not mean every ticker has complete statement history. Check `current` and `waiting_source`
 counts separately.
+The Jobs page offers **Fehlende Daten als CSV exportieren**. It lists every
+report-work ticker with a confirmed missing statement history, beta, or price
+coverage, including the field, available versus required periods/days, the
+provider reason, and the next check. Pending first checks are included only
+when their stored inputs are already incomplete. Provider counters on the page
+cover the current UTC day and show the live response time. The SEC archive date
+is the last successful download; the scheduler tries again daily at 10:30
+Europe/Berlin, keeping the previous valid archive if that download fails.
 When a price import supplies at least 50 usable trading days for an assessment,
 or at least 91 aligned stock/SPY days for a waiting beta, the price stage brings
 that report check forward. Other missing-source checks retain their backoff; a

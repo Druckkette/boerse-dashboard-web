@@ -81,11 +81,24 @@ def test_report_work_status_and_unavailable_database(monkeypatch):
     response = client.get("/api/v1/jobs/report-work")
     assert response.status_code == 200
     assert response.json()["due_count"] == 7
+    assert response.json()["generated_at"]
     assert response.json()["next_due_at"] is not None
     def fail():
         raise SQLAlchemyError("unavailable")
     monkeypatch.setattr(refresh_work, "summary", fail)
     assert client.get("/api/v1/jobs/report-work").status_code == 503
+
+
+def test_missing_report_data_download(monkeypatch):
+    from app.api.v1 import jobs as jobs_api
+    monkeypatch.setattr(jobs_api, "missing_report_csv", lambda: "\ufeffTicker;Warum\nTEST;Quartale fehlen\n")
+
+    response = client.get("/api/v1/jobs/report-work/missing.csv")
+
+    assert response.status_code == 200
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.content.startswith(b"\xef\xbb\xbf")
+    assert "TEST;Quartale fehlen" in response.text
 
 
 def test_jobs_cancel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:

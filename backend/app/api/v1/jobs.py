@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.schemas import (
     JobCancelResponse,
@@ -9,11 +9,12 @@ from app.schemas import (
 )
 from app.services.jobs import JobConflictError, _job_list_summary, cancel_job, get_job, list_jobs, start_job
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import UTC, datetime
 from sqlalchemy.exc import SQLAlchemyError
 from app.repositories import refresh_work
 from app.data_sources.provider_usage import usage_today
 from app.data_sources.sec_companyfacts_cache import bulk_status
+from app.services.report_missing_export import missing_report_csv
 
 
 router = APIRouter()
@@ -41,6 +42,7 @@ class ReportWorkActive(BaseModel):
 
 
 class ReportWorkStatus(BaseModel):
+    generated_at: datetime
     due_count: int
     oldest_due_at: datetime | None = None
     next_due_at: datetime | None = None
@@ -54,10 +56,23 @@ class ReportWorkStatus(BaseModel):
 def report_work_status() -> ReportWorkStatus:
     try:
         return ReportWorkStatus.model_validate({**refresh_work.summary(),
+                                                 "generated_at": datetime.now(UTC),
                                                  "provider_usage": usage_today(),
                                                  "sec_bulk_cache": bulk_status()})
     except SQLAlchemyError as exc:
         raise HTTPException(status_code=503, detail="Berichtswarteschlange nicht erreichbar. Migration und Datenbank pruefen.") from exc
+
+
+@router.get("/report-work/missing.csv")
+def export_missing_report_data() -> Response:
+    try:
+        content = missing_report_csv()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Fehlende Berichtsdaten derzeit nicht abrufbar.") from exc
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": 'attachment; filename="fehlende-berichtsdaten.csv"',
+        "Cache-Control": "no-store",
+    })
 
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
