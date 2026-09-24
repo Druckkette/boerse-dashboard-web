@@ -115,6 +115,8 @@ def history_gap_reason(metadata: dict, missing: list[str], provider_reason: str 
     kind = metadata.get("instrument_type", "unknown")
     if inapplicable_reason(kind):
         return inapplicable_reason(kind)
+    if not missing and metadata.get("predecessor_ciks"):
+        return "predecessor_cik_history_merged"
     if kind == "foreign_private_issuer" and any("quarter" in key for key in missing):
         return "foreign_filer_reporting_structure"
     diagnostics = metadata.get("statement_diagnostics") or {}
