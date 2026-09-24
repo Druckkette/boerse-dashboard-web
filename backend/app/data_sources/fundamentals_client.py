@@ -451,7 +451,7 @@ def _sec_fact_diagnostics(facts: dict[str, Any], raw: QuarterlyRaw, *, currency:
         for taxonomy, concepts in by_taxonomy.items():
             namespace = facts.get(taxonomy) or {}
             for concept, payload in namespace.items():
-                if field_name == "TotalRevenue" and not any(word in concept.lower() for word in ("revenue", "sales")):
+                if field_name == "TotalRevenue" and "revenue" not in concept.lower():
                     continue
                 if field_name == "DilutedEPS" and not any(word in concept.lower() for word in ("earningspershare", "pershare")):
                     continue
@@ -466,7 +466,7 @@ def _sec_fact_diagnostics(facts: dict[str, Any], raw: QuarterlyRaw, *, currency:
                         if form_name in {"10-K", "20-F", "40-F"} and item.get("filed"):
                             annual_forms[form_name] = max(annual_forms.get(form_name, ""), str(item["filed"]))
                 relevant.append(f"{taxonomy}:{concept}")
-                if concept in concepts and field_name not in used:
+                if concept in concepts:
                     unit = [f"{currency}/shares"] if field_name == "DilutedEPS" else [currency]
                     if field_name == "StockholdersEquity":
                         valid = _extract_sec_point_series(namespace, concepts=[concept], unit_keys=unit)
@@ -477,8 +477,15 @@ def _sec_fact_diagnostics(facts: dict[str, Any], raw: QuarterlyRaw, *, currency:
                             valid = _extract_sec_duration_series(namespace, concepts=[concept], unit_keys=unit,
                                                                  duration_min=330, duration_max=380)
                     if valid is not None:
-                        used[field_name] = f"{taxonomy}:{concept}"
+                        latest = str(pd.Timestamp(valid.index.max()).date())
+                        if latest > used.get(f"{field_name}_latest", ""):
+                            used[field_name] = f"{taxonomy}:{concept}"
+                            used[f"{field_name}_latest"] = latest
         concepts_seen[field_name] = sorted(set(relevant))
+    def latest_ends(keys: tuple[str, ...]) -> dict[str, str]:
+        return {key: str(pd.Timestamp(raw[key].index.max()).date()) for key in keys
+                if isinstance(raw.get(key), pd.Series) and not raw[key].empty}
+
     return {"relevant_xbrl_concepts": concepts_seen, "eps_concept": used.get("DilutedEPS"),
             "revenue_concept": used.get("TotalRevenue"), "net_income_concept": used.get("NetIncome"),
             "equity_concept": used.get("StockholdersEquity"),
@@ -486,6 +493,8 @@ def _sec_fact_diagnostics(facts: dict[str, Any], raw: QuarterlyRaw, *, currency:
             "units_seen": sorted(units_seen),
             "quarterly_periods_found": {key: len(raw.get(key, [])) for key in ("DilutedEPS", "TotalRevenue")},
             "annual_periods_found": {key: len(raw.get(key, [])) for key in ("AnnualDilutedEPS", "AnnualTotalRevenue")},
+            "quarterly_latest_end": latest_ends(("DilutedEPS", "TotalRevenue")),
+            "annual_latest_end": latest_ends(("AnnualDilutedEPS", "AnnualTotalRevenue")),
             "forms_seen": sorted(forms),
             "latest_annual_form": max(annual_forms, key=annual_forms.get) if annual_forms else None,
             "latest_annual_filed": max(annual_forms.values()) if annual_forms else None}
