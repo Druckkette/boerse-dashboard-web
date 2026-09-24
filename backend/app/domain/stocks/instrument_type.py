@@ -23,6 +23,7 @@ KNOWN_TICKER_TYPES = {
 
 def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", nextshares: str = "",
                         asset_class: str = "", security_type: str = "",
+                        sec_sic: str | int = "",
                         sec_forms: list[str] | None = None,
                         previous_type: str = "") -> str:
     forms = {str(form).upper().removesuffix("/A") for form in sec_forms or []}
@@ -40,6 +41,8 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
     ):
         if re.search(pattern, category + title):
             return kind
+    if str(sec_sic).strip() == "6770":
+        return "spac"
     if re.search(r"\b(closed.end|municipal (income|bond)|muni (income|bond)|investment fund|income fund|bond fund|mutual fund|fund\b(?!\s+(management|manager|services)))", category + title):
         return "closed_end_fund"
     if re.search(r"\b(investment trust|royalty trust|income trust|unit trust)\b", category + title):

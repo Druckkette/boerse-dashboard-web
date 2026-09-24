@@ -28,6 +28,7 @@ def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True
     kind = classify_instrument(ticker=clean, name=profile.get("name", ""), asset_class=profile.get("asset_class", ""),
                                etf=str((profile_metadata.get("nasdaq_listing") or {}).get("etf", "")),
                                nextshares=str((profile_metadata.get("nasdaq_listing") or {}).get("nextshares", "")),
+                               sec_sic=profile_metadata.get("sec_sic") or "",
                                sec_forms=profile_metadata.get("sec_forms"),
                                previous_type=profile_metadata.get("instrument_type", ""))
     if inapplicable_reason(kind):

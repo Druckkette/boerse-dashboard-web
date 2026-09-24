@@ -204,6 +204,7 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
             ticker=clean, name=profile.get("name", ""), asset_class=profile.get("asset_class", ""),
             etf=str((meta.get("nasdaq_listing") or {}).get("etf", "")),
             nextshares=str((meta.get("nasdaq_listing") or {}).get("nextshares", "")),
+            sec_sic=meta.get("sec_sic") or "",
             sec_forms=meta.get("sec_forms"), previous_type=meta.get("instrument_type", ""))
     institutional_context = _institutional_context(institutional_row)
     rs_context = _rs_context(rs_row)
@@ -587,6 +588,7 @@ def _load_assessment_inputs(
                 ticker=ticker, name=profile.get("name", ""), asset_class=profile.get("asset_class", ""),
                 etf=str((meta.get("nasdaq_listing") or {}).get("etf", "")),
                 nextshares=str((meta.get("nasdaq_listing") or {}).get("nextshares", "")),
+                sec_sic=meta.get("sec_sic") or "",
                 sec_forms=meta.get("sec_forms"), previous_type=meta.get("instrument_type", ""))
         results.append((ticker, rs_row, {
             "bars": bars_by_ticker.get(ticker, []),

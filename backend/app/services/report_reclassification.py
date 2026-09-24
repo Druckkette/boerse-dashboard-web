@@ -18,6 +18,40 @@ from app.services.report_refresh import history_gap_reason
 from app.data_sources.provider_usage import capture_provider_usage
 
 
+def verify_sec_sic(ticker: str) -> dict:
+    """Persist an official SEC SIC for a ticker with an already verified CIK."""
+    from app.core_config import get_settings
+    from app.data_sources.sec_request import sec_get
+    from app.services.settings import get_runtime_config_value
+
+    clean = ticker.strip().upper()
+    with SessionLocal() as db:
+        instrument = db.scalar(select(Instrument).where(Instrument.ticker == clean))
+        if instrument is None:
+            raise ValueError(f"Unknown ticker: {clean}")
+        metadata = instrument.metadata_json or {}
+        cik = str(metadata.get("primary_cik") or "").zfill(10)
+        if not cik.isdigit() or cik == "0000000000":
+            raise ValueError(f"No verified SEC CIK for {clean}")
+        agent = get_runtime_config_value("SEC_USER_AGENT") or get_settings().sec_user_agent
+        url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        response = sec_get(url, user_agent=agent, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        if str(payload.get("cik") or "").zfill(10) != cik:
+            raise ValueError(f"SEC CIK mismatch for {clean}")
+        sic = str(payload.get("sic") or "")
+        if not sic.isdigit():
+            raise ValueError(f"SEC SIC missing for {clean}")
+        instrument.metadata_json = {**metadata, "sec_sic": sic,
+                                    "sec_sic_description": payload.get("sicDescription") or "",
+                                    "sec_sic_cik": cik, "sec_sic_checked_at": datetime.now(UTC).isoformat(),
+                                    "sec_sic_evidence": url}
+        db.commit()
+    return {"ticker": clean, "primary_cik": cik, "sec_sic": sic,
+            "sic_description": payload.get("sicDescription") or "", "evidence": url}
+
+
 def _cached_sec_forms(facts: dict) -> tuple[list[str], str | None]:
     """Read filing forms from existing XBRL facts without requesting a company."""
     from app.data_sources.fundamentals_client import SEC_CONCEPTS, SEC_FORMS
@@ -92,6 +126,10 @@ def enrich_stored_instrument_evidence() -> dict:
                     counts["nasdaq_listings_found"] += 1
                 if archive and ticker in waiting and ticker in sec_map:
                     cik = SEC_SUCCESSORS.get(ticker, {}).get("primary_cik") or sec_map[ticker]
+                    if old.get("sec_sic_cik") and old["sec_sic_cik"] != cik:
+                        for key in ("sec_sic", "sec_sic_description", "sec_sic_cik",
+                                    "sec_sic_checked_at", "sec_sic_evidence"):
+                            new.pop(key, None)
                     try:
                         with archive.open(f"CIK{cik}.json") as source:
                             facts = (json.load(source).get("facts") or {})
@@ -151,12 +189,14 @@ def reclassify_batch(*, after_ticker: str = "", limit: int = 250) -> dict:
             kind = classify_instrument(ticker=ticker, name=instrument.name, asset_class=instrument.asset_class,
                                        etf=str(listing.get("etf") or ""),
                                        nextshares=str(listing.get("nextshares") or ""),
+                                       sec_sic=saved.get("sec_sic") or "",
                                        sec_forms=forms, previous_type=saved.get("instrument_type", ""))
             if kind == "unknown":
                 kind = metadata.get("instrument_type") or "unknown"
             if saved.get("instrument_type") != kind:
                 instrument.metadata_json = {**saved, "instrument_type": kind,
-                                            "classification_source": "backfill_existing_evidence",
+                                            "classification_source": ("sec_submissions" if saved.get("sec_sic") == "6770"
+                                                                      else "backfill_existing_evidence"),
                                             "sec_forms": forms}
                 counts["types_changed"] += 1
             if snapshot and metadata.get("instrument_type") != kind:

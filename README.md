@@ -276,6 +276,11 @@ one SEC ticker index, then inspects the existing local SEC Companyfacts archive;
 per-ticker SEC, Yahoo or FMP requests. Mature operating companies with complete annual data and missing quarterly data
 are queued for a separate SEC-only diagnosis. The report CSV keeps informational rows for funds,
 SPACs and foreign reporting structures, with their cause and next action.
+For ambiguous blank-check registrants, `verify_sec_sic(ticker)` in
+`app.services.report_reclassification` checks the already mapped CIK against
+official SEC submissions and persists SIC 6770 as SPAC evidence. Repeating
+that check after a corporate action can update the SIC without relying on a
+similar company name.
 
 The same jobs can still be started through `POST /api/v1/jobs` for automation, but manual NAS
 operation should use the dashboard.
