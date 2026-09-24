@@ -67,7 +67,7 @@ def verify_sec_sic(ticker: str) -> dict:
     return result
 
 
-def verify_suspected_fund_filings(*, limit: int = 100) -> dict:
+def verify_suspected_fund_filings(*, limit: int = 150) -> dict:
     """Check ambiguous, still-open fund-like rows against SEC submissions once.
 
     This narrow probe uses the SEC ticker index and registrant filings. A name
@@ -75,18 +75,20 @@ def verify_suspected_fund_filings(*, limit: int = 100) -> dict:
     Successful checks are timestamped so a rerun resumes with unchecked rows.
     """
     with SessionLocal() as db:
-        rows = db.execute(select(Instrument.ticker, Instrument.name, Instrument.metadata_json)
+        rows = db.execute(select(Instrument.ticker, Instrument.name, Instrument.metadata_json,
+                                 RefreshWorkItem.result_json)
                           .join(RefreshWorkItem, RefreshWorkItem.ticker == Instrument.ticker)
                           .where(RefreshWorkItem.data_group == "statements",
                                  RefreshWorkItem.status.in_(("waiting_source", "error", "queued")))
                           .order_by(Instrument.ticker)).all()
     candidates = []
-    for ticker, name, metadata in rows:
+    for ticker, name, metadata, result in rows:
         saved = metadata or {}
         if saved.get("sec_filing_checked_at") or inapplicable_reason(saved.get("instrument_type", "")):
             continue
         title = (name or "").lower()
-        if (re.search(r"\btrust\b|shares of beneficial", title) or
+        if ((result or {}).get("reason_code") == "provider_error" or
+                re.search(r"\btrust\b|shares of beneficial", title) or
                 title.startswith(("blackrock", "gabelli", "general american investors", "central securities"))):
             candidates.append(ticker)
     counts: Counter = Counter()
