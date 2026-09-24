@@ -258,6 +258,33 @@ def test_previous_snapshot_keeps_history_on_partial_provider(monkeypatch):
     assert len(merged.metadata_json["eps_quarter_history"]) == 2
 
 
+def test_sec_history_merge_removes_only_unmatched_gap_marker():
+    def point(period, current, previous=None):
+        return {"fiscal_period": period, "eps_current_quarter": current,
+                "eps_same_quarter_last_year": previous,
+                "flag": None if previous is not None else "missing_prior"}
+
+    old = FundamentalSnapshotWrite("NUE", date.today(), metadata_json={
+        "eps_quarter_history": [point("2026 Q3", 5.04, 2.6), point("2026 Q2", 3.23, 0.67),
+                                point("2026 Q1", 3.23), point("2025 Q4", 1.64, 1.22),
+                                point("2024 Q4", 1.22, 3.16)]})
+    new = FundamentalSnapshotWrite("NUE", date.today(), metadata_json={
+        "eps_quarter_history": [point("2026 Q3", 5.04, 2.6), point("2026 Q2", 3.23, 0.67),
+                                point("2025 Q4", 1.64, 1.22)],
+        "data_sources": {"eps": "sec_bulk_cache"},
+        "enrichment": {"raw_series": {"DilutedEPS": {
+            "2026-07-04": 5.04, "2026-04-04": 3.23, "2025-12-31": 1.64}}}})
+    merged = merge_snapshot_write(old, new).metadata_json
+    assert [item["fiscal_period"] for item in merged["eps_quarter_history"][:3]] == [
+        "2026 Q3", "2026 Q2", "2025 Q4"]
+    assert any(item["fiscal_period"] == "2024 Q4" for item in merged["eps_quarter_history"])
+    assert merged["history_merge_diagnostics"]["eps_quarter_history"]["discarded_unmatched_periods"] == ["2026 Q1"]
+
+    unverified = merge_snapshot_write(old, FundamentalSnapshotWrite(
+        "NUE", date.today(), metadata_json={**new.metadata_json, "data_sources": {"eps": "yfinance"}}))
+    assert unverified.metadata_json["eps_quarter_history"][2]["fiscal_period"] == "2026 Q1"
+
+
 def test_filing_rechecks_bulk_even_with_complete_local_history(monkeypatch):
     raw = _complete_raw()
     metadata = client.compute_fundamental_enrichment("TEST", raw).metadata

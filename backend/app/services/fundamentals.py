@@ -121,7 +121,8 @@ def merge_snapshot_write(previous, write: FundamentalSnapshotWrite) -> Fundament
             continue
         if values[key] is None or values[key] == "":
             values[key] = getattr(previous, key)
-    metadata = {**(previous.metadata_json or {}), **(values["metadata_json"] or {})}
+    fresh_metadata = values["metadata_json"] or {}
+    metadata = {**(previous.metadata_json or {}), **fresh_metadata}
     metadata["data_sources"] = {
         **((previous.metadata_json or {}).get("data_sources") or {}),
         **{key: value for key, value in (metadata.get("data_sources") or {}).items() if value},
@@ -130,6 +131,13 @@ def merge_snapshot_write(previous, write: FundamentalSnapshotWrite) -> Fundament
                 "annual_revenue_history", "roe_history"):
         old = (previous.metadata_json or {}).get(key) or []
         new = metadata.get(key) or []
+        if key in {"eps_quarter_history", "revenue_quarter_history"}:
+            old, discarded = _discard_unmatched_sec_placeholders(old, new, key, fresh_metadata)
+            if discarded:
+                metadata["history_merge_diagnostics"] = {
+                    **(metadata.get("history_merge_diagnostics") or {}),
+                    key: {"discarded_unmatched_periods": discarded, "basis": "sec_raw_series"},
+                }
         rows = {}
         for item in [*old, *new]:
             label = item.get("fiscal_period") or item.get("fiscal_year")
@@ -141,6 +149,42 @@ def merge_snapshot_write(previous, write: FundamentalSnapshotWrite) -> Fundament
         metadata[key] = [rows[label] for label in sorted(rows, reverse=True)]
     values["metadata_json"] = metadata
     return FundamentalSnapshotWrite(**values)
+
+
+def _discard_unmatched_sec_placeholders(old: list, new: list, key: str, fresh: dict) -> tuple[list, list[str]]:
+    """Remove stale gap markers only when a newer complete SEC series disproves them."""
+    metric = "eps" if key == "eps_quarter_history" else "revenue"
+    raw_key = "DilutedEPS" if metric == "eps" else "TotalRevenue"
+    source = (fresh.get("data_sources") or {}).get(metric)
+    raw = ((fresh.get("enrichment") or {}).get("raw_series") or {}).get(raw_key) or {}
+    if (source not in {"sec_bulk_cache", "sec_companyfacts_live"} or not isinstance(raw, dict) or
+            not old or len(new) < 3 or fundamentals_repository._usable_history_count(new) < 3):
+        return old, []
+    labels = [item.get("fiscal_period") for item in new[:3]]
+    if not all(isinstance(label, str) for label in labels) or len(set(labels)) < 3:
+        return old, []
+    old_latest = old[0].get("fiscal_period") if isinstance(old[0], dict) else None
+    if old_latest and labels[0] < old_latest:
+        return old, []
+    verified_periods: set[str] = set()
+    for end in raw:
+        try:
+            stamp = date.fromisoformat(str(end))
+        except ValueError:
+            continue
+        verified_periods.add(f"{stamp.year} Q{(stamp.month - 1) // 3 + 1}")
+    if not verified_periods:
+        return old, []
+    keep = []
+    discarded = []
+    for item in old:
+        label = item.get("fiscal_period") if isinstance(item, dict) else None
+        if (label and labels[2] <= label <= labels[0] and label not in verified_periods and
+                item.get("flag") == "missing_prior"):
+            discarded.append(label)
+        else:
+            keep.append(item)
+    return keep, discarded
 
 
 def _to_write(fetched: FetchedFundamentals, enrichment: FundamentalEnrichment) -> FundamentalSnapshotWrite:
