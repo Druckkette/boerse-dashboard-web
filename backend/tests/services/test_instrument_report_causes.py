@@ -138,6 +138,20 @@ def test_complete_xom_predecessor_history_keeps_its_positive_cause():
     assert report_refresh.history_gap_reason(metadata, [], "unknown_data_gap") == "predecessor_cik_history_merged"
     assert report_refresh.history_gap_reason(metadata, ["eps_quarter_history"]) != "predecessor_cik_history_merged"
 
+
+def test_reclassification_clears_only_stale_complete_operating_causes():
+    row = SimpleNamespace(status="current", result_json={"reason_code": "unknown_data_gap",
+                        "provider_usage": {"cache_hits": 1}}, error="")
+    normalize = report_reclassification._normalize_complete_current_row
+    assert normalize(row, "operating_company", [], {})
+    assert row.result_json["reason_code"] == ""
+    assert row.result_json["provider_usage"] == {"cache_hits": 1}
+    assert normalize(row, "operating_company", [], {})
+    assert row.result_json["reason_code"] == ""
+    assert not normalize(row, "operating_company", ["eps_quarter_history"], {})
+    assert not normalize(row, "foreign_private_issuer", [], {})
+    assert not normalize(row, "operating_company", [], {"predecessor_ciks": ["0000034088"]})
+
 def test_non_operating_report_skips_all_statement_providers(monkeypatch):
     previous = FundamentalSnapshotWrite("EVF", date.today(), metadata_json={})
     writes = []
