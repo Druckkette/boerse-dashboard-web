@@ -231,7 +231,7 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
         statements_only=True,
         previous_metadata={**previous_metadata, "instrument_type": kind},
         force_live_sec=filing_needs_live_sec(payload),
-        refresh_sec=bool(payload.get("filing")),
+        refresh_sec=bool(payload.get("filing") or payload.get("diagnostic_only")),
         allow_fallbacks=not bool(payload.get("diagnostic_only")),
     )
     histories = {key: getattr(enrichment, key) for key in HISTORIES}

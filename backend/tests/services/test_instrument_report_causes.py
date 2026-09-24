@@ -123,6 +123,42 @@ def test_complete_foreign_annual_snapshot_preserves_sec_provenance_without_fallb
     assert result.metadata["fallbacks_used"] == []
 
 
+def test_diagnostic_only_rechecks_sec_even_with_complete_local_raw(monkeypatch):
+    quarter = pd.Series({pd.Timestamp(f"{year}-{month:02d}-28"): 2.0
+                         for year in range(2021, 2026) for month in (3, 6, 9, 12)})
+    annual = pd.Series({pd.Timestamp(f"{year}-12-31"): 8.0 for year in range(2021, 2026)})
+    saved = client.compute_fundamental_enrichment("TEST", {
+        "DilutedEPS": quarter, "TotalRevenue": quarter * 100,
+        "AnnualDilutedEPS": annual, "AnnualTotalRevenue": annual * 100,
+        "NetIncome": quarter * 1000, "AnnualStockholdersEquity": annual * 10000,
+    }).metadata
+    calls = []
+    monkeypatch.setattr(client, "fetch_quarterly_sec_companyfacts", lambda *a, **k: (
+        calls.append(k) or {"DilutedEPS": quarter}, "SEC sec_bulk_cache currency=USD"))
+    monkeypatch.setattr(client, "fetch_yfinance_statement_history", lambda *a: pytest.fail("Yahoo called"))
+    monkeypatch.setattr(client, "fetch_quarterly_fmp", lambda *a, **k: pytest.fail("FMP called"))
+    client.fetch_fundamental_enrichment("TEST", sec_user_agent="agent", fmp_api_key="key",
+                                        previous_metadata={"enrichment": saved},
+                                        refresh_sec=True, allow_fallbacks=False)
+    assert len(calls) == 1
+
+
+def test_report_diagnostic_only_requests_sec_and_disables_fallbacks(monkeypatch):
+    previous = FundamentalSnapshotWrite("TEST", date.today(), metadata_json={"instrument_type": "operating_company"})
+    captured = {}
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: previous)
+    monkeypatch.setattr(report_refresh.fundamentals, "get_instrument_profile", lambda ticker: {})
+
+    def fetch(*_args, **kwargs):
+        captured.update(kwargs)
+        return client.FundamentalEnrichment(metadata={"reason_code": "waiting_sec_data"})
+
+    monkeypatch.setattr(report_refresh, "fetch_fundamental_enrichment", fetch)
+    report_refresh.refresh_report_group("TEST", "statements", {"diagnostic_only": True})
+    assert captured["refresh_sec"] is True
+    assert captured["allow_fallbacks"] is False
+
+
 def test_young_issuer_and_rate_limit_have_separate_causes():
     metadata = {"instrument_type": "operating_company", "listing_date": "2025-01-01",
         "statement_diagnostics": {"forms_seen": ["10-Q", "10-K"]},
