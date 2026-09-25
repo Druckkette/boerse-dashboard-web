@@ -434,7 +434,7 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
         ("NETWORK", "Computer – Networking", "Technology", "Hardware", 0.90, ("networking equipment", "communications equipment")),
         ("HARDWARE", "Computer – Hardware", "Technology", "Hardware", 0.86, ("computer hardware", "computer storage device", "electronic computers")),
         ("ELECCOMP", "Electronics – Components", "Technology", "Electronics", 0.87, ("electronic components",)),
-        ("PAYMENTS", "Finance – Payments", "Financials", "Financial Services", 0.91, ("payment processing", "transaction processing")),
+        ("PAYPROC", "Finance – Payments & Transaction Processing", "Financials", "Financial Services", 0.94, ("payment processing", "transaction processing")),
         ("CREDIT", "Finance – Consumer Credit", "Financials", "Financial Services", 0.88, ("consumer lending", "personal credit")),
         ("HOTEL", "Leisure – Hotels & Resorts", "Consumer Discretionary", "Leisure", 0.91, ("hotel", "resort")),
         ("CASINO", "Leisure – Casinos & Gambling", "Consumer Discretionary", "Leisure", 0.92, ("casino", "gambling")),
