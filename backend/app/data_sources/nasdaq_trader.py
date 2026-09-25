@@ -45,7 +45,7 @@ def fetch_us_common_stock_universe(*, timeout: int = 30) -> UniverseFetchResult:
             "nasdaq_source_url": nasdaq_source,
             "nyse_source_url": nyse_source,
         },
-        instruments={**_listing_details(nasdaq_text, "symbol"),
+        instruments={**_listing_details(nasdaq_text, "symbol", default_exchange="NASDAQ"),
                      **_listing_details(nyse_text, "cqs symbol", "nasdaq symbol", "act symbol")},
     )
 
@@ -128,7 +128,7 @@ def _fetch_first_working(urls: list[str], parser, timeout: int) -> tuple[list[st
     return best
 
 
-def _listing_details(text: str, *symbol_columns: str) -> dict[str, dict]:
+def _listing_details(text: str, *symbol_columns: str, default_exchange: str = "") -> dict[str, dict]:
     from app.domain.stocks.instrument_type import classify_instrument
 
     frame = _read_pipe_table(text)
@@ -145,7 +145,9 @@ def _listing_details(text: str, *symbol_columns: str) -> dict[str, dict]:
         name = str(row.get(columns.get("security name", ""), "") or "")
         etf = str(row.get(columns.get("etf", ""), "") or "")
         nextshares = str(row.get(columns.get("nextshares", ""), "") or "")
-        details[clean[0]] = {"name": name, "etf": etf, "nextshares": nextshares,
+        exchange_code = str(row.get(columns.get("exchange", ""), "") or "").strip().upper()
+        exchange = default_exchange or {"A": "NYSE American", "N": "NYSE", "P": "NYSE Arca", "Z": "Cboe BZX"}.get(exchange_code, exchange_code)
+        details[clean[0]] = {"name": name, "etf": etf, "nextshares": nextshares, "exchange": exchange,
                              "instrument_type": classify_instrument(ticker=clean[0], name=name, etf=etf, nextshares=nextshares),
                              "classification_source": "nasdaq_trader"}
     return details
