@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app.data_sources.nasdaq_trader import parse_nasdaq_listed_text, parse_otherlisted_text
+from app.domain.stocks.instrument_type import classify_instrument
 from app.repositories import universes as universe_repository
 from app.services.universes import get_universe_symbol_mappings, resolve_universe_price_symbols
 
@@ -18,6 +19,8 @@ def test_parse_nasdaq_listed_filters_non_common_rows() -> None:
             "AAPL|Apple Inc. - Common Stock|Q|N|N|100|N|N",
             "TQQQ|ProShares UltraPro QQQ|G|N|N|100|Y|N",
             "BADW|Bad Co Warrant|S|N|N|100|N|N",
+            "PREF|Example Corp 6.5% Preference Shares|S|N|N|100|N|N",
+            "CAPT|Example Capital Trust I|S|N|N|100|N|N",
             "File Creation Time: 06122026|||||||",
         ]
     )
@@ -32,11 +35,27 @@ def test_parse_otherlisted_filters_etfs_and_normalizes_symbols() -> None:
             "BRK.B|Berkshire Hathaway Inc. Class B|N|BRK.B|N|100|N|BRK.B",
             "SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY",
             "XYZ.W|XYZ Warrants|N|XYZ.W|N|100|N|XYZ.W",
+            "MSPA|Morgan Stanley Dep Shs repstg 1/1000 Pfd Ser A|N|MSPA|N|100|N|MSPA",
             "File Creation Time: 06122026|||||||",
         ]
     )
 
     assert parse_otherlisted_text(text) == ["BRK-B"]
+
+
+def test_instrument_type_detects_abbreviated_preferred_and_structured_names() -> None:
+    assert classify_instrument(
+        ticker="BACPL",
+        name="Bank of America Corporation Non Cumulative Perpetual Conv Pfd Ser L",
+    ) == "preferred_stock"
+    assert classify_instrument(
+        ticker="MSPA",
+        name="Morgan Stanley Dep Shs repstg 1/1000 Pfd Ser A",
+    ) == "preferred_stock"
+    assert classify_instrument(
+        ticker="DDT",
+        name="Dillard's Capital Trust I",
+    ) == "structured_security"
 
 
 def test_universe_mapping_review_counts_manual_overrides(monkeypatch) -> None:
@@ -123,13 +142,15 @@ def test_resolve_universe_price_symbols_uses_yahoo_aliases(monkeypatch) -> None:
         universe_repository,
         "list_resolved_universe_symbols",
         lambda key, limit: [
-            universe_repository.ResolvedUniverseSymbolRow(
+            universe_repository.ResolvedUniverseSymbolMappingRow(
+                universe_key=key,
                 source_ticker="BRK-B",
                 yahoo_symbol="BRK-B",
                 status="active",
                 source="manual",
             ),
-            universe_repository.ResolvedUniverseSymbolRow(
+            universe_repository.ResolvedUniverseSymbolMappingRow(
+                universe_key=key,
                 source_ticker="AAPL",
                 yahoo_symbol="AAPL",
                 status="unmapped",
