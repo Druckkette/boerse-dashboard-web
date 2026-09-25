@@ -265,14 +265,6 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
             rule_name="canonical_provider_industry",
         )
 
-    sic_match = _SIC_RULES.get(sic_code)
-    if sic_match is not None:
-        return _rule_from_tuple(
-            sic_match,
-            default_sector=features.sector,
-            rule_name=f"sic_{sic_code}",
-        )
-
     hay = " | ".join((industry, sic_description, name))
     rules: list[tuple[str, str, str, str, float, tuple[str, ...]]] = [
         ("SEMIFAB", "Semiconductor – Fabless", "Technology", "Semiconductors", 0.94, ("fabless", "semiconductor design", "integrated circuits design")),
@@ -342,6 +334,14 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
     for code, group, default_sector, family, confidence, patterns in rules:
         if any(pattern in hay for pattern in patterns):
             return RuleMatch(code, group, default_sector, family, confidence, code.lower())
+
+    sic_match = _SIC_RULES.get(sic_code)
+    if sic_match is not None:
+        return _rule_from_tuple(
+            sic_match,
+            default_sector=features.sector,
+            rule_name=f"sic_{sic_code}",
+        )
     return None
 
 
