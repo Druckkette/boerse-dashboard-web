@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import (
@@ -32,7 +32,23 @@ class InstrumentClassificationRow:
     metadata_json: dict
 
 
+@dataclass(frozen=True)
+class MembershipState:
+    instrument_id: str
+    ticker: str
+    status: str
+    classification_fingerprint: str
+    assignment_version: str
+    is_manual_override: bool
+
+
 def list_universe_instruments(key: str = "us_common_stocks") -> list[InstrumentClassificationRow]:
+    """Load the authoritative persisted universe membership in one query.
+
+    Industry-group classification deliberately uses UniverseMember for
+    us_common_stocks as its source of truth. External RS CSVs may enrich
+    market/ranking data later but must never create a competing stock universe.
+    """
     try:
         with SessionLocal() as db:
             universe = db.scalar(select(Universe).where(Universe.key == key))
@@ -63,165 +79,169 @@ def list_universe_instruments(key: str = "us_common_stocks") -> list[InstrumentC
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
-def get_membership_map() -> dict[str, IndustryGroupMembership]:
+def get_membership_map(instrument_ids: list[str] | None = None) -> dict[str, MembershipState]:
     try:
         with SessionLocal() as db:
-            rows = db.scalars(select(IndustryGroupMembership)).all()
-            return {row.ticker.upper(): row for row in rows}
+            stmt = select(IndustryGroupMembership)
+            if instrument_ids:
+                stmt = stmt.where(IndustryGroupMembership.instrument_id.in_(instrument_ids))
+            rows = db.scalars(stmt).all()
+            return {
+                row.ticker.upper(): MembershipState(
+                    instrument_id=row.instrument_id,
+                    ticker=row.ticker,
+                    status=row.status,
+                    classification_fingerprint=row.classification_fingerprint or "",
+                    assignment_version=row.assignment_version or "",
+                    is_manual_override=bool(row.is_manual_override),
+                )
+                for row in rows
+            }
     except SQLAlchemyError as exc:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
-def get_or_create_group(
-    *,
-    group_code: str,
-    name: str,
-    sector: str,
-    industry_family: str,
-    taxonomy_version: str,
-    description: str = "",
-) -> str:
+def load_exact_industry_rule_map(taxonomy_version: str) -> dict[str, dict]:
+    """Load all exact provider-industry mappings once for in-memory matching."""
     try:
         with SessionLocal() as db:
-            row = db.scalar(
-                select(IndustryGroup).where(
+            rows = db.execute(
+                select(IndustryGroupRule, IndustryGroup)
+                .join(IndustryGroup, IndustryGroup.id == IndustryGroupRule.target_group_id)
+                .where(
+                    IndustryGroupRule.taxonomy_version == taxonomy_version,
+                    IndustryGroupRule.active.is_(True),
+                    IndustryGroupRule.source == "provider_industry_exact",
                     IndustryGroup.taxonomy_version == taxonomy_version,
-                    IndustryGroup.group_code == group_code,
+                    IndustryGroup.active.is_(True),
                 )
-            )
-            if row is None:
-                row = IndustryGroup(
-                    group_code=group_code,
-                    name=name,
-                    sector=sector,
-                    industry_family=industry_family,
-                    description=description,
-                    taxonomy_version=taxonomy_version,
-                    active=True,
-                )
-                db.add(row)
-            else:
-                row.name = name
-                row.sector = sector
-                row.industry_family = industry_family
-                row.description = description or row.description
-                row.active = True
-            db.commit()
-            db.refresh(row)
-            return row.id
+            ).all()
+            result: dict[str, dict] = {}
+            for rule, group in rows:
+                normalized = str((rule.metadata_json or {}).get("normalized_industry") or "").strip()
+                if normalized:
+                    result[normalized] = {
+                        "group_code": group.group_code,
+                        "group_name": group.name,
+                        "sector": group.sector,
+                        "industry_family": group.industry_family,
+                        "confidence": float(rule.confidence),
+                    }
+            return result
     except SQLAlchemyError as exc:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
-def upsert_exact_industry_rule(
+def persist_classification_batch(
     *,
-    normalized_industry: str,
-    group_id: str,
-    confidence: float,
     taxonomy_version: str,
+    group_definitions: dict[str, dict],
+    exact_industry_rules: dict[str, dict],
+    memberships: list[dict],
 ) -> None:
-    if not normalized_industry:
+    """Persist groups, derived rules and memberships in one transaction."""
+    if not memberships and not group_definitions and not exact_industry_rules:
         return
     try:
         with SessionLocal() as db:
-            rows = db.scalars(
+            group_codes = list(group_definitions)
+            existing_groups = (
+                db.scalars(
+                    select(IndustryGroup).where(
+                        IndustryGroup.taxonomy_version == taxonomy_version,
+                        IndustryGroup.group_code.in_(group_codes),
+                    )
+                ).all()
+                if group_codes
+                else []
+            )
+            groups_by_code = {group.group_code: group for group in existing_groups}
+
+            for code, definition in group_definitions.items():
+                group = groups_by_code.get(code)
+                if group is None:
+                    group = IndustryGroup(group_code=code, taxonomy_version=taxonomy_version)
+                    db.add(group)
+                    groups_by_code[code] = group
+                group.name = str(definition.get("name") or code)[:160]
+                group.sector = str(definition.get("sector") or "")[:128]
+                group.industry_family = str(definition.get("industry_family") or "")[:128]
+                group.description = str(definition.get("description") or "")
+                group.active = True
+            db.flush()
+
+            existing_rules = db.scalars(
                 select(IndustryGroupRule).where(
                     IndustryGroupRule.taxonomy_version == taxonomy_version,
-                    IndustryGroupRule.active.is_(True),
                     IndustryGroupRule.source == "provider_industry_exact",
                 )
             ).all()
-            for row in rows:
-                if (row.metadata_json or {}).get("normalized_industry") == normalized_industry:
-                    row.target_group_id = group_id
-                    row.confidence = confidence
-                    db.commit()
-                    return
-            db.add(
-                IndustryGroupRule(
-                    priority=500,
-                    target_group_id=group_id,
-                    confidence=confidence,
-                    source="provider_industry_exact",
-                    active=True,
-                    taxonomy_version=taxonomy_version,
-                    metadata_json={"normalized_industry": normalized_industry},
-                )
+            rules_by_industry = {
+                str((rule.metadata_json or {}).get("normalized_industry") or ""): rule
+                for rule in existing_rules
+                if (rule.metadata_json or {}).get("normalized_industry")
+            }
+            for normalized, definition in exact_industry_rules.items():
+                group = groups_by_code.get(str(definition.get("group_code") or ""))
+                if group is None:
+                    continue
+                rule = rules_by_industry.get(normalized)
+                if rule is None:
+                    rule = IndustryGroupRule(
+                        priority=500,
+                        source="provider_industry_exact",
+                        taxonomy_version=taxonomy_version,
+                        metadata_json={"normalized_industry": normalized},
+                    )
+                    db.add(rule)
+                    rules_by_industry[normalized] = rule
+                rule.target_group_id = group.id
+                rule.confidence = float(definition.get("confidence") or 0.78)
+                rule.active = True
+
+            instrument_ids = [str(item["instrument_id"]) for item in memberships]
+            existing_memberships = (
+                db.scalars(
+                    select(IndustryGroupMembership).where(
+                        IndustryGroupMembership.instrument_id.in_(instrument_ids)
+                    )
+                ).all()
+                if instrument_ids
+                else []
             )
-            db.commit()
-    except SQLAlchemyError as exc:
-        raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
+            memberships_by_instrument = {
+                row.instrument_id: row for row in existing_memberships
+            }
+            now = datetime.now(UTC)
 
+            for item in memberships:
+                instrument_id = str(item["instrument_id"])
+                row = memberships_by_instrument.get(instrument_id)
+                if row is not None and row.is_manual_override:
+                    row.last_verified_at = now
+                    continue
+                if row is None:
+                    row = IndustryGroupMembership(
+                        instrument_id=instrument_id,
+                        ticker=str(item["ticker"]),
+                    )
+                    db.add(row)
+                    memberships_by_instrument[instrument_id] = row
 
-def exact_industry_rule(normalized_industry: str, taxonomy_version: str) -> tuple[str, float] | None:
-    if not normalized_industry:
-        return None
-    try:
-        with SessionLocal() as db:
-            rows = db.scalars(
-                select(IndustryGroupRule).where(
-                    IndustryGroupRule.taxonomy_version == taxonomy_version,
-                    IndustryGroupRule.active.is_(True),
-                    IndustryGroupRule.source == "provider_industry_exact",
-                )
-            ).all()
-            for row in rows:
-                if (row.metadata_json or {}).get("normalized_industry") == normalized_industry:
-                    return row.target_group_id, float(row.confidence)
-            return None
-    except SQLAlchemyError as exc:
-        raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
-
-
-def group_by_id(group_id: str) -> IndustryGroup | None:
-    try:
-        with SessionLocal() as db:
-            return db.get(IndustryGroup, group_id)
-    except SQLAlchemyError as exc:
-        raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
-
-
-def upsert_membership(
-    *,
-    instrument_id: str,
-    ticker: str,
-    industry_group_id: str | None,
-    status: str,
-    classification_source: str,
-    classification_confidence: float | None,
-    classification_fingerprint: str,
-    sector_snapshot: str,
-    industry_snapshot: str,
-    sic_snapshot: str,
-    assignment_version: str,
-    explanation_json: dict,
-) -> None:
-    try:
-        with SessionLocal() as db:
-            row = db.scalar(
-                select(IndustryGroupMembership).where(
-                    IndustryGroupMembership.instrument_id == instrument_id
-                )
-            )
-            if row is not None and row.is_manual_override:
-                row.last_verified_at = datetime.now(UTC)
-                db.commit()
-                return
-            if row is None:
-                row = IndustryGroupMembership(instrument_id=instrument_id, ticker=ticker)
-                db.add(row)
-            row.ticker = ticker
-            row.industry_group_id = industry_group_id
-            row.status = status
-            row.classification_source = classification_source
-            row.classification_confidence = classification_confidence
-            row.classification_fingerprint = classification_fingerprint
-            row.sector_snapshot = sector_snapshot
-            row.industry_snapshot = industry_snapshot
-            row.sic_snapshot = sic_snapshot
-            row.assignment_version = assignment_version
-            row.explanation_json = explanation_json
-            row.last_verified_at = datetime.now(UTC)
+                group_code = str(item.get("group_code") or "")
+                group = groups_by_code.get(group_code) if group_code else None
+                row.ticker = str(item["ticker"])
+                row.industry_group_id = group.id if group else None
+                row.status = str(item["status"])
+                row.classification_source = str(item.get("classification_source") or "")
+                row.classification_confidence = item.get("classification_confidence")
+                row.classification_fingerprint = str(item.get("classification_fingerprint") or "")
+                row.sector_snapshot = str(item.get("sector_snapshot") or "")[:128]
+                row.industry_snapshot = str(item.get("industry_snapshot") or "")[:160]
+                row.sic_snapshot = str(item.get("sic_snapshot") or "")[:32]
+                row.assignment_version = taxonomy_version
+                row.explanation_json = item.get("explanation_json") or {}
+                row.last_verified_at = now
             db.commit()
     except SQLAlchemyError as exc:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
@@ -237,7 +257,11 @@ def set_manual_override(*, ticker: str, group_id: str, reason: str, taxonomy_ver
             group = db.get(IndustryGroup, group_id)
             if group is None or group.taxonomy_version != taxonomy_version:
                 raise ValueError("Unknown industry group for active taxonomy")
-            row = db.scalar(select(IndustryGroupMembership).where(IndustryGroupMembership.instrument_id == instrument.id))
+            row = db.scalar(
+                select(IndustryGroupMembership).where(
+                    IndustryGroupMembership.instrument_id == instrument.id
+                )
+            )
             if row is None:
                 row = IndustryGroupMembership(instrument_id=instrument.id, ticker=clean)
                 db.add(row)
@@ -255,56 +279,94 @@ def set_manual_override(*, ticker: str, group_id: str, reason: str, taxonomy_ver
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
+def universe_diagnostics(instrument_ids: list[str], taxonomy_version: str) -> dict:
+    if not instrument_ids:
+        return {
+            "number_of_groups": 0,
+            "classified": 0,
+            "needs_review": 0,
+            "excluded": 0,
+            "high_confidence": 0,
+            "medium_confidence": 0,
+            "groups": [],
+        }
+    try:
+        with SessionLocal() as db:
+            rows = db.execute(
+                select(IndustryGroupMembership, IndustryGroup)
+                .outerjoin(IndustryGroup, IndustryGroup.id == IndustryGroupMembership.industry_group_id)
+                .where(
+                    IndustryGroupMembership.instrument_id.in_(instrument_ids),
+                    IndustryGroupMembership.assignment_version == taxonomy_version,
+                )
+            ).all()
+            counts: dict[str, dict] = {}
+            for membership, group in rows:
+                if group is None:
+                    continue
+                current = counts.setdefault(
+                    group.id,
+                    {
+                        "id": group.id,
+                        "group_code": group.group_code,
+                        "name": group.name,
+                        "sector": group.sector,
+                        "industry_family": group.industry_family,
+                        "member_count": 0,
+                    },
+                )
+                current["member_count"] += 1
+            groups = sorted(
+                counts.values(),
+                key=lambda item: (-item["member_count"], item["name"]),
+            )
+            return {
+                "number_of_groups": len(groups),
+                "classified": sum(m.status == "classified" for m, _ in rows),
+                "needs_review": sum(m.status == "needs_review" for m, _ in rows),
+                "excluded": sum(m.status == "excluded" for m, _ in rows),
+                "high_confidence": sum(
+                    (m.classification_confidence or 0) >= 0.80
+                    for m, _ in rows
+                    if m.status == "classified"
+                ),
+                "medium_confidence": sum(
+                    0.65 <= (m.classification_confidence or 0) < 0.80
+                    for m, _ in rows
+                    if m.status == "classified"
+                ),
+                "groups": groups,
+            }
+    except SQLAlchemyError as exc:
+        raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
+
+
 def diagnostics(taxonomy_version: str) -> dict:
     try:
         with SessionLocal() as db:
-            groups = db.scalars(
-                select(IndustryGroup).where(
-                    IndustryGroup.taxonomy_version == taxonomy_version,
-                    IndustryGroup.active.is_(True),
-                )
-            ).all()
             memberships = db.scalars(
                 select(IndustryGroupMembership).where(
                     IndustryGroupMembership.assignment_version == taxonomy_version
                 )
             ).all()
-            counts: dict[str, int] = {}
-            for row in memberships:
-                if row.industry_group_id:
-                    counts[row.industry_group_id] = counts.get(row.industry_group_id, 0) + 1
-            group_rows = [
-                {
-                    "id": group.id,
-                    "group_code": group.group_code,
-                    "name": group.name,
-                    "sector": group.sector,
-                    "industry_family": group.industry_family,
-                    "member_count": counts.get(group.id, 0),
-                }
-                for group in groups
-            ]
-            return {
-                "number_of_groups": len(groups),
-                "classified": sum(row.status == "classified" for row in memberships),
-                "needs_review": sum(row.status == "needs_review" for row in memberships),
-                "excluded": sum(row.status == "excluded" for row in memberships),
-                "high_confidence": sum((row.classification_confidence or 0) >= 0.80 for row in memberships if row.status == "classified"),
-                "medium_confidence": sum(0.65 <= (row.classification_confidence or 0) < 0.80 for row in memberships if row.status == "classified"),
-                "groups": sorted(group_rows, key=lambda item: (-item["member_count"], item["name"])),
-            }
+            instrument_ids = [row.instrument_id for row in memberships]
     except SQLAlchemyError as exc:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
+    return universe_diagnostics(instrument_ids, taxonomy_version)
 
 
 def review_queue(limit: int = 500) -> list[dict]:
     try:
         with SessionLocal() as db:
             rows = db.execute(
-                select(IndustryGroupMembership, Instrument)
+                select(IndustryGroupMembership, Instrument, IndustryGroup)
                 .join(Instrument, Instrument.id == IndustryGroupMembership.instrument_id)
+                .outerjoin(IndustryGroup, IndustryGroup.id == IndustryGroupMembership.industry_group_id)
                 .where(IndustryGroupMembership.status == "needs_review")
-                .order_by(IndustryGroupMembership.classification_confidence.asc().nullsfirst(), Instrument.ticker.asc())
+                .order_by(
+                    IndustryGroupMembership.classification_confidence.asc().nullsfirst(),
+                    Instrument.ticker.asc(),
+                )
                 .limit(max(1, min(limit, 5000)))
             ).all()
             return [
@@ -314,11 +376,13 @@ def review_queue(limit: int = 500) -> list[dict]:
                     "sector": instrument.sector,
                     "industry": instrument.industry,
                     "sic": membership.sic_snapshot,
+                    "suggested_group": group.name if group else "",
                     "suggested_group_id": membership.industry_group_id,
                     "confidence": membership.classification_confidence,
+                    "alternative_group": (membership.explanation_json or {}).get("alternative_group", ""),
                     "explanation": membership.explanation_json,
                 }
-                for membership, instrument in rows
+                for membership, instrument, group in rows
             ]
     except SQLAlchemyError as exc:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
