@@ -79,6 +79,38 @@ def list_universe_instruments(key: str = "us_common_stocks") -> list[InstrumentC
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
+
+def save_business_profile_enrichments(items: list[dict]) -> None:
+    """Persist one-time profile enrichment results, including failed checks."""
+    if not items:
+        return
+    try:
+        with SessionLocal() as db:
+            tickers = [str(item.get("ticker") or "").upper() for item in items]
+            rows = db.scalars(select(Instrument).where(Instrument.ticker.in_(tickers))).all()
+            by_ticker = {row.ticker.upper(): row for row in rows}
+            now = datetime.now(UTC).isoformat()
+            for item in items:
+                ticker = str(item.get("ticker") or "").upper()
+                row = by_ticker.get(ticker)
+                if row is None:
+                    continue
+                sector = str(item.get("sector") or "").strip()
+                industry = str(item.get("industry") or "").strip()
+                if sector:
+                    row.sector = sector[:128]
+                if industry:
+                    row.industry = industry[:128]
+                row.metadata_json = {
+                    **(row.metadata_json or {}),
+                    "industry_profile_checked_at": now,
+                    "industry_profile_source": str(item.get("source") or "yfinance"),
+                    "industry_profile_error": str(item.get("error") or ""),
+                }
+            db.commit()
+    except SQLAlchemyError as exc:
+        raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
+
 def get_membership_map(instrument_ids: list[str] | None = None) -> dict[str, MembershipState]:
     try:
         with SessionLocal() as db:
