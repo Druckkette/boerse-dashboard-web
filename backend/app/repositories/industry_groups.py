@@ -127,6 +127,45 @@ def save_business_profile_enrichments(items: list[dict]) -> None:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
+def save_sec_sic_enrichments(items: list[dict]) -> None:
+    """Persist SEC CIK/SIC evidence obtained from the local submissions bulk cache."""
+    if not items:
+        return
+    try:
+        with SessionLocal() as db:
+            tickers = [str(item.get("ticker") or "").upper() for item in items]
+            rows = db.scalars(select(Instrument).where(Instrument.ticker.in_(tickers))).all()
+            by_ticker = {row.ticker.upper(): row for row in rows}
+            now = datetime.now(UTC).isoformat()
+            for item in items:
+                ticker = str(item.get("ticker") or "").upper()
+                row = by_ticker.get(ticker)
+                if row is None:
+                    continue
+                cik = str(item.get("cik") or "").strip().zfill(10)
+                sic = str(item.get("sic") or "").strip()
+                description = str(item.get("sic_description") or "").strip()
+                metadata = {
+                    **(row.metadata_json or {}),
+                    "sec_submission_bulk_checked_at": now,
+                    "sec_submission_bulk_source": "sec_submissions_bulk",
+                }
+                if cik.isdigit() and cik != "0000000000":
+                    metadata["primary_cik"] = cik
+                if sic.isdigit():
+                    metadata["sec_sic"] = sic
+                    metadata["sec_sic_description"] = description
+                    metadata["sec_sic_cik"] = cik
+                    metadata["sec_sic_checked_at"] = now
+                    metadata["sec_sic_evidence"] = (
+                        f"https://data.sec.gov/submissions/CIK{cik}.json"
+                    )
+                row.metadata_json = metadata
+            db.commit()
+    except SQLAlchemyError as exc:
+        raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
+
+
 def get_membership_map(instrument_ids: list[str] | None = None) -> dict[str, MembershipState]:
     try:
         with SessionLocal() as db:
