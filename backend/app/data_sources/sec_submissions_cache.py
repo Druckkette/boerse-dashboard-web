@@ -81,7 +81,7 @@ def refresh_submissions_bulk_cache(
 
             with zipfile.ZipFile(temp_path) as data:
                 member_count = sum(
-                    name.startswith("CIK") and name.endswith(".json")
+                    name.rsplit("/", 1)[-1].startswith("CIK") and name.endswith(".json")
                     for name in data.namelist()
                 )
                 if member_count < min_members:
@@ -124,7 +124,13 @@ def load_submission(cik: str) -> dict | None:
     try:
         with _zip_lock:
             data = _opened_archive(str(archive), archive.stat().st_mtime_ns)
-            payload = json.loads(data.read(member))
+            if member in data.NameToInfo:
+                archive_member = member
+            elif f"submissions/{member}" in data.NameToInfo:
+                archive_member = f"submissions/{member}"
+            else:
+                return None
+            payload = json.loads(data.read(archive_member))
         record_provider_event("cache_hits")
         return payload if isinstance(payload, dict) else None
     except (KeyError, OSError, ValueError, zipfile.BadZipFile):
