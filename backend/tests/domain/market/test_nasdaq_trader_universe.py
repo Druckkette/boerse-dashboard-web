@@ -142,14 +142,14 @@ def test_resolve_universe_price_symbols_uses_yahoo_aliases(monkeypatch) -> None:
         universe_repository,
         "list_resolved_universe_symbols",
         lambda key, limit: [
-            universe_repository.ResolvedUniverseSymbolMappingRow(
+            universe_repository.ResolvedUniverseSymbolRow(
                 universe_key=key,
                 source_ticker="BRK-B",
                 yahoo_symbol="BRK-B",
                 status="active",
                 source="manual",
             ),
-            universe_repository.ResolvedUniverseSymbolMappingRow(
+            universe_repository.ResolvedUniverseSymbolRow(
                 universe_key=key,
                 source_ticker="AAPL",
                 yahoo_symbol="AAPL",
