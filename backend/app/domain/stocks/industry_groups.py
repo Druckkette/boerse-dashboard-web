@@ -74,7 +74,7 @@ _REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
         "Business Services",
         0.90,
     ),
-    "FISV": ("fiserv", "PAYMENTS", "Finance – Payments", "Financials", "Financial Services", 0.97),
+    "FISV": ("fiserv", "PAYPROC", "Finance – Payments & Transaction Processing", "Financials", "Financial Services", 0.99),
     "LION": (
         "lionsgate studios",
         "ENTERTAIN",
@@ -170,11 +170,11 @@ _CANONICAL_PROVIDER_INDUSTRIES: dict[str, tuple[str, str, str, str, float]] = {
         0.91,
     ),
     "gambling": (
-        "GAMING",
-        "Leisure – Gaming",
+        "CASINO",
+        "Leisure – Casinos & Gambling",
         "Consumer Discretionary",
         "Leisure",
-        0.91,
+        0.94,
     ),
     "household and personal products": (
         "HOUSEHOLD",
