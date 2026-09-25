@@ -160,6 +160,13 @@ def save_sec_sic_enrichments(items: list[dict]) -> None:
                     metadata["sec_sic_evidence"] = (
                         f"https://data.sec.gov/submissions/CIK{cik}.json"
                     )
+                forms = item.get("sec_forms")
+                if isinstance(forms, list) and forms:
+                    metadata["sec_forms"] = [str(form) for form in forms[:80]]
+                instrument_type = str(item.get("instrument_type") or "").strip()
+                if instrument_type:
+                    metadata["instrument_type"] = instrument_type
+                    metadata["classification_source"] = "sec_submissions"
                 row.metadata_json = metadata
             db.commit()
     except SQLAlchemyError as exc:
