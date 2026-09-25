@@ -207,6 +207,11 @@ def _looks_like_common_equity_name(name: object) -> bool:
         r"\btrust\s+units?\b",
         r"\bcapital trust\b",
         r"\btrust certificates?\b",
+        r"\btrust preference securities?\b",
+        r"\bcorp backed tr certs?\b",
+        r"\bsce trust\s+[ivx]+\b",
+        r"\b(?:gold|silver|commodity|bitcoin|ether(?:eum)?) trust\b",
+        r"\b\d+(?:\.\d+)?%\s+series\s+[a-z]\b",
         r"\bzones\b",
     )
     return not any(re.search(pattern, low) for pattern in reject_patterns)
