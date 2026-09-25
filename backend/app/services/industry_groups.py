@@ -242,7 +242,6 @@ def _enrich_missing_sec_sic(
         str(ticker).upper().replace(".", "-").replace("/", "-"): cik
         for ticker, cik in cik_map.items()
     }
-    candidate_tickers = {row.ticker.upper() for row in candidates}
     writes: list[dict] = []
     updated: dict[str, repository.InstrumentClassificationRow] = {}
 
