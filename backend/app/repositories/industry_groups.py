@@ -79,9 +79,8 @@ def list_universe_instruments(key: str = "us_common_stocks") -> list[InstrumentC
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
-
 def save_business_profile_enrichments(items: list[dict]) -> None:
-    """Persist one-time profile enrichment results, including failed checks."""
+    """Persist profile successes and retryable failures without losing state."""
     if not items:
         return
     try:
@@ -89,27 +88,44 @@ def save_business_profile_enrichments(items: list[dict]) -> None:
             tickers = [str(item.get("ticker") or "").upper() for item in items]
             rows = db.scalars(select(Instrument).where(Instrument.ticker.in_(tickers))).all()
             by_ticker = {row.ticker.upper(): row for row in rows}
-            now = datetime.now(UTC).isoformat()
+            fallback_now = datetime.now(UTC).isoformat()
             for item in items:
                 ticker = str(item.get("ticker") or "").upper()
                 row = by_ticker.get(ticker)
                 if row is None:
                     continue
+
                 sector = str(item.get("sector") or "").strip()
                 industry = str(item.get("industry") or "").strip()
                 if sector:
                     row.sector = sector[:128]
                 if industry:
                     row.industry = industry[:128]
-                row.metadata_json = {
+
+                checked_at = str(item.get("checked_at") or fallback_now)
+                error = str(item.get("error") or "")
+                success = bool(item.get("success")) and bool(industry)
+                metadata = {
                     **(row.metadata_json or {}),
-                    "industry_profile_checked_at": now,
+                    "industry_profile_checked_at": checked_at,
                     "industry_profile_source": str(item.get("source") or "yfinance"),
-                    "industry_profile_error": str(item.get("error") or ""),
+                    "industry_profile_error": error,
+                    "industry_profile_retry_count": int(item.get("retry_count") or 0),
                 }
+                if success:
+                    metadata["industry_profile_success_at"] = checked_at
+                    metadata.pop("industry_profile_failed_at", None)
+                    metadata.pop("industry_profile_next_retry_at", None)
+                    metadata.pop("industry_profile_rate_limited", None)
+                else:
+                    metadata["industry_profile_failed_at"] = str(item.get("failed_at") or checked_at)
+                    metadata["industry_profile_next_retry_at"] = str(item.get("next_retry_at") or "")
+                    metadata["industry_profile_rate_limited"] = bool(item.get("rate_limited"))
+                row.metadata_json = metadata
             db.commit()
     except SQLAlchemyError as exc:
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
+
 
 def get_membership_map(instrument_ids: list[str] | None = None) -> dict[str, MembershipState]:
     try:
@@ -228,7 +244,7 @@ def persist_classification_batch(
                     db.add(rule)
                     rules_by_industry[normalized] = rule
                 rule.target_group_id = group.id
-                rule.confidence = float(definition.get("confidence") or 0.78)
+                rule.confidence = float(definition.get("confidence") or 0.72)
                 rule.active = True
 
             instrument_ids = [str(item["instrument_id"]) for item in memberships]
@@ -311,21 +327,33 @@ def set_manual_override(*, ticker: str, group_id: str, reason: str, taxonomy_ver
         raise IndustryGroupRepositoryUnavailable(str(exc)) from exc
 
 
+def _empty_diagnostics() -> dict:
+    return {
+        "number_of_groups": 0,
+        "classified": 0,
+        "needs_review": 0,
+        "excluded": 0,
+        "high_confidence": 0,
+        "medium_confidence": 0,
+        "classified_by_sic": 0,
+        "classified_by_canonical_provider_rule": 0,
+        "excluded_shell_companies": 0,
+        "profile_success": 0,
+        "profile_failed": 0,
+        "profile_retry_pending": 0,
+        "profile_rate_limited": 0,
+        "groups": [],
+    }
+
+
 def universe_diagnostics(instrument_ids: list[str], taxonomy_version: str) -> dict:
     if not instrument_ids:
-        return {
-            "number_of_groups": 0,
-            "classified": 0,
-            "needs_review": 0,
-            "excluded": 0,
-            "high_confidence": 0,
-            "medium_confidence": 0,
-            "groups": [],
-        }
+        return _empty_diagnostics()
     try:
         with SessionLocal() as db:
             rows = db.execute(
-                select(IndustryGroupMembership, IndustryGroup)
+                select(IndustryGroupMembership, IndustryGroup, Instrument)
+                .join(Instrument, Instrument.id == IndustryGroupMembership.instrument_id)
                 .outerjoin(IndustryGroup, IndustryGroup.id == IndustryGroupMembership.industry_group_id)
                 .where(
                     IndustryGroupMembership.instrument_id.in_(instrument_ids),
@@ -333,7 +361,7 @@ def universe_diagnostics(instrument_ids: list[str], taxonomy_version: str) -> di
                 )
             ).all()
             counts: dict[str, dict] = {}
-            for membership, group in rows:
+            for membership, group, _instrument in rows:
                 if group is None:
                     continue
                 current = counts.setdefault(
@@ -352,20 +380,55 @@ def universe_diagnostics(instrument_ids: list[str], taxonomy_version: str) -> di
                 counts.values(),
                 key=lambda item: (-item["member_count"], item["name"]),
             )
+
+            def metadata_of(instrument: Instrument) -> dict:
+                return instrument.metadata_json or {}
+
             return {
                 "number_of_groups": len(groups),
-                "classified": sum(m.status == "classified" for m, _ in rows),
-                "needs_review": sum(m.status == "needs_review" for m, _ in rows),
-                "excluded": sum(m.status == "excluded" for m, _ in rows),
+                "classified": sum(m.status == "classified" for m, _, _ in rows),
+                "needs_review": sum(m.status == "needs_review" for m, _, _ in rows),
+                "excluded": sum(m.status == "excluded" for m, _, _ in rows),
                 "high_confidence": sum(
                     (m.classification_confidence or 0) >= 0.80
-                    for m, _ in rows
+                    for m, _, _ in rows
                     if m.status == "classified"
                 ),
                 "medium_confidence": sum(
                     0.65 <= (m.classification_confidence or 0) < 0.80
-                    for m, _ in rows
+                    for m, _, _ in rows
                     if m.status == "classified"
+                ),
+                "classified_by_sic": sum(
+                    m.classification_source == "curated_sic_rule" for m, _, _ in rows
+                ),
+                "classified_by_canonical_provider_rule": sum(
+                    m.classification_source == "canonical_provider_rule" for m, _, _ in rows
+                ),
+                "excluded_shell_companies": sum(
+                    "shell" in str((m.explanation_json or {}).get("reason") or "")
+                    or str((m.explanation_json or {}).get("reason") or "") == "sec_sic:6770"
+                    for m, _, _ in rows
+                    if m.status == "excluded"
+                ),
+                "profile_success": sum(
+                    bool(metadata_of(instrument).get("industry_profile_success_at"))
+                    for _, _, instrument in rows
+                ),
+                "profile_failed": sum(
+                    bool(metadata_of(instrument).get("industry_profile_failed_at"))
+                    and not bool(instrument.industry)
+                    for _, _, instrument in rows
+                ),
+                "profile_retry_pending": sum(
+                    bool(metadata_of(instrument).get("industry_profile_next_retry_at"))
+                    and not bool(instrument.industry)
+                    for _, _, instrument in rows
+                ),
+                "profile_rate_limited": sum(
+                    bool(metadata_of(instrument).get("industry_profile_rate_limited"))
+                    and not bool(instrument.industry)
+                    for _, _, instrument in rows
                 ),
                 "groups": groups,
             }
@@ -412,6 +475,9 @@ def review_queue(limit: int = 500) -> list[dict]:
                     "suggested_group_id": membership.industry_group_id,
                     "confidence": membership.classification_confidence,
                     "alternative_group": (membership.explanation_json or {}).get("alternative_group", ""),
+                    "profile_error": (instrument.metadata_json or {}).get("industry_profile_error", ""),
+                    "profile_retry_count": (instrument.metadata_json or {}).get("industry_profile_retry_count", 0),
+                    "profile_next_retry_at": (instrument.metadata_json or {}).get("industry_profile_next_retry_at", ""),
                     "explanation": membership.explanation_json,
                 }
                 for membership, instrument, group in rows
@@ -445,6 +511,9 @@ def membership_export_rows(taxonomy_version: str) -> list[dict]:
                     "assignment_version": membership.assignment_version,
                     "manual_override": membership.is_manual_override,
                     "status": membership.status,
+                    "profile_error": (instrument.metadata_json or {}).get("industry_profile_error", ""),
+                    "profile_retry_count": (instrument.metadata_json or {}).get("industry_profile_retry_count", 0),
+                    "profile_next_retry_at": (instrument.metadata_json or {}).get("industry_profile_next_retry_at", ""),
                 }
                 for membership, instrument, group in rows
             ]
