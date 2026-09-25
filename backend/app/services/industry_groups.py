@@ -4,7 +4,7 @@ import csv
 import io
 import statistics
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.data_sources.yfinance_client import fetch_company_profile
 from app.domain.stocks.industry_groups import (
@@ -12,11 +12,24 @@ from app.domain.stocks.industry_groups import (
     ClassificationFeatures,
     classification_fingerprint,
     curated_rule_match,
+    exclusion_reason,
     is_eligible_operating_company,
     normalize_text,
     provider_industry_fallback,
 )
 from app.repositories import industry_groups as repository
+
+
+PROFILE_PERSIST_BATCH_SIZE = 100
+PROFILE_CIRCUIT_BREAKER_FAILURES = 12
+PROFILE_RETRY_DELAYS = (
+    timedelta(minutes=30),
+    timedelta(hours=2),
+    timedelta(hours=12),
+    timedelta(days=1),
+    timedelta(days=3),
+    timedelta(days=7),
+)
 
 
 def _features(row: repository.InstrumentClassificationRow) -> ClassificationFeatures:
@@ -49,7 +62,8 @@ def _classify_one(
     exact_rules: dict[str, dict],
 ) -> dict:
     fingerprint = classification_fingerprint(features)
-    if not is_eligible_operating_company(features):
+    excluded_because = exclusion_reason(features)
+    if excluded_because:
         return {
             "group_code": "",
             "group_definition": None,
@@ -61,12 +75,18 @@ def _classify_one(
             "create_exact_rule": False,
             "explanation": {
                 "instrument_type": features.instrument_type,
-                "reason": "non_operating_security",
+                "reason": excluded_because,
             },
         }
 
     match = curated_rule_match(features)
     if match is not None:
+        if match.rule_name.startswith("sic_"):
+            source = "curated_sic_rule"
+        elif match.rule_name == "canonical_provider_industry":
+            source = "canonical_provider_rule"
+        else:
+            source = "curated_rule"
         return {
             "group_code": match.group_code,
             "group_definition": _group_definition(
@@ -77,7 +97,7 @@ def _classify_one(
                 description="Deterministic IBD-style business classification; not a proprietary IBD label.",
             ),
             "status": "classified",
-            "source": "curated_rule",
+            "source": source,
             "confidence": match.confidence,
             "fingerprint": fingerprint,
             "normalized_industry": normalize_text(features.industry),
@@ -127,7 +147,10 @@ def _classify_one(
                 name=fallback.group_name,
                 sector=fallback.sector,
                 family=fallback.family,
-                description="Provider-industry-derived IBD-style group created during taxonomy bootstrap.",
+                description=(
+                    "Provider-industry-derived IBD-style group. "
+                    "Low-frequency groups should be reviewed for canonical consolidation."
+                ),
             ),
             "status": "classified",
             "source": "provider_industry_exact",
@@ -140,6 +163,7 @@ def _classify_one(
                 "normalized_industry": normalized_industry,
                 "industry": features.industry,
                 "confidence": fallback.confidence,
+                "taxonomy_review_required": True,
             },
         }
 
@@ -162,14 +186,64 @@ def _classify_one(
     }
 
 
+def _parse_iso_datetime(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _profile_retry_due(metadata: dict, now: datetime) -> bool:
+    retry_at = _parse_iso_datetime(metadata.get("industry_profile_next_retry_at"))
+    return retry_at is None or retry_at <= now
+
+
+def _profile_retry_delay(retry_count: int, *, rate_limited: bool = False) -> timedelta:
+    if rate_limited:
+        return timedelta(hours=2)
+    index = min(max(retry_count - 1, 0), len(PROFILE_RETRY_DELAYS) - 1)
+    return PROFILE_RETRY_DELAYS[index]
+
+
+def _flush_profile_writes(writes: list[dict], stats: dict) -> None:
+    if not writes:
+        return
+    repository.save_business_profile_enrichments(writes)
+    stats["profile_persist_batches"] += 1
+    writes.clear()
+
 
 def _enrich_missing_business_profiles(
     rows: list[repository.InstrumentClassificationRow],
-) -> tuple[list[repository.InstrumentClassificationRow], int]:
-    """Use Yahoo once only when local business metadata cannot classify a stock."""
+) -> tuple[list[repository.InstrumentClassificationRow], dict]:
+    """Enrich only unresolved operating companies and keep failures retryable.
+
+    v1 stored a generic checked timestamp even when Yahoo returned no usable
+    business profile. v2 treats those empty checks as retryable, persists
+    success/failure separately and opens a circuit after repeated empty/error
+    responses so one provider throttle cannot burn through the full universe.
+    """
     enriched_rows: list[repository.InstrumentClassificationRow] = []
     writes: list[dict] = []
-    request_count = 0
+    now = datetime.now(UTC)
+    consecutive_failures = 0
+    circuit_open = False
+    stats = {
+        "external_provider_requests": 0,
+        "profile_success": 0,
+        "profile_empty": 0,
+        "profile_errors": 0,
+        "profile_rate_limited": 0,
+        "profile_retry_pending": 0,
+        "profile_circuit_deferred": 0,
+        "profile_persist_batches": 0,
+    }
 
     for row in rows:
         features = _features(row)
@@ -177,48 +251,105 @@ def _enrich_missing_business_profiles(
         if (
             not is_eligible_operating_company(features)
             or row.industry
-            or metadata.get("industry_profile_checked_at")
             or curated_rule_match(features) is not None
         ):
             enriched_rows.append(row)
             continue
 
-        request_count += 1
+        if not _profile_retry_due(metadata, now):
+            stats["profile_retry_pending"] += 1
+            enriched_rows.append(row)
+            continue
+
+        if circuit_open:
+            stats["profile_circuit_deferred"] += 1
+            enriched_rows.append(row)
+            continue
+
+        stats["external_provider_requests"] += 1
         sector = ""
         industry = ""
         error = ""
+        rate_limited = False
         try:
             profile = fetch_company_profile(row.ticker)
             sector = profile.sector
             industry = profile.industry
-        except Exception as exc:  # provider failure becomes persisted review evidence
+        except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
+            lower = error.lower()
+            rate_limited = "429" in lower or "rate limit" in lower or "too many requests" in lower
 
-        writes.append(
-            {
-                "ticker": row.ticker,
-                "sector": sector,
-                "industry": industry,
-                "source": "yfinance",
-                "error": error,
-            }
-        )
+        success = bool(industry)
+        retry_count = int(metadata.get("industry_profile_retry_count") or 0)
+        checked_at = datetime.now(UTC)
+
+        if success:
+            consecutive_failures = 0
+            stats["profile_success"] += 1
+            retry_count = 0
+            next_retry_at = ""
+        else:
+            retry_count += 1
+            consecutive_failures += 1
+            if not error:
+                error = "empty_profile"
+                stats["profile_empty"] += 1
+            else:
+                stats["profile_errors"] += 1
+            if rate_limited:
+                stats["profile_rate_limited"] += 1
+            next_retry_at = (checked_at + _profile_retry_delay(retry_count, rate_limited=rate_limited)).isoformat()
+
+        write = {
+            "ticker": row.ticker,
+            "sector": sector,
+            "industry": industry,
+            "source": "yfinance",
+            "error": error,
+            "success": success,
+            "checked_at": checked_at.isoformat(),
+            "failed_at": "" if success else checked_at.isoformat(),
+            "next_retry_at": next_retry_at,
+            "retry_count": retry_count,
+            "rate_limited": rate_limited,
+        }
+        writes.append(write)
+        new_metadata = {
+            **metadata,
+            "industry_profile_checked_at": checked_at.isoformat(),
+            "industry_profile_source": "yfinance",
+            "industry_profile_error": error,
+            "industry_profile_retry_count": retry_count,
+        }
+        if success:
+            new_metadata["industry_profile_success_at"] = checked_at.isoformat()
+            new_metadata.pop("industry_profile_failed_at", None)
+            new_metadata.pop("industry_profile_next_retry_at", None)
+            new_metadata.pop("industry_profile_rate_limited", None)
+        else:
+            new_metadata["industry_profile_failed_at"] = checked_at.isoformat()
+            new_metadata["industry_profile_next_retry_at"] = next_retry_at
+            new_metadata["industry_profile_rate_limited"] = rate_limited
+
         enriched_rows.append(
             replace(
                 row,
                 sector=sector or row.sector,
                 industry=industry or row.industry,
-                metadata_json={
-                    **metadata,
-                    "industry_profile_checked_at": datetime.now(UTC).isoformat(),
-                    "industry_profile_source": "yfinance",
-                    "industry_profile_error": error,
-                },
+                metadata_json=new_metadata,
             )
         )
 
-    repository.save_business_profile_enrichments(writes)
-    return enriched_rows, request_count
+        if len(writes) >= PROFILE_PERSIST_BATCH_SIZE:
+            _flush_profile_writes(writes, stats)
+
+        if rate_limited or consecutive_failures >= PROFILE_CIRCUIT_BREAKER_FAILURES:
+            circuit_open = True
+
+    _flush_profile_writes(writes, stats)
+    return enriched_rows, stats
+
 
 def _membership_write(
     row: repository.InstrumentClassificationRow,
@@ -240,7 +371,9 @@ def _membership_write(
     }
 
 
-def _persist_results(rows_and_results: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]]) -> None:
+def _persist_results(
+    rows_and_results: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]],
+) -> None:
     group_definitions: dict[str, dict] = {}
     exact_rules: dict[str, dict] = {}
     memberships: list[dict] = []
@@ -269,7 +402,7 @@ def rebuild_industry_groups(universe_key: str = "us_common_stocks") -> dict:
     if not rows:
         raise RuntimeError(f"Universe {universe_key!r} is empty or unavailable.")
 
-    rows, external_requests = _enrich_missing_business_profiles(rows)
+    rows, enrichment_stats = _enrich_missing_business_profiles(rows)
     exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
     classified_rows: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]] = []
     for row in rows:
@@ -286,7 +419,7 @@ def rebuild_industry_groups(universe_key: str = "us_common_stocks") -> dict:
             }
 
     _persist_results(classified_rows)
-    return _summary(rows, mode="full_rebuild", external_provider_requests=external_requests)
+    return _summary(rows, mode="full_rebuild", enrichment_stats=enrichment_stats)
 
 
 def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -> dict:
@@ -311,7 +444,8 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
             untouched_rows.append(row)
         else:
             candidate_rows.append(row)
-    enriched_candidates, external_requests = _enrich_missing_business_profiles(candidate_rows)
+
+    enriched_candidates, enrichment_stats = _enrich_missing_business_profiles(candidate_rows)
     rows_by_ticker = {row.ticker: row for row in [*untouched_rows, *enriched_candidates]}
     rows = [rows_by_ticker[row.ticker] for row in rows]
     exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
@@ -350,7 +484,7 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
             reclassified += 1
 
     _persist_results(changed_rows)
-    result = _summary(rows, mode="incremental", external_provider_requests=external_requests)
+    result = _summary(rows, mode="incremental", enrichment_stats=enrichment_stats)
     result.update(
         {
             "existing_unchanged": existing_unchanged,
@@ -366,7 +500,7 @@ def _summary(
     rows: list[repository.InstrumentClassificationRow],
     *,
     mode: str,
-    external_provider_requests: int = 0,
+    enrichment_stats: dict | None = None,
 ) -> dict:
     diagnostics = repository.universe_diagnostics(
         [row.instrument_id for row in rows],
@@ -377,6 +511,7 @@ def _summary(
         [item for item in diagnostics["groups"] if item["member_count"] > 0],
         key=lambda item: (item["member_count"], item["name"]),
     )
+    enrichment_stats = enrichment_stats or {}
     return {
         "ok": True,
         "job_type": "rebuild_industry_groups" if mode == "full_rebuild" else "refresh_industry_group_memberships",
@@ -385,6 +520,7 @@ def _summary(
         "universe_stocks": len(rows),
         "eligible_operating_companies": len(rows) - diagnostics["excluded"],
         "excluded_instruments": diagnostics["excluded"],
+        "excluded_shell_companies": diagnostics.get("excluded_shell_companies", 0),
         "classified": diagnostics["classified"],
         "needs_review": diagnostics["needs_review"],
         "number_of_groups": diagnostics["number_of_groups"],
@@ -395,12 +531,18 @@ def _summary(
         "small_groups_needing_review": [item for item in smallest if item["member_count"] <= 2],
         "high_confidence_assignments": diagnostics["high_confidence"],
         "medium_confidence_assignments": diagnostics["medium_confidence"],
-        "external_provider_requests": external_provider_requests,
+        "classified_by_sic": diagnostics.get("classified_by_sic", 0),
+        "classified_by_canonical_provider_rule": diagnostics.get("classified_by_canonical_provider_rule", 0),
+        "profile_success_total": diagnostics.get("profile_success", 0),
+        "profile_failed_total": diagnostics.get("profile_failed", 0),
+        "profile_retry_pending_total": diagnostics.get("profile_retry_pending", 0),
+        **enrichment_stats,
         "classification_sources": [
             "persisted Instrument.sector/industry",
             "persisted SEC SIC metadata",
             "persisted instrument_type",
             "deterministic curated rules",
+            "canonical provider-industry mappings",
             "persisted exact provider-industry mappings",
         ],
         "generated_at": datetime.now(UTC).isoformat(),
@@ -437,6 +579,9 @@ def audit_csv() -> str:
         "assignment_version",
         "manual_override",
         "status",
+        "profile_error",
+        "profile_retry_count",
+        "profile_next_retry_at",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
