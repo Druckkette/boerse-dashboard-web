@@ -428,3 +428,57 @@ def test_v4_mobile_infrastructure_is_real_estate_peer():
     assert match is not None
     assert match.group_code == "REALPARK"
     assert match.sector == "Real Estate"
+
+
+def test_v4_asset_management_audit_reassignments():
+    cases = [
+        ("AFCG", "Advanced Flower Capital Inc.", "BDC"),
+        ("EQS", "Equus Total Return, Inc.", "BDC"),
+        ("MLCI", "Mount Logan Capital Inc.", "ALTMGR"),
+        ("RPC", "Ridgepost Capital, Inc.", "ALTMGR"),
+        ("MORN", "Morningstar, Inc.", "FINDATA"),
+        ("VALU", "Value Line, Inc.", "FINDATA"),
+        ("PJT", "PJT Partners Inc.", "CAPMARK"),
+        ("CRBG", "Corebridge Financial Inc.", "INSLIFE"),
+        ("KWY", "Kingsway Corporation", "BUSSERV"),
+        ("ALP", "Alpha Compute Corp", "ITSVC"),
+    ]
+    for ticker, name, expected in cases:
+        match = curated_rule_match(
+            ClassificationFeatures(
+                ticker=ticker,
+                company_name=name,
+                sector="Financial Services",
+                industry="Asset Management",
+                instrument_type="operating_company",
+            )
+        )
+        assert match is not None, ticker
+        assert match.group_code == expected, ticker
+
+
+def test_v4_digital_asset_treasuries_form_one_peer_group():
+    cases = [
+        ("ASST", "Strive, Inc."),
+        ("AVAT", "Avalanche Treasury Corporation"),
+        ("CYPH", "Cypherpunk Technologies Inc."),
+        ("DFDV", "DeFi Development Corp."),
+        ("FGNX", "FG Nexus Inc."),
+        ("HSDT", "Solana Company"),
+        ("SDEV", "Stablecoin Development Corporation"),
+        ("TWAV", "TaoWeave, Inc."),
+        ("ZSTK", "ZeroStack Corp."),
+    ]
+    for ticker, name in cases:
+        match = curated_rule_match(
+            ClassificationFeatures(
+                ticker=ticker,
+                company_name=name,
+                sector="Financial Services",
+                industry="Asset Management",
+                instrument_type="operating_company",
+            )
+        )
+        assert match is not None, ticker
+        assert match.group_code == "DATTREAS", ticker
+        assert match.family == "Digital Assets", ticker
