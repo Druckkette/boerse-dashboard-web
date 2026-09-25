@@ -96,6 +96,8 @@ def upsert_universe_members(
                 instrument = by_ticker[ticker]
                 if detail.get("name"):
                     instrument.name = detail["name"][:255]
+                if detail.get("exchange"):
+                    instrument.exchange = str(detail["exchange"])[:64]
                 current = instrument.metadata_json or {}
                 old_listing_name = (current.get("nasdaq_listing") or {}).get("name")
                 if old_listing_name and old_listing_name != detail.get("name"):

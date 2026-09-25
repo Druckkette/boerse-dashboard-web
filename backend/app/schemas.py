@@ -1469,6 +1469,8 @@ JobType = Literal[
     "refresh_earnings_calendar",
     "refresh_stock_detail",
     "refresh_universe",
+    "rebuild_industry_groups",
+    "refresh_industry_group_memberships",
     "refresh_sec13f",
     "position_atr_monitor",
     "pushover_test",

@@ -43,6 +43,30 @@ class FetchedFundamentals:
 
 
 @dataclass(frozen=True)
+class FetchedCompanyProfile:
+    ticker: str
+    sector: str
+    industry: str
+    source: str = "yfinance"
+
+
+def fetch_company_profile(symbol: str) -> FetchedCompanyProfile:
+    """Fetch slow-changing business metadata for one-time classification enrichment."""
+    import yfinance as yf
+
+    clean = symbol.strip().upper()
+    if not clean:
+        return FetchedCompanyProfile(ticker="", sector="", industry="")
+    record_provider_event("yahoo_requests")
+    info = _safe_info(yf.Ticker(clean))
+    return FetchedCompanyProfile(
+        ticker=clean,
+        sector=str(info.get("sector") or "").strip(),
+        industry=str(info.get("industry") or "").strip(),
+    )
+
+
+@dataclass(frozen=True)
 class FetchedAfterHoursQuote:
     ticker: str
     regular_price: float | None

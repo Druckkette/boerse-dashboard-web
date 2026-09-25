@@ -55,6 +55,7 @@ celery_app.conf.update(
         "app.workers.tasks.refresh_earnings_calendar",
         "app.workers.tasks.refresh_stock_detail",
         "app.workers.tasks.refresh_universe",
+        "app.workers.tasks.industry_groups",
         "app.workers.tasks.refresh_sec13f",
         "app.workers.tasks.position_atr_monitor",
         "app.workers.tasks.pushover_test",
