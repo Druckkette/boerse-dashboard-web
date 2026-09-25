@@ -15,7 +15,7 @@ def refresh_sec_companyfacts_bulk() -> dict:
     companyfacts = refresh_companyfacts_bulk_cache(agent)
     submissions = refresh_submissions_bulk_cache(agent)
     return {
-        "ok": bool(companyfacts.get("available")) and bool(submissions.get("available")),
-        "companyfacts": companyfacts,
+        "ok": bool(companyfacts.get("available")),
+        **companyfacts,
         "submissions": submissions,
     }
