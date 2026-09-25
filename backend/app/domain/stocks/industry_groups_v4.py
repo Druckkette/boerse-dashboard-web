@@ -159,6 +159,35 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "TRIN": ("trinity capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.97),
     "TSLX": ("sixth street specialty lending", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
 
+    # Current-universe corrections found during the v4 audit.
+    "AFCG": ("advanced flower capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.99),
+    "EQS": ("equus total return", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
+    "MLCI": ("mount logan capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
+    "RPC": ("ridgepost capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
+    "BUR": ("burford capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
+    "MORN": ("morningstar", "FINDATA", "Finance – Data & Stock Exchanges", "Financials", "Financial Services", 0.99),
+    "VALU": ("value line", "FINDATA", "Finance – Data & Stock Exchanges", "Financials", "Financial Services", 0.98),
+    "PJT": ("pjt partners", "CAPMARK", "Finance – Capital Markets", "Financials", "Financial Services", 0.99),
+    "CRBG": ("corebridge financial", "INSLIFE", "Insurance – Life", "Financials", "Insurance", 0.99),
+    "EQH": ("equitable holdings", "INSDIV", "Insurance – Diversified", "Financials", "Insurance", 0.97),
+    "PFG": ("principal financial group", "INSDIV", "Insurance – Diversified", "Financials", "Insurance", 0.96),
+    "KWY": ("kingsway corporation", "BUSSERV", "Commercial – Business Services", "Industrials", "Business Services", 0.96),
+    "RILY": ("brc group holdings", "FINCONG", "Finance – Conglomerates", "Financials", "Financial Services", 0.96),
+    "TGE": ("generation essentials group", "ENTERTAIN", "Media – Entertainment", "Communication Services", "Media & Entertainment", 0.92),
+    "ALP": ("alpha compute", "ITSVC", "Computer – IT Services", "Technology", "IT Services", 0.96),
+
+    # Digital-asset treasury / on-chain holding companies are driven by token
+    # exposure and treasury economics rather than traditional asset-management fees.
+    "ASST": ("strive", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.98),
+    "AVAT": ("avalanche treasury", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "CYPH": ("cypherpunk", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.97),
+    "DFDV": ("defi development", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "FGNX": ("fg nexus", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "HSDT": ("solana company", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "SDEV": ("stablecoin development", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "TWAV": ("taoweave", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.98),
+    "ZSTK": ("zerostack", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.94),
+
     "ALTI": ("alti global", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
     "CWD": ("calibercos", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
     "DBRG": ("digitalbridge", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
