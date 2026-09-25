@@ -186,6 +186,108 @@ def _classify_one(
     }
 
 
+def _enrich_missing_sec_sic(
+    rows: list[repository.InstrumentClassificationRow],
+) -> tuple[list[repository.InstrumentClassificationRow], dict]:
+    """Fill missing SEC SIC data from one nightly bulk archive before using Yahoo."""
+    from app.core_config import get_settings
+    from app.data_sources.fundamentals_client import _sec_cik_map
+    from app.data_sources.sec_submissions_cache import (
+        load_submission,
+        refresh_submissions_bulk_cache,
+    )
+    from app.services.settings import get_runtime_config_value
+
+    stats = {
+        "sec_bulk_candidates": 0,
+        "sec_bulk_sic_success": 0,
+        "sec_bulk_no_cik": 0,
+        "sec_bulk_no_sic": 0,
+        "sec_bulk_cache_available": False,
+        "sec_bulk_downloaded": False,
+        "sec_bulk_error": "",
+    }
+    candidates = []
+    for row in rows:
+        features = _features(row)
+        if (
+            is_eligible_operating_company(features)
+            and not features.sic_code
+            and not row.industry
+            and curated_rule_match(features) is None
+        ):
+            candidates.append(row)
+    stats["sec_bulk_candidates"] = len(candidates)
+    if not candidates:
+        return rows, stats
+
+    agent = get_runtime_config_value("SEC_USER_AGENT") or get_settings().sec_user_agent
+    if not agent:
+        stats["sec_bulk_error"] = "SEC_USER_AGENT missing"
+        return rows, stats
+
+    try:
+        cache_status = refresh_submissions_bulk_cache(agent)
+        stats["sec_bulk_cache_available"] = bool(cache_status.get("available"))
+        stats["sec_bulk_downloaded"] = bool(cache_status.get("downloaded"))
+        if not cache_status.get("available"):
+            stats["sec_bulk_error"] = str(cache_status.get("error") or "SEC submissions bulk unavailable")
+            return rows, stats
+        cik_map = _sec_cik_map(agent, 20)
+    except Exception as exc:
+        stats["sec_bulk_error"] = f"{type(exc).__name__}: {exc}"
+        return rows, stats
+
+    normalized_cik_map = {
+        str(ticker).upper().replace(".", "-").replace("/", "-"): cik
+        for ticker, cik in cik_map.items()
+    }
+    candidate_tickers = {row.ticker.upper() for row in candidates}
+    writes: list[dict] = []
+    updated: dict[str, repository.InstrumentClassificationRow] = {}
+
+    for row in candidates:
+        cik = str(normalized_cik_map.get(row.ticker.upper()) or "").zfill(10)
+        if not cik.isdigit() or cik == "0000000000":
+            stats["sec_bulk_no_cik"] += 1
+            continue
+        payload = load_submission(cik)
+        if not payload:
+            stats["sec_bulk_no_sic"] += 1
+            continue
+        sic = str(payload.get("sic") or "").strip()
+        sic_description = str(payload.get("sicDescription") or "").strip()
+        if not sic.isdigit():
+            stats["sec_bulk_no_sic"] += 1
+            continue
+
+        metadata = {
+            **(row.metadata_json or {}),
+            "primary_cik": cik,
+            "sec_sic": sic,
+            "sec_sic_description": sic_description,
+            "sec_sic_cik": cik,
+            "sec_sic_checked_at": datetime.now(UTC).isoformat(),
+            "sec_sic_evidence": f"https://data.sec.gov/submissions/CIK{cik}.json",
+            "sec_submission_bulk_source": "sec_submissions_bulk",
+        }
+        writes.append(
+            {
+                "ticker": row.ticker,
+                "cik": cik,
+                "sic": sic,
+                "sic_description": sic_description,
+            }
+        )
+        updated[row.ticker.upper()] = replace(row, metadata_json=metadata)
+        stats["sec_bulk_sic_success"] += 1
+
+    repository.save_sec_sic_enrichments(writes)
+    if not updated:
+        return rows, stats
+    return [updated.get(row.ticker.upper(), row) for row in rows], stats
+
+
 def _parse_iso_datetime(value: object) -> datetime | None:
     raw = str(value or "").strip()
     if not raw:
@@ -402,7 +504,9 @@ def rebuild_industry_groups(universe_key: str = "us_common_stocks") -> dict:
     if not rows:
         raise RuntimeError(f"Universe {universe_key!r} is empty or unavailable.")
 
+    rows, sec_stats = _enrich_missing_sec_sic(rows)
     rows, enrichment_stats = _enrich_missing_business_profiles(rows)
+    enrichment_stats = {**sec_stats, **enrichment_stats}
     exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
     classified_rows: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]] = []
     for row in rows:
@@ -445,7 +549,9 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
         else:
             candidate_rows.append(row)
 
-    enriched_candidates, enrichment_stats = _enrich_missing_business_profiles(candidate_rows)
+    enriched_candidates, sec_stats = _enrich_missing_sec_sic(candidate_rows)
+    enriched_candidates, enrichment_stats = _enrich_missing_business_profiles(enriched_candidates)
+    enrichment_stats = {**sec_stats, **enrichment_stats}
     rows_by_ticker = {row.ticker: row for row in [*untouched_rows, *enriched_candidates]}
     rows = [rows_by_ticker[row.ticker] for row in rows]
     exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
