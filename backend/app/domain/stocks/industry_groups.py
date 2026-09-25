@@ -248,7 +248,7 @@ def _rule_from_tuple(
     rule_name: str,
 ) -> RuleMatch:
     code, group, sector, family, confidence = definition
-    return RuleMatch(code, group, default_sector or sector, family, confidence, rule_name)
+    return RuleMatch(code, group, sector, family, confidence, rule_name)
 
 
 def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
@@ -341,7 +341,7 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
 
     for code, group, default_sector, family, confidence, patterns in rules:
         if any(pattern in hay for pattern in patterns):
-            return RuleMatch(code, group, features.sector or default_sector, family, confidence, code.lower())
+            return RuleMatch(code, group, default_sector, family, confidence, code.lower())
     return None
 
 
