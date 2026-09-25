@@ -361,7 +361,7 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
             return RuleMatch(
                 code,
                 group,
-                features.sector or sector,
+                sector,
                 family,
                 confidence,
                 "reviewed_company_rule",
