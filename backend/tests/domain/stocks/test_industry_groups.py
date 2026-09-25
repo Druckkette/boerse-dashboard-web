@@ -11,7 +11,7 @@ from app.domain.stocks.industry_groups import (
 
 
 def test_taxonomy_version_is_explicit_and_stable():
-    assert TAXONOMY_VERSION == "industry_groups_v3"
+    assert TAXONOMY_VERSION == "industry_groups_v4"
 
 
 def test_normalization_collapses_common_provider_variants():
@@ -179,20 +179,90 @@ def test_numeric_sic_can_classify_without_provider_industry():
     assert match.rule_name == "sic_7372"
 
 
-def test_provider_industry_fallback_is_stable():
+def test_frozen_v4_does_not_create_dynamic_provider_groups():
     features = ClassificationFeatures(
         ticker="ABC",
         company_name="Example Corporation",
         sector="Industrials",
-        industry="Waste Management",
+        industry="Brand New Provider Industry",
         instrument_type="operating_company",
     )
-    one = provider_industry_fallback(features)
-    two = provider_industry_fallback(features)
-    assert one is not None
-    assert one == two
-    assert one.group_code.startswith("PROV_")
-    assert one.confidence == 0.72
+    assert provider_industry_fallback(features) is None
+
+
+def test_v4_provider_industry_gets_stable_canonical_code():
+    match = curated_rule_match(
+        ClassificationFeatures(
+            ticker="WMX",
+            company_name="Example Waste Company",
+            sector="Industrials",
+            industry="Waste Management",
+            instrument_type="operating_company",
+        )
+    )
+    assert match is not None
+    assert match.group_code == "WASTE"
+    assert not match.group_code.startswith("PROV_")
+
+
+def test_v4_splits_medical_instruments_from_devices():
+    match = curated_rule_match(
+        ClassificationFeatures(
+            ticker="ALGN",
+            company_name="Align Technology, Inc.",
+            sector="Healthcare",
+            industry="Medical Instruments & Supplies",
+            instrument_type="operating_company",
+        )
+    )
+    assert match is not None
+    assert match.group_code == "MEDINSTR"
+
+
+def test_v4_splits_industrial_machinery():
+    specialty = curated_rule_match(
+        ClassificationFeatures(
+            ticker="IR",
+            company_name="Ingersoll Rand Inc.",
+            sector="Industrials",
+            industry="Specialty Industrial Machinery",
+            instrument_type="operating_company",
+        )
+    )
+    heavy = curated_rule_match(
+        ClassificationFeatures(
+            ticker="DE",
+            company_name="Deere & Company",
+            sector="Industrials",
+            industry="Farm & Heavy Construction Machinery",
+            instrument_type="operating_company",
+        )
+    )
+    assert specialty is not None and specialty.group_code == "MACHSPEC"
+    assert heavy is not None and heavy.group_code == "MACHHEAVY"
+
+
+def test_v4_payment_processors_are_separate_from_consumer_credit():
+    payment = curated_rule_match(
+        ClassificationFeatures(
+            ticker="V",
+            company_name="Visa Inc.",
+            sector="Financial Services",
+            industry="Credit Services",
+            instrument_type="operating_company",
+        )
+    )
+    lender = curated_rule_match(
+        ClassificationFeatures(
+            ticker="AFRM",
+            company_name="Affirm Holdings, Inc.",
+            sector="Financial Services",
+            industry="Credit Services",
+            instrument_type="operating_company",
+        )
+    )
+    assert payment is not None and payment.group_code == "PAYPROC"
+    assert lender is not None and lender.group_code == "CREDIT"
 
 
 
@@ -202,7 +272,7 @@ def test_final_review_operating_companies_are_deterministically_classified():
         ("ATCX", "Atlas Critical Minerals Corporation - Common Stock", "1040", "Gold and Silver Ores", "MININGIND"),
         ("BTTC", "Black Titan Corp - Ordinary Shares", "7371", "Services-Computer Programming Services", "SOFTAPP"),
         ("DPU", "Top KingWin Ltd - Class A Ordinary Shares", "7389", "Services-Business Services, NEC", "BUSSERV"),
-        ("FISV", "Fiserv, Inc. - Common Stock", "7389", "Services-Business Services, NEC", "PAYMENTS"),
+        ("FISV", "Fiserv, Inc. - Common Stock", "7389", "Services-Business Services, NEC", "PAYPROC"),
         ("LION", "Lionsgate Studios Corp Common Shares", "7812", "Services-Motion Picture & Video Tape Production", "ENTERTAIN"),
         ("NIQ", "NIQ Global Intelligence plc Ordinary Shares", "7370", "Services-Computer Programming, Data Processing, Etc.", "ITSVC"),
     ]

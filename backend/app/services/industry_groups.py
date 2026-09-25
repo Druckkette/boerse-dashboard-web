@@ -617,6 +617,14 @@ def _summary(
         key=lambda item: (item["member_count"], item["name"]),
     )
     enrichment_stats = enrichment_stats or {}
+    provisional_groups = [
+        item for item in diagnostics["groups"]
+        if str(item.get("group_code") or "").startswith("PROV_")
+    ]
+    quality_gates = {
+        "no_provisional_groups": not provisional_groups,
+        "no_needs_review": diagnostics["needs_review"] == 0,
+    }
     return {
         "ok": True,
         "job_type": "rebuild_industry_groups" if mode == "full_rebuild" else "refresh_industry_group_memberships",
@@ -629,6 +637,9 @@ def _summary(
         "classified": diagnostics["classified"],
         "needs_review": diagnostics["needs_review"],
         "number_of_groups": diagnostics["number_of_groups"],
+        "provisional_groups": provisional_groups,
+        "quality_gates": quality_gates,
+        "taxonomy_ready_for_rs": all(quality_gates.values()),
         "median_group_size": statistics.median(group_sizes) if group_sizes else 0,
         "average_group_size": (sum(group_sizes) / len(group_sizes)) if group_sizes else 0,
         "largest_groups": diagnostics["groups"][:10],

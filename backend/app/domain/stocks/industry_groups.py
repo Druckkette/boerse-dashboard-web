@@ -4,7 +4,12 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-TAXONOMY_VERSION = "industry_groups_v3"
+from app.domain.stocks.industry_groups_v4 import (
+    V4_CANONICAL_PROVIDER_INDUSTRIES,
+    V4_REVIEWED_COMPANY_RULES,
+)
+
+TAXONOMY_VERSION = "industry_groups_v4"
 
 EXCLUDED_INSTRUMENT_TYPES = {
     "closed_end_fund",
@@ -208,12 +213,17 @@ _CANONICAL_PROVIDER_INDUSTRIES: dict[str, tuple[str, str, str, str, float]] = {
     ),
 }
 
+# v4 overlays keep the earlier deterministic rules readable while replacing
+# provisional provider-derived groups with stable canonical peers.
+_REVIEWED_COMPANY_RULES.update(V4_REVIEWED_COMPANY_RULES)
+_CANONICAL_PROVIDER_INDUSTRIES.update(V4_CANONICAL_PROVIDER_INDUSTRIES)
+
 _SIC_RULES: dict[str, tuple[str, str, str, str, float]] = {
-    "2834": ("PHARMA", "Medical – Pharmaceuticals", "Health Care", "Medical", 0.96),
+    "2834": ("PHARMA_OTHER", "Medical – Pharmaceuticals Other", "Health Care", "Medical", 0.90),
     "2835": ("DIAGNOSTIC", "Medical – Diagnostics & Research", "Health Care", "Medical", 0.96),
     "2836": ("BIOTECH", "Medical – Biotech", "Health Care", "Medical", 0.96),
     "3841": ("MEDDEV", "Medical – Devices", "Health Care", "Medical", 0.96),
-    "3842": ("MEDDEV", "Medical – Devices", "Health Care", "Medical", 0.96),
+    "3842": ("MEDINSTR", "Medical – Instruments & Supplies", "Health Care", "Medical", 0.96),
     "3845": ("MEDDEV", "Medical – Devices", "Health Care", "Medical", 0.96),
     "6021": ("BANKREG", "Banks – Regional", "Financials", "Banks", 0.95),
     "6022": ("BANKREG", "Banks – Regional", "Financials", "Banks", 0.95),
@@ -439,17 +449,10 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
 
 
 def provider_industry_fallback(features: ClassificationFeatures) -> RuleMatch | None:
-    industry = str(features.industry or "").strip()
-    if not industry:
-        return None
-    clean = re.sub(r"\s+", " ", industry.replace("&", "&")).strip()
-    code = "PROV_" + hashlib.sha1(normalize_text(clean).encode("utf-8")).hexdigest()[:10].upper()
-    sector = str(features.sector or "").strip() or "Unclassified"
-    return RuleMatch(
-        code,
-        clean,
-        sector,
-        clean,
-        0.72,
-        "provider_industry_exact",
-    )
+    """Return no dynamic fallback for the frozen v4 taxonomy.
+
+    A new provider industry must be explicitly reviewed and mapped to a stable
+    canonical group. This prevents silent creation of PROV_* groups and keeps
+    historical Industry Group RS series comparable across rebuilds.
+    """
+    return None
