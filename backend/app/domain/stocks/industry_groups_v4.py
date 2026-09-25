@@ -206,5 +206,5 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "RYAM": ("rayonier advanced materials", "CHEMSPEC", "Chemicals – Specialty", "Materials", "Chemicals", 0.88),
 
     "BEEP": ("mobile infrastructure", "REALPARK", "Real Estate – Parking Infrastructure", "Real Estate", "Real Estate", 0.96),
-    "JOE": ("st joe company", "REDEV", "Real Estate – Development", "Real Estate", "Real Estate", 0.96),
+    "JOE": ("joe company", "REDEV", "Real Estate – Development", "Real Estate", "Real Estate", 0.96),
 }
