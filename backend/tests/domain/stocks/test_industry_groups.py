@@ -262,6 +262,7 @@ def test_v4_payment_processors_are_separate_from_consumer_credit():
         )
     )
     assert payment is not None and payment.group_code == "PAYPROC"
+    assert payment.sector == "Financials"
     assert lender is not None and lender.group_code == "CREDIT"
 
 
