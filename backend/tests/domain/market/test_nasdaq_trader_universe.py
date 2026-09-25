@@ -21,6 +21,9 @@ def test_parse_nasdaq_listed_filters_non_common_rows() -> None:
             "BADW|Bad Co Warrant|S|N|N|100|N|N",
             "PREF|Example Corp 6.5% Preference Shares|S|N|N|100|N|N",
             "CAPT|Example Capital Trust I|S|N|N|100|N|N",
+            "BAR|GraniteShares Gold Trust Shares of Beneficial Interest|S|N|N|100|N|N",
+            "SCEP|SCE Trust VII 7.50% Trust Preference Securities|S|N|N|100|N|N",
+            "DBRGP|DigitalBridge Group, Inc. 7.125% Series H|S|N|N|100|N|N",
             "File Creation Time: 06122026|||||||",
         ]
     )
@@ -36,6 +39,8 @@ def test_parse_otherlisted_filters_etfs_and_normalizes_symbols() -> None:
             "SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY",
             "XYZ.W|XYZ Warrants|N|XYZ.W|N|100|N|XYZ.W",
             "MSPA|Morgan Stanley Dep Shs repstg 1/1000 Pfd Ser A|N|MSPA|N|100|N|MSPA",
+            "JBK|Lehman ABS 3.50 3.50% Adjustable Corp Backed Tr Certs GS Cap I|N|JBK|N|100|N|JBK",
+            "SCEPL|SCE TRUST VI|N|SCEPL|N|100|N|SCEPL",
             "File Creation Time: 06122026|||||||",
         ]
     )
@@ -55,6 +60,23 @@ def test_instrument_type_detects_abbreviated_preferred_and_structured_names() ->
     assert classify_instrument(
         ticker="DDT",
         name="Dillard's Capital Trust I",
+    ) == "structured_security"
+    assert classify_instrument(
+        ticker="DBRGPH",
+        name="DigitalBridge Group, Inc. 7.125% Series H",
+    ) == "preferred_stock"
+    assert classify_instrument(
+        ticker="BAR",
+        name="GraniteShares Gold Trust Shares of Beneficial Interest",
+    ) == "investment_trust"
+    assert classify_instrument(
+        ticker="JBK",
+        name="Lehman ABS 3.50 3.50% Adjustable Corp Backed Tr Certs GS Cap I",
+        sec_sic="6189",
+    ) == "structured_security"
+    assert classify_instrument(
+        ticker="SCEPL",
+        name="SCE TRUST VI",
     ) == "structured_security"
 
 
