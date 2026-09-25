@@ -159,6 +159,10 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "TRIN": ("trinity capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.97),
     "TSLX": ("sixth street specialty lending", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
 
+    "ALTI": ("alti global", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
+    "CWD": ("calibercos", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
+    "DBRG": ("digitalbridge", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
+    "HLNE": ("hamilton lane", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
     "APO": ("apollo global management", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
     "ARES": ("ares management", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
     "BAM": ("brookfield asset management", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
