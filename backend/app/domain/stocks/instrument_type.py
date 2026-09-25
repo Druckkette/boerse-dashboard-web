@@ -39,13 +39,15 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
         (r"\bunits?\b(?!\s+(corp(oration)?|inc(orporated)?|company|co\.?|limited|ltd\.?))", "unit"),
         (
             r"\bpreferred\b|\bpreference shares?\b|\bpfd\b|\bdepositary shares?\b|"
-            r"\bdep(?:ositary)? shs\b|\bperpetual non cumulative\b",
+            r"\bdep(?:ositary)? shs\b|\bperpetual non cumulative\b|"
+            r"\btrust preference securities?\b|\b\d+(?:\.\d+)?%\s+series\s+[a-z]\b",
             "preferred_stock",
         ),
         (
             r"\bstructured\b|\btrust certificates?\b|\bindex.linked notes?\b|\bnotes? due\b|"
             r"\bdebentures?\b|\bsynthetic fixed.income securities\b|\bstrats\b|"
-            r"\bpplus\b.*\bctf\b|\bcapital trust\b|\bzones\b",
+            r"\bpplus\b.*\bctf\b|\bcapital trust\b|\bcorp backed tr certs?\b|"
+            r"\bsce trust\s+[ivx]+\b|\bzones\b",
             "structured_security",
         ),
     ):
@@ -53,6 +55,10 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
             return kind
     if str(sec_sic).strip() == "6770":
         return "spac"
+    if str(sec_sic).strip() == "6189":
+        return "structured_security"
+    if re.search(r"\b(gold|silver|commodity|bitcoin|ether(?:eum)?) trust\b", title):
+        return "investment_trust"
     # N-CSR/N-CSRS are certified shareholder reports filed by registered
     # investment companies. They identify funds whose exchange names may
     # contain neither "Fund" nor "Investment Trust".
