@@ -3,8 +3,10 @@ from __future__ import annotations
 import csv
 import io
 import statistics
+from dataclasses import replace
 from datetime import UTC, datetime
 
+from app.data_sources.yfinance_client import fetch_company_profile
 from app.domain.stocks.industry_groups import (
     TAXONOMY_VERSION,
     ClassificationFeatures,
@@ -160,6 +162,64 @@ def _classify_one(
     }
 
 
+
+def _enrich_missing_business_profiles(
+    rows: list[repository.InstrumentClassificationRow],
+) -> tuple[list[repository.InstrumentClassificationRow], int]:
+    """Use Yahoo once only when local business metadata cannot classify a stock."""
+    enriched_rows: list[repository.InstrumentClassificationRow] = []
+    writes: list[dict] = []
+    request_count = 0
+
+    for row in rows:
+        features = _features(row)
+        metadata = row.metadata_json or {}
+        if (
+            not is_eligible_operating_company(features)
+            or row.industry
+            or metadata.get("industry_profile_checked_at")
+            or curated_rule_match(features) is not None
+        ):
+            enriched_rows.append(row)
+            continue
+
+        request_count += 1
+        sector = ""
+        industry = ""
+        error = ""
+        try:
+            profile = fetch_company_profile(row.ticker)
+            sector = profile.sector
+            industry = profile.industry
+        except Exception as exc:  # provider failure becomes persisted review evidence
+            error = f"{type(exc).__name__}: {exc}"
+
+        writes.append(
+            {
+                "ticker": row.ticker,
+                "sector": sector,
+                "industry": industry,
+                "source": "yfinance",
+                "error": error,
+            }
+        )
+        enriched_rows.append(
+            replace(
+                row,
+                sector=sector or row.sector,
+                industry=industry or row.industry,
+                metadata_json={
+                    **metadata,
+                    "industry_profile_checked_at": datetime.now(UTC).isoformat(),
+                    "industry_profile_source": "yfinance",
+                    "industry_profile_error": error,
+                },
+            )
+        )
+
+    repository.save_business_profile_enrichments(writes)
+    return enriched_rows, request_count
+
 def _membership_write(
     row: repository.InstrumentClassificationRow,
     features: ClassificationFeatures,
@@ -209,6 +269,7 @@ def rebuild_industry_groups(universe_key: str = "us_common_stocks") -> dict:
     if not rows:
         raise RuntimeError(f"Universe {universe_key!r} is empty or unavailable.")
 
+    rows, external_requests = _enrich_missing_business_profiles(rows)
     exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
     classified_rows: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]] = []
     for row in rows:
@@ -225,7 +286,7 @@ def rebuild_industry_groups(universe_key: str = "us_common_stocks") -> dict:
             }
 
     _persist_results(classified_rows)
-    return _summary(rows, mode="full_rebuild")
+    return _summary(rows, mode="full_rebuild", external_provider_requests=external_requests)
 
 
 def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -> dict:
@@ -234,6 +295,25 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
         raise RuntimeError(f"Universe {universe_key!r} is empty or unavailable.")
 
     memberships = repository.get_membership_map([row.instrument_id for row in rows])
+    candidate_rows = []
+    untouched_rows = []
+    for row in rows:
+        existing = memberships.get(row.ticker.upper())
+        current_fingerprint = classification_fingerprint(_features(row))
+        if existing is not None and existing.is_manual_override:
+            untouched_rows.append(row)
+        elif (
+            existing is not None
+            and existing.classification_fingerprint == current_fingerprint
+            and existing.assignment_version == TAXONOMY_VERSION
+            and existing.status in {"classified", "excluded"}
+        ):
+            untouched_rows.append(row)
+        else:
+            candidate_rows.append(row)
+    enriched_candidates, external_requests = _enrich_missing_business_profiles(candidate_rows)
+    rows_by_ticker = {row.ticker: row for row in [*untouched_rows, *enriched_candidates]}
+    rows = [rows_by_ticker[row.ticker] for row in rows]
     exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
     changed_rows: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]] = []
     existing_unchanged = new_count = reclassified = manual_preserved = 0
@@ -270,7 +350,7 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
             reclassified += 1
 
     _persist_results(changed_rows)
-    result = _summary(rows, mode="incremental")
+    result = _summary(rows, mode="incremental", external_provider_requests=external_requests)
     result.update(
         {
             "existing_unchanged": existing_unchanged,
@@ -282,7 +362,12 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
     return result
 
 
-def _summary(rows: list[repository.InstrumentClassificationRow], *, mode: str) -> dict:
+def _summary(
+    rows: list[repository.InstrumentClassificationRow],
+    *,
+    mode: str,
+    external_provider_requests: int = 0,
+) -> dict:
     diagnostics = repository.universe_diagnostics(
         [row.instrument_id for row in rows],
         TAXONOMY_VERSION,
@@ -310,7 +395,7 @@ def _summary(rows: list[repository.InstrumentClassificationRow], *, mode: str) -
         "small_groups_needing_review": [item for item in smallest if item["member_count"] <= 2],
         "high_confidence_assignments": diagnostics["high_confidence"],
         "medium_confidence_assignments": diagnostics["medium_confidence"],
-        "external_provider_requests": 0,
+        "external_provider_requests": external_provider_requests,
         "classification_sources": [
             "persisted Instrument.sector/industry",
             "persisted SEC SIC metadata",
