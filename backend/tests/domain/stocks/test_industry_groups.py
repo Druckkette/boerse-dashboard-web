@@ -11,7 +11,7 @@ from app.domain.stocks.industry_groups import (
 
 
 def test_taxonomy_version_is_explicit_and_stable():
-    assert TAXONOMY_VERSION == "industry_groups_v2"
+    assert TAXONOMY_VERSION == "industry_groups_v3"
 
 
 def test_normalization_collapses_common_provider_variants():
@@ -193,3 +193,51 @@ def test_provider_industry_fallback_is_stable():
     assert one == two
     assert one.group_code.startswith("PROV_")
     assert one.confidence == 0.72
+
+
+
+def test_final_review_operating_companies_are_deterministically_classified():
+    cases = [
+        ("ALPS", "ALPS Group Inc - Ordinary Share", "8000", "Services-Health Services", "BIOTECH"),
+        ("ATCX", "Atlas Critical Minerals Corporation - Common Stock", "1040", "Gold and Silver Ores", "MININGIND"),
+        ("BTTC", "Black Titan Corp - Ordinary Shares", "7371", "Services-Computer Programming Services", "SOFTAPP"),
+        ("DPU", "Top KingWin Ltd - Class A Ordinary Shares", "7389", "Services-Business Services, NEC", "BUSSERV"),
+        ("FISV", "Fiserv, Inc. - Common Stock", "7389", "Services-Business Services, NEC", "PAYMENTS"),
+        ("LION", "Lionsgate Studios Corp Common Shares", "7812", "Services-Motion Picture & Video Tape Production", "ENTERTAIN"),
+        ("NIQ", "NIQ Global Intelligence plc Ordinary Shares", "7370", "Services-Computer Programming, Data Processing, Etc.", "ITSVC"),
+    ]
+    for ticker, name, sic, sic_description, expected in cases:
+        match = curated_rule_match(
+            ClassificationFeatures(
+                ticker=ticker,
+                company_name=name,
+                sic_code=sic,
+                sic_description=sic_description,
+                instrument_type="operating_company",
+            )
+        )
+        assert match is not None, ticker
+        assert match.group_code == expected, ticker
+
+
+def test_final_review_non_operating_securities_are_excluded():
+    cases = [
+        ("BAR", "GraniteShares Gold Trust Shares of Beneficial Interest", "6221"),
+        ("DBRGPH", "DigitalBridge Group, Inc. 7.125% Series H", ""),
+        ("DBRGPI", "DigitalBridge Group, Inc. 7.15% Series I", ""),
+        ("DBRGPJ", "DigitalBridge Group, Inc. 7.125% Series J", ""),
+        ("JBK", "Lehman ABS 3.50 3.50% Adjustable Corp Backed Tr Certs GS Cap I", "6189"),
+        ("NLYPF", "Annaly Capital Management Inc 6.95% Series F", ""),
+        ("SCEPL", "SCE TRUST VI", ""),
+        ("SCEPM", "SCE Trust VII 7.50% Trust Preference Securities", ""),
+        ("SCEPN", "SCE Trust VIII 6.95% Trust Preference Securities", ""),
+    ]
+    for ticker, name, sic in cases:
+        features = ClassificationFeatures(
+            ticker=ticker,
+            company_name=name,
+            sic_code=sic,
+            instrument_type="unknown",
+        )
+        assert not is_eligible_operating_company(features), ticker
+        assert exclusion_reason(features), ticker
