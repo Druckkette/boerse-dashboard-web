@@ -97,7 +97,6 @@ _RAW_PROVIDER_RULES: dict[str, tuple[str, str, str, str, float]] = {
     "Financial Conglomerates": ("FINCONG", "Finance – Conglomerates", "Financials", "Financial Services", 0.90),
     "Insurance - Reinsurance": ("INSRE", "Insurance – Reinsurance", "Financials", "Insurance", 0.94),
     "Oil & Gas Drilling": ("OILDRILL", "Energy – Oil & Gas Drilling", "Energy", "Oil & Gas", 0.94),
-    "Infrastructure Operations": ("INFRAOPS", "Infrastructure Operations", "Industrials", "Infrastructure", 0.86),
 
     # Durable splits supported directly by the provider taxonomy.
     "Drug Manufacturers - Specialty & Generic": ("PHARMA_SPEC", "Medical – Pharmaceuticals Specialty & Generic", "Health Care", "Medical", 0.95),
@@ -202,5 +201,6 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "REX": ("rex american resources", "CHEMCOMM", "Chemicals – Commodity", "Materials", "Chemicals", 0.90),
     "RYAM": ("rayonier advanced materials", "CHEMSPEC", "Chemicals – Specialty", "Materials", "Chemicals", 0.88),
 
+    "BEEP": ("mobile infrastructure", "REALPARK", "Real Estate – Parking Infrastructure", "Real Estate", "Real Estate", 0.96),
     "JOE": ("st joe company", "REDEV", "Real Estate – Development", "Real Estate", "Real Estate", 0.96),
 }
