@@ -67,7 +67,6 @@ def is_eligible_operating_company(features: ClassificationFeatures) -> bool:
 
 
 def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
-    sector = normalize_text(features.sector)
     industry = normalize_text(features.industry)
     sic = normalize_text(features.sic_description)
     name = normalize_text(features.company_name)
