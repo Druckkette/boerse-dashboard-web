@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
 from app.repositories.industry_groups import InstrumentClassificationRow, MembershipState
 from app.services import industry_groups as service
 
@@ -7,15 +10,22 @@ def _row(
     *,
     industry: str = "Security Software",
     instrument_type: str = "operating_company",
+    sic: str = "7372",
+    metadata: dict | None = None,
 ) -> InstrumentClassificationRow:
+    saved = {"instrument_type": instrument_type}
+    if sic:
+        saved["sec_sic"] = sic
+    if metadata:
+        saved.update(metadata)
     return InstrumentClassificationRow(
         instrument_id=f"id-{ticker}",
         ticker=ticker,
         name=f"{ticker} Corp.",
-        sector="Technology",
+        sector="Technology" if industry else "",
         industry=industry,
         exchange="NASDAQ",
-        metadata_json={"instrument_type": instrument_type, "sec_sic": "7372"},
+        metadata_json=saved,
     )
 
 
@@ -213,3 +223,88 @@ def test_full_rebuild_batches_all_writes_once(monkeypatch):
     assert len(writes) == 1
     assert len(writes[0]["memberships"]) == 2
     assert "SOFTSEC" in writes[0]["group_definitions"]
+
+
+def test_v1_empty_profile_check_is_retryable_and_success_is_persisted(monkeypatch):
+    row = _row(
+        "MSFT",
+        industry="",
+        sic="",
+        metadata={"industry_profile_checked_at": "2026-09-25T12:00:00+00:00"},
+    )
+    writes = []
+    monkeypatch.setattr(
+        service,
+        "fetch_company_profile",
+        lambda ticker: SimpleNamespace(
+            ticker=ticker,
+            sector="Technology",
+            industry="Software - Infrastructure",
+        ),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "save_business_profile_enrichments",
+        lambda items: writes.extend(items),
+    )
+
+    enriched, stats = service._enrich_missing_business_profiles([row])
+
+    assert stats["external_provider_requests"] == 1
+    assert stats["profile_success"] == 1
+    assert enriched[0].industry == "Software - Infrastructure"
+    assert writes[0]["success"] is True
+    assert writes[0]["retry_count"] == 0
+
+
+def test_profile_retry_window_prevents_immediate_refetch(monkeypatch):
+    future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    row = _row(
+        "UNKNOWN",
+        industry="",
+        sic="",
+        metadata={"industry_profile_next_retry_at": future},
+    )
+    called = []
+    monkeypatch.setattr(
+        service,
+        "fetch_company_profile",
+        lambda ticker: called.append(ticker),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "save_business_profile_enrichments",
+        lambda items: None,
+    )
+
+    enriched, stats = service._enrich_missing_business_profiles([row])
+
+    assert called == []
+    assert enriched[0].industry == ""
+    assert stats["profile_retry_pending"] == 1
+
+
+def test_profile_circuit_breaker_stops_after_consecutive_empty_profiles(monkeypatch):
+    rows = [_row(f"X{i:02d}", industry="", sic="") for i in range(15)]
+    calls = []
+    writes = []
+    monkeypatch.setattr(
+        service,
+        "fetch_company_profile",
+        lambda ticker: (
+            calls.append(ticker)
+            or SimpleNamespace(ticker=ticker, sector="", industry="")
+        ),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "save_business_profile_enrichments",
+        lambda items: writes.extend(items),
+    )
+
+    _enriched, stats = service._enrich_missing_business_profiles(rows)
+
+    assert len(calls) == service.PROFILE_CIRCUIT_BREAKER_FAILURES
+    assert stats["profile_empty"] == service.PROFILE_CIRCUIT_BREAKER_FAILURES
+    assert stats["profile_circuit_deferred"] == 3
+    assert all(item["success"] is False for item in writes)
