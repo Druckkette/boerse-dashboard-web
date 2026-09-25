@@ -350,6 +350,8 @@ def test_sec_bulk_sic_enrichment_precedes_yahoo(monkeypatch):
             "cik": "0000789019",
             "sic": "7372",
             "sic_description": "Services-Prepackaged Software",
+            "sec_forms": [],
+            "instrument_type": "operating_company",
         }
     ]
     match = service.curated_rule_match(service._features(enriched[0]))
