@@ -34,10 +34,20 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
     if re.search(r"\betns?\b|exchange.traded notes?", category + title):
         return "etn"
     for pattern, kind in (
-        (r"\bwarrants?\b", "warrant"), (r"\brights?\b", "right"),
+        (r"\bwarrants?\b", "warrant"),
+        (r"\brights?\b", "right"),
         (r"\bunits?\b(?!\s+(corp(oration)?|inc(orporated)?|company|co\.?|limited|ltd\.?))", "unit"),
-        (r"\bpreferred\b|\bdepositary shares?\b", "preferred_stock"),
-        (r"\bstructured\b|\btrust certificates?\b|\bindex.linked notes?\b|\bnotes? due\b|\bdebentures?\b|\bsynthetic fixed.income securities\b|\bstrats\b|\bpplus\b.*\bctf\b", "structured_security"),
+        (
+            r"\bpreferred\b|\bpreference shares?\b|\bpfd\b|\bdepositary shares?\b|"
+            r"\bdep(?:ositary)? shs\b|\bperpetual non cumulative\b",
+            "preferred_stock",
+        ),
+        (
+            r"\bstructured\b|\btrust certificates?\b|\bindex.linked notes?\b|\bnotes? due\b|"
+            r"\bdebentures?\b|\bsynthetic fixed.income securities\b|\bstrats\b|"
+            r"\bpplus\b.*\bctf\b|\bcapital trust\b|\bzones\b",
+            "structured_security",
+        ),
     ):
         if re.search(pattern, category + title):
             return kind
