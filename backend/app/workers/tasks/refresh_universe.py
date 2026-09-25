@@ -24,6 +24,17 @@ def refresh_universe(self, job_id: str | None = None, payload: dict | None = Non
             result={"job_type": "refresh_universe"},
         )
         result = refresh_us_common_stock_universe()
+        try:
+            celery_app.send_task(
+                "refresh_industry_group_memberships",
+                args=[None, {"universe": result.get("key", "us_common_stocks"), "source": "refresh_universe"}],
+                queue="default",
+                ignore_result=True,
+            )
+            result["industry_group_refresh_enqueued"] = True
+        except Exception as exc:  # classification must not invalidate a successful universe refresh
+            result["industry_group_refresh_enqueued"] = False
+            result["industry_group_refresh_error"] = f"{type(exc).__name__}: {exc}"
         raise_if_cancelled(job.job_id)
         job_repository.update_progress(
             job.job_id,
