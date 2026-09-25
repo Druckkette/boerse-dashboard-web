@@ -31,20 +31,32 @@ def _features(row: repository.InstrumentClassificationRow) -> ClassificationFeat
     )
 
 
+def _group_definition(*, code: str, name: str, sector: str, family: str, description: str) -> dict:
+    return {
+        "group_code": code,
+        "name": name,
+        "sector": sector,
+        "industry_family": family,
+        "description": description,
+    }
+
+
 def _classify_one(
-    row: repository.InstrumentClassificationRow,
+    features: ClassificationFeatures,
     *,
-    create_provider_rule: bool,
+    exact_rules: dict[str, dict],
 ) -> dict:
-    features = _features(row)
     fingerprint = classification_fingerprint(features)
     if not is_eligible_operating_company(features):
         return {
-            "group_id": None,
+            "group_code": "",
+            "group_definition": None,
             "status": "excluded",
             "source": "instrument_type",
             "confidence": 1.0,
             "fingerprint": fingerprint,
+            "normalized_industry": "",
+            "create_exact_rule": False,
             "explanation": {
                 "instrument_type": features.instrument_type,
                 "reason": "non_operating_security",
@@ -53,20 +65,21 @@ def _classify_one(
 
     match = curated_rule_match(features)
     if match is not None:
-        group_id = repository.get_or_create_group(
-            group_code=match.group_code,
-            name=match.group_name,
-            sector=match.sector,
-            industry_family=match.family,
-            taxonomy_version=TAXONOMY_VERSION,
-            description="Deterministic IBD-style business classification; not a proprietary IBD label.",
-        )
         return {
-            "group_id": group_id,
+            "group_code": match.group_code,
+            "group_definition": _group_definition(
+                code=match.group_code,
+                name=match.group_name,
+                sector=match.sector,
+                family=match.family,
+                description="Deterministic IBD-style business classification; not a proprietary IBD label.",
+            ),
             "status": "classified",
             "source": "curated_rule",
             "confidence": match.confidence,
             "fingerprint": fingerprint,
+            "normalized_industry": normalize_text(features.industry),
+            "create_exact_rule": False,
             "explanation": {
                 "matched_rule": match.rule_name,
                 "industry": features.industry,
@@ -77,47 +90,49 @@ def _classify_one(
         }
 
     normalized_industry = normalize_text(features.industry)
-    exact = repository.exact_industry_rule(normalized_industry, TAXONOMY_VERSION)
+    exact = exact_rules.get(normalized_industry) if normalized_industry else None
     if exact is not None:
-        group = repository.group_by_id(exact[0])
         return {
-            "group_id": exact[0],
+            "group_code": str(exact["group_code"]),
+            "group_definition": _group_definition(
+                code=str(exact["group_code"]),
+                name=str(exact["group_name"]),
+                sector=str(exact["sector"]),
+                family=str(exact["industry_family"]),
+                description="Persisted deterministic provider-industry mapping.",
+            ),
             "status": "classified",
             "source": "persisted_exact_industry_rule",
-            "confidence": exact[1],
+            "confidence": float(exact["confidence"]),
             "fingerprint": fingerprint,
+            "normalized_industry": normalized_industry,
+            "create_exact_rule": False,
             "explanation": {
                 "matched_rule": "provider_industry_exact",
                 "normalized_industry": normalized_industry,
                 "industry": features.industry,
-                "target_group": group.name if group else "",
-                "confidence": exact[1],
+                "target_group": exact["group_name"],
+                "confidence": float(exact["confidence"]),
             },
         }
 
     fallback = provider_industry_fallback(features)
     if fallback is not None:
-        group_id = repository.get_or_create_group(
-            group_code=fallback.group_code,
-            name=fallback.group_name,
-            sector=fallback.sector,
-            industry_family=fallback.family,
-            taxonomy_version=TAXONOMY_VERSION,
-            description="Provider-industry-derived IBD-style group created during taxonomy bootstrap.",
-        )
-        if create_provider_rule:
-            repository.upsert_exact_industry_rule(
-                normalized_industry=normalized_industry,
-                group_id=group_id,
-                confidence=fallback.confidence,
-                taxonomy_version=TAXONOMY_VERSION,
-            )
         return {
-            "group_id": group_id,
+            "group_code": fallback.group_code,
+            "group_definition": _group_definition(
+                code=fallback.group_code,
+                name=fallback.group_name,
+                sector=fallback.sector,
+                family=fallback.family,
+                description="Provider-industry-derived IBD-style group created during taxonomy bootstrap.",
+            ),
             "status": "classified",
             "source": "provider_industry_exact",
             "confidence": fallback.confidence,
             "fingerprint": fingerprint,
+            "normalized_industry": normalized_industry,
+            "create_exact_rule": True,
             "explanation": {
                 "matched_rule": fallback.rule_name,
                 "normalized_industry": normalized_industry,
@@ -127,11 +142,14 @@ def _classify_one(
         }
 
     return {
-        "group_id": None,
+        "group_code": "",
+        "group_definition": None,
         "status": "needs_review",
         "source": "insufficient_metadata",
         "confidence": 0.0,
         "fingerprint": fingerprint,
+        "normalized_industry": "",
+        "create_exact_rule": False,
         "explanation": {
             "reason": "No usable persisted industry and no deterministic curated rule matched.",
             "sector": features.sector,
@@ -142,35 +160,82 @@ def _classify_one(
     }
 
 
+def _membership_write(
+    row: repository.InstrumentClassificationRow,
+    features: ClassificationFeatures,
+    result: dict,
+) -> dict:
+    return {
+        "instrument_id": row.instrument_id,
+        "ticker": row.ticker,
+        "group_code": result["group_code"],
+        "status": result["status"],
+        "classification_source": result["source"],
+        "classification_confidence": result["confidence"],
+        "classification_fingerprint": result["fingerprint"],
+        "sector_snapshot": features.sector,
+        "industry_snapshot": features.industry,
+        "sic_snapshot": features.sic_code,
+        "explanation_json": result["explanation"],
+    }
+
+
+def _persist_results(rows_and_results: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]]) -> None:
+    group_definitions: dict[str, dict] = {}
+    exact_rules: dict[str, dict] = {}
+    memberships: list[dict] = []
+
+    for row, features, result in rows_and_results:
+        definition = result.get("group_definition")
+        if definition:
+            group_definitions[str(result["group_code"])] = definition
+        if result.get("create_exact_rule") and result.get("normalized_industry"):
+            exact_rules[str(result["normalized_industry"])] = {
+                "group_code": result["group_code"],
+                "confidence": result["confidence"],
+            }
+        memberships.append(_membership_write(row, features, result))
+
+    repository.persist_classification_batch(
+        taxonomy_version=TAXONOMY_VERSION,
+        group_definitions=group_definitions,
+        exact_industry_rules=exact_rules,
+        memberships=memberships,
+    )
+
+
 def rebuild_industry_groups(universe_key: str = "us_common_stocks") -> dict:
     rows = repository.list_universe_instruments(universe_key)
     if not rows:
         raise RuntimeError(f"Universe {universe_key!r} is empty or unavailable.")
 
+    exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
+    classified_rows: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]] = []
     for row in rows:
         features = _features(row)
-        result = _classify_one(row, create_provider_rule=True)
-        repository.upsert_membership(
-            instrument_id=row.instrument_id,
-            ticker=row.ticker,
-            industry_group_id=result["group_id"],
-            status=result["status"],
-            classification_source=result["source"],
-            classification_confidence=result["confidence"],
-            classification_fingerprint=result["fingerprint"],
-            sector_snapshot=features.sector,
-            industry_snapshot=features.industry,
-            sic_snapshot=features.sic_code,
-            assignment_version=TAXONOMY_VERSION,
-            explanation_json=result["explanation"],
-        )
+        result = _classify_one(features, exact_rules=exact_rules)
+        classified_rows.append((row, features, result))
+        if result.get("create_exact_rule") and result.get("normalized_industry"):
+            exact_rules[str(result["normalized_industry"])] = {
+                "group_code": result["group_code"],
+                "group_name": result["group_definition"]["name"],
+                "sector": result["group_definition"]["sector"],
+                "industry_family": result["group_definition"]["industry_family"],
+                "confidence": result["confidence"],
+            }
 
+    _persist_results(classified_rows)
     return _summary(rows, mode="full_rebuild")
 
 
 def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -> dict:
     rows = repository.list_universe_instruments(universe_key)
-    memberships = repository.get_membership_map()
+    if not rows:
+        raise RuntimeError(f"Universe {universe_key!r} is empty or unavailable.")
+
+    memberships = repository.get_membership_map([row.instrument_id for row in rows])
+    exact_rules = repository.load_exact_industry_rule_map(TAXONOMY_VERSION)
+    changed_rows: list[tuple[repository.InstrumentClassificationRow, ClassificationFeatures, dict]] = []
     existing_unchanged = new_count = reclassified = manual_preserved = 0
 
     for row in rows:
@@ -189,26 +254,22 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
             existing_unchanged += 1
             continue
 
-        result = _classify_one(row, create_provider_rule=True)
-        repository.upsert_membership(
-            instrument_id=row.instrument_id,
-            ticker=row.ticker,
-            industry_group_id=result["group_id"],
-            status=result["status"],
-            classification_source=result["source"],
-            classification_confidence=result["confidence"],
-            classification_fingerprint=result["fingerprint"],
-            sector_snapshot=features.sector,
-            industry_snapshot=features.industry,
-            sic_snapshot=features.sic_code,
-            assignment_version=TAXONOMY_VERSION,
-            explanation_json=result["explanation"],
-        )
+        result = _classify_one(features, exact_rules=exact_rules)
+        changed_rows.append((row, features, result))
+        if result.get("create_exact_rule") and result.get("normalized_industry"):
+            exact_rules[str(result["normalized_industry"])] = {
+                "group_code": result["group_code"],
+                "group_name": result["group_definition"]["name"],
+                "sector": result["group_definition"]["sector"],
+                "industry_family": result["group_definition"]["industry_family"],
+                "confidence": result["confidence"],
+            }
         if existing is None:
             new_count += 1
         else:
             reclassified += 1
 
+    _persist_results(changed_rows)
     result = _summary(rows, mode="incremental")
     result.update(
         {
@@ -222,16 +283,22 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
 
 
 def _summary(rows: list[repository.InstrumentClassificationRow], *, mode: str) -> dict:
-    diagnostics = repository.diagnostics(TAXONOMY_VERSION)
+    diagnostics = repository.universe_diagnostics(
+        [row.instrument_id for row in rows],
+        TAXONOMY_VERSION,
+    )
     group_sizes = [item["member_count"] for item in diagnostics["groups"] if item["member_count"] > 0]
-    eligible = len(rows) - diagnostics["excluded"]
+    smallest = sorted(
+        [item for item in diagnostics["groups"] if item["member_count"] > 0],
+        key=lambda item: (item["member_count"], item["name"]),
+    )
     return {
         "ok": True,
         "job_type": "rebuild_industry_groups" if mode == "full_rebuild" else "refresh_industry_group_memberships",
         "mode": mode,
         "taxonomy_version": TAXONOMY_VERSION,
         "universe_stocks": len(rows),
-        "eligible_operating_companies": eligible,
+        "eligible_operating_companies": len(rows) - diagnostics["excluded"],
         "excluded_instruments": diagnostics["excluded"],
         "classified": diagnostics["classified"],
         "needs_review": diagnostics["needs_review"],
@@ -239,10 +306,8 @@ def _summary(rows: list[repository.InstrumentClassificationRow], *, mode: str) -
         "median_group_size": statistics.median(group_sizes) if group_sizes else 0,
         "average_group_size": (sum(group_sizes) / len(group_sizes)) if group_sizes else 0,
         "largest_groups": diagnostics["groups"][:10],
-        "smallest_groups": sorted(
-            [item for item in diagnostics["groups"] if item["member_count"] > 0],
-            key=lambda item: (item["member_count"], item["name"]),
-        )[:10],
+        "smallest_groups": smallest[:10],
+        "small_groups_needing_review": [item for item in smallest if item["member_count"] <= 2],
         "high_confidence_assignments": diagnostics["high_confidence"],
         "medium_confidence_assignments": diagnostics["medium_confidence"],
         "external_provider_requests": 0,
@@ -274,9 +339,19 @@ def audit_csv() -> str:
     rows = repository.membership_export_rows(TAXONOMY_VERSION)
     buffer = io.StringIO()
     fieldnames = [
-        "ticker", "name", "sector", "original_industry", "sic", "sic_description",
-        "industry_group", "industry_family", "confidence", "classification_source",
-        "assignment_version", "manual_override", "status",
+        "ticker",
+        "name",
+        "sector",
+        "original_industry",
+        "sic",
+        "sic_description",
+        "industry_group",
+        "industry_family",
+        "confidence",
+        "classification_source",
+        "assignment_version",
+        "manual_override",
+        "status",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
