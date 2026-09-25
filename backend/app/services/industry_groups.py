@@ -680,8 +680,36 @@ def _summary(
         item for item in diagnostics["groups"]
         if str(item.get("group_code") or "").startswith("PROV_")
     ]
+    legacy_split_codes = {"PHARMA", "MACHINERY", "GAMING", "BEVERAGE", "PAYMENTS", "CONSTEQ"}
+    legacy_split_groups = [
+        item for item in diagnostics["groups"]
+        if str(item.get("group_code") or "") in legacy_split_codes
+    ]
+    canonical_sectors = {
+        "Health Care",
+        "Financials",
+        "Consumer Discretionary",
+        "Consumer Staples",
+        "Materials",
+        "Technology",
+        "Industrials",
+        "Energy",
+        "Utilities",
+        "Real Estate",
+        "Communication Services",
+    }
+    noncanonical_sector_groups = [
+        item for item in diagnostics["groups"]
+        if str(item.get("sector") or "") not in canonical_sectors
+    ]
+    persisted_memberships = (
+        diagnostics["classified"] + diagnostics["needs_review"] + diagnostics["excluded"]
+    )
     quality_gates = {
+        "membership_coverage_complete": persisted_memberships == len(rows),
         "no_provisional_groups": not provisional_groups,
+        "no_legacy_split_groups": not legacy_split_groups,
+        "canonical_sector_vocabulary": not noncanonical_sector_groups,
         "no_needs_review": diagnostics["needs_review"] == 0,
     }
     return {
@@ -697,6 +725,9 @@ def _summary(
         "needs_review": diagnostics["needs_review"],
         "number_of_groups": diagnostics["number_of_groups"],
         "provisional_groups": provisional_groups,
+        "legacy_split_groups": legacy_split_groups,
+        "noncanonical_sector_groups": noncanonical_sector_groups,
+        "persisted_memberships": persisted_memberships,
         "quality_gates": quality_gates,
         "taxonomy_ready_for_rs": all(quality_gates.values()),
         "median_group_size": statistics.median(group_sizes) if group_sizes else 0,
