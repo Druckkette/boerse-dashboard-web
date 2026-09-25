@@ -4,7 +4,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-TAXONOMY_VERSION = "industry_groups_v2"
+TAXONOMY_VERSION = "industry_groups_v3"
 
 EXCLUDED_INSTRUMENT_TYPES = {
     "closed_end_fund",
@@ -28,7 +28,12 @@ _NON_OPERATING_NAME_PATTERNS = (
     r"\bdep(?:ositary)? shs\b",
     r"\bperpetual non cumulative\b",
     r"\btrust certificates?\b",
+    r"\btrust preference securities?\b",
+    r"\bcorp backed tr certs?\b",
     r"\bcapital trust\b",
+    r"\bsce trust\s+[ivx]+\b",
+    r"\b(?:gold|silver|commodity|bitcoin|ether(?:eum)?) trust\b",
+    r"\b\d+(?:\.\d+)?%\s+series\s+[a-z]\b",
     r"\bzones\b",
 )
 
@@ -37,6 +42,50 @@ _SHELL_INDUSTRIES = {
     "shell company",
     "blank check",
     "blank check companies",
+}
+
+_NON_OPERATING_SIC_CODES = {"6189", "6770"}
+
+# Final production-review overrides for operating companies whose SEC SIC is
+# too broad or whose fresh provider profile can legitimately be empty. Each
+# entry is guarded by both ticker and a company-name fragment so a future
+# ticker reuse cannot inherit the old classification accidentally.
+_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
+    "ALPS": ("alps group", "BIOTECH", "Medical – Biotech", "Health Care", "Medical", 0.88),
+    "ATCX": (
+        "atlas critical minerals",
+        "MININGIND",
+        "Mining – Diversified & Critical Minerals",
+        "Materials",
+        "Metals & Mining",
+        0.92,
+    ),
+    "BTTC": ("black titan", "SOFTAPP", "Software – Application", "Technology", "Software", 0.90),
+    "DPU": (
+        "top kingwin",
+        "BUSSERV",
+        "Commercial – Business Services",
+        "Industrials",
+        "Business Services",
+        0.90,
+    ),
+    "FISV": ("fiserv", "PAYMENTS", "Finance – Payments", "Financials", "Financial Services", 0.97),
+    "LION": (
+        "lionsgate studios",
+        "ENTERTAIN",
+        "Media – Entertainment",
+        "Communication Services",
+        "Media & Entertainment",
+        0.96,
+    ),
+    "NIQ": (
+        "niq global intelligence",
+        "ITSVC",
+        "Computer – IT Services",
+        "Technology",
+        "IT Services",
+        0.93,
+    ),
 }
 
 # Exact provider industries that map cleanly onto canonical groups. Keeping
@@ -129,6 +178,34 @@ _CANONICAL_PROVIDER_INDUSTRIES: dict[str, tuple[str, str, str, str, float]] = {
         "Consumer Products",
         0.89,
     ),
+    "information technology service": (
+        "ITSVC",
+        "Computer – IT Services",
+        "Technology",
+        "IT Services",
+        0.90,
+    ),
+    "specialty business service": (
+        "BUSSERV",
+        "Commercial – Business Services",
+        "Industrials",
+        "Business Services",
+        0.88,
+    ),
+    "entertainment": (
+        "ENTERTAIN",
+        "Media – Entertainment",
+        "Communication Services",
+        "Media & Entertainment",
+        0.90,
+    ),
+    "other industrial metals and mining": (
+        "MININGIND",
+        "Mining – Diversified & Critical Minerals",
+        "Materials",
+        "Metals & Mining",
+        0.88,
+    ),
 }
 
 _SIC_RULES: dict[str, tuple[str, str, str, str, float]] = {
@@ -164,7 +241,9 @@ _SIC_RULES: dict[str, tuple[str, str, str, str, float]] = {
     "3661": ("NETWORK", "Computer – Networking", "Technology", "Hardware", 0.94),
     "3571": ("HARDWARE", "Computer – Hardware", "Technology", "Hardware", 0.94),
     "3674": ("SEMIMFG", "Semiconductor – Manufacturing", "Technology", "Semiconductors", 0.96),
+    "7370": ("ITSVC", "Computer – IT Services", "Technology", "IT Services", 0.92),
     "7372": ("SOFTAPP", "Software – Application", "Technology", "Software", 0.94),
+    "7812": ("ENTERTAIN", "Media – Entertainment", "Communication Services", "Media & Entertainment", 0.95),
     "5812": ("RESTAURANT", "Retail – Restaurants", "Consumer Discretionary", "Retail", 0.95),
     "7011": ("HOTEL", "Leisure – Hotels & Resorts", "Consumer Discretionary", "Leisure", 0.95),
     "2086": ("BEVERAGE", "Food – Beverages", "Consumer Staples", "Food & Beverage", 0.95),
@@ -226,8 +305,9 @@ def exclusion_reason(features: ClassificationFeatures) -> str:
     kind = normalize_text(features.instrument_type).replace(" ", "_")
     if kind in EXCLUDED_INSTRUMENT_TYPES:
         return f"instrument_type:{kind}"
-    if str(features.sic_code or "").strip() == "6770":
-        return "sec_sic:6770"
+    sic_code = str(features.sic_code or "").strip()
+    if sic_code in _NON_OPERATING_SIC_CODES:
+        return f"sec_sic:{sic_code}"
     industry = normalize_text(features.industry)
     if industry in _SHELL_INDUSTRIES or "shell compan" in industry:
         return "provider_industry:shell_company"
@@ -256,6 +336,19 @@ def curated_rule_match(features: ClassificationFeatures) -> RuleMatch | None:
     sic_description = normalize_text(features.sic_description)
     sic_code = str(features.sic_code or "").strip()
     name = normalize_text(features.company_name)
+
+    reviewed = _REVIEWED_COMPANY_RULES.get(str(features.ticker or "").strip().upper())
+    if reviewed is not None:
+        name_fragment, code, group, sector, family, confidence = reviewed
+        if normalize_text(name_fragment) in name:
+            return RuleMatch(
+                code,
+                group,
+                features.sector or sector,
+                family,
+                confidence,
+                "reviewed_company_rule",
+            )
 
     canonical = _CANONICAL_PROVIDER_INDUSTRIES.get(industry)
     if canonical is not None:
