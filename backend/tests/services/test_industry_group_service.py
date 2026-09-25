@@ -308,3 +308,50 @@ def test_profile_circuit_breaker_stops_after_consecutive_empty_profiles(monkeypa
     assert stats["profile_empty"] == service.PROFILE_CIRCUIT_BREAKER_FAILURES
     assert stats["profile_circuit_deferred"] == 3
     assert all(item["success"] is False for item in writes)
+
+
+def test_sec_bulk_sic_enrichment_precedes_yahoo(monkeypatch):
+    from app.data_sources import fundamentals_client, sec_submissions_cache
+    from app.services import settings as settings_service
+
+    row = _row("MSFT", industry="", sic="")
+    writes = []
+    monkeypatch.setattr(settings_service, "get_runtime_config_value", lambda key: "test test@example.com")
+    monkeypatch.setattr(
+        sec_submissions_cache,
+        "refresh_submissions_bulk_cache",
+        lambda agent: {"available": True, "downloaded": False},
+    )
+    monkeypatch.setattr(
+        fundamentals_client,
+        "_sec_cik_map",
+        lambda agent, timeout: {"MSFT": "789019"},
+    )
+    monkeypatch.setattr(
+        sec_submissions_cache,
+        "load_submission",
+        lambda cik: {"sic": "7372", "sicDescription": "Services-Prepackaged Software"},
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "save_sec_sic_enrichments",
+        lambda items: writes.extend(items),
+    )
+
+    enriched, stats = service._enrich_missing_sec_sic([row])
+
+    assert stats["sec_bulk_candidates"] == 1
+    assert stats["sec_bulk_sic_success"] == 1
+    assert enriched[0].metadata_json["sec_sic"] == "7372"
+    assert enriched[0].metadata_json["primary_cik"] == "0000789019"
+    assert writes == [
+        {
+            "ticker": "MSFT",
+            "cik": "0000789019",
+            "sic": "7372",
+            "sic_description": "Services-Prepackaged Software",
+        }
+    ]
+    match = service.curated_rule_match(service._features(enriched[0]))
+    assert match is not None
+    assert match.group_code == "SOFTAPP"
