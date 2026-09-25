@@ -311,3 +311,119 @@ def test_final_review_non_operating_securities_are_excluded():
         )
         assert not is_eligible_operating_company(features), ticker
         assert exclusion_reason(features), ticker
+
+
+def test_v4_broad_pharma_does_not_recreate_legacy_group():
+    match = curated_rule_match(
+        ClassificationFeatures(
+            ticker="PHRM",
+            company_name="Example Pharmaceuticals, Inc.",
+            sector="Health Care",
+            instrument_type="operating_company",
+        )
+    )
+    assert match is not None
+    assert match.group_code == "PHARMA_OTHER"
+
+
+def test_v4_machinery_split_covers_sec_descriptions():
+    heavy = curated_rule_match(
+        ClassificationFeatures(
+            ticker="HEAVY",
+            company_name="Example Equipment Corp.",
+            sic_code="3531",
+            sic_description="Construction Machinery & Equip",
+            instrument_type="operating_company",
+        )
+    )
+    specialty = curated_rule_match(
+        ClassificationFeatures(
+            ticker="SPEC",
+            company_name="Example Automation Corp.",
+            sic_code="3569",
+            sic_description="General Industrial Machinery & Equipment, NEC",
+            instrument_type="operating_company",
+        )
+    )
+    assert heavy is not None and heavy.group_code == "MACHHEAVY"
+    assert specialty is not None and specialty.group_code == "MACHSPEC"
+
+
+def test_v4_gaming_residual_uses_nonlegacy_code():
+    other = curated_rule_match(
+        ClassificationFeatures(
+            ticker="GAME",
+            company_name="Example Gaming, Inc.",
+            instrument_type="operating_company",
+        )
+    )
+    casino = curated_rule_match(
+        ClassificationFeatures(
+            ticker="CAS",
+            company_name="Example Casino, Inc.",
+            instrument_type="operating_company",
+        )
+    )
+    assert other is not None and other.group_code == "GAMEOTHER"
+    assert casino is not None and casino.group_code == "CASINO"
+
+
+def test_v4_beverage_residual_uses_nonlegacy_code():
+    generic = curated_rule_match(
+        ClassificationFeatures(
+            ticker="BEV",
+            company_name="Example Beverage Corporation",
+            instrument_type="operating_company",
+        )
+    )
+    soft_drink = curated_rule_match(
+        ClassificationFeatures(
+            ticker="SODA",
+            company_name="Example Drinks Corporation",
+            sic_code="2086",
+            sic_description="Bottled & Canned Soft Drinks & Carbonated Waters",
+            instrument_type="operating_company",
+        )
+    )
+    assert generic is not None and generic.group_code == "BEVOTHER"
+    assert soft_drink is not None and soft_drink.group_code == "BEVNONALC"
+
+
+def test_v4_restaurants_and_construction_materials_use_canonical_names():
+    restaurant = curated_rule_match(
+        ClassificationFeatures(
+            ticker="REST",
+            company_name="Example Restaurant Group",
+            industry="Restaurants",
+            instrument_type="operating_company",
+        )
+    )
+    materials = curated_rule_match(
+        ClassificationFeatures(
+            ticker="MAT",
+            company_name="Example Building Materials Inc.",
+            industry="Building Materials",
+            instrument_type="operating_company",
+        )
+    )
+    assert restaurant is not None
+    assert restaurant.group_code == "RESTAURANT"
+    assert restaurant.group_name == "Leisure – Restaurants"
+    assert restaurant.family == "Leisure"
+    assert materials is not None
+    assert materials.group_code == "CONSTMAT"
+    assert materials.group_name == "Construction – Materials"
+
+
+def test_v4_mobile_infrastructure_is_real_estate_peer():
+    match = curated_rule_match(
+        ClassificationFeatures(
+            ticker="BEEP",
+            company_name="Mobile Infrastructure Corporation - Common Stock",
+            industry="Infrastructure Operations",
+            instrument_type="operating_company",
+        )
+    )
+    assert match is not None
+    assert match.group_code == "REALPARK"
+    assert match.sector == "Real Estate"
