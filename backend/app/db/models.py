@@ -584,3 +584,79 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+class IndustryGroup(Base):
+    __tablename__ = "industry_groups"
+    __table_args__ = (
+        UniqueConstraint("taxonomy_version", "group_code", name="uq_industry_group_version_code"),
+        Index("ix_industry_groups_version_active", "taxonomy_version", "active"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    group_code: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(160))
+    sector: Mapped[str] = mapped_column(String(128), default="")
+    industry_family: Mapped[str] = mapped_column(String(128), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    taxonomy_version: Mapped[str] = mapped_column(String(64), default="industry_groups_v1")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IndustryGroupRule(Base):
+    __tablename__ = "industry_group_rules"
+    __table_args__ = (
+        Index("ix_industry_group_rules_version_priority", "taxonomy_version", "active", "priority"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    industry_pattern: Mapped[str] = mapped_column(String(255), default="")
+    sector_pattern: Mapped[str] = mapped_column(String(255), default="")
+    sic_codes_json: Mapped[list] = mapped_column(JSONB, default=list)
+    sic_description_pattern: Mapped[str] = mapped_column(String(255), default="")
+    target_group_id: Mapped[str] = mapped_column(ForeignKey("industry_groups.id"), index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.80)
+    source: Mapped[str] = mapped_column(String(64), default="bootstrap")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    taxonomy_version: Mapped[str] = mapped_column(String(64), default="industry_groups_v1")
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IndustryGroupMembership(Base):
+    __tablename__ = "industry_group_memberships"
+    __table_args__ = (
+        UniqueConstraint("instrument_id", name="uq_industry_group_membership_instrument"),
+        Index("ix_industry_group_memberships_status", "status"),
+        Index("ix_industry_group_memberships_group", "industry_group_id"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    instrument_id: Mapped[str] = mapped_column(ForeignKey("instruments.id"), index=True)
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    industry_group_id: Mapped[str | None] = mapped_column(ForeignKey("industry_groups.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="needs_review", index=True)
+    classification_source: Mapped[str] = mapped_column(String(64), default="")
+    classification_confidence: Mapped[float | None] = mapped_column(Float)
+    classification_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    sector_snapshot: Mapped[str] = mapped_column(String(128), default="")
+    industry_snapshot: Mapped[str] = mapped_column(String(160), default="")
+    sic_snapshot: Mapped[str] = mapped_column(String(32), default="")
+    assignment_version: Mapped[str] = mapped_column(String(64), default="industry_groups_v1")
+    is_manual_override: Mapped[bool] = mapped_column(Boolean, default=False)
+    override_reason: Mapped[str] = mapped_column(Text, default="")
+    override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    explanation_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
