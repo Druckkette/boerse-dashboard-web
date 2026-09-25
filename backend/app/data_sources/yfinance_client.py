@@ -51,14 +51,16 @@ class FetchedCompanyProfile:
 
 
 def fetch_company_profile(symbol: str) -> FetchedCompanyProfile:
-    """Fetch slow-changing business metadata for one-time classification enrichment."""
+    """Fetch slow-changing business metadata and surface provider failures to callers."""
     import yfinance as yf
 
     clean = symbol.strip().upper()
     if not clean:
         return FetchedCompanyProfile(ticker="", sector="", industry="")
     record_provider_event("yahoo_requests")
-    info = _safe_info(yf.Ticker(clean))
+    info = yf.Ticker(clean).get_info()
+    if not isinstance(info, dict):
+        info = {}
     return FetchedCompanyProfile(
         ticker=clean,
         sector=str(info.get("sector") or "").strip(),
