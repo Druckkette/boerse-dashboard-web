@@ -189,7 +189,11 @@ def _looks_like_common_equity_name(name: object) -> bool:
         return False
     reject_patterns = (
         r"\bpreferred\b",
+        r"\bpreference shares?\b",
+        r"\bpfd\b",
         r"\bdepositary\b",
+        r"\bdep(?:ositary)? shs\b",
+        r"\bperpetual non cumulative\b",
         r"\bwarrants?\b",
         r"\brights?\b",
         r"\bunits?\b",
@@ -201,5 +205,8 @@ def _looks_like_common_equity_name(name: object) -> bool:
         r"\bclosed\s+end\b",
         r"\bmutual\s+fund\b",
         r"\btrust\s+units?\b",
+        r"\bcapital trust\b",
+        r"\btrust certificates?\b",
+        r"\bzones\b",
     )
     return not any(re.search(pattern, low) for pattern in reject_patterns)
