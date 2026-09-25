@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from app.data_sources.yfinance_client import fetch_company_profile
+from app.domain.stocks.instrument_type import classify_instrument
 from app.domain.stocks.industry_groups import (
     TAXONOMY_VERSION,
     ClassificationFeatures,
@@ -34,6 +35,15 @@ PROFILE_RETRY_DELAYS = (
 
 def _features(row: repository.InstrumentClassificationRow) -> ClassificationFeatures:
     metadata = row.metadata_json or {}
+    sec_forms = metadata.get("sec_forms")
+    forms = sec_forms if isinstance(sec_forms, list) else []
+    instrument_type = classify_instrument(
+        ticker=row.ticker,
+        name=row.name,
+        sec_sic=str(metadata.get("sec_sic") or ""),
+        sec_forms=forms,
+        previous_type=str(metadata.get("instrument_type") or "unknown"),
+    )
     return ClassificationFeatures(
         ticker=row.ticker,
         company_name=row.name,
@@ -41,7 +51,7 @@ def _features(row: repository.InstrumentClassificationRow) -> ClassificationFeat
         industry=row.industry,
         sic_code=str(metadata.get("sec_sic") or ""),
         sic_description=str(metadata.get("sec_sic_description") or ""),
-        instrument_type=str(metadata.get("instrument_type") or "unknown"),
+        instrument_type=instrument_type,
         exchange=row.exchange,
     )
 
@@ -189,7 +199,12 @@ def _classify_one(
 def _enrich_missing_sec_sic(
     rows: list[repository.InstrumentClassificationRow],
 ) -> tuple[list[repository.InstrumentClassificationRow], dict]:
-    """Fill missing SEC SIC data from one nightly bulk archive before using Yahoo."""
+    """Enrich SEC SIC plus filing-form evidence from the local submissions archive.
+
+    v4 uses filing forms to keep registered closed-end funds out of the
+    operating-company taxonomy. The archive is downloaded at most daily; all
+    per-company reads are local ZIP lookups.
+    """
     from app.core_config import get_settings
     from app.data_sources.fundamentals_client import _sec_cik_map
     from app.data_sources.sec_submissions_cache import (
@@ -201,6 +216,8 @@ def _enrich_missing_sec_sic(
     stats = {
         "sec_bulk_candidates": 0,
         "sec_bulk_sic_success": 0,
+        "sec_bulk_forms_success": 0,
+        "sec_bulk_instrument_type_changed": 0,
         "sec_bulk_no_cik": 0,
         "sec_bulk_no_sic": 0,
         "sec_bulk_cache_available": False,
@@ -209,14 +226,20 @@ def _enrich_missing_sec_sic(
     }
     candidates = []
     for row in rows:
+        metadata = row.metadata_json or {}
         features = _features(row)
-        if (
-            is_eligible_operating_company(features)
-            and not features.sic_code
+        if not is_eligible_operating_company(features):
+            continue
+        stored_forms = metadata.get("sec_forms")
+        needs_forms = not isinstance(stored_forms, list) or not stored_forms
+        needs_sic = (
+            not features.sic_code
             and not row.industry
             and curated_rule_match(features) is None
-        ):
+        )
+        if needs_forms or needs_sic:
             candidates.append(row)
+
     stats["sec_bulk_candidates"] = len(candidates)
     if not candidates:
         return rows, stats
@@ -254,38 +277,74 @@ def _enrich_missing_sec_sic(
         if not payload:
             stats["sec_bulk_no_sic"] += 1
             continue
+
         sic = str(payload.get("sic") or "").strip()
         sic_description = str(payload.get("sicDescription") or "").strip()
-        if not sic.isdigit():
+        recent = ((payload.get("filings") or {}).get("recent") or {})
+        raw_forms = recent.get("form") if isinstance(recent, dict) else []
+        forms = list(
+            dict.fromkeys(
+                str(form).strip().upper()
+                for form in (raw_forms if isinstance(raw_forms, list) else [])
+                if str(form).strip()
+            )
+        )[:80]
+        if sic.isdigit():
+            stats["sec_bulk_sic_success"] += 1
+        else:
             stats["sec_bulk_no_sic"] += 1
+        if forms:
+            stats["sec_bulk_forms_success"] += 1
+
+        previous_type = str((row.metadata_json or {}).get("instrument_type") or "unknown")
+        instrument_type = classify_instrument(
+            ticker=row.ticker,
+            name=row.name,
+            sec_sic=sic,
+            sec_forms=forms,
+            previous_type=previous_type,
+        )
+        if instrument_type != previous_type and instrument_type != "unknown":
+            stats["sec_bulk_instrument_type_changed"] += 1
+
+        if not sic.isdigit() and not forms:
             continue
 
         metadata = {
             **(row.metadata_json or {}),
-            "primary_cik": cik,
-            "sec_sic": sic,
-            "sec_sic_description": sic_description,
-            "sec_sic_cik": cik,
-            "sec_sic_checked_at": datetime.now(UTC).isoformat(),
-            "sec_sic_evidence": f"https://data.sec.gov/submissions/CIK{cik}.json",
+            "sec_submission_bulk_checked_at": datetime.now(UTC).isoformat(),
             "sec_submission_bulk_source": "sec_submissions_bulk",
         }
+        if cik.isdigit() and cik != "0000000000":
+            metadata["primary_cik"] = cik
+        if sic.isdigit():
+            metadata["sec_sic"] = sic
+            metadata["sec_sic_description"] = sic_description
+            metadata["sec_sic_cik"] = cik
+            metadata["sec_sic_checked_at"] = datetime.now(UTC).isoformat()
+            metadata["sec_sic_evidence"] = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        if forms:
+            metadata["sec_forms"] = forms
+        if instrument_type:
+            metadata["instrument_type"] = instrument_type
+            metadata["classification_source"] = "sec_submissions"
+
         writes.append(
             {
                 "ticker": row.ticker,
                 "cik": cik,
                 "sic": sic,
                 "sic_description": sic_description,
+                "sec_forms": forms,
+                "instrument_type": instrument_type,
             }
         )
         updated[row.ticker.upper()] = replace(row, metadata_json=metadata)
-        stats["sec_bulk_sic_success"] += 1
 
     repository.save_sec_sic_enrichments(writes)
     if not updated:
         return rows, stats
     return [updated.get(row.ticker.upper(), row) for row in rows], stats
-
 
 def _parse_iso_datetime(value: object) -> datetime | None:
     raw = str(value or "").strip()
