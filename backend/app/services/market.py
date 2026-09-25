@@ -545,10 +545,10 @@ def get_market_deep_analysis(
             tone="good" if not p50_divergence else "warning",
         ),
         MarketDeepAnalysisCheck(
-            label="McClellan > 0",
-            passed=bool(latest.mcclellan is not None and latest.mcclellan > 0),
-            detail=f"McClellan: {_format_number(latest.mcclellan, digits=1)}",
-            tone="good" if latest.mcclellan is not None and latest.mcclellan > 0 else "warning",
+            label="McClellan klar konstruktiv (> +30)",
+            passed=bool(latest.mcclellan is not None and latest.mcclellan > 30),
+            detail=f"McClellan: {_format_number(latest.mcclellan, digits=1)} · {_mcclellan_label(latest.mcclellan)}",
+            tone=_tone_for_mcclellan(latest.mcclellan),
         ),
         MarketDeepAnalysisCheck(
             label="% über 50-SMA > 70%",
@@ -747,27 +747,58 @@ def _equal_weight_breadth_signal() -> MarketBreadthSignal:
     start_date = date.today() - timedelta(days=620)
     series = market_repository.load_cached_ohlcv_for_tickers(EQUAL_WEIGHT_MARKET_TICKERS, start_date=start_date)
     status = compute_equal_weight_breadth_status(series, tickers=EQUAL_WEIGHT_MARKET_TICKERS)
+    benchmark_specs = {
+        "RSP": ("^GSPC", "S&P 500"),
+        "QQEW": ("^IXIC", "Nasdaq Composite"),
+    }
     ticker_metrics = {}
     details: list[str] = []
     for ticker in EQUAL_WEIGHT_MARKET_TICKERS:
         rows = series.get(ticker, [])
         day_pct = _period_return_pct(rows, days=1)
         return_20d = _period_return_pct(rows, days=20)
+        benchmark_ticker, benchmark_name = benchmark_specs[ticker]
+        benchmark_rows, benchmark_used = _load_cached_index_ohlcv(benchmark_ticker, start_date=start_date)
+        benchmark_day_pct = _period_return_pct(benchmark_rows, days=1)
+        benchmark_return_20d = _period_return_pct(benchmark_rows, days=20)
+        relative_day_pct = (
+            day_pct - benchmark_day_pct
+            if day_pct is not None and benchmark_day_pct is not None
+            else None
+        )
+        relative_return_20d_pct = (
+            return_20d - benchmark_return_20d
+            if return_20d is not None and benchmark_return_20d is not None
+            else None
+        )
         ticker_status = next((item for item in status.ticker_status if item.ticker == ticker), None)
         ticker_metrics[ticker] = {
             "day_pct": _round_optional(day_pct),
             "return_20d_pct": _round_optional(return_20d),
+            "benchmark_ticker": benchmark_used or benchmark_ticker,
+            "benchmark_name": benchmark_name,
+            "benchmark_day_pct": _round_optional(benchmark_day_pct),
+            "benchmark_return_20d_pct": _round_optional(benchmark_return_20d),
+            "relative_day_pct": _round_optional(relative_day_pct),
+            "relative_return_20d_pct": _round_optional(relative_return_20d_pct),
             "distance_from_high_pct": ticker_status.distance_from_high_pct if ticker_status else None,
             "drawdown_from_high_pct": ticker_status.drawdown_from_high_pct if ticker_status else None,
         }
-        details.append(f"{ticker} Tag {_format_optional_pct(day_pct)}")
+        relative_text = "n/a" if relative_day_pct is None else f"{relative_day_pct:+.1f} PP"
+        details.append(
+            f"{ticker} {_format_optional_pct(day_pct)} vs. {benchmark_name} "
+            f"{_format_optional_pct(benchmark_day_pct)} (rel. {relative_text})"
+        )
     return MarketBreadthSignal(
         key="equal_weight_etfs",
         title="Gleichgewichtete ETFs",
         value=_breadth_mode_label(status.mode),
         detail=" · ".join(details) if details else status.message,
         tone=_tone_for_breadth_mode(status.mode),
-        comment=status.message,
+        comment=(
+            f"{status.message} Der Regime-Status basiert derzeit auf dem 52W-Abstand; "
+            "die Tageswerte zeigen zusätzlich die relative Abweichung zum passenden kapitalgewichteten Index."
+        ),
         metrics={
             "mode": status.mode,
             "candidate_mode": status.candidate_mode,
@@ -798,7 +829,8 @@ def _advance_decline_line_signal(
         tone="warning" if divergence else "good",
         comment=(
             f"Divergenz liegt vor, wenn {index_name} nahe am 20T-Hoch steht, "
-            "die A/D-Linie dieses Hoch aber nicht bestätigt."
+            "die A/D-Linie dieses Hoch aber nicht bestätigt. Der angezeigte A/D-Wert ist der kumulierte "
+            "Saldo aus Advancern minus Decliner und keine Prozentangabe."
         ),
         metrics={
             "ad_line": latest.ad_line,
@@ -867,7 +899,10 @@ def _mcclellan_signal(latest: MarketBreadthOverviewPoint) -> MarketBreadthSignal
         value=_format_number(latest.mcclellan, digits=1),
         detail=_mcclellan_label(latest.mcclellan),
         tone=_tone_for_mcclellan(latest.mcclellan),
-        comment="A/D-Momentum aus ratio-adjusted net advances; über 0 ist konstruktiv.",
+        comment=(
+            "A/D-Momentum aus ratio-adjusted net advances. Die Nulllinie markiert den Richtungswechsel; "
+            "Werte ungefähr zwischen -30 und +30 sind häufig uneindeutig, ab etwa ±50 wird der Impuls klarer."
+        ),
         metrics={"mcclellan": latest.mcclellan},
     )
 
@@ -1657,7 +1692,10 @@ def _index_ad_confirmation(
     reference_high = max(previous_highs)
     reference_ad_high = max(previous_ad_values)
     spx_at_high = latest_close >= reference_high * 0.998
-    ad_at_high = latest_ad >= reference_ad_high * 0.998
+    # A/D confirmation means reaching or exceeding its own prior 20-session high.
+    # A multiplicative tolerance is invalid for negative cumulative A/D values because
+    # multiplying a negative high by 0.998 moves the threshold above the actual high.
+    ad_at_high = latest_ad >= reference_ad_high
     if spx_at_high and ad_at_high:
         detail = f"{index_name} und A/D-Linie bestätigen sich."
     elif spx_at_high:
@@ -1676,21 +1714,19 @@ def _safe_ratio(numerator: int, denominator: int) -> float | None:
 def _mcclellan_label(value: float | None) -> str:
     if value is None:
         return "Nicht verfügbar"
-    if value > 125:
-        return "Extrem aufwärts"
-    if value > 80:
-        return "Überdehnt aufwärts"
-    if value > 50:
+    if value >= 100:
+        return "Stark positiv / überdehnt"
+    if value >= 50:
         return "Impuls aufwärts"
-    if value > 0:
+    if value > 30:
         return "Konstruktiv"
+    if value >= -30:
+        return "Neutral / uneindeutig"
     if value > -50:
         return "Schwach"
-    if value > -80:
+    if value > -100:
         return "Impuls abwärts"
-    if value > -125:
-        return "Überdehnt abwärts"
-    return "Extrem abwärts"
+    return "Stark negativ / überdehnt"
 
 
 def _deemer_label(value: float | None) -> str:
@@ -1708,8 +1744,10 @@ def _deemer_label(value: float | None) -> str:
 def _tone_for_mcclellan(value: float | None) -> str:
     if value is None:
         return "neutral"
-    if value > 0:
+    if value > 30:
         return "good"
+    if value >= -30:
+        return "neutral"
     if value > -50:
         return "warning"
     return "bad"
