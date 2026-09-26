@@ -391,6 +391,7 @@ def _empty_diagnostics() -> dict:
         "medium_confidence": 0,
         "classified_by_sic": 0,
         "classified_by_canonical_provider_rule": 0,
+        "classified_without_provider_industry_unreviewed": 0,
         "excluded_shell_companies": 0,
         "profile_success": 0,
         "profile_failed": 0,
@@ -458,6 +459,13 @@ def universe_diagnostics(instrument_ids: list[str], taxonomy_version: str) -> di
                 ),
                 "classified_by_canonical_provider_rule": sum(
                     m.classification_source == "canonical_provider_rule" for m, _, _ in rows
+                ),
+                "classified_without_provider_industry_unreviewed": sum(
+                    m.status == "classified"
+                    and not str(m.industry_snapshot or "").strip()
+                    and str((m.explanation_json or {}).get("matched_rule") or "")
+                    != "reviewed_company_rule"
+                    for m, _, _ in rows
                 ),
                 "excluded_shell_companies": sum(
                     "shell" in str((m.explanation_json or {}).get("reason") or "")
