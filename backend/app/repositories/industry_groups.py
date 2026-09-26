@@ -311,7 +311,11 @@ def persist_classification_batch(
             for item in memberships:
                 instrument_id = str(item["instrument_id"])
                 row = memberships_by_instrument.get(instrument_id)
-                if row is not None and row.is_manual_override:
+                if (
+                    row is not None
+                    and row.is_manual_override
+                    and row.assignment_version == taxonomy_version
+                ):
                     row.last_verified_at = now
                     continue
                 if row is None:
@@ -334,6 +338,10 @@ def persist_classification_batch(
                 row.industry_snapshot = str(item.get("industry_snapshot") or "")[:160]
                 row.sic_snapshot = str(item.get("sic_snapshot") or "")[:32]
                 row.assignment_version = taxonomy_version
+                if row.is_manual_override:
+                    row.is_manual_override = False
+                    row.override_reason = ""
+                    row.override_at = None
                 row.explanation_json = item.get("explanation_json") or {}
                 row.last_verified_at = now
             db.commit()
