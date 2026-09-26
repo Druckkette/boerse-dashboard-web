@@ -11,6 +11,14 @@ NON_OPERATING_TYPES = frozenset({
     "closed_end_fund", "investment_trust", "etf", "etn", "structured_security",
     "preferred_stock", "warrant", "right", "unit", "other_non_operating_security",
 })
+# Issuer-guarded operating-company exceptions for stale security metadata.
+REVIEWED_OPERATING_TICKERS = {
+    # Innventure completed its business combination and now operates as an
+    # industrial growth conglomerate, while some SEC/provider metadata still
+    # carries legacy blank-check SIC 6770.
+    "INV": "innventure",
+}
+
 # Curated examples retained for older universe rows whose only saved name is
 # the symbol. A fresh exchange description or SEC form can replace these.
 KNOWN_TICKER_TYPES = {
@@ -30,6 +38,9 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
     forms = {str(form).upper().removesuffix("/A") for form in sec_forms or []}
     category = f" {security_type.lower()} {asset_class.lower()} "
     title = f" {name.lower()} "
+    reviewed_operating_name = REVIEWED_OPERATING_TICKERS.get(ticker.strip().upper())
+    if reviewed_operating_name and reviewed_operating_name in title:
+        return "operating_company"
     # TVC and TVE are Tennessee Valley Authority PARRS/Power Bonds traded on
     # the NYSE. Their exchange descriptions can look equity-like, so keep the
     # audited ticker + issuer guard ahead of generic company-name inference.
