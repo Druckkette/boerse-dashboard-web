@@ -505,3 +505,59 @@ def test_v4_final_provider_gap_companies_use_reviewed_rules():
         assert match is not None, ticker
         assert match.group_code == expected, ticker
         assert match.rule_name == "reviewed_company_rule", ticker
+
+
+def test_v4_frozen_final_audit_assignments():
+    cases = [
+        ("INV", "Innventure, Inc. - Common Stock", "Financial Services", "Asset Management", "6770", "CONGLOM"),
+        ("STT", "State Street Corporation Common Stock", "Financial Services", "Asset Management", "6022", "BANKCUST"),
+        ("NTRS", "Northern Trust Corporation - Common Stock", "Financial Services", "Asset Management", "6022", "BANKCUST"),
+        ("BNY", "The Bank of New York Mellon Corporation Common Stock", "Financial Services", "Banks - Diversified", "", "BANKCUST"),
+        ("MTEK", "Maris-Tech Ltd. - ordinary shares", "Technology", "Electronic Components", "3669", "AERODEF"),
+        ("UMAC", "Unusual Machines, Inc. Common Stock", "Technology", "Computer Hardware", "3663", "AERODEF"),
+        ("HITI", "High Tide Inc. - Common Shares", "Healthcare", "Pharmaceutical Retailers", "", "RETAILSPEC"),
+        ("PETS", "PetMed Express, Inc. - Common Stock", "Healthcare", "Pharmaceutical Retailers", "5912", "RETAILSPEC"),
+        ("RDGT", "Ridgetech, Inc. - Ordinary Shares", "Healthcare", "Pharmaceutical Retailers", "5912", "MEDDIST"),
+        ("SCNX", "Scienture Holdings, Inc. - Common Stock", "Healthcare", "Pharmaceutical Retailers", "2834", "PHARMA_SPEC"),
+        ("PLBL", "Polibeli Group Ltd - Class A Ordinary Shares", "Consumer Cyclical", "Department Stores", "5064", "INDDIST"),
+        ("ACTG", "Acacia Research Corporation - Common Stock", "Industrials", "Business Equipment & Supplies", "6794", "CONGLOM"),
+        ("CLNN", "Clene Inc. - Common Stock", "Consumer Defensive", "Packaged Foods", "", "PHARMA_OTHER"),
+        ("PAVS", "Paranovus Entertainment Technology Ltd. - Class A Ordinary Shares", "Consumer Defensive", "Packaged Foods", "7374", "INTERNETCOM"),
+        ("SRXH", "SRX Global Inc. Common Stock", "Consumer Defensive", "Packaged Foods", "2080", "FOOD"),
+        ("BRCC", "BRC Inc. Class A Common Stock", "Consumer Defensive", "Packaged Foods", "2080", "BEVNONALC"),
+        ("WEST", "Westrock Coffee Company - Common Stock", "Consumer Defensive", "Packaged Foods", "2080", "BEVNONALC"),
+    ]
+    for ticker, name, sector, industry, sic, expected in cases:
+        features = ClassificationFeatures(
+            ticker=ticker,
+            company_name=name,
+            sector=sector,
+            industry=industry,
+            sic_code=sic,
+            instrument_type="operating_company",
+        )
+        assert is_eligible_operating_company(features), ticker
+        match = curated_rule_match(features)
+        assert match is not None, ticker
+        assert match.group_code == expected, ticker
+        assert match.rule_name == "reviewed_company_rule", ticker
+
+
+def test_audited_despac_sic_is_allowed_only_after_instrument_type_review():
+    reviewed = ClassificationFeatures(
+        ticker="INV",
+        company_name="Innventure, Inc. - Common Stock",
+        sic_code="6770",
+        instrument_type="operating_company",
+    )
+    assert is_eligible_operating_company(reviewed)
+    assert exclusion_reason(reviewed) == ""
+
+    unresolved = ClassificationFeatures(
+        ticker="SPAC",
+        company_name="Example Acquisition Corp.",
+        sic_code="6770",
+        instrument_type="unknown",
+    )
+    assert not is_eligible_operating_company(unresolved)
+    assert exclusion_reason(unresolved) == "sec_sic:6770"
