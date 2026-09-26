@@ -202,7 +202,11 @@ def test_manual_override_is_never_reprocessed(monkeypatch):
 
 
 def test_stale_manual_override_is_reclassified_for_new_taxonomy(monkeypatch):
-    row = _row("TSLA", industry="Auto Manufacturers")
+    row = _row(
+        "TSLA",
+        industry="Auto Manufacturers",
+        metadata={"instrument_type": "operating_company", "sec_forms": ["10-K"]},
+    )
     monkeypatch.setattr(service.repository, "list_universe_instruments", lambda key: [row])
     monkeypatch.setattr(
         service.repository,
