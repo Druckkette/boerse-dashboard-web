@@ -201,6 +201,44 @@ def test_manual_override_is_never_reprocessed(monkeypatch):
     assert writes[0]["memberships"] == []
 
 
+def test_stale_manual_override_is_reclassified_for_new_taxonomy(monkeypatch):
+    row = _row("TSLA", industry="Auto Manufacturers")
+    monkeypatch.setattr(service.repository, "list_universe_instruments", lambda key: [row])
+    monkeypatch.setattr(
+        service.repository,
+        "get_membership_map",
+        lambda ids: {
+            "TSLA": MembershipState(
+                instrument_id=row.instrument_id,
+                ticker="TSLA",
+                status="classified",
+                classification_fingerprint="manual",
+                assignment_version="industry_groups_v3",
+                is_manual_override=True,
+            )
+        },
+    )
+    monkeypatch.setattr(service.repository, "load_exact_industry_rule_map", lambda version: {})
+    writes = []
+    monkeypatch.setattr(
+        service.repository,
+        "persist_classification_batch",
+        lambda **kwargs: writes.append(kwargs),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "universe_diagnostics",
+        lambda ids, version: _diagnostics([row]),
+    )
+
+    result = service.refresh_industry_group_memberships()
+
+    assert result["manual_overrides_preserved"] == 0
+    assert result["reclassified_metadata_changed_or_review"] == 1
+    assert len(writes[0]["memberships"]) == 1
+    assert writes[0]["memberships"][0]["ticker"] == "TSLA"
+
+
 def test_full_rebuild_batches_all_writes_once(monkeypatch):
     rows = [_row("PANW"), _row("CRWD")]
     monkeypatch.setattr(service.repository, "list_universe_instruments", lambda key: rows)
