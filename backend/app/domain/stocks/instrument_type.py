@@ -30,6 +30,11 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
     forms = {str(form).upper().removesuffix("/A") for form in sec_forms or []}
     category = f" {security_type.lower()} {asset_class.lower()} "
     title = f" {name.lower()} "
+    # TVC and TVE are Tennessee Valley Authority PARRS/Power Bonds traded on
+    # the NYSE. Their exchange descriptions can look equity-like, so keep the
+    # audited ticker + issuer guard ahead of generic company-name inference.
+    if ticker.strip().upper() in {"TVC", "TVE"} and "tennessee valley authority" in title:
+        return "structured_security"
     if etf.upper() == "Y" or nextshares.upper() == "Y" or re.search(r"\b(exchange.traded fund|etf)\b", category + title):
         return "etf"
     if re.search(r"\betns?\b|exchange.traded notes?", category + title):
