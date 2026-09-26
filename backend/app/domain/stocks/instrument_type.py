@@ -15,6 +15,7 @@ NON_OPERATING_TYPES = frozenset({
 # the symbol. A fresh exchange description or SEC form can replace these.
 KNOWN_TICKER_TYPES = {
     **dict.fromkeys(("EVF", "NRK", "NRO", "NMS", "NMZ", "NPV", "ADX", "AFB", "AOD", "ARDC"), "closed_end_fund"),
+    **dict.fromkeys(("MSB", "NRT"), "investment_trust"),
     **dict.fromkeys(("FNGD", "FNGO"), "etn"),
     **dict.fromkeys(("GJH", "GJO", "GJP", "GJR", "GJS", "GJT", "KTN", "PYT"), "structured_security"),
     **dict.fromkeys(("AAC", "AACI", "AACO", "AACP", "ACAA", "ACGC", "ADAC", "AEAQ"), "spac"),
