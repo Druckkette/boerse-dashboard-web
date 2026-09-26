@@ -49,3 +49,23 @@ def test_tva_power_bonds_are_non_operating_structured_securities():
             sec_sic="4911",
             previous_type="unknown",
         ) == "structured_security"
+
+
+def test_audited_despac_can_override_stale_blank_check_sic():
+    assert classify_instrument(
+        ticker="INV",
+        name="Innventure, Inc. - Common Stock",
+        sec_sic="6770",
+        sec_forms=["10-K", "10-Q"],
+        previous_type="spac",
+    ) == "operating_company"
+
+    # The guard is issuer-specific: ticker reuse or a different acquisition
+    # company with SIC 6770 must still be treated as a SPAC.
+    assert classify_instrument(
+        ticker="INV",
+        name="Example Acquisition Corp.",
+        sec_sic="6770",
+        sec_forms=["10-K"],
+        previous_type="unknown",
+    ) == "spac"
