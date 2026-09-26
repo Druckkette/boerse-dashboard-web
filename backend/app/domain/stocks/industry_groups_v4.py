@@ -171,6 +171,27 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "SI": ("shoulder innovations", "MEDDEV", "Medical – Devices", "Health Care", "Medical", 0.98),
     "SVA": ("sinovac biotech", "BIOTECH", "Medical – Biotech", "Health Care", "Medical", 0.98),
 
+    # Frozen v4 production audit (2026-09-26). These overrides resolve stale
+    # provider/SIC labels and economically mismatched residual peer groups.
+    # Keep each ticker guarded by a company-name fragment to prevent reuse.
+    "INV": ("innventure", "CONGLOM", "Industrials – Conglomerates", "Industrials", "Diversified Industrials", 0.99),
+    "STT": ("state street", "BANKCUST", "Banks – Custody & Asset Servicing", "Financials", "Banks", 0.99),
+    "NTRS": ("northern trust", "BANKCUST", "Banks – Custody & Asset Servicing", "Financials", "Banks", 0.99),
+    "BNY": ("bank of new york mellon", "BANKCUST", "Banks – Custody & Asset Servicing", "Financials", "Banks", 0.99),
+    "MTEK": ("maris tech", "AERODEF", "Aerospace & Defense", "Industrials", "Aerospace & Defense", 0.98),
+    "UMAC": ("unusual machines", "AERODEF", "Aerospace & Defense", "Industrials", "Aerospace & Defense", 0.98),
+    "HITI": ("high tide", "RETAILSPEC", "Retail – Specialty", "Consumer Discretionary", "Retail", 0.97),
+    "PETS": ("petmed express", "RETAILSPEC", "Retail – Specialty", "Consumer Discretionary", "Retail", 0.97),
+    "RDGT": ("ridgetech", "MEDDIST", "Medical – Distribution", "Health Care", "Health Care Distribution", 0.99),
+    "SCNX": ("scienture holdings", "PHARMA_SPEC", "Medical – Pharmaceuticals Specialty & Generic", "Health Care", "Medical", 0.99),
+    "PLBL": ("polibeli group", "INDDIST", "Industrial Distribution", "Industrials", "Distribution", 0.98),
+    "ACTG": ("acacia research", "CONGLOM", "Industrials – Conglomerates", "Industrials", "Diversified Industrials", 0.99),
+    "CLNN": ("clene", "PHARMA_OTHER", "Medical – Pharmaceuticals Other", "Health Care", "Medical", 0.99),
+    "PAVS": ("paranovus entertainment technology", "INTERNETCOM", "Internet – Commerce", "Consumer Discretionary", "Internet", 0.98),
+    "SRXH": ("srx global", "FOOD", "Food – Packaged", "Consumer Staples", "Food & Beverage", 0.99),
+    "BRCC": ("brc inc", "BEVNONALC", "Food – Non-Alcoholic Beverages", "Consumer Staples", "Food & Beverage", 0.99),
+    "WEST": ("westrock coffee", "BEVNONALC", "Food – Non-Alcoholic Beverages", "Consumer Staples", "Food & Beverage", 0.99),
+
     "AFCG": ("advanced flower capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.99),
     "EQS": ("equus total return", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
     "MLCI": ("mount logan capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
