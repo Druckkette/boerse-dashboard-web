@@ -160,6 +160,13 @@ def save_sec_sic_enrichments(items: list[dict]) -> None:
                     metadata["sec_sic_evidence"] = (
                         f"https://data.sec.gov/submissions/CIK{cik}.json"
                     )
+                forms = item.get("sec_forms")
+                if isinstance(forms, list) and forms:
+                    metadata["sec_forms"] = [str(form) for form in forms[:80]]
+                instrument_type = str(item.get("instrument_type") or "").strip()
+                if instrument_type:
+                    metadata["instrument_type"] = instrument_type
+                    metadata["classification_source"] = "sec_submissions"
                 row.metadata_json = metadata
             db.commit()
     except SQLAlchemyError as exc:
@@ -304,7 +311,11 @@ def persist_classification_batch(
             for item in memberships:
                 instrument_id = str(item["instrument_id"])
                 row = memberships_by_instrument.get(instrument_id)
-                if row is not None and row.is_manual_override:
+                if (
+                    row is not None
+                    and row.is_manual_override
+                    and row.assignment_version == taxonomy_version
+                ):
                     row.last_verified_at = now
                     continue
                 if row is None:
@@ -327,6 +338,10 @@ def persist_classification_batch(
                 row.industry_snapshot = str(item.get("industry_snapshot") or "")[:160]
                 row.sic_snapshot = str(item.get("sic_snapshot") or "")[:32]
                 row.assignment_version = taxonomy_version
+                if row.is_manual_override:
+                    row.is_manual_override = False
+                    row.override_reason = ""
+                    row.override_at = None
                 row.explanation_json = item.get("explanation_json") or {}
                 row.last_verified_at = now
             db.commit()
@@ -376,6 +391,7 @@ def _empty_diagnostics() -> dict:
         "medium_confidence": 0,
         "classified_by_sic": 0,
         "classified_by_canonical_provider_rule": 0,
+        "classified_without_provider_industry_unreviewed": 0,
         "excluded_shell_companies": 0,
         "profile_success": 0,
         "profile_failed": 0,
@@ -443,6 +459,13 @@ def universe_diagnostics(instrument_ids: list[str], taxonomy_version: str) -> di
                 ),
                 "classified_by_canonical_provider_rule": sum(
                     m.classification_source == "canonical_provider_rule" for m, _, _ in rows
+                ),
+                "classified_without_provider_industry_unreviewed": sum(
+                    m.status == "classified"
+                    and not str(m.industry_snapshot or "").strip()
+                    and str((m.explanation_json or {}).get("matched_rule") or "")
+                    != "reviewed_company_rule"
+                    for m, _, _ in rows
                 ),
                 "excluded_shell_companies": sum(
                     "shell" in str((m.explanation_json or {}).get("reason") or "")

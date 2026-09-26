@@ -97,7 +97,6 @@ _RAW_PROVIDER_RULES: dict[str, tuple[str, str, str, str, float]] = {
     "Financial Conglomerates": ("FINCONG", "Finance – Conglomerates", "Financials", "Financial Services", 0.90),
     "Insurance - Reinsurance": ("INSRE", "Insurance – Reinsurance", "Financials", "Insurance", 0.94),
     "Oil & Gas Drilling": ("OILDRILL", "Energy – Oil & Gas Drilling", "Energy", "Oil & Gas", 0.94),
-    "Infrastructure Operations": ("INFRAOPS", "Infrastructure Operations", "Industrials", "Infrastructure", 0.86),
 
     # Durable splits supported directly by the provider taxonomy.
     "Drug Manufacturers - Specialty & Generic": ("PHARMA_SPEC", "Medical – Pharmaceuticals Specialty & Generic", "Health Care", "Medical", 0.95),
@@ -160,6 +159,39 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "TRIN": ("trinity capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.97),
     "TSLX": ("sixth street specialty lending", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
 
+    # Current-universe corrections found during the v4 audit.
+    "AFCG": ("advanced flower capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.99),
+    "EQS": ("equus total return", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
+    "MLCI": ("mount logan capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
+    "RPC": ("ridgepost capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
+    "BUR": ("burford capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
+    "MORN": ("morningstar", "FINDATA", "Finance – Data & Stock Exchanges", "Financials", "Financial Services", 0.99),
+    "VALU": ("value line", "FINDATA", "Finance – Data & Stock Exchanges", "Financials", "Financial Services", 0.98),
+    "PJT": ("pjt partners", "CAPMARK", "Finance – Capital Markets", "Financials", "Financial Services", 0.99),
+    "CRBG": ("corebridge financial", "INSLIFE", "Insurance – Life", "Financials", "Insurance", 0.99),
+    "EQH": ("equitable holdings", "INSDIV", "Insurance – Diversified", "Financials", "Insurance", 0.97),
+    "PFG": ("principal financial group", "INSDIV", "Insurance – Diversified", "Financials", "Insurance", 0.96),
+    "KWY": ("kingsway corporation", "BUSSERV", "Commercial – Business Services", "Industrials", "Business Services", 0.96),
+    "RILY": ("brc group holdings", "FINCONG", "Finance – Conglomerates", "Financials", "Financial Services", 0.96),
+    "TGE": ("generation essentials group", "ENTERTAIN", "Media – Entertainment", "Communication Services", "Media & Entertainment", 0.92),
+    "ALP": ("alpha compute", "ITSVC", "Computer – IT Services", "Technology", "IT Services", 0.96),
+
+    # Digital-asset treasury / on-chain holding companies are driven by token
+    # exposure and treasury economics rather than traditional asset-management fees.
+    "ASST": ("strive", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.98),
+    "AVAT": ("avalanche treasury", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "CYPH": ("cypherpunk", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.97),
+    "DFDV": ("defi development", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "FGNX": ("fg nexus", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "HSDT": ("solana company", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "SDEV": ("stablecoin development", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.99),
+    "TWAV": ("taoweave", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.98),
+    "ZSTK": ("zerostack", "DATTREAS", "Finance – Digital Asset Treasury", "Financials", "Digital Assets", 0.94),
+
+    "ALTI": ("alti global", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
+    "CWD": ("calibercos", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
+    "DBRG": ("digitalbridge", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
+    "HLNE": ("hamilton lane", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
     "APO": ("apollo global management", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
     "ARES": ("ares management", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
     "BAM": ("brookfield asset management", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.98),
@@ -202,5 +234,6 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "REX": ("rex american resources", "CHEMCOMM", "Chemicals – Commodity", "Materials", "Chemicals", 0.90),
     "RYAM": ("rayonier advanced materials", "CHEMSPEC", "Chemicals – Specialty", "Materials", "Chemicals", 0.88),
 
-    "JOE": ("st joe company", "REDEV", "Real Estate – Development", "Real Estate", "Real Estate", 0.96),
+    "BEEP": ("mobile infrastructure", "REALPARK", "Real Estate – Parking Infrastructure", "Real Estate", "Real Estate", 0.96),
+    "JOE": ("joe company", "REDEV", "Real Estate – Development", "Real Estate", "Real Estate", 0.96),
 }

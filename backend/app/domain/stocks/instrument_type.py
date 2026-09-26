@@ -15,6 +15,7 @@ NON_OPERATING_TYPES = frozenset({
 # the symbol. A fresh exchange description or SEC form can replace these.
 KNOWN_TICKER_TYPES = {
     **dict.fromkeys(("EVF", "NRK", "NRO", "NMS", "NMZ", "NPV", "ADX", "AFB", "AOD", "ARDC"), "closed_end_fund"),
+    **dict.fromkeys(("MSB", "NRT"), "investment_trust"),
     **dict.fromkeys(("FNGD", "FNGO"), "etn"),
     **dict.fromkeys(("GJH", "GJO", "GJP", "GJR", "GJS", "GJT", "KTN", "PYT"), "structured_security"),
     **dict.fromkeys(("AAC", "AACI", "AACO", "AACP", "ACAA", "ACGC", "ADAC", "AEAQ"), "spac"),
@@ -59,14 +60,18 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
         return "structured_security"
     if re.search(r"\b(gold|silver|commodity|bitcoin|ether(?:eum)?) trust\b", title):
         return "investment_trust"
-    # N-CSR/N-CSRS are certified shareholder reports filed by registered
-    # investment companies. They identify funds whose exchange names may
-    # contain neither "Fund" nor "Investment Trust".
-    if forms & {"N-CSR", "N-CSRS"}:
+    # Registered investment companies can have ordinary-looking exchange
+    # names (for example "... Inc."). Treat Investment Company Act forms as
+    # fund evidence when the registrant does not also file operating-company
+    # periodic reports. BDCs commonly file 10-K/10-Q plus N-2, so the periodic
+    # filing guard deliberately keeps them in the operating universe.
+    investment_company_forms = forms & {"N-CSR", "N-CSRS", "N-CEN", "N-PORT", "N-2", "N-1A"}
+    operating_periodic_forms = forms & {"10-K", "10-Q", "20-F", "40-F"}
+    if investment_company_forms and not operating_periodic_forms:
         return "investment_trust" if re.search(r"\btrust\b", title) else "closed_end_fund"
     if re.search(r"\b(closed.end|municipal (income|bond)|muni (income|bond)|investment fund|income fund|bond fund|mutual fund|fund\b(?!\s+(management|manager|services)))", category + title):
         return "closed_end_fund"
-    if re.search(r"\b(investment trust|royalty trust|income trust|unit trust)\b", category + title):
+    if re.search(r"\b(investment trust|royal(?:ty|ity) trust|income trust|unit trust|mesabi trust)\b", category + title):
         return "investment_trust"
     if re.search(r"\b(acquisition(?:\s+(?:[ivx]+|[0-9]+))?\s+(?:corp(oration)?|company|co\.?|limited|ltd\.?)|blank.check company|special purpose acquisition|spac)\b", title):
         return "spac"

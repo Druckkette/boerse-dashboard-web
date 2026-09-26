@@ -201,6 +201,48 @@ def test_manual_override_is_never_reprocessed(monkeypatch):
     assert writes[0]["memberships"] == []
 
 
+def test_stale_manual_override_is_reclassified_for_new_taxonomy(monkeypatch):
+    row = _row(
+        "TSLA",
+        industry="Auto Manufacturers",
+        metadata={"instrument_type": "operating_company", "sec_forms": ["10-K"]},
+    )
+    monkeypatch.setattr(service.repository, "list_universe_instruments", lambda key: [row])
+    monkeypatch.setattr(
+        service.repository,
+        "get_membership_map",
+        lambda ids: {
+            "TSLA": MembershipState(
+                instrument_id=row.instrument_id,
+                ticker="TSLA",
+                status="classified",
+                classification_fingerprint="manual",
+                assignment_version="industry_groups_v3",
+                is_manual_override=True,
+            )
+        },
+    )
+    monkeypatch.setattr(service.repository, "load_exact_industry_rule_map", lambda version: {})
+    writes = []
+    monkeypatch.setattr(
+        service.repository,
+        "persist_classification_batch",
+        lambda **kwargs: writes.append(kwargs),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "universe_diagnostics",
+        lambda ids, version: _diagnostics([row]),
+    )
+
+    result = service.refresh_industry_group_memberships()
+
+    assert result["manual_overrides_preserved"] == 0
+    assert result["reclassified_metadata_changed_or_review"] == 1
+    assert len(writes[0]["memberships"]) == 1
+    assert writes[0]["memberships"][0]["ticker"] == "TSLA"
+
+
 def test_full_rebuild_batches_all_writes_once(monkeypatch):
     rows = [_row("PANW"), _row("CRWD")]
     monkeypatch.setattr(service.repository, "list_universe_instruments", lambda key: rows)
@@ -350,8 +392,46 @@ def test_sec_bulk_sic_enrichment_precedes_yahoo(monkeypatch):
             "cik": "0000789019",
             "sic": "7372",
             "sic_description": "Services-Prepackaged Software",
+            "sec_forms": [],
+            "instrument_type": "operating_company",
         }
     ]
     match = service.curated_rule_match(service._features(enriched[0]))
     assert match is not None
     assert match.group_code == "SOFTAPP"
+
+
+def test_sic_only_assignment_still_gets_business_profile_enrichment(monkeypatch):
+    row = _row(
+        "MSFT",
+        industry="",
+        sic="7372",
+        metadata={
+            "sec_sic": "7372",
+            "sec_sic_description": "Services-Prepackaged Software",
+            "instrument_type": "operating_company",
+        },
+    )
+    writes = []
+    monkeypatch.setattr(
+        service,
+        "fetch_company_profile",
+        lambda ticker: SimpleNamespace(
+            ticker=ticker,
+            sector="Technology",
+            industry="Software - Infrastructure",
+        ),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "save_business_profile_enrichments",
+        lambda items: writes.extend(items),
+    )
+
+    enriched, stats = service._enrich_missing_business_profiles([row])
+
+    assert stats["external_provider_requests"] == 1
+    assert stats["profile_success"] == 1
+    assert enriched[0].industry == "Software - Infrastructure"
+    assert writes[0]["ticker"] == "MSFT"
+    assert writes[0]["success"] is True
