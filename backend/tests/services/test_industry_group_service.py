@@ -357,3 +357,39 @@ def test_sec_bulk_sic_enrichment_precedes_yahoo(monkeypatch):
     match = service.curated_rule_match(service._features(enriched[0]))
     assert match is not None
     assert match.group_code == "SOFTAPP"
+
+
+def test_sic_only_assignment_still_gets_business_profile_enrichment(monkeypatch):
+    row = _row(
+        "MSFT",
+        industry="",
+        sic="7372",
+        metadata={
+            "sec_sic": "7372",
+            "sec_sic_description": "Services-Prepackaged Software",
+            "instrument_type": "operating_company",
+        },
+    )
+    writes = []
+    monkeypatch.setattr(
+        service,
+        "fetch_company_profile",
+        lambda ticker: SimpleNamespace(
+            ticker=ticker,
+            sector="Technology",
+            industry="Software - Infrastructure",
+        ),
+    )
+    monkeypatch.setattr(
+        service.repository,
+        "save_business_profile_enrichments",
+        lambda items: writes.extend(items),
+    )
+
+    enriched, stats = service._enrich_missing_business_profiles([row])
+
+    assert stats["external_provider_requests"] == 1
+    assert stats["profile_success"] == 1
+    assert enriched[0].industry == "Software - Infrastructure"
+    assert writes[0]["ticker"] == "MSFT"
+    assert writes[0]["success"] is True
