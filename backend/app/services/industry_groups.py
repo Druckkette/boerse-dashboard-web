@@ -408,10 +408,11 @@ def _enrich_missing_business_profiles(
     for row in rows:
         features = _features(row)
         metadata = row.metadata_json or {}
+        rule_match = curated_rule_match(features)
         if (
             not is_eligible_operating_company(features)
             or row.industry
-            or curated_rule_match(features) is not None
+            or (rule_match is not None and rule_match.rule_name == "reviewed_company_rule")
         ):
             enriched_rows.append(row)
             continue
@@ -710,6 +711,7 @@ def _summary(
         "no_provisional_groups": not provisional_groups,
         "no_legacy_split_groups": not legacy_split_groups,
         "canonical_sector_vocabulary": not noncanonical_sector_groups,
+        "no_sic_only_assignments": diagnostics.get("classified_by_sic", 0) == 0,
         "no_needs_review": diagnostics["needs_review"] == 0,
     }
     return {
