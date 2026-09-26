@@ -720,6 +720,9 @@ def _summary(
         "no_legacy_split_groups": not legacy_split_groups,
         "canonical_sector_vocabulary": not noncanonical_sector_groups,
         "no_sic_only_assignments": diagnostics.get("classified_by_sic", 0) == 0,
+        "no_unreviewed_missing_provider_industry": (
+            diagnostics.get("classified_without_provider_industry_unreviewed", 0) == 0
+        ),
         "no_needs_review": diagnostics["needs_review"] == 0,
     }
     return {
@@ -749,6 +752,9 @@ def _summary(
         "medium_confidence_assignments": diagnostics["medium_confidence"],
         "classified_by_sic": diagnostics.get("classified_by_sic", 0),
         "classified_by_canonical_provider_rule": diagnostics.get("classified_by_canonical_provider_rule", 0),
+        "classified_without_provider_industry_unreviewed": diagnostics.get(
+            "classified_without_provider_industry_unreviewed", 0
+        ),
         "profile_success_total": diagnostics.get("profile_success", 0),
         "profile_failed_total": diagnostics.get("profile_failed", 0),
         "profile_retry_pending_total": diagnostics.get("profile_retry_pending", 0),
