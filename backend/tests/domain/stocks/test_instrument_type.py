@@ -39,3 +39,13 @@ def test_audited_royalty_trusts_are_non_operating():
         name="North European Oil Royality Trust Common Stock",
         previous_type="unknown",
     ) == "investment_trust"
+
+
+def test_tva_power_bonds_are_non_operating_structured_securities():
+    for ticker in ("TVC", "TVE"):
+        assert classify_instrument(
+            ticker=ticker,
+            name="Tennessee Valley Authority Common Stock",
+            sec_sic="4911",
+            previous_type="unknown",
+        ) == "structured_security"

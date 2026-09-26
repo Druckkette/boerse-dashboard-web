@@ -160,6 +160,17 @@ V4_REVIEWED_COMPANY_RULES: dict[str, tuple[str, str, str, str, str, float]] = {
     "TSLX": ("sixth street specialty lending", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
 
     # Current-universe corrections found during the v4 audit.
+    # Final provider-gap review: these companies have stable business identities
+    # but can legitimately return an empty provider industry after IPOs,
+    # rebrandings or recent corporate changes. Keep the name guard so ticker
+    # reuse cannot inherit an old classification.
+    "EOCN": ("eocene", "PHARMA_OTHER", "Medical – Pharmaceuticals Other", "Health Care", "Medical", 0.96),
+    "HLSQ": ("tessera defense", "AERODEF", "Aerospace & Defense", "Industrials", "Aerospace & Defense", 0.97),
+    "ROC": ("rank one computing", "SOFTAPP", "Software – Application", "Technology", "Software", 0.97),
+    "SEV": ("aptera motors", "AUTOMFG", "Auto – Manufacturers", "Consumer Discretionary", "Automotive", 0.97),
+    "SI": ("shoulder innovations", "MEDDEV", "Medical – Devices", "Health Care", "Medical", 0.98),
+    "SVA": ("sinovac biotech", "BIOTECH", "Medical – Biotech", "Health Care", "Medical", 0.98),
+
     "AFCG": ("advanced flower capital", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.99),
     "EQS": ("equus total return", "BDC", "Finance – Business Development Companies", "Financials", "Financial Services", 0.98),
     "MLCI": ("mount logan capital", "ALTMGR", "Finance – Alternative Asset Managers", "Financials", "Financial Services", 0.99),
