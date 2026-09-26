@@ -482,3 +482,26 @@ def test_v4_digital_asset_treasuries_form_one_peer_group():
         assert match is not None, ticker
         assert match.group_code == "DATTREAS", ticker
         assert match.family == "Digital Assets", ticker
+
+
+def test_v4_final_provider_gap_companies_use_reviewed_rules():
+    cases = [
+        ("EOCN", "Eocene Ltd. - Ordinary Shares", "2834", "PHARMA_OTHER"),
+        ("HLSQ", "Tessera Defense and Homeland Security Inc. Common Stock", "", "AERODEF"),
+        ("ROC", "Rank One Computing Corporation - Common stock", "7372", "SOFTAPP"),
+        ("SEV", "Aptera Motors Corp. - Class B Common Stock", "3711", "AUTOMFG"),
+        ("SI", "Shoulder Innovations, Inc. Common Stock", "3841", "MEDDEV"),
+        ("SVA", "Sinovac Biotech, Ltd. - Ordinary Shares", "", "BIOTECH"),
+    ]
+    for ticker, name, sic, expected in cases:
+        match = curated_rule_match(
+            ClassificationFeatures(
+                ticker=ticker,
+                company_name=name,
+                sic_code=sic,
+                instrument_type="operating_company",
+            )
+        )
+        assert match is not None, ticker
+        assert match.group_code == expected, ticker
+        assert match.rule_name == "reviewed_company_rule", ticker
