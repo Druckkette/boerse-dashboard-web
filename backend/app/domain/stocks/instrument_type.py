@@ -71,7 +71,7 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
         return "investment_trust" if re.search(r"\btrust\b", title) else "closed_end_fund"
     if re.search(r"\b(closed.end|municipal (income|bond)|muni (income|bond)|investment fund|income fund|bond fund|mutual fund|fund\b(?!\s+(management|manager|services)))", category + title):
         return "closed_end_fund"
-    if re.search(r"\b(investment trust|royalty trust|income trust|unit trust)\b", category + title):
+    if re.search(r"\b(investment trust|royal(?:ty|ity) trust|income trust|unit trust|mesabi trust)\b", category + title):
         return "investment_trust"
     if re.search(r"\b(acquisition(?:\s+(?:[ivx]+|[0-9]+))?\s+(?:corp(oration)?|company|co\.?|limited|ltd\.?)|blank.check company|special purpose acquisition|spac)\b", title):
         return "spac"
