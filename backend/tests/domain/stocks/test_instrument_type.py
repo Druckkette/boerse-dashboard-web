@@ -26,3 +26,16 @@ def test_bdc_with_periodic_exchange_act_reports_remains_operating_company():
         sec_forms=["N-2", "10-K", "10-Q"],
         previous_type="operating_company",
     ) == "operating_company"
+
+
+def test_audited_royalty_trusts_are_non_operating():
+    assert classify_instrument(
+        ticker="MSB",
+        name="Mesabi Trust Common Stock",
+        previous_type="unknown",
+    ) == "investment_trust"
+    assert classify_instrument(
+        ticker="NRT",
+        name="North European Oil Royality Trust Common Stock",
+        previous_type="unknown",
+    ) == "investment_trust"
