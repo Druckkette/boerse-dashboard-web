@@ -323,7 +323,7 @@ def exclusion_reason(features: ClassificationFeatures) -> str:
     if kind in EXCLUDED_INSTRUMENT_TYPES:
         return f"instrument_type:{kind}"
     sic_code = str(features.sic_code or "").strip()
-    if sic_code in _NON_OPERATING_SIC_CODES:
+    if sic_code in _NON_OPERATING_SIC_CODES and kind not in {"operating_company", "foreign_private_issuer"}:
         return f"sec_sic:{sic_code}"
     industry = normalize_text(features.industry)
     if industry in _SHELL_INDUSTRIES or "shell compan" in industry:
