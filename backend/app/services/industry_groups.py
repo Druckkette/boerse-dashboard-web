@@ -596,7 +596,11 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
     for row in rows:
         existing = memberships.get(row.ticker.upper())
         current_fingerprint = classification_fingerprint(_features(row))
-        if existing is not None and existing.is_manual_override:
+        if (
+            existing is not None
+            and existing.is_manual_override
+            and existing.assignment_version == TAXONOMY_VERSION
+        ):
             untouched_rows.append(row)
         elif (
             existing is not None
@@ -621,7 +625,11 @@ def refresh_industry_group_memberships(universe_key: str = "us_common_stocks") -
         features = _features(row)
         fingerprint = classification_fingerprint(features)
         existing = memberships.get(row.ticker.upper())
-        if existing is not None and existing.is_manual_override:
+        if (
+            existing is not None
+            and existing.is_manual_override
+            and existing.assignment_version == TAXONOMY_VERSION
+        ):
             manual_preserved += 1
             continue
         if (
