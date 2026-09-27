@@ -34,6 +34,14 @@ MEMBER_1W_SESSIONS = 5
 
 def _issuer_key(member: repository.GroupMemberRow) -> str:
     metadata = member.metadata_json or {}
+    issuer_id = str(
+        metadata.get("issuer_id")
+        or metadata.get("company_identifier")
+        or metadata.get("company_id")
+        or ""
+    ).strip()
+    if issuer_id:
+        return f"issuer:{issuer_id}"
     cik = str(metadata.get("primary_cik") or metadata.get("cik") or "").strip().lstrip("0")
     if cik:
         return f"cik:{cik}"
@@ -531,6 +539,10 @@ def _ranked_members(snapshot) -> list[dict]:
     tickers = [str(item.get("ticker") or "").upper() for item in metrics]
     assessments = stock_assessment_repository.list_all_snapshots(tickers)
     by_ticker = {row.ticker.upper(): row for row in assessments}
+    canonical_order = {
+        row.ticker.upper(): index
+        for index, row in enumerate(assessments)
+    }
     rows = []
     for metric in metrics:
         ticker = str(metric.get("ticker") or "").upper()
@@ -551,9 +563,7 @@ def _ranked_members(snapshot) -> list[dict]:
         )
     rows.sort(
         key=lambda item: (
-            -(item["overall_score"] if item["overall_score"] is not None else -1),
-            -(item["technical_score"] if item["technical_score"] is not None else -1),
-            -(item["stock_rs"] if item["stock_rs"] is not None else -1),
+            canonical_order.get(item["ticker"], len(canonical_order)),
             item["ticker"],
         )
     )
