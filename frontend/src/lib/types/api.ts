@@ -1831,3 +1831,113 @@ export type SetupStatus = {
   next_step_key: string;
   steps: SetupStep[];
 };
+
+export type IndustryGroupStockRow = {
+  ticker: string;
+  name: string;
+  group_rank: number;
+  group_members: number;
+  overall_score?: number | null;
+  technical_score?: number | null;
+  stock_rs?: number | null;
+  fundamental_score?: number | null;
+  moving_average_score?: number | null;
+  chart_behavior_score?: number | null;
+  verdict_label?: string | null;
+  latest_close?: number | null;
+  return_1d?: number | null;
+  return_1m?: number | null;
+  return_3m?: number | null;
+  return_6m?: number | null;
+  return_12m?: number | null;
+  issuer_representative?: boolean;
+  representative_ticker?: string;
+};
+
+export type IndustryGroupRankingRow = {
+  id: string;
+  code: string;
+  name: string;
+  sector: string;
+  industry_family: string;
+  snapshot_date: string;
+  member_count: number;
+  eligible_member_count: number;
+  issuer_count: number;
+  is_ranked: boolean;
+  rank?: number | null;
+  ranked_group_count: number;
+  rs_score?: number | null;
+  rs_1m?: number | null;
+  rs_3m?: number | null;
+  rs_6m?: number | null;
+  rs_12m?: number | null;
+  return_1d?: number | null;
+  return_1m?: number | null;
+  return_3m?: number | null;
+  return_6m?: number | null;
+  return_12m?: number | null;
+  benchmark_return_1m?: number | null;
+  benchmark_return_3m?: number | null;
+  benchmark_return_6m?: number | null;
+  benchmark_return_12m?: number | null;
+  excess_return_1m?: number | null;
+  excess_return_3m?: number | null;
+  excess_return_6m?: number | null;
+  excess_return_12m?: number | null;
+  rank_5d_ago?: number | null;
+  rank_20d_ago?: number | null;
+  rank_change_5d?: number | null;
+  rank_change_20d?: number | null;
+  rs_change_5d?: number | null;
+  rs_change_20d?: number | null;
+  benchmark_ticker: string;
+  top_stock?: IndustryGroupStockRow | null;
+};
+
+export type IndustryGroupRankings = {
+  as_of: string;
+  taxonomy_version: string;
+  algorithm_version: string;
+  benchmark: string;
+  min_group_members_for_rs: number;
+  weights: Record<string, number>;
+  rows: IndustryGroupRankingRow[];
+};
+
+export type IndustryGroupPerformancePoint = {
+  date: string;
+  group_index: number;
+  benchmark_index: number;
+};
+
+export type IndustryGroupDetail = {
+  group: IndustryGroupRankingRow;
+  top_stocks: IndustryGroupStockRow[];
+  members: IndustryGroupStockRow[];
+  performance_series: IndustryGroupPerformancePoint[];
+};
+
+export type IndustryGroupStockContext = {
+  group: IndustryGroupRankingRow;
+  stock: IndustryGroupStockRow;
+  top_stocks: IndustryGroupStockRow[];
+};
+
+export type IndustryGroupRsDiagnostics = {
+  taxonomy_version: string;
+  algorithm_version: string;
+  snapshot_date: string;
+  benchmark: string;
+  min_group_members_for_rs: number;
+  total_groups: number;
+  ranked_groups: number;
+  small_groups: number;
+  total_members: number;
+  eligible_issuers: number;
+  weights: Record<string, number>;
+  top_10_groups: IndustryGroupRankingRow[];
+  bottom_10_groups: IndustryGroupRankingRow[];
+  largest_rank_gainers_5d: IndustryGroupRankingRow[];
+  largest_rank_gainers_20d: IndustryGroupRankingRow[];
+};
