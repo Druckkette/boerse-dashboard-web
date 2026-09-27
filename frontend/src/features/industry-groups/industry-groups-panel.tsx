@@ -6,7 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api/client";
 import type { IndustryGroupRankingRow } from "@/lib/types/api";
 
-type SortKey = "rank" | "rs_score" | "return_1m" | "return_3m" | "return_6m" | "return_12m" | "rank_change_20d" | "member_count";
+type SortKey = "rank" | "rs_score" | "return_1m" | "return_3m" | "return_6m" | "return_12m" | "rank_change_5d" | "rank_change_20d" | "member_count";
 
 export function IndustryGroupsPanel() {
   const [sector, setSector] = useState("");
@@ -65,6 +65,7 @@ export function IndustryGroupsPanel() {
               <option value="return_3m">3M</option>
               <option value="return_6m">6M</option>
               <option value="return_12m">12M</option>
+              <option value="rank_change_5d">5D Rank Δ</option>
               <option value="rank_change_20d">20D Rank Δ</option>
               <option value="member_count">Mitglieder</option>
             </select>
