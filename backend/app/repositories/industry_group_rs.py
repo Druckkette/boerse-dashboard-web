@@ -386,3 +386,51 @@ def list_group_snapshot_history(
             return list(rows)
     except SQLAlchemyError as exc:
         raise IndustryGroupRsRepositoryUnavailable(str(exc)) from exc
+
+
+def list_group_snapshot_histories(
+    group_ids: Iterable[str],
+    *,
+    algorithm_version: str,
+    limit: int = 30,
+) -> dict[str, list[IndustryGroupRsSnapshot]]:
+    clean = list(dict.fromkeys(str(group_id) for group_id in group_ids if str(group_id)))
+    if not clean:
+        return {}
+    capped_limit = max(1, min(300, int(limit)))
+    try:
+        with SessionLocal() as db:
+            ranked = (
+                select(
+                    IndustryGroupRsSnapshot.id.label("snapshot_id"),
+                    IndustryGroupRsSnapshot.industry_group_id.label("industry_group_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=IndustryGroupRsSnapshot.industry_group_id,
+                        order_by=IndustryGroupRsSnapshot.snapshot_date.desc(),
+                    )
+                    .label("rn"),
+                )
+                .where(
+                    IndustryGroupRsSnapshot.industry_group_id.in_(clean),
+                    IndustryGroupRsSnapshot.algorithm_version == algorithm_version,
+                )
+                .subquery()
+            )
+            rows = db.scalars(
+                select(IndustryGroupRsSnapshot)
+                .join(ranked, ranked.c.snapshot_id == IndustryGroupRsSnapshot.id)
+                .where(ranked.c.rn <= capped_limit)
+                .order_by(
+                    IndustryGroupRsSnapshot.industry_group_id.asc(),
+                    IndustryGroupRsSnapshot.snapshot_date.desc(),
+                )
+            ).all()
+            result: dict[str, list[IndustryGroupRsSnapshot]] = {
+                group_id: [] for group_id in clean
+            }
+            for row in rows:
+                result.setdefault(row.industry_group_id, []).append(row)
+            return result
+    except SQLAlchemyError as exc:
+        raise IndustryGroupRsRepositoryUnavailable(str(exc)) from exc
