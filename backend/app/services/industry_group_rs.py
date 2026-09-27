@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_right
 from collections import defaultdict
+from dataclasses import replace
 from datetime import date
 from statistics import fmean
 from time import monotonic
@@ -28,6 +29,7 @@ HORIZON_SESSIONS = {
     "6m": 126,
     "12m": 252,
 }
+MEMBER_1W_SESSIONS = 5
 
 
 def _issuer_key(member: repository.GroupMemberRow) -> str:
@@ -54,12 +56,19 @@ def _point_index(points: list[repository.PricePoint], as_of: date) -> int:
     return bisect_right(dates, as_of) - 1
 
 
+def _current_point_index(points: list[repository.PricePoint], as_of: date) -> int:
+    index = _point_index(points, as_of)
+    if index < 0 or points[index].date != as_of:
+        return -1
+    return index
+
+
 def _return_pct(
     points: list[repository.PricePoint],
     as_of: date,
     sessions: int,
 ) -> float | None:
-    index = _point_index(points, as_of)
+    index = _current_point_index(points, as_of)
     if index < sessions:
         return None
     current = points[index].close
@@ -70,7 +79,7 @@ def _return_pct(
 
 
 def _latest_close(points: list[repository.PricePoint], as_of: date) -> float | None:
-    index = _point_index(points, as_of)
+    index = _current_point_index(points, as_of)
     return points[index].close if index >= 0 else None
 
 
@@ -79,7 +88,7 @@ def _average_dollar_volume(
     as_of: date,
     sessions: int = 20,
 ) -> float:
-    index = _point_index(points, as_of)
+    index = _current_point_index(points, as_of)
     if index < 0:
         return 0.0
     values = [
@@ -97,10 +106,20 @@ def _percentiles(values: dict[str, float]) -> dict[str, float]:
     count = len(ordered)
     if count == 1:
         return {ordered[0][0]: 100.0}
-    return {
-        key: round(1.0 + 99.0 * index / (count - 1), 2)
-        for index, (key, _value) in enumerate(ordered)
-    }
+
+    result: dict[str, float] = {}
+    start = 0
+    while start < count:
+        end = start
+        value = ordered[start][1]
+        while end + 1 < count and ordered[end + 1][1] == value:
+            end += 1
+        average_index = (start + end) / 2.0
+        percentile = round(1.0 + 99.0 * average_index / (count - 1), 2)
+        for index in range(start, end + 1):
+            result[ordered[index][0]] = percentile
+        start = end + 1
+    return result
 
 
 def _representatives(
@@ -196,6 +215,7 @@ def _member_metrics(
                 "latest_close": _latest_close(points, as_of),
                 "average_dollar_volume_20d": round(_average_dollar_volume(points, as_of), 2),
                 "return_1d": _return_pct(points, as_of, HORIZON_SESSIONS["1d"]),
+                "return_1w": _return_pct(points, as_of, MEMBER_1W_SESSIONS),
                 "return_1m": _return_pct(points, as_of, HORIZON_SESSIONS["1m"]),
                 "return_3m": _return_pct(points, as_of, HORIZON_SESSIONS["3m"]),
                 "return_6m": _return_pct(points, as_of, HORIZON_SESSIONS["6m"]),
@@ -295,7 +315,14 @@ def _rank_raw(raw: dict[str, dict]) -> None:
 
     ordered = sorted(composite.items(), key=lambda item: (-item[1], item[0]))
     ranked_count = len(ordered)
-    ranks = {group_id: index + 1 for index, (group_id, _score) in enumerate(ordered)}
+    ranks: dict[str, int] = {}
+    previous_score: float | None = None
+    current_rank = 0
+    for index, (group_id, score) in enumerate(ordered, start=1):
+        if previous_score is None or score != previous_score:
+            current_rank = index
+            previous_score = score
+        ranks[group_id] = current_rank
     for group_id, item in raw.items():
         item["rank"] = ranks.get(group_id)
         item["ranked_group_count"] = ranked_count
@@ -384,8 +411,8 @@ def refresh_industry_group_rs(
             == 0
             else 0
         )
-    backfill_sessions = max(0, min(252, int(backfill_sessions)))
-    max_points = 253 + backfill_sessions + 10
+    requested_backfill_sessions = max(0, min(252, int(backfill_sessions)))
+    max_points = 253 + requested_backfill_sessions + 10
     price_history = repository.list_price_history_for_tickers(
         tickers,
         max_points=max_points,
@@ -396,6 +423,8 @@ def refresh_industry_group_rs(
             f"Benchmark {benchmark} hat nur {len(benchmark_points)} gespeicherte Kurszeilen; mindestens 253 erforderlich."
         )
 
+    available_backfill_sessions = max(0, len(benchmark_points) - 253)
+    backfill_sessions = min(requested_backfill_sessions, available_backfill_sessions)
     target_dates = [point.date for point in benchmark_points]
     target_dates = target_dates[-(backfill_sessions + 1) :]
     latest_date = target_dates[-1]
@@ -416,6 +445,19 @@ def refresh_industry_group_rs(
         if target_date == latest_date:
             latest_raw = raw
 
+    calculation_duration_seconds = round(monotonic() - started, 2)
+    all_writes = [
+        replace(
+            item,
+            metadata_json={
+                **item.metadata_json,
+                "calculation_duration_seconds": calculation_duration_seconds,
+            },
+        )
+        if item.snapshot_date == latest_date
+        else item
+        for item in all_writes
+    ]
     repository.upsert_snapshots(all_writes)
     ranked_groups = sum(1 for item in latest_raw.values() if item["is_ranked"])
     small_groups = sum(
@@ -437,7 +479,9 @@ def refresh_industry_group_rs(
         "issuers_processed": sum(item["issuer_count"] for item in latest_raw.values()),
         "missing_price_histories": missing_price_histories,
         "snapshots_written": len(all_writes),
+        "requested_backfill_sessions": requested_backfill_sessions,
         "backfill_sessions": backfill_sessions,
+        "backfill_complete": backfill_sessions == requested_backfill_sessions,
         "duration_seconds": round(monotonic() - started, 2),
         "weights": INDUSTRY_GROUP_RS_WEIGHTS,
         "min_group_members_for_rs": MIN_GROUP_MEMBERS_FOR_RS,
@@ -592,7 +636,7 @@ def list_rankings(
         "as_of": pairs[0][1].snapshot_date.isoformat() if pairs else date.today().isoformat(),
         "taxonomy_version": TAXONOMY_VERSION,
         "algorithm_version": ALGORITHM_VERSION,
-        "benchmark": DEFAULT_BENCHMARK,
+        "benchmark": pairs[0][1].benchmark_ticker if pairs else DEFAULT_BENCHMARK,
         "min_group_members_for_rs": MIN_GROUP_MEMBERS_FOR_RS,
         "weights": INDUSTRY_GROUP_RS_WEIGHTS,
         "rows": rows,
@@ -663,6 +707,26 @@ def diagnostics() -> dict:
     ranking = list_rankings()
     rows = ranking["rows"]
     ranked = [row for row in rows if row["is_ranked"]]
+    pairs = repository.list_latest_snapshots(
+        taxonomy_version=TAXONOMY_VERSION,
+        algorithm_version=ALGORITHM_VERSION,
+    )
+    missing_by_horizon = {
+        horizon: sum(
+            max(
+                0,
+                int(snapshot.issuer_count)
+                - int(((snapshot.metadata_json or {}).get("eligible_counts") or {}).get(horizon, 0)),
+            )
+            for _group, snapshot in pairs
+        )
+        for horizon in ("1m", "3m", "6m", "12m")
+    }
+    calculation_duration = (
+        (pairs[0][1].metadata_json or {}).get("calculation_duration_seconds")
+        if pairs
+        else None
+    )
     top = sorted(ranked, key=lambda row: row["rank"] or 10**9)[:10]
     bottom = sorted(ranked, key=lambda row: row["rank"] or 0, reverse=True)[:10]
     gainers_5d = sorted(
@@ -684,9 +748,16 @@ def diagnostics() -> dict:
         "min_group_members_for_rs": MIN_GROUP_MEMBERS_FOR_RS,
         "total_groups": len(rows),
         "ranked_groups": len(ranked),
-        "small_groups": len(rows) - len(ranked),
+        "small_groups": sum(
+            1 for row in rows if int(row["issuer_count"]) < MIN_GROUP_MEMBERS_FOR_RS
+        ),
         "total_members": sum(int(row["member_count"]) for row in rows),
         "eligible_issuers": sum(int(row["issuer_count"]) for row in rows),
+        "missing_1m": missing_by_horizon["1m"],
+        "missing_3m": missing_by_horizon["3m"],
+        "missing_6m": missing_by_horizon["6m"],
+        "missing_12m": missing_by_horizon["12m"],
+        "calculation_duration": calculation_duration,
         "top_10_groups": top,
         "bottom_10_groups": bottom,
         "largest_rank_gainers_5d": gainers_5d,
