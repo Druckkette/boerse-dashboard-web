@@ -13,9 +13,11 @@ from app.repositories import industry_group_rs as repository
 from app.repositories import stock_assessments as stock_assessment_repository
 
 
-ALGORITHM_VERSION = "industry_group_rs_v1"
+ALGORITHM_VERSION = "industry_group_rs_v2"
 DEFAULT_BENCHMARK = "SPY"
 MIN_GROUP_MEMBERS_FOR_RS = 5
+WINSOR_LOWER_QUANTILE = 0.05
+WINSOR_UPPER_QUANTILE = 0.95
 INDUSTRY_GROUP_RS_WEIGHTS = {
     "1m": 0.15,
     "3m": 0.25,
@@ -107,6 +109,35 @@ def _average_dollar_volume(
     return fmean(values) if values else 0.0
 
 
+def _quantile(values: list[float], quantile: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("quantile requires at least one value")
+    if len(ordered) == 1:
+        return ordered[0]
+    position = max(0.0, min(1.0, quantile)) * (len(ordered) - 1)
+    lower_index = int(position)
+    upper_index = min(lower_index + 1, len(ordered) - 1)
+    fraction = position - lower_index
+    return ordered[lower_index] + (ordered[upper_index] - ordered[lower_index]) * fraction
+
+
+def _winsorized_mean(
+    values: list[float],
+    *,
+    lower_quantile: float = WINSOR_LOWER_QUANTILE,
+    upper_quantile: float = WINSOR_UPPER_QUANTILE,
+) -> float | None:
+    if not values:
+        return None
+    if len(values) < 3:
+        return fmean(values)
+    lower = _quantile(values, lower_quantile)
+    upper = _quantile(values, upper_quantile)
+    clipped = [min(upper, max(lower, value)) for value in values]
+    return fmean(clipped)
+
+
 def _percentiles(values: dict[str, float]) -> dict[str, float]:
     if not values:
         return {}
@@ -160,8 +191,10 @@ def _performance_series(
     price_history: dict[str, list[repository.PricePoint]],
     benchmark_points: list[repository.PricePoint],
     as_of: date,
+    *,
+    lookback_sessions: int = 252,
 ) -> list[dict]:
-    benchmark_dates = [point.date for point in benchmark_points if point.date <= as_of][-253:]
+    benchmark_dates = [point.date for point in benchmark_points if point.date <= as_of][-(lookback_sessions + 1):]
     if len(benchmark_dates) < 2:
         return []
     ticker_maps = {
@@ -176,6 +209,7 @@ def _performance_series(
             "date": benchmark_dates[0].isoformat(),
             "group_index": 100.0,
             "benchmark_index": 100.0,
+            "eligible_members": 0,
         }
     ]
     for previous_date, current_date in zip(benchmark_dates, benchmark_dates[1:]):
@@ -186,8 +220,9 @@ def _performance_series(
             current = values.get(current_date)
             if previous and current and previous > 0 and current > 0:
                 daily_returns.append(current / previous - 1.0)
-        if daily_returns:
-            group_index *= 1.0 + fmean(daily_returns)
+        robust_daily_return = _winsorized_mean(daily_returns)
+        if robust_daily_return is not None:
+            group_index *= 1.0 + robust_daily_return
         previous_benchmark = benchmark_map.get(previous_date)
         current_benchmark = benchmark_map.get(current_date)
         if previous_benchmark and current_benchmark and previous_benchmark > 0 and current_benchmark > 0:
@@ -195,11 +230,30 @@ def _performance_series(
         series.append(
             {
                 "date": current_date.isoformat(),
-                "group_index": round(group_index, 4),
-                "benchmark_index": round(benchmark_index, 4),
+                "group_index": round(group_index, 8),
+                "benchmark_index": round(benchmark_index, 8),
+                "eligible_members": len(daily_returns),
             }
         )
     return series
+
+
+def _series_return_pct(
+    series: list[dict],
+    as_of: date,
+    sessions: int,
+) -> float | None:
+    if not series:
+        return None
+    dates = [date.fromisoformat(str(point["date"])) for point in series]
+    index = bisect_right(dates, as_of) - 1
+    if index < sessions or dates[index] != as_of:
+        return None
+    current = float(series[index]["group_index"])
+    previous = float(series[index - sessions]["group_index"])
+    if current <= 0 or previous <= 0:
+        return None
+    return (current / previous - 1.0) * 100.0
 
 
 def _member_metrics(
@@ -240,6 +294,8 @@ def _raw_group_data(
     as_of: date,
     *,
     include_performance_series: bool,
+    representatives_by_group: dict[str, tuple[list[repository.GroupMemberRow], dict[str, str]]] | None = None,
+    performance_series_by_group: dict[str, list[dict]] | None = None,
 ) -> dict[str, dict]:
     benchmark_returns = {
         horizon: _return_pct(benchmark_points, as_of, sessions)
@@ -247,11 +303,14 @@ def _raw_group_data(
     }
     raw: dict[str, dict] = {}
     for group_id, members in groups.items():
-        representatives, representative_by_ticker = _representatives(
-            members,
-            price_history,
-            as_of,
-        )
+        if representatives_by_group and group_id in representatives_by_group:
+            representatives, representative_by_ticker = representatives_by_group[group_id]
+        else:
+            representatives, representative_by_ticker = _representatives(
+                members,
+                price_history,
+                as_of,
+            )
         horizon_values: dict[str, list[float]] = {key: [] for key in HORIZON_SESSIONS}
         for member in representatives:
             points = price_history.get(member.ticker, [])
@@ -259,9 +318,19 @@ def _raw_group_data(
                 value = _return_pct(points, as_of, sessions)
                 if value is not None:
                     horizon_values[horizon].append(value)
+
+        if performance_series_by_group and group_id in performance_series_by_group:
+            canonical_series = performance_series_by_group[group_id]
+        else:
+            canonical_series = _performance_series(
+                representatives,
+                price_history,
+                benchmark_points,
+                as_of,
+            )
         returns = {
-            horizon: (fmean(values) if values else None)
-            for horizon, values in horizon_values.items()
+            horizon: _series_return_pct(canonical_series, as_of, sessions)
+            for horizon, sessions in HORIZON_SESSIONS.items()
         }
         raw[group_id] = {
             "group": members[0],
@@ -279,12 +348,11 @@ def _raw_group_data(
                 as_of,
             ),
             "performance_series": (
-                _performance_series(
-                    representatives,
-                    price_history,
-                    benchmark_points,
-                    as_of,
-                )
+                [
+                    point
+                    for point in canonical_series
+                    if date.fromisoformat(str(point["date"])) <= as_of
+                ][-253:]
                 if include_performance_series
                 else []
             ),
@@ -387,6 +455,9 @@ def _snapshot_writes(
                     "horizon_sessions": HORIZON_SESSIONS,
                     "eligible_counts": item["eligible_counts"],
                     "min_group_members_for_rs": MIN_GROUP_MEMBERS_FOR_RS,
+                    "aggregation": "daily_equal_weight_winsorized_5_95",
+                    "winsor_lower_quantile": WINSOR_LOWER_QUANTILE,
+                    "winsor_upper_quantile": WINSOR_UPPER_QUANTILE,
                     "group_code": group.group_code,
                 },
             )
@@ -436,6 +507,25 @@ def refresh_industry_group_rs(
     target_dates = [point.date for point in benchmark_points]
     target_dates = target_dates[-(backfill_sessions + 1) :]
     latest_date = target_dates[-1]
+
+    representatives_by_group: dict[
+        str,
+        tuple[list[repository.GroupMemberRow], dict[str, str]],
+    ] = {
+        group_id: _representatives(group_members, price_history, latest_date)
+        for group_id, group_members in groups.items()
+    }
+    performance_series_by_group = {
+        group_id: _performance_series(
+            representatives,
+            price_history,
+            benchmark_points,
+            latest_date,
+            lookback_sessions=252 + backfill_sessions,
+        )
+        for group_id, (representatives, _mapping) in representatives_by_group.items()
+    }
+
     all_writes: list[repository.SnapshotWrite] = []
     latest_raw: dict[str, dict] = {}
     for target_date in target_dates:
@@ -445,6 +535,8 @@ def refresh_industry_group_rs(
             benchmark_points,
             target_date,
             include_performance_series=target_date == latest_date,
+            representatives_by_group=representatives_by_group,
+            performance_series_by_group=performance_series_by_group,
         )
         _rank_raw(raw)
         all_writes.extend(
@@ -471,6 +563,11 @@ def refresh_industry_group_rs(
     small_groups = sum(
         1 for item in latest_raw.values() if item["issuer_count"] < MIN_GROUP_MEMBERS_FOR_RS
     )
+    insufficient_history_groups = sum(
+        1
+        for item in latest_raw.values()
+        if item["issuer_count"] >= MIN_GROUP_MEMBERS_FOR_RS and not item["is_ranked"]
+    )
     missing_price_histories = sum(
         1 for member in members if len(price_history.get(member.ticker, [])) < 22
     )
@@ -483,6 +580,7 @@ def refresh_industry_group_rs(
         "groups_processed": len(groups),
         "groups_ranked": ranked_groups,
         "small_groups": small_groups,
+        "insufficient_history_groups": insufficient_history_groups,
         "stocks_processed": len(members),
         "issuers_processed": sum(item["issuer_count"] for item in latest_raw.values()),
         "missing_price_histories": missing_price_histories,
@@ -584,6 +682,15 @@ def _ranked_members(
     return rows
 
 
+def _top_members(members: list[dict], *, limit: int = 3) -> list[dict]:
+    qualified = [
+        item
+        for item in members
+        if item.get("latest_close") is not None and item.get("overall_score") is not None
+    ]
+    return qualified[:limit]
+
+
 def _momentum_from_history(history) -> dict:
     if not history:
         return {
@@ -671,7 +778,7 @@ def list_rankings(
             {
                 **_snapshot_payload(group, snapshot),
                 **_momentum_from_history(histories.get(group.id, [])),
-                "top_stock": ranked_members[0] if ranked_members else None,
+                "top_stock": (_top_members(ranked_members, limit=1) or [None])[0],
             }
         )
     return {
@@ -700,7 +807,7 @@ def group_detail(group_code: str) -> dict | None:
             **_snapshot_payload(group, snapshot),
             **_momentum(group.id),
         },
-        "top_stocks": members[:3],
+        "top_stocks": _top_members(members),
         "members": members,
         "performance_series": list(snapshot.performance_series_json or []),
     }
@@ -741,7 +848,7 @@ def stock_group_context(ticker: str) -> dict | None:
             **_momentum(group.id),
         },
         "stock": stock or {"ticker": clean, "group_rank": None, "group_members": len(members)},
-        "top_stocks": members[:3],
+        "top_stocks": _top_members(members),
     }
 
 
@@ -792,6 +899,11 @@ def diagnostics() -> dict:
         "ranked_groups": len(ranked),
         "small_groups": sum(
             1 for row in rows if int(row["issuer_count"]) < MIN_GROUP_MEMBERS_FOR_RS
+        ),
+        "insufficient_history_groups": sum(
+            1
+            for row in rows
+            if int(row["issuer_count"]) >= MIN_GROUP_MEMBERS_FOR_RS and not row["is_ranked"]
         ),
         "total_members": sum(int(row["member_count"]) for row in rows),
         "eligible_issuers": sum(int(row["issuer_count"]) for row in rows),
