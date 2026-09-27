@@ -173,3 +173,46 @@ def test_composite_ties_share_the_same_official_rank():
     service._rank_raw(raw)
     assert raw["tie-a"]["rank"] == raw["tie-b"]["rank"] == 1
     assert raw["weak"]["rank"] == 3
+
+
+
+def test_winsorized_mean_limits_single_extreme_outlier():
+    values = [0.01] * 19 + [10.0]
+    robust = service._winsorized_mean(values)
+    plain = sum(values) / len(values)
+    assert robust is not None
+    assert robust < plain
+    assert robust < 0.1
+
+
+def test_group_horizon_return_matches_canonical_series():
+    members = [_member(f"C{index}", "canonical") for index in range(5)]
+    history = {
+        member.ticker: _prices(100 + index, 0.001 + index * 0.0001)
+        for index, member in enumerate(members)
+    }
+    benchmark = _prices(100, 0.0005)
+    as_of = benchmark[-1].date
+    raw = service._raw_group_data(
+        {"canonical": members},
+        history,
+        benchmark,
+        as_of,
+        include_performance_series=True,
+    )
+    series = raw["canonical"]["performance_series"]
+    assert raw["canonical"]["returns"]["3m"] == service._series_return_pct(
+        series,
+        as_of,
+        service.HORIZON_SESSIONS["3m"],
+    )
+
+
+def test_top_members_require_current_price_and_assessment():
+    members = [
+        {"ticker": "AAA", "latest_close": None, "overall_score": 99},
+        {"ticker": "BBB", "latest_close": 10.0, "overall_score": None},
+        {"ticker": "CCC", "latest_close": 20.0, "overall_score": 80},
+        {"ticker": "DDD", "latest_close": 30.0, "overall_score": 70},
+    ]
+    assert [item["ticker"] for item in service._top_members(members)] == ["CCC", "DDD"]
