@@ -534,15 +534,26 @@ def _snapshot_payload(group, snapshot) -> dict:
     }
 
 
-def _ranked_members(snapshot) -> list[dict]:
+def _assessment_context(tickers: list[str]):
+    clean = list(dict.fromkeys(ticker for ticker in tickers if ticker))
+    assessments = stock_assessment_repository.list_all_snapshots(clean)
+    return (
+        {row.ticker.upper(): row for row in assessments},
+        {row.ticker.upper(): index for index, row in enumerate(assessments)},
+    )
+
+
+def _ranked_members(
+    snapshot,
+    *,
+    assessment_by_ticker=None,
+    canonical_order: dict[str, int] | None = None,
+) -> list[dict]:
     metrics = list(snapshot.member_metrics_json or [])
     tickers = [str(item.get("ticker") or "").upper() for item in metrics]
-    assessments = stock_assessment_repository.list_all_snapshots(tickers)
-    by_ticker = {row.ticker.upper(): row for row in assessments}
-    canonical_order = {
-        row.ticker.upper(): index
-        for index, row in enumerate(assessments)
-    }
+    if assessment_by_ticker is None or canonical_order is None:
+        assessment_by_ticker, canonical_order = _assessment_context(tickers)
+    by_ticker = assessment_by_ticker
     rows = []
     for metric in metrics:
         ticker = str(metric.get("ticker") or "").upper()
@@ -573,12 +584,7 @@ def _ranked_members(snapshot) -> list[dict]:
     return rows
 
 
-def _momentum(group_id: str) -> dict:
-    history = repository.list_group_snapshot_history(
-        group_id,
-        algorithm_version=ALGORITHM_VERSION,
-        limit=25,
-    )
+def _momentum_from_history(history) -> dict:
     if not history:
         return {
             "rank_5d_ago": None,
@@ -616,6 +622,16 @@ def _momentum(group_id: str) -> dict:
     }
 
 
+def _momentum(group_id: str) -> dict:
+    return _momentum_from_history(
+        repository.list_group_snapshot_history(
+            group_id,
+            algorithm_version=ALGORITHM_VERSION,
+            limit=25,
+        )
+    )
+
+
 def list_rankings(
     *,
     sector: str = "",
@@ -626,6 +642,18 @@ def list_rankings(
         taxonomy_version=TAXONOMY_VERSION,
         algorithm_version=ALGORITHM_VERSION,
     )
+    all_tickers = [
+        str(item.get("ticker") or "").upper()
+        for _group, snapshot in pairs
+        for item in list(snapshot.member_metrics_json or [])
+        if str(item.get("ticker") or "").strip()
+    ]
+    assessment_by_ticker, canonical_order = _assessment_context(all_tickers)
+    histories = repository.list_group_snapshot_histories(
+        [group.id for group, _snapshot in pairs],
+        algorithm_version=ALGORITHM_VERSION,
+        limit=25,
+    )
     rows = []
     for group, snapshot in pairs:
         if sector and group.sector != sector:
@@ -634,11 +662,15 @@ def list_rankings(
             continue
         if not include_small and not snapshot.is_ranked:
             continue
-        ranked_members = _ranked_members(snapshot)
+        ranked_members = _ranked_members(
+            snapshot,
+            assessment_by_ticker=assessment_by_ticker,
+            canonical_order=canonical_order,
+        )
         rows.append(
             {
                 **_snapshot_payload(group, snapshot),
-                **_momentum(group.id),
+                **_momentum_from_history(histories.get(group.id, [])),
                 "top_stock": ranked_members[0] if ranked_members else None,
             }
         )
