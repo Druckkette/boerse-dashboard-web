@@ -1847,6 +1847,7 @@ export type IndustryGroupStockRow = {
   verdict_label?: string | null;
   latest_close?: number | null;
   return_1d?: number | null;
+  return_1w?: number | null;
   return_1m?: number | null;
   return_3m?: number | null;
   return_6m?: number | null;
@@ -1936,6 +1937,11 @@ export type IndustryGroupRsDiagnostics = {
   small_groups: number;
   total_members: number;
   eligible_issuers: number;
+  missing_1m: number;
+  missing_3m: number;
+  missing_6m: number;
+  missing_12m: number;
+  calculation_duration?: number | null;
   weights: Record<string, number>;
   top_10_groups: IndustryGroupRankingRow[];
   bottom_10_groups: IndustryGroupRankingRow[];

@@ -38,13 +38,14 @@ export function IndustryGroupPanel({ ticker }: { ticker: string }) {
         </Link>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Metric label="Group RS" value={group.rs_score != null ? Math.round(group.rs_score).toString() : "–"} />
         <Metric
           label="Group Rank"
           value={group.is_ranked && group.rank ? `#${group.rank} / ${group.ranked_group_count}` : "Kleine Vergleichsgruppe"}
         />
         <Metric label={`${clean} in Gruppe`} value={stock.group_rank ? `#${stock.group_rank} / ${stock.group_members}` : "–"} />
+        <Metric label="5D Rank" value={formatMomentum(group.rank_change_5d)} />
         <Metric label="20D Rank" value={formatMomentum(group.rank_change_20d)} />
       </div>
 
