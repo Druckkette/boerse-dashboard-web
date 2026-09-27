@@ -203,6 +203,33 @@ calculations have the required support data.
 `/stocks/ratings/rs` and `/stocks/<ticker>/rs` read the persisted `rs_ratings` table. They do not
 run yfinance or Pandas recomputes in the click path.
 
+### Industry Group RS
+
+Industry Group RS uses the frozen `industry_groups_v4` taxonomy as a read-only membership layer.
+The algorithm version is `industry_group_rs_v1`; daily results are persisted in
+`industry_group_rs_snapshots`, and normal UI/API reads use these prepared snapshots.
+
+- Group performance is equal-weighted across issuer representatives over 21/63/126/252 trading
+  sessions. SPY is the default benchmark; excess return is group return minus benchmark return.
+- Horizon scores are percentile ranks on a 1–100 scale. The composite formula is
+  `0.15*RS_1M + 0.25*RS_3M + 0.30*RS_6M + 0.30*RS_12M`. Tied observations share a percentile,
+  and tied composite scores share an official rank.
+- Issuers are deduplicated from stored identity evidence, prioritizing SEC CIK when available.
+  Multiple share classes use the representative with the highest 20-session average dollar volume.
+  Missing current-session prices are excluded from the affected calculations and are never replaced
+  by zero.
+- Groups with fewer than five eligible issuers keep raw performance and membership data and receive
+  no official group rank. Snapshot history supplies 5-session and 20-session rank/RS momentum.
+- Member ranking and the Top 3 reuse persisted `stock_assessment_snapshots` ordering; Industry Group
+  RS does not add a bonus or malus to the stock score.
+- Smart Refresh recalculates the group layer after stock assessments. The standalone
+  `refresh_industry_group_rs` job supports up to 252 sessions of backfill with the same engine.
+- Read endpoints are `/api/v1/industry-groups/rs/rankings`,
+  `/api/v1/industry-groups/rs/<group_code>`,
+  `/api/v1/industry-groups/rs/<group_code>/members`,
+  `/api/v1/industry-groups/stock-context/<ticker>`, and
+  `/api/v1/industry-groups/rs/diagnostics`. Page loads make no external market-data calls.
+
 `/market/overview` and `/market/breadth` read prepared database snapshots. If no snapshots exist
 yet, they return explicit missing-data states rather than blocking the UI.
 
