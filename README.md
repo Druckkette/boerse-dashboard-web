@@ -214,8 +214,9 @@ The algorithm version is `industry_group_rs_v1`; daily results are persisted in
 - Horizon scores are percentile ranks on a 1–100 scale. The composite formula is
   `0.15*RS_1M + 0.25*RS_3M + 0.30*RS_6M + 0.30*RS_12M`. Tied observations share a percentile,
   and tied composite scores share an official rank.
-- Issuers are deduplicated from stored identity evidence, prioritizing SEC CIK when available.
-  Multiple share classes use the representative with the highest 20-session average dollar volume.
+- Issuers are deduplicated by an explicit issuer/company identifier when present, then SEC CIK,
+  then normalized company identity (with ISIN/instrument identity as fallbacks). Multiple share
+  classes use the representative with the highest 20-session average dollar volume.
   Missing current-session prices are excluded from the affected calculations and are never replaced
   by zero.
 - Groups with fewer than five eligible issuers keep raw performance and membership data and receive
