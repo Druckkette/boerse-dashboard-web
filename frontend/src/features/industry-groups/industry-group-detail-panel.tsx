@@ -3,19 +3,38 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { LineChartCard } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
 import type { IndustryGroupStockRow } from "@/lib/types/api";
 
-type MemberSort = "group_rank" | "overall_score" | "stock_rs" | "return_1m" | "return_3m" | "return_6m" | "return_12m";
+type MemberSort =
+  | "group_rank"
+  | "overall_score"
+  | "stock_rs"
+  | "fundamental_score"
+  | "chart_behavior_score"
+  | "moving_average_score"
+  | "return_1d"
+  | "return_1w"
+  | "return_1m"
+  | "return_3m"
+  | "return_6m"
+  | "return_12m";
+type ChartRange = "1m" | "3m" | "6m" | "ytd" | "1y";
 
 export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
   const [sort, setSort] = useState<MemberSort>("group_rank");
+  const [chartRange, setChartRange] = useState<ChartRange>("1y");
   const query = useQuery({
     queryKey: ["industry-group-detail", groupCode],
     queryFn: () => api.industryGroupDetail(groupCode),
     staleTime: 60_000
   });
   const data = query.data;
+  const chartPoints = useMemo(
+    () => performanceRange(data?.performance_series ?? [], chartRange),
+    [chartRange, data?.performance_series]
+  );
   const members = useMemo(() => {
     const rows = [...(data?.members ?? [])];
     rows.sort((left, right) => compareMembers(left, right, sort));
@@ -51,13 +70,36 @@ export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
       </section>
 
       <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold text-[#172033]">Performance vs. {group.benchmark_ticker}</h2>
-            <p className="text-xs text-[#687386]">Gleichgewichteter Gruppenindex, Startwert 100.</p>
+            <p className="text-xs text-[#687386]">Gleichgewichteter Gruppenindex, je Zeitraum auf 100 normiert.</p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(["1m", "3m", "6m", "ytd", "1y"] as ChartRange[]).map((range) => (
+              <button
+                key={range}
+                type="button"
+                onClick={() => setChartRange(range)}
+                className={`rounded-[8px] px-2.5 py-1.5 text-xs font-semibold transition ${
+                  chartRange === range ? "bg-[#0f766e] text-white" : "bg-[#f3f6f8] text-[#687386] hover:text-[#172033]"
+                }`}
+              >
+                {range.toUpperCase()}
+              </button>
+            ))}
           </div>
         </div>
-        <PerformanceChart points={data.performance_series} />
+        <LineChartCard
+          title="Industry Group Performance"
+          caption={`Industry Group vs. ${group.benchmark_ticker}`}
+          points={chartPoints}
+          series={[
+            { key: "group_index", label: "Industry Group", color: "#0f766e", formatter: (value) => value.toFixed(1) },
+            { key: "benchmark_index", label: group.benchmark_ticker, color: "#94a3b8", formatter: (value) => value.toFixed(1) }
+          ]}
+          hideTextHeader
+        />
       </section>
 
       <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
@@ -78,6 +120,11 @@ export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
               <option value="group_rank">Gruppenrang</option>
               <option value="overall_score">Gesamtscore</option>
               <option value="stock_rs">Stock RS</option>
+              <option value="fundamental_score">Fundamental Score</option>
+              <option value="chart_behavior_score">Chart Score</option>
+              <option value="moving_average_score">MA Score</option>
+              <option value="return_1d">1D</option>
+              <option value="return_1w">1W</option>
               <option value="return_1m">1M</option>
               <option value="return_3m">3M</option>
               <option value="return_6m">6M</option>
@@ -88,7 +135,7 @@ export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] text-left text-sm">
             <thead className="border-y border-[#e3e8ef] bg-[#f6f8fb] text-xs text-[#687386]"><tr>
-              {["Rank", "Aktie", "Score", "Stock RS", "1D", "1M", "3M", "6M", "12M", "Kurs", "Issuer"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}
+              {["Rank", "Aktie", "Score", "Stock RS", "Fund.", "Chart", "MA", "1D", "1W", "1M", "3M", "6M", "12M", "Kurs", "Issuer"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}
             </tr></thead>
             <tbody>
               {members.map((item) => <tr key={item.ticker} className="border-b border-[#eef2f6] last:border-0 hover:bg-[#f9fbfc]">
@@ -96,7 +143,11 @@ export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
                 <td className="px-3 py-3"><Link href={`/stocks/${encodeURIComponent(item.ticker)}`} className="font-semibold text-[#0f766e] hover:underline">{item.ticker}</Link><div className="max-w-56 truncate text-xs text-[#687386]">{item.name}</div></td>
                 <td className="px-3 py-3">{item.overall_score ?? "–"}</td>
                 <td className="px-3 py-3">{item.stock_rs ?? "–"}</td>
+                <td className="px-3 py-3">{item.fundamental_score ?? "–"}</td>
+                <td className="px-3 py-3">{item.chart_behavior_score ?? "–"}</td>
+                <td className="px-3 py-3">{item.moving_average_score ?? "–"}</td>
                 <td className={pctClass(item.return_1d)}>{pct(item.return_1d)}</td>
+                <td className={pctClass(item.return_1w)}>{pct(item.return_1w)}</td>
                 <td className={pctClass(item.return_1m)}>{pct(item.return_1m)}</td>
                 <td className={pctClass(item.return_3m)}>{pct(item.return_3m)}</td>
                 <td className={pctClass(item.return_6m)}>{pct(item.return_6m)}</td>
@@ -147,18 +198,26 @@ function momentum(value?: number | null) {
   return "→ 0";
 }
 
-function PerformanceChart({ points }: { points: { date: string; group_index: number; benchmark_index: number }[] }) {
-  if (points.length < 2) return <div className="py-8 text-sm text-[#687386]">Performance-Historie wird mit dem nächsten RS-Lauf aufgebaut.</div>;
-  const width = 1000;
-  const height = 260;
-  const values = points.flatMap((point) => [point.group_index, point.benchmark_index]);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(1, max - min);
-  const pathFor = (key: "group_index" | "benchmark_index") => points.map((point, index) => {
-    const x = (index / Math.max(1, points.length - 1)) * width;
-    const y = height - ((point[key] - min) / range) * (height - 20) - 10;
-    return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(" ");
-  return <div className="overflow-x-auto"><svg viewBox={`0 0 ${width} ${height}`} className="h-64 min-w-[760px] w-full" role="img" aria-label="Industry Group Performance gegenüber Benchmark"><path d={pathFor("group_index")} fill="none" stroke="#0f766e" strokeWidth="3" /><path d={pathFor("benchmark_index")} fill="none" stroke="#94a3b8" strokeWidth="2" /><text x="12" y="20" fontSize="13" fill="#0f766e">Industry Group</text><text x="132" y="20" fontSize="13" fill="#64748b">Benchmark</text></svg></div>;
+function performanceRange(
+  points: { date: string; group_index: number; benchmark_index: number }[],
+  range: ChartRange
+) {
+  if (points.length < 2) return points;
+  let selected = points;
+  if (range === "ytd") {
+    const year = points[points.length - 1].date.slice(0, 4);
+    selected = points.filter((point) => point.date >= `${year}-01-01`);
+  } else {
+    const sessions = { "1m": 22, "3m": 64, "6m": 127, "1y": 253 }[range];
+    selected = points.slice(-sessions);
+  }
+  if (selected.length < 2) return selected;
+  const groupBase = selected[0].group_index;
+  const benchmarkBase = selected[0].benchmark_index;
+  if (groupBase <= 0 || benchmarkBase <= 0) return selected;
+  return selected.map((point) => ({
+    ...point,
+    group_index: Math.round((point.group_index / groupBase) * 1000000) / 10000,
+    benchmark_index: Math.round((point.benchmark_index / benchmarkBase) * 1000000) / 10000
+  }));
 }
