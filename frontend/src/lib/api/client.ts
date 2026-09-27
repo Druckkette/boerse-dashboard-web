@@ -15,6 +15,10 @@ import type {
   MarketDiagnostics,
   MarketOverview,
   Institutional13FTrend,
+  IndustryGroupDetail,
+  IndustryGroupRankings,
+  IndustryGroupRsDiagnostics,
+  IndustryGroupStockContext,
   IsinMappingListResponse,
   IsinMappingPatchRequest,
   PriceHistory,
@@ -193,6 +197,14 @@ export const api = {
     patchJson<UniverseSymbolMappingReview>("/market/universe/mappings", body),
   marketSectors: (mode: "daily" | "weekly" = "daily", periods = 15) =>
     getJson<SectorRanking>(`/market/sectors?mode=${mode}&periods=${periods}`),
+  industryGroupRankings: (params = "") =>
+    getJson<IndustryGroupRankings>(`/industry-groups/rs/rankings${params ? `?${params}` : ""}`),
+  industryGroupDetail: (groupCode: string) =>
+    getJson<IndustryGroupDetail>(`/industry-groups/rs/${encodeURIComponent(groupCode)}`),
+  industryGroupStockContext: (ticker: string) =>
+    getJson<IndustryGroupStockContext>(`/industry-groups/stock-context/${encodeURIComponent(ticker)}`),
+  industryGroupRsDiagnostics: () =>
+    getJson<IndustryGroupRsDiagnostics>("/industry-groups/rs/diagnostics"),
   freshness: () => getJson<Freshness>("/freshness"),
   readiness: () => getJson<SystemReadiness>("/readiness"),
   setupStatus: () => getJson<SetupStatus>("/setup/status"),

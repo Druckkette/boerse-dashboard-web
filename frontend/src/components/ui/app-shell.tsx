@@ -6,6 +6,7 @@ import {
   ChartCandlestick,
   Gauge,
   LineChart,
+  Layers3,
   NotebookPen,
   NotebookTabs,
   Search,
@@ -21,6 +22,7 @@ import { HeaderTools } from "@/components/ui/header-tools";
 const navItems = [
   { href: "/market", label: "Marktübersicht", icon: Gauge },
   { href: "/sectors", label: "Sektoren", icon: Shield },
+  { href: "/industry-groups", label: "Industry Groups", icon: Layers3 },
   { href: "/stocks", label: "Aktien", icon: Search },
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness, exact: true },
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
@@ -39,6 +41,7 @@ const hiddenPageLabels = [
 const pageDescriptions: Record<string, string> = {
   "/market": "Marktampel, Marktbreite und Frühwarnzeichen in einer ruhigen Übersicht.",
   "/sectors": "Sektorrotation und relative Stärke nach Tages- oder Wochenansicht.",
+  "/industry-groups": "Industry-Group-RS, Rangdynamik und die stärksten Aktien innerhalb jeder Gruppe.",
   "/stocks": "Aktien suchen, bewerten und technische sowie fundamentale Signale prüfen.",
   "/portfolio": "Depot, Risiko, Stopps und Positionsgrößen im Blick behalten.",
   "/portfolio/buy-strength": "Frische Käufe systematisch gegen die Stärke-nach-Kauf-Regeln prüfen.",
