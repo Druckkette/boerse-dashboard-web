@@ -527,20 +527,6 @@ def build_smart_refresh_plan(
             )
         )
 
-        actions.append(
-            SmartRefreshAction(
-                key="refresh_industry_group_rs",
-                job_type="refresh_industry_group_rs",
-                label="Industry Group RS berechnen",
-                reason="Gruppenperformance, RS, Rang und Top-Aktien werden nach dem Aktienranking aktualisiert.",
-                payload={
-                    "mode": "smart",
-                    "source": "smart_refresh",
-                    "benchmark_ticker": benchmark_ticker,
-                },
-            )
-        )
-
     prices_refreshed = any(action.job_type == "refresh_prices" for action in actions)
     if include_position_monitor and diagnostics.open_positions_count > 0:
         if prices_refreshed or _is_missing(sell_ranking_freshness) or _is_stale(sell_ranking_freshness):
