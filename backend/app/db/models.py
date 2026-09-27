@@ -660,3 +660,53 @@ class IndustryGroupMembership(Base):
     )
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+
+
+class IndustryGroupRsSnapshot(Base):
+    __tablename__ = "industry_group_rs_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "industry_group_id",
+            "snapshot_date",
+            "algorithm_version",
+            name="uq_industry_group_rs_group_date_algo",
+        ),
+        Index("ix_industry_group_rs_date_rank", "snapshot_date", "is_ranked", "rank"),
+        Index("ix_industry_group_rs_group_date", "industry_group_id", "snapshot_date"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    industry_group_id: Mapped[str] = mapped_column(ForeignKey("industry_groups.id"), index=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    taxonomy_version: Mapped[str] = mapped_column(String(64), default="industry_groups_v4")
+    algorithm_version: Mapped[str] = mapped_column(String(64), default="industry_group_rs_v1")
+    benchmark_ticker: Mapped[str] = mapped_column(String(32), default="SPY")
+    member_count: Mapped[int] = mapped_column(Integer, default=0)
+    eligible_member_count: Mapped[int] = mapped_column(Integer, default=0)
+    issuer_count: Mapped[int] = mapped_column(Integer, default=0)
+    return_1d: Mapped[float | None] = mapped_column(Float)
+    return_1m: Mapped[float | None] = mapped_column(Float)
+    return_3m: Mapped[float | None] = mapped_column(Float)
+    return_6m: Mapped[float | None] = mapped_column(Float)
+    return_12m: Mapped[float | None] = mapped_column(Float)
+    benchmark_return_1d: Mapped[float | None] = mapped_column(Float)
+    benchmark_return_1m: Mapped[float | None] = mapped_column(Float)
+    benchmark_return_3m: Mapped[float | None] = mapped_column(Float)
+    benchmark_return_6m: Mapped[float | None] = mapped_column(Float)
+    benchmark_return_12m: Mapped[float | None] = mapped_column(Float)
+    excess_return_1m: Mapped[float | None] = mapped_column(Float)
+    excess_return_3m: Mapped[float | None] = mapped_column(Float)
+    excess_return_6m: Mapped[float | None] = mapped_column(Float)
+    excess_return_12m: Mapped[float | None] = mapped_column(Float)
+    rs_1m: Mapped[float | None] = mapped_column(Float)
+    rs_3m: Mapped[float | None] = mapped_column(Float)
+    rs_6m: Mapped[float | None] = mapped_column(Float)
+    rs_12m: Mapped[float | None] = mapped_column(Float)
+    rs_score: Mapped[float | None] = mapped_column(Float)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    ranked_group_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_ranked: Mapped[bool] = mapped_column(Boolean, default=False)
+    member_metrics_json: Mapped[list] = mapped_column(JSONB, default=list)
+    performance_series_json: Mapped[list] = mapped_column(JSONB, default=list)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
