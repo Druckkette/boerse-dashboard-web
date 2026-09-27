@@ -20,6 +20,7 @@ from app.repositories import fundamentals as fundamentals_repository
 from app.repositories import jobs as job_repository
 from app.repositories import portfolio as portfolio_repository
 from app.repositories import stock_assessments as stock_assessment_repository
+from app.repositories.industry_group_rs import IndustryGroupRsRepositoryUnavailable
 from app.schemas import DataDiagnosticsResponse, FreshnessResponse, ServiceFreshness, UniverseStatusResponse
 from app.services.earnings import earnings_priority_tickers, refresh_earnings_calendar
 from app.services.freshness import get_freshness
@@ -581,13 +582,16 @@ def _run_action(
             source=str(action.payload.get("rating_source") or configured_rs_source()),
         )
     if action.job_type == "refresh_stock_assessments":
-        return refresh_stock_assessment_snapshots(
+        assessment_result = refresh_stock_assessment_snapshots(
             source_job_id=job_id,
         )
-    if action.job_type == "refresh_industry_group_rs":
-        return refresh_industry_group_rs(
-            benchmark_ticker=str(action.payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER),
-        )
+        try:
+            group_result = refresh_industry_group_rs(
+                benchmark_ticker=str(action.payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER),
+            )
+        except IndustryGroupRsRepositoryUnavailable:
+            return assessment_result
+        return {**assessment_result, "industry_group_rs": group_result}
     if action.job_type == "refresh_earnings_calendar":
         api_key = get_runtime_config_value("FMP_API_KEY")
         try:
