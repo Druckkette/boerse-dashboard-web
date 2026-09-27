@@ -111,3 +111,65 @@ def test_performance_series_starts_at_100():
     assert series[0]["group_index"] == 100.0
     assert series[0]["benchmark_index"] == 100.0
     assert series[-1]["group_index"] > series[-1]["benchmark_index"]
+
+
+def test_percentiles_assign_same_value_to_tied_returns():
+    result = service._percentiles({"A": 5.0, "B": 5.0, "C": 10.0})
+    assert result["A"] == result["B"]
+    assert result["C"] == 100.0
+
+
+def test_returns_require_a_bar_on_the_snapshot_date():
+    points = _prices(100, 0.001, count=40)
+    stale_as_of = points[-1].date + timedelta(days=1)
+    assert service._return_pct(points, stale_as_of, 21) is None
+    assert service._latest_close(points, stale_as_of) is None
+    assert service._average_dollar_volume(points, stale_as_of) == 0.0
+
+
+def test_member_metrics_include_one_week_return():
+    member = _member("WEEK", "g1")
+    points = _prices(100, 0.001, count=40)
+    metrics = service._member_metrics(
+        [member],
+        [member],
+        {"WEEK": "WEEK"},
+        {"WEEK": points},
+        points[-1].date,
+    )
+    assert metrics[0]["return_1w"] is not None
+
+
+def test_composite_ties_share_the_same_official_rank():
+    benchmark = _prices(100, 0.0001)
+    as_of = benchmark[-1].date
+    raw = {}
+    history = {}
+    for group_id in ("tie-a", "tie-b"):
+        members = [_member(f"{group_id}-{index}", group_id) for index in range(5)]
+        for member in members:
+            history[member.ticker] = _prices(100, 0.001)
+        raw.update(
+            service._raw_group_data(
+                {group_id: members},
+                history,
+                benchmark,
+                as_of,
+                include_performance_series=False,
+            )
+        )
+    weak_members = [_member(f"weak-{index}", "weak") for index in range(5)]
+    for member in weak_members:
+        history[member.ticker] = _prices(100, 0.0002)
+    raw.update(
+        service._raw_group_data(
+            {"weak": weak_members},
+            history,
+            benchmark,
+            as_of,
+            include_performance_series=False,
+        )
+    )
+    service._rank_raw(raw)
+    assert raw["tie-a"]["rank"] == raw["tie-b"]["rank"] == 1
+    assert raw["weak"]["rank"] == 3
