@@ -1608,6 +1608,7 @@ export type JobType =
   | "refresh_breadth"
   | "refresh_relative_strength"
   | "refresh_stock_assessments"
+  | "refresh_industry_group_rs"
   | "refresh_fundamentals"
   | "refresh_earnings_calendar"
   | "refresh_stock_detail"
