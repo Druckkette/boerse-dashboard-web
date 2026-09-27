@@ -33,6 +33,7 @@ from app.services.relative_strength import (
 )
 from app.services.sec13f import refresh_institutional_13f_from_sec
 from app.services.stocks import refresh_stock_assessment_snapshots
+from app.services.industry_group_rs import refresh_industry_group_rs
 from app.services.settings import get_data_diagnostics, get_runtime_config_value
 from app.services.universes import (
     get_universe_status,
@@ -526,6 +527,20 @@ def build_smart_refresh_plan(
             )
         )
 
+        actions.append(
+            SmartRefreshAction(
+                key="refresh_industry_group_rs",
+                job_type="refresh_industry_group_rs",
+                label="Industry Group RS berechnen",
+                reason="Gruppenperformance, RS, Rang und Top-Aktien werden nach dem Aktienranking aktualisiert.",
+                payload={
+                    "mode": "smart",
+                    "source": "smart_refresh",
+                    "benchmark_ticker": benchmark_ticker,
+                },
+            )
+        )
+
     prices_refreshed = any(action.job_type == "refresh_prices" for action in actions)
     if include_position_monitor and diagnostics.open_positions_count > 0:
         if prices_refreshed or _is_missing(sell_ranking_freshness) or _is_stale(sell_ranking_freshness):
@@ -582,6 +597,10 @@ def _run_action(
     if action.job_type == "refresh_stock_assessments":
         return refresh_stock_assessment_snapshots(
             source_job_id=job_id,
+        )
+    if action.job_type == "refresh_industry_group_rs":
+        return refresh_industry_group_rs(
+            benchmark_ticker=str(action.payload.get("benchmark_ticker") or DEFAULT_RS_BENCHMARK_TICKER),
         )
     if action.job_type == "refresh_earnings_calendar":
         api_key = get_runtime_config_value("FMP_API_KEY")
