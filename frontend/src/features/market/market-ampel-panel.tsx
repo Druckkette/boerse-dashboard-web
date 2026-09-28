@@ -72,6 +72,7 @@ export function MarketAmpelPanel({
     vol_sma50: point.vol_sma50,
     dist_52w_pct: point.dist_52w_pct
   }));
+  const previousClose = chartPoints.at(-2)?.close;
 
   return (
     <section className="space-y-4">
@@ -107,6 +108,9 @@ export function MarketAmpelPanel({
         volumeKey="volume"
         markers={data.chart_markers}
         levels={[
+          ...(previousClose != null
+            ? [{ key: "previous_close", label: "Vortagesschluss", value: previousClose, color: "#64748b" }]
+            : []),
           ...(data.cycle.floor_mark ? [{ key: "floor", label: "Bodenmarke", value: data.cycle.floor_mark, color: "#f87171" }] : []),
           ...(data.cycle.startschuss_low
             ? [{ key: "startschuss", label: "Startschuss-Tief", value: data.cycle.startschuss_low, color: "#fbbf24" }]
