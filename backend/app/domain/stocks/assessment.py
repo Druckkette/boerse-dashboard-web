@@ -14,6 +14,32 @@ from app.domain.stocks.instrument_type import inapplicable_reason
 AssessmentCategory = Literal["fundamental", "technical", "trend", "risk"]
 SignalCategory = Literal["positive", "negative", "neutral"]
 VerdictTone = Literal["good", "neutral", "warning", "bad"]
+ScoreStatus = Literal["available", "partial", "neutral", "insufficient_history", "missing"]
+
+
+OVERALL_WEIGHTS = {"technical": 3, "fundamental": 3, "chart": 3, "moving_average": 1}
+TECHNICAL_WEIGHTS = {
+    "k4_rs_leadership": 36,
+    "k13_rs_dynamics": 28,
+    "rs_rating": 24,
+    "high_position": 12,
+    "up_down_volume": 10,
+    "cmf": 10,
+}
+K4_WEIGHTS = {"above_21_ema": 25, "above_50_sma": 15, "persistence": 20, "rs_52w_high": 30, "white_space": 10}
+K13_WEIGHTS = {"three_vs_six": 35, "six_vs_twelve": 25, "sequence": 25, "acceleration": 15}
+FUNDAMENTAL_WEIGHTS = {"fundamental_core": 5, "k9_eps_sales_alignment": 1}
+CHART_WEIGHTS = {"price_action_core": 4, "k35_down_week_quality": 1, "k38_hh_hl_good_close": 1}
+MOVING_AVERAGE_WEIGHTS = {
+    "price_above_200_sma": 20,
+    "price_above_50_sma": 15,
+    "price_above_21_ema": 10,
+    "price_above_10_sma": 5,
+    "ma_order": 15,
+    "persistence": 15,
+    "slope": 20,
+}
+SCOREABLE_STATUSES = {"available", "partial"}
 
 
 @dataclass(frozen=True)
@@ -40,6 +66,10 @@ class ChartSignal:
     category: SignalCategory
     label: str
     detail: str = ""
+    key: str = ""
+    source: str = "price_action"
+    score_relevant: bool = True
+    display_relevant: bool = True
 
 
 @dataclass(frozen=True)
@@ -107,6 +137,13 @@ class StockAssessmentResult:
     chart_signal_states: Mapping[str, ChartSignalState] = field(default_factory=dict)
     drivers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    overall_v2: Mapping[str, Any] = field(default_factory=dict)
+    technical_v2: Mapping[str, Any] = field(default_factory=dict)
+    fundamental_v2: Mapping[str, Any] = field(default_factory=dict)
+    chart_v2: Mapping[str, Any] = field(default_factory=dict)
+    moving_average_v2: Mapping[str, Any] = field(default_factory=dict)
+    setup: Mapping[str, Any] = field(default_factory=dict)
+    eligibility: Mapping[str, Any] = field(default_factory=dict)
 
 
 def compute_stock_assessment(
@@ -159,7 +196,7 @@ def compute_stock_assessment(
     institutional = dict(institutional_context or {})
     fundamentals = _merge_institutional_fields(fundamentals, institutional)
     technical_checks, cmf_value = evaluate_technicals(df, rs_context=rs)
-    fundamental_checks, fundamental_score, fundamentals_available = evaluate_fundamentals_context(
+    fundamental_checks, fundamental_core_score, fundamentals_available = evaluate_fundamentals_context(
         fundamentals,
         institutional_context=institutional,
     )
@@ -168,7 +205,8 @@ def compute_stock_assessment(
     checks = [*technical_checks, *fundamental_checks]
     if earnings_check is not None:
         checks.append(earnings_check)
-    chart_signals = evaluate_chart_signs(df, rs_context=rs)
+    weekly_bars = _weekly_bars(df)
+    chart_signals = evaluate_chart_signs(df, rs_context=rs, weekly_bars=weekly_bars)
     chart_signal_states = evaluate_negative_chart_signal_states(df, rs_context=rs)
     metrics = _compute_metrics(
         df,
@@ -177,12 +215,31 @@ def compute_stock_assessment(
         fundamentals_context=fundamentals,
         earnings=earnings,
     )
-    technical_score = _technical_points_score(technical_checks, metrics.rs_rating, cmf_value)
-    ma_score = _moving_average_score(df)
-    positive_count = sum(1 for signal in chart_signals if signal.category == "positive")
-    negative_count = sum(1 for signal in chart_signals if signal.category == "negative")
-    chart_score = _chart_behavior_score_100(positive_count, negative_count)
-    overall = _round_half_up_int(np.mean([technical_score, fundamental_score, chart_score, ma_score]))
+    weekly = _completed_weekly_bars(df, weekly_bars=weekly_bars)
+    technical_v2 = _technical_score_v2(df, technical_checks, metrics, rs, cmf_value)
+    fundamental_v2 = _fundamental_score_v2(
+        fundamentals,
+        core_score=fundamental_core_score,
+        core_available=fundamentals_available,
+    )
+    moving_average_v2 = _moving_average_score_v2(df)
+    chart_v2 = _chart_score_v2(chart_signals, weekly)
+    overall_v2 = _overall_score_v2(
+        technical_v2=technical_v2,
+        fundamental_v2=fundamental_v2,
+        chart_v2=chart_v2,
+        moving_average_v2=moving_average_v2,
+    )
+    technical_score = float(technical_v2["score"] or 0.0)
+    # The legacy scalar remains numeric for old consumers. The v2 status is the
+    # authoritative representation when a complete area is unavailable.
+    fundamental_score = float(fundamental_v2["score"] if fundamental_v2["score"] is not None else 50.0)
+    ma_score = float(moving_average_v2["score"] or 0.0)
+    chart_score_value = float(chart_v2["score"] or 0.0)
+    chart_score = _round_half_up_int(chart_score_value)
+    overall = _round_half_up_int(float(overall_v2["score"] or 0.0))
+    setup = _setup_context(df, chart_signals)
+    eligibility = _eligibility_context(technical_checks)
     verdict_label, verdict_tone, verdict_text = _build_verdict(overall, checks, metrics)
     drivers, warnings = _build_drivers_and_warnings(
         checks,
@@ -216,6 +273,13 @@ def compute_stock_assessment(
         chart_signal_states=chart_signal_states,
         drivers=drivers,
         warnings=warnings,
+        overall_v2=overall_v2,
+        technical_v2=technical_v2,
+        fundamental_v2=fundamental_v2,
+        chart_v2=chart_v2,
+        moving_average_v2=moving_average_v2,
+        setup=setup,
+        eligibility=eligibility,
     )
 
 
@@ -474,10 +538,10 @@ def evaluate_fundamentals_context(
                     "Bonus: Umsatz-Beschleunigung letzte 3 Quartale"}
         checks = [check for check in checks if check.label not in excluded]
         margin_score = min(max(margin or 0, 0) / 25.0, 1.0) * 25.0
-        score = round(_eps_three_year_score(fundamentals, unit=25.0)
-                      + _revenue_three_year_score(fundamentals, unit=25.0)
-                      + _roe_three_year_score(fundamentals, unit=25.0)
-                      + margin_score, 1)
+        score = (_eps_three_year_score(fundamentals, unit=25.0)
+                 + _revenue_three_year_score(fundamentals, unit=25.0)
+                 + _roe_three_year_score(fundamentals, unit=25.0)
+                 + margin_score)
     else:
         score = _fundamental_checklist_score_100(checks, fundamentals)
     return checks, score if available else 50.0, available
@@ -487,6 +551,7 @@ def evaluate_chart_signs(
     df: pd.DataFrame,
     *,
     rs_context: Mapping[str, Any] | None = None,
+    weekly_bars: pd.DataFrame | None = None,
 ) -> list[ChartSignal]:
     if len(df) < 50:
         return []
@@ -502,6 +567,7 @@ def evaluate_chart_signs(
     ema21 = close.ewm(span=21, adjust=False).mean()
     sma50 = close.rolling(50, min_periods=50).mean()
     sma200 = close.rolling(200, min_periods=200).mean()
+    weekly = weekly_bars if weekly_bars is not None else _weekly_bars(df)
     signals: list[ChartSignal] = []
 
     high_volume_up = int(((close.tail(20) > close.shift(1).tail(20)) & (volume.tail(20) > vol_avg_50.tail(20))).sum())
@@ -599,7 +665,7 @@ def evaluate_chart_signs(
     if bearish_engulfing >= 1:
         signals.append(ChartSignal("negative", "Bearish Engulfing", f"{bearish_engulfing} in 15T"))
 
-    support_week = _support_week_signal(open_, high, low, close, volume, sma50)
+    support_week = _support_week_signal(open_, high, low, close, volume, sma50, weekly_bars=weekly)
     if support_week is not None:
         signals.append(support_week)
 
@@ -624,7 +690,7 @@ def evaluate_chart_signs(
     if distance_warnings:
         signals.append(ChartSignal("negative", "Großer Abstand zu Durchschnitten", ", ".join(distance_warnings)))
 
-    weekly_close = close.resample("W-FRI").last().dropna()
+    weekly_close = weekly["Close"]
     if len(weekly_close) >= 6 and bool((weekly_close.pct_change(fill_method=None).tail(5) > 0).all()):
         signals.append(ChartSignal("positive", "5 positive Wochen in Folge"))
 
@@ -641,7 +707,58 @@ def evaluate_chart_signs(
         signals.append(ChartSignal("neutral", "Test der 50-SMA"))
 
     signals.extend(_recent_reaction_signals(close, high, low, open_, pct, s50, volume, _safe_float(vol_avg_50.iloc[-1])))
-    return signals
+    return _decorate_chart_signals(signals)
+
+
+def _decorate_chart_signals(signals: Sequence[ChartSignal]) -> list[ChartSignal]:
+    moving_average_labels = {
+        "Leben über den Durchschnitten",
+        "Leben unter den Durchschnitten",
+        "Durchschnitte in richtiger Ordnung",
+        "Durchschnitte in falscher Ordnung",
+        "Nach oben zeigende Durchschnittslinien",
+        "Nach unten zeigende Durchschnittslinien",
+    }
+    setup_labels = {
+        "Großer Abstand zu Durchschnitten",
+        "Natürliche Reaktion",
+        "Test der 21-EMA",
+        "Test der 50-SMA",
+        "2,5-Tage-Korrektur",
+        "Inside Day",
+        "Enge Konsolidierung",
+    }
+    decorated: list[ChartSignal] = []
+    for signal in signals:
+        if signal.label in moving_average_labels:
+            source = "moving_average"
+            score_relevant = False
+        elif signal.label.startswith("RS-") or signal.label.startswith("Schwaches RS"):
+            source = "technical"
+            score_relevant = False
+        elif signal.label in setup_labels or signal.category == "neutral":
+            source = "setup"
+            score_relevant = False
+        else:
+            source = signal.source
+            score_relevant = signal.score_relevant
+        decorated.append(
+            ChartSignal(
+                category=signal.category,
+                label=signal.label,
+                detail=signal.detail,
+                key=signal.key or _signal_key(signal.label),
+                source=source,
+                score_relevant=score_relevant,
+                display_relevant=signal.display_relevant,
+            )
+        )
+    return decorated
+
+
+def _signal_key(label: str) -> str:
+    clean = label.lower().translate(str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}))
+    return "_".join("".join(char if char.isalnum() else " " for char in clean).split())
 
 
 def evaluate_negative_chart_signal_states(
@@ -960,6 +1077,872 @@ def _compute_metrics(
     )
 
 
+def _component(
+    score: float | None,
+    status: ScoreStatus,
+    *,
+    raw: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    clean_score = None if score is None else float(np.clip(score, 0.0, 100.0))
+    quality = "full" if status in {"available", "neutral"} else "partial" if status == "partial" else "missing"
+    return {
+        "score": clean_score,
+        "base_weight": 0.0,
+        "effective_weight": 0.0,
+        "status": status,
+        "data_quality": quality,
+        "raw": dict(raw or {}),
+    }
+
+
+def _weighted_score(
+    components: Mapping[str, Mapping[str, Any]],
+    weights: Mapping[str, int],
+) -> dict[str, Any]:
+    total_weight = float(sum(weights.values()))
+    scoreable = [
+        key
+        for key, component in components.items()
+        if component.get("status") in SCOREABLE_STATUSES and _safe_float(component.get("score")) is not None
+    ]
+    scoreable_weight = float(sum(weights[key] for key in scoreable))
+    output_components: dict[str, dict[str, Any]] = {}
+    for key, component in components.items():
+        item = dict(component)
+        item["base_weight"] = weights[key] / total_weight
+        item["effective_weight"] = weights[key] / scoreable_weight if key in scoreable and scoreable_weight else 0.0
+        output_components[key] = item
+
+    coverage_statuses = {"available", "partial", "neutral"}
+    covered_weight = sum(
+        weights[key]
+        for key, component in components.items()
+        if component.get("status") in coverage_statuses
+    )
+    data_coverage = covered_weight / total_weight if total_weight else 0.0
+    if not scoreable_weight:
+        statuses = {str(component.get("status")) for component in components.values()}
+        status: ScoreStatus = "insufficient_history" if "insufficient_history" in statuses else "missing"
+        score = None
+    else:
+        score = sum(float(components[key]["score"]) * weights[key] for key in scoreable) / scoreable_weight
+        status = "available" if scoreable_weight == total_weight and all(components[key].get("status") == "available" for key in scoreable) else "partial"
+    return {
+        "score": score,
+        "status": status,
+        "available_weight": scoreable_weight / total_weight if total_weight else 0.0,
+        "data_coverage": data_coverage,
+        "data_quality": "full" if data_coverage == 1.0 else "partial" if data_coverage > 0 else "missing",
+        "components": output_components,
+    }
+
+
+def _technical_score_v2(
+    df: pd.DataFrame,
+    technical_checks: Sequence[AssessmentCheck],
+    metrics: StockAssessmentMetrics,
+    rs_context: Mapping[str, Any],
+    cmf_value: float | None,
+) -> dict[str, Any]:
+    check_map = {check.label: check for check in technical_checks}
+    k4 = _k4_rs_leadership(rs_context)
+    k13 = _k13_rs_dynamics(rs_context)
+
+    rating = _safe_float(metrics.rs_rating)
+    rating_component = _component(
+        (rating - 1.0) / 98.0 * 100.0 if rating is not None else None,
+        "available" if rating is not None else "missing",
+        raw={"rating": rating, "mapping": "(rating - 1) / 98 * 100"},
+    )
+
+    ath_points = 0.0
+    high_52w_points = 0.0
+    high_available = False
+    ath_check = check_map.get("Entfernung zum All-Time-High")
+    high_52w_check = check_map.get("Entfernung zum 52-Wochen-Hoch")
+    if ath_check and ath_check.detail != "Nicht verfügbar":
+        high_available = True
+        ath_points = 8.0 if ath_check.passed else 0.0
+    if high_52w_check and high_52w_check.detail != "Nicht verfügbar":
+        high_available = True
+        high_52w_points = 4.0 if high_52w_check.passed else 0.0
+    high_points = ath_points + high_52w_points
+    high_position = _component(
+        high_points / 12.0 * 100.0 if high_available else None,
+        "available" if high_available else "missing",
+        raw={"ath_points": ath_points, "high_52w_points": high_52w_points, "max_points": 12},
+    )
+
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    volume = pd.to_numeric(df["Volume"], errors="coerce")
+    pct_change = close.pct_change(fill_method=None)
+    up_volume = _safe_float(volume.where(pct_change > 0).tail(50).sum())
+    down_volume = _safe_float(volume.where(pct_change < 0).tail(50).sum())
+    ratio = up_volume / down_volume if up_volume is not None and down_volume not in {None, 0.0} else None
+    up_down = _component(
+        100.0 if ratio is not None and ratio >= 1.0 else 0.0 if ratio is not None else None,
+        "available" if ratio is not None else "missing",
+        raw={"up_volume": up_volume, "down_volume": down_volume, "ratio": ratio, "threshold": 1.0},
+    )
+
+    cmf_grade = _cmf_rating(cmf_value)[0]
+    cmf_score = 100.0 if cmf_grade == "A" else (10.0 / 15.0 * 100.0) if cmf_grade == "B" else 0.0
+    cmf = _component(
+        cmf_score if cmf_value is not None else None,
+        "available" if cmf_value is not None else "missing",
+        raw={"cmf_20": cmf_value, "rating": cmf_grade},
+    )
+    result = _weighted_score(
+        {
+            "k4_rs_leadership": _component(k4.get("score"), k4["status"], raw=k4),
+            "k13_rs_dynamics": _component(k13.get("score"), k13["status"], raw=k13),
+            "rs_rating": rating_component,
+            "high_position": high_position,
+            "up_down_volume": up_down,
+            "cmf": cmf,
+        },
+        TECHNICAL_WEIGHTS,
+    )
+    result["weights"] = dict(TECHNICAL_WEIGHTS)
+    return result
+
+
+def _k4_rs_leadership(rs_context: Mapping[str, Any]) -> dict[str, Any]:
+    rs_value = _safe_float(rs_context.get("rs_line_last"))
+    ema21 = _safe_float(rs_context.get("ema21"))
+    sma50 = _safe_float(rs_context.get("sma50"))
+    above_21 = rs_context.get("above_21") if isinstance(rs_context.get("above_21"), bool) else None
+    above_50 = rs_context.get("above_50") if isinstance(rs_context.get("above_50"), bool) else None
+    components: dict[str, Mapping[str, Any]] = {
+        "above_21_ema": _component(
+            100.0 if above_21 is True else 0.0 if above_21 is False else None,
+            "available" if above_21 is not None else "missing",
+            raw={"above_21_ema": above_21, "rs_line": rs_value, "rs_ema21": ema21},
+        ),
+        "above_50_sma": _component(
+            100.0 if above_50 is True else 0.0 if above_50 is False else None,
+            "available" if above_50 is not None else "missing",
+            raw={"above_50_sma": above_50, "rs_line": rs_value, "rs_sma50": sma50},
+        ),
+    }
+
+    history = [dict(item) for item in rs_context.get("rs_history", []) if isinstance(item, Mapping)]
+    persistence_rows = history[-63:]
+    above_21_values = [
+        float(item["rs"]) > float(item["rs_ema21"])
+        for item in persistence_rows
+        if _safe_float(item.get("rs")) is not None and _safe_float(item.get("rs_ema21")) is not None
+    ]
+    above_50_values = [
+        float(item["rs"]) > float(item["rs_sma50"])
+        for item in persistence_rows
+        if _safe_float(item.get("rs")) is not None and _safe_float(item.get("rs_sma50")) is not None
+    ]
+    if above_21_values and above_50_values:
+        persistence_21 = sum(above_21_values) / len(above_21_values) * 100.0
+        persistence_50 = sum(above_50_values) / len(above_50_values) * 100.0
+        combined = 0.60 * persistence_21 + 0.40 * persistence_50
+        persistence_score = _persistence_bucket(combined)
+        persistence_status: ScoreStatus = "available" if min(len(above_21_values), len(above_50_values)) >= 63 else "partial"
+    else:
+        persistence_21 = persistence_50 = combined = persistence_score = None
+        persistence_status = "insufficient_history" if history else "missing"
+    components["persistence"] = _component(
+        persistence_score,
+        persistence_status,
+        raw={
+            "persistence_window_days": 63,
+            "persistence_21_pct": persistence_21,
+            "persistence_50_pct": persistence_50,
+            "combined_persistence_pct": combined,
+            "available_days_21": len(above_21_values),
+            "available_days_50": len(above_50_values),
+        },
+    )
+
+    distance_to_high = _safe_float(rs_context.get("distance_to_high_pct"))
+    new_high = rs_context.get("new_high_52w") is True
+    high_score = _rs_high_score(distance_to_high, new_high=new_high)
+    components["rs_52w_high"] = _component(
+        high_score,
+        "available" if high_score is not None else "missing",
+        raw={"distance_to_rs_52w_high_pct": distance_to_high, "new_rs_52w_high": new_high},
+    )
+
+    distance_21 = _distance_pct(rs_value, ema21)
+    distance_50 = _distance_pct(rs_value, sma50)
+    separation_21 = float(np.clip((distance_21 or 0.0) / 1.5 * 100.0, 0.0, 100.0)) if distance_21 is not None else None
+    separation_50 = float(np.clip((distance_50 or 0.0) / 3.0 * 100.0, 0.0, 100.0)) if distance_50 is not None else None
+    current_separation = 0.60 * separation_21 + 0.40 * separation_50 if separation_21 is not None and separation_50 is not None else None
+    stability_rows = []
+    for item in history[-20:]:
+        item_rs = _safe_float(item.get("rs"))
+        item_21 = _safe_float(item.get("rs_ema21"))
+        item_50 = _safe_float(item.get("rs_sma50"))
+        item_distance_21 = _distance_pct(item_rs, item_21)
+        item_distance_50 = _distance_pct(item_rs, item_50)
+        if item_distance_21 is None or item_distance_50 is None:
+            continue
+        stability_rows.append(item_distance_21 >= 0.25 and item_distance_50 >= 0.50)
+    if current_separation is not None and stability_rows:
+        positive_ratio = sum(stability_rows) / len(stability_rows)
+        stability_score = positive_ratio * 100.0
+        white_space_score = float(np.clip(0.35 * current_separation + 0.65 * stability_score, 0.0, 100.0))
+        white_space_status: ScoreStatus = "available" if len(stability_rows) >= 20 else "partial"
+    else:
+        positive_ratio = stability_score = white_space_score = None
+        white_space_status = "insufficient_history" if history else "missing"
+    components["white_space"] = _component(
+        white_space_score,
+        white_space_status,
+        raw={
+            "distance_rs_to_21_pct": distance_21,
+            "distance_rs_to_50_pct": distance_50,
+            "current_separation": current_separation,
+            "positive_separation_ratio": positive_ratio,
+            "stability_score": stability_score,
+            "white_space_score": white_space_score,
+            "available_days": len(stability_rows),
+        },
+    )
+    result = _weighted_score(components, K4_WEIGHTS)
+    result["weights"] = dict(K4_WEIGHTS)
+    return result
+
+
+def _persistence_bucket(value: float) -> float:
+    if value >= 90:
+        return 100.0
+    if value >= 75:
+        return 90.0
+    if value >= 60:
+        return 75.0
+    if value >= 40:
+        return 50.0
+    if value >= 20:
+        return 25.0
+    return 0.0
+
+
+def _rs_high_score(distance: float | None, *, new_high: bool) -> float | None:
+    if new_high:
+        return 100.0
+    if distance is None:
+        return None
+    if distance >= -2:
+        return 95.0
+    if distance >= -5:
+        return 85.0
+    if distance >= -10:
+        return 60.0
+    if distance >= -15:
+        return 35.0
+    return 10.0
+
+
+def _k13_rs_dynamics(rs_context: Mapping[str, Any]) -> dict[str, Any]:
+    rs_3m = _safe_float(rs_context.get("rs_3m_rating", rs_context.get("rs_3m_percentile")))
+    rs_6m = _safe_float(rs_context.get("rs_6m_rating", rs_context.get("rs_6m_percentile")))
+    rs_12m = _safe_float(rs_context.get("rs_12m_rating", rs_context.get("rs_12m_percentile")))
+    if rs_3m is None or rs_6m is None or rs_12m is None:
+        return {
+            **_weighted_score(
+                {
+                    "three_vs_six": _component(None, "missing"),
+                    "six_vs_twelve": _component(None, "missing"),
+                    "sequence": _component(None, "missing"),
+                    "acceleration": _component(None, "missing"),
+                },
+                K13_WEIGHTS,
+            ),
+            "weights": dict(K13_WEIGHTS),
+            "raw": {"rs_3m": rs_3m, "rs_6m": rs_6m, "rs_12m": rs_12m},
+        }
+    delta_3_6 = rs_3m - rs_6m
+    delta_6_12 = rs_6m - rs_12m
+    acceleration = 0.60 * delta_3_6 + 0.40 * delta_6_12
+    components = {
+        "three_vs_six": _component(_delta_score(delta_3_6), "available", raw={"delta": delta_3_6}),
+        "six_vs_twelve": _component(_delta_score(delta_6_12), "available", raw={"delta": delta_6_12}),
+        "sequence": _component(
+            _sequence_score(rs_3m, rs_6m, rs_12m),
+            "available",
+            raw={"rs_3m": rs_3m, "rs_6m": rs_6m, "rs_12m": rs_12m},
+        ),
+        "acceleration": _component(_delta_score(acceleration), "available", raw={"acceleration_strength": acceleration}),
+    }
+    result = _weighted_score(components, K13_WEIGHTS)
+    result["weights"] = dict(K13_WEIGHTS)
+    result["raw"] = {
+        "rs_3m": rs_3m,
+        "rs_6m": rs_6m,
+        "rs_12m": rs_12m,
+        "delta_3m_6m": delta_3_6,
+        "delta_6m_12m": delta_6_12,
+        "acceleration_strength": acceleration,
+    }
+    return result
+
+
+def _delta_score(delta: float) -> float:
+    if delta >= 10:
+        return 100.0
+    if delta >= 5:
+        return 85.0
+    if delta >= 2:
+        return 70.0
+    if delta > -2:
+        return 50.0
+    if delta > -5:
+        return 30.0
+    if delta > -10:
+        return 15.0
+    return 0.0
+
+
+def _sequence_score(rs_3m: float, rs_6m: float, rs_12m: float) -> float:
+    d36 = rs_3m - rs_6m
+    d612 = rs_6m - rs_12m
+    flat36 = abs(d36) < 2
+    flat612 = abs(d612) < 2
+    if d36 >= 2 and d612 >= 2:
+        return 100.0
+    if d36 >= 2 and flat612:
+        return 80.0
+    if flat36 and d612 >= 2:
+        return 75.0
+    if flat36 and flat612:
+        return 50.0
+    if d36 <= -2 and flat612:
+        return 20.0
+    if flat36 and d612 <= -2:
+        return 25.0
+    if d36 <= -2 and d612 <= -2:
+        return 0.0
+    total = rs_3m - rs_12m
+    if total >= 2:
+        return 60.0
+    if abs(total) < 2:
+        return 50.0
+    return 40.0
+
+
+def _fundamental_score_v2(
+    fundamentals_context: Mapping[str, Any],
+    *,
+    core_score: float,
+    core_available: bool,
+) -> dict[str, Any]:
+    k9 = _k9_eps_sales_alignment(fundamentals_context)
+    core_status: ScoreStatus = "available" if core_available else "missing"
+    result = _weighted_score(
+        {
+            "fundamental_core": _component(
+                core_score if core_available else None,
+                core_status,
+                raw={"legacy_core_score": core_score, "thresholds_unchanged": True},
+            ),
+            "k9_eps_sales_alignment": _component(k9.get("score"), k9["status"], raw=k9),
+        },
+        FUNDAMENTAL_WEIGHTS,
+    )
+    result["weights"] = dict(FUNDAMENTAL_WEIGHTS)
+    return result
+
+
+def _k9_eps_sales_alignment(fundamentals_context: Mapping[str, Any], *, noise_pct: float = 3.0) -> dict[str, Any]:
+    eps_history = fundamentals_context.get("eps_quarter_history")
+    revenue_history = fundamentals_context.get("revenue_quarter_history")
+    eps_rows = [dict(item) for item in eps_history if isinstance(item, Mapping)] if isinstance(eps_history, list) else []
+    revenue_rows = [dict(item) for item in revenue_history if isinstance(item, Mapping)] if isinstance(revenue_history, list) else []
+
+    revenue_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in revenue_rows:
+        key = _quarter_match_key(row)
+        if key is not None and key not in revenue_by_key:
+            revenue_by_key[key] = row
+    matches: list[dict[str, Any]] = []
+    used: set[tuple[str, str]] = set()
+    for eps_row in eps_rows:
+        key = _quarter_match_key(eps_row)
+        if key is None or key in used or key not in revenue_by_key:
+            continue
+        sales_row = revenue_by_key[key]
+        eps_growth = _quarter_growth(eps_row, kind="eps")
+        sales_growth = _quarter_growth(sales_row, kind="revenue")
+        if eps_growth is None or sales_growth is None:
+            continue
+        score, trigger, reason = _k9_quarter_score(eps_growth, sales_growth, noise_pct=noise_pct)
+        matches.append(
+            {
+                "period": _quarter_period(eps_row, key),
+                "match_method": key[0],
+                "eps_growth_yoy_pct": eps_growth,
+                "revenue_growth_yoy_pct": sales_growth,
+                "divergence_pp": eps_growth - sales_growth,
+                "score": score,
+                "research_trigger": trigger,
+                "research_reason": reason,
+            }
+        )
+        used.add(key)
+        if len(matches) == 3:
+            break
+
+    if len(matches) >= 2:
+        weights = [50, 30, 20][: len(matches)]
+        weighted = sum(item["score"] * weight for item, weight in zip(matches, weights, strict=True)) / sum(weights)
+        persistent_count = sum(
+            item["eps_growth_yoy_pct"] > noise_pct and item["revenue_growth_yoy_pct"] < -noise_pct
+            for item in matches[:3]
+        )
+        if persistent_count >= 3:
+            weighted = min(weighted, 20.0)
+        elif persistent_count >= 2:
+            weighted = min(weighted, 35.0)
+        status: ScoreStatus = "available" if len(matches) >= 3 else "partial"
+        return {
+            "score": weighted,
+            "status": status,
+            "noise_pct": noise_pct,
+            "matched_quarters": matches,
+            "persistent_divergence": persistent_count >= 2,
+            "persistent_divergence_quarters": persistent_count,
+            "research_trigger": any(item["research_trigger"] for item in matches),
+            "research_reasons": list(dict.fromkeys(item["research_reason"] for item in matches if item["research_reason"])),
+        }
+    return {
+        "score": None,
+        "status": "insufficient_history" if len(matches) == 1 else "missing",
+        "noise_pct": noise_pct,
+        "matched_quarters": matches,
+        "persistent_divergence": False,
+        "persistent_divergence_quarters": 0,
+        "research_trigger": bool(matches and matches[0]["research_trigger"]),
+        "research_reasons": [matches[0]["research_reason"]] if matches and matches[0]["research_reason"] else [],
+    }
+
+
+def _quarter_match_key(row: Mapping[str, Any]) -> tuple[str, str] | None:
+    fiscal_year = str(row.get("fiscal_year") or row.get("fiscalYear") or "").strip()
+    fiscal_period = str(row.get("fiscal_period") or row.get("fiscalPeriod") or row.get("period") or row.get("label") or "").strip()
+    if fiscal_year and fiscal_period:
+        return "fiscal_year_period", f"{fiscal_year}:{fiscal_period}".upper()
+    for key in ("period_end_date", "period_end", "periodEndDate"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return "period_end_date", value
+    for key in ("period_key", "periodKey"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return "period_key", value.upper()
+    # Existing caches commonly persist a unique label such as "Q2 2026" as
+    # fiscal_period without a separate fiscal_year.
+    if fiscal_period:
+        return "period_key", fiscal_period.upper()
+    for key in ("report_date", "reportDate"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return "report_date", value
+    return None
+
+
+def _quarter_period(row: Mapping[str, Any], key: tuple[str, str]) -> str:
+    fiscal_year = str(row.get("fiscal_year") or row.get("fiscalYear") or "").strip()
+    fiscal_period = str(row.get("fiscal_period") or row.get("fiscalPeriod") or row.get("period") or row.get("label") or "").strip()
+    return " ".join(part for part in (fiscal_period, fiscal_year) if part) or key[1]
+
+
+def _quarter_growth(row: Mapping[str, Any], *, kind: Literal["eps", "revenue"]) -> float | None:
+    direct = _safe_float(row.get(f"{kind}_growth_yoy_pct", row.get("growth_pct")))
+    if direct is not None:
+        return direct
+    current_key = "eps_current_quarter" if kind == "eps" else "revenue_current_quarter"
+    previous_key = "eps_same_quarter_last_year" if kind == "eps" else "revenue_same_quarter_last_year"
+    current = _safe_float(row.get(current_key, row.get("current")))
+    previous = _safe_float(row.get(previous_key, row.get("previous")))
+    if current is None or previous is None or previous <= 0:
+        return None
+    return (current / previous - 1.0) * 100.0
+
+
+def _k9_quarter_score(eps: float, sales: float, *, noise_pct: float) -> tuple[float, bool, str]:
+    eps_class = "positive" if eps > noise_pct else "negative" if eps < -noise_pct else "neutral"
+    sales_class = "positive" if sales > noise_pct else "negative" if sales < -noise_pct else "neutral"
+    gap = abs(eps - sales)
+    if eps_class == "positive" and sales_class == "positive":
+        score = 100.0 if gap <= 10 else 85.0 if gap <= 20 else 70.0 if gap <= 35 else 55.0
+        return score, gap > 35, "EPS-Wachstum deutlich stärker als Umsatzwachstum" if gap > 35 and eps > sales else ""
+    if eps_class == "positive" and sales_class == "neutral":
+        return 60.0, gap > 35, "EPS-Wachstum deutlich stärker als Umsatzwachstum" if gap > 35 else ""
+    if eps_class == "neutral" and sales_class == "positive":
+        return 55.0, False, ""
+    if eps_class == "neutral" and sales_class == "neutral":
+        return 50.0, False, ""
+    if eps_class == "positive" and sales_class == "negative":
+        score = 25.0 if sales >= -10 else 10.0
+        divergence = eps - sales
+        score -= 10.0 if divergence > 50 else 5.0 if divergence > 35 else 0.0
+        return max(10.0, score), True, "EPS wächst trotz rückläufigem Umsatz"
+    if eps_class == "negative" and sales_class == "positive":
+        return 30.0, True, "Umsatz wächst trotz rückläufigem EPS"
+    if eps_class == "negative" and sales_class == "negative":
+        return 25.0, False, ""
+    if eps_class == "neutral" and sales_class == "negative":
+        return 35.0, gap > 35, "Umsatzrückgang bei stabilem EPS" if gap > 35 else ""
+    return 35.0, gap > 35, "EPS-Rückgang bei stabilem Umsatz" if gap > 35 else ""
+
+
+def _moving_average_score_v2(df: pd.DataFrame) -> dict[str, Any]:
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    price = _safe_float(close.iloc[-1])
+    series = {
+        "price_above_200_sma": close.rolling(200, min_periods=200).mean(),
+        "price_above_50_sma": close.rolling(50, min_periods=50).mean(),
+        "price_above_21_ema": close.ewm(span=21, adjust=False).mean(),
+        "price_above_10_sma": close.rolling(10, min_periods=10).mean(),
+    }
+    components: dict[str, Mapping[str, Any]] = {}
+    for key, average_series in series.items():
+        average = _safe_float(average_series.iloc[-1])
+        components[key] = _component(
+            100.0 if price is not None and average is not None and price > average else 0.0 if price is not None and average is not None else None,
+            "available" if price is not None and average is not None else "insufficient_history",
+            raw={"price": price, "average": average, "above": price > average if price is not None and average is not None else None},
+        )
+    ema21 = series["price_above_21_ema"]
+    sma50 = series["price_above_50_sma"]
+    sma200 = series["price_above_200_sma"]
+    e21 = _safe_float(ema21.iloc[-1])
+    s50 = _safe_float(sma50.iloc[-1])
+    s200 = _safe_float(sma200.iloc[-1])
+    order_available = e21 is not None and s50 is not None and s200 is not None
+    components["ma_order"] = _component(
+        100.0 if order_available and e21 > s50 > s200 else 0.0 if order_available else None,
+        "available" if order_available else "insufficient_history",
+        raw={"ema21": e21, "sma50": s50, "sma200": s200, "ordered": e21 > s50 > s200 if order_available else None},
+    )
+
+    streak_21 = _ma_streak_score(close, ema21)
+    streak_50 = _ma_streak_score(close, sma50)
+    if streak_21["score"] is not None and streak_50["score"] is not None:
+        persistence_score = 0.40 * streak_21["score"] + 0.60 * streak_50["score"]
+        persistence_status: ScoreStatus = "available"
+    else:
+        persistence_score = None
+        persistence_status = "insufficient_history"
+    components["persistence"] = _component(
+        persistence_score,
+        persistence_status,
+        raw={
+            "above_21_streak_days": streak_21["above_streak_days"],
+            "below_21_streak_days": streak_21["below_streak_days"],
+            "above_50_streak_days": streak_50["above_streak_days"],
+            "below_50_streak_days": streak_50["below_streak_days"],
+            "ema21": streak_21,
+            "sma50": streak_50,
+            "weights": {"ema21": 40, "sma50": 60},
+        },
+    )
+
+    change_21 = _series_change_pct(ema21, periods=10)
+    change_50 = _series_change_pct(sma50, periods=10)
+    if change_21 is not None and change_50 is not None:
+        direction_21 = _slope_direction(change_21)
+        direction_50 = _slope_direction(change_50)
+        slope_score = _ma_slope_score(direction_21, direction_50)
+        slope_status: ScoreStatus = "available"
+    else:
+        direction_21 = direction_50 = None
+        slope_score = None
+        slope_status = "insufficient_history"
+    components["slope"] = _component(
+        slope_score,
+        slope_status,
+        raw={
+            "lookback_trading_days": 10,
+            "flat_tolerance_pct": 0.2,
+            "ema21_change_pct": change_21,
+            "sma50_change_pct": change_50,
+            "ema21_direction": direction_21,
+            "sma50_direction": direction_50,
+        },
+    )
+    result = _weighted_score(components, MOVING_AVERAGE_WEIGHTS)
+    result["weights"] = dict(MOVING_AVERAGE_WEIGHTS)
+    return result
+
+
+def _ma_streak_score(close: pd.Series, average: pd.Series) -> dict[str, Any]:
+    available = close.notna() & average.notna()
+    if not bool(available.iloc[-1]):
+        return {"score": None, "above_streak_days": 0, "below_streak_days": 0}
+    above = close > average
+    above_streak = _trailing_true_count(above)
+    below_streak = _trailing_true_count(close <= average)
+    if above_streak >= 20:
+        score = 100.0
+    elif above_streak >= 10:
+        score = 85.0
+    elif above_streak >= 4:
+        score = 70.0
+    elif above_streak >= 1:
+        score = 55.0
+    elif below_streak <= 3:
+        score = 45.0
+    elif below_streak <= 9:
+        score = 25.0
+    else:
+        score = 0.0
+    return {"score": score, "above_streak_days": above_streak, "below_streak_days": below_streak}
+
+
+def _series_change_pct(series: pd.Series, *, periods: int) -> float | None:
+    if len(series) <= periods:
+        return None
+    current = _safe_float(series.iloc[-1])
+    previous = _safe_float(series.iloc[-periods - 1])
+    return _distance_pct(current, previous)
+
+
+def _slope_direction(change_pct: float) -> Literal["up", "flat", "down"]:
+    if abs(change_pct) < 0.2:
+        return "flat"
+    return "up" if change_pct > 0 else "down"
+
+
+def _ma_slope_score(
+    direction_21: Literal["up", "flat", "down"],
+    direction_50: Literal["up", "flat", "down"],
+) -> float:
+    return {
+        ("up", "up"): 100.0,
+        ("up", "flat"): 80.0,
+        ("flat", "up"): 85.0,
+        ("up", "down"): 55.0,
+        ("down", "up"): 60.0,
+        ("flat", "flat"): 50.0,
+        ("down", "flat"): 30.0,
+        ("flat", "down"): 25.0,
+        ("down", "down"): 10.0,
+    }[(direction_21, direction_50)]
+
+
+def _weekly_bars(df: pd.DataFrame) -> pd.DataFrame:
+    return df[["Open", "High", "Low", "Close", "Volume"]].resample("W-FRI").agg(
+        {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+    ).dropna(subset=["Open", "High", "Low", "Close"])
+
+
+def _completed_weekly_bars(df: pd.DataFrame, *, weekly_bars: pd.DataFrame | None = None) -> pd.DataFrame:
+    weekly = weekly_bars if weekly_bars is not None else _weekly_bars(df)
+    if weekly.empty:
+        return weekly
+    last_session = pd.Timestamp(df.index[-1]).normalize()
+    return weekly.loc[weekly.index.normalize() <= last_session]
+
+
+def _chart_score_v2(chart_signals: Sequence[ChartSignal], weekly: pd.DataFrame) -> dict[str, Any]:
+    scored_signals = [signal for signal in chart_signals if signal.score_relevant]
+    positive_count = sum(signal.category == "positive" for signal in scored_signals)
+    negative_count = sum(signal.category == "negative" for signal in scored_signals)
+    price_action_score = float(_chart_behavior_score_100(positive_count, negative_count))
+    k35 = _k35_down_week_quality(weekly)
+    k38 = _k38_hh_hl_good_close(weekly)
+    result = _weighted_score(
+        {
+            "price_action_core": _component(
+                price_action_score,
+                "available",
+                raw={
+                    "positive_count": positive_count,
+                    "negative_count": negative_count,
+                    "scored_signal_keys": [signal.key or signal.label for signal in scored_signals],
+                },
+            ),
+            "k35_down_week_quality": _component(k35.get("score"), k35["status"], raw=k35),
+            "k38_hh_hl_good_close": _component(k38.get("score"), k38["status"], raw=k38),
+        },
+        CHART_WEIGHTS,
+    )
+    result["weights"] = dict(CHART_WEIGHTS)
+    return result
+
+
+def _k35_down_week_quality(weekly: pd.DataFrame) -> dict[str, Any]:
+    if len(weekly) < 14:
+        return {"score": None, "status": "insufficient_history", "lookback_weeks": 13, "down_weeks": []}
+    frame = weekly.tail(14).copy()
+    frame["previous_close"] = frame["Close"].shift(1)
+    relevant = frame.iloc[1:].loc[frame.iloc[1:]["Close"] < frame.iloc[1:]["previous_close"]].tail(3)
+    weeks: list[dict[str, Any]] = []
+    for timestamp, row in relevant.iloc[::-1].iterrows():
+        weekly_range = float(row["High"] - row["Low"])
+        weekly_return = (float(row["Close"]) / float(row["previous_close"]) - 1.0) * 100.0
+        if weekly_range == 0:
+            weeks.append(
+                {
+                    "period": pd.Timestamp(timestamp).date().isoformat(),
+                    "weekly_return_pct": weekly_return,
+                    "closing_range_pct": None,
+                    "score": None,
+                    "status": "neutral",
+                    "reason": "High entspricht Low",
+                }
+            )
+            continue
+        closing_range = (float(row["Close"]) - float(row["Low"])) / weekly_range * 100.0
+        score = 100.0 if closing_range >= 70 else 75.0 if closing_range >= 40 else 40.0 if closing_range >= 25 else 10.0
+        if weekly_return <= -4 and closing_range < 25:
+            score = 0.0
+        weeks.append(
+            {
+                "period": pd.Timestamp(timestamp).date().isoformat(),
+                "weekly_return_pct": weekly_return,
+                "closing_range_pct": closing_range,
+                "score": score,
+                "status": "available",
+            }
+        )
+    scored = [week for week in weeks if week["score"] is not None]
+    if not weeks:
+        return {"score": None, "status": "neutral", "lookback_weeks": 13, "down_weeks": []}
+    if not scored:
+        return {"score": None, "status": "neutral", "lookback_weeks": 13, "down_weeks": weeks}
+    weights = [50, 30, 20][: len(scored)]
+    score = sum(week["score"] * weight for week, weight in zip(scored, weights, strict=True)) / sum(weights)
+    return {
+        "score": score,
+        "status": "available" if len(scored) == 3 else "partial",
+        "lookback_weeks": 13,
+        "down_weeks": weeks,
+    }
+
+
+def _k38_hh_hl_good_close(weekly: pd.DataFrame) -> dict[str, Any]:
+    if len(weekly) < 2:
+        return {
+            "score": None,
+            "status": "insufficient_history",
+            "hh_hl_weeks_last_8": 0,
+            "strong_hh_hl_weeks_last_8": 0,
+            "consecutive_hh_hl_weeks": 0,
+        }
+    pairs: list[dict[str, Any]] = []
+    start = max(1, len(weekly) - 8)
+    for index in range(start, len(weekly)):
+        current = weekly.iloc[index]
+        previous = weekly.iloc[index - 1]
+        weekly_range = float(current["High"] - current["Low"])
+        closing_range = None if weekly_range == 0 else (float(current["Close"]) - float(current["Low"])) / weekly_range * 100.0
+        weekly_return = (float(current["Close"]) / float(previous["Close"]) - 1.0) * 100.0
+        hh = bool(current["High"] > previous["High"])
+        hl = bool(current["Low"] > previous["Low"])
+        pairs.append(
+            {
+                "period": pd.Timestamp(weekly.index[index]).date().isoformat(),
+                "higher_high": hh,
+                "higher_low": hl,
+                "weekly_return_pct": weekly_return,
+                "closing_range_pct": closing_range,
+                "strong": bool(hh and hl and weekly_return >= 2 and closing_range is not None and closing_range >= 75),
+            }
+        )
+    hh_hl_count = sum(item["higher_high"] and item["higher_low"] for item in pairs)
+    strong_count = sum(item["strong"] for item in pairs)
+    consecutive = 0
+    for item in reversed(pairs):
+        if not (item["higher_high"] and item["higher_low"]):
+            break
+        consecutive += 1
+    current = pairs[-1]
+    if not (current["higher_high"] and current["higher_low"]):
+        score = None
+        status: ScoreStatus = "neutral"
+    elif current["closing_range_pct"] is None:
+        score = None
+        status = "neutral"
+    elif current["weekly_return_pct"] >= 4 and current["closing_range_pct"] >= 90:
+        score, status = 100.0, "available"
+    elif current["weekly_return_pct"] >= 2 and current["closing_range_pct"] >= 75:
+        score, status = 90.0, "available"
+    elif current["weekly_return_pct"] > 0 and current["closing_range_pct"] >= 60:
+        score, status = 75.0, "available"
+    else:
+        score, status = 50.0, "available"
+    return {
+        "score": score,
+        "status": status,
+        **current,
+        "hh_hl_weeks_last_8": hh_hl_count,
+        "strong_hh_hl_weeks_last_8": strong_count,
+        "consecutive_hh_hl_weeks": consecutive,
+        "weeks_last_8": pairs,
+    }
+
+
+def _overall_score_v2(
+    *,
+    technical_v2: Mapping[str, Any],
+    fundamental_v2: Mapping[str, Any],
+    chart_v2: Mapping[str, Any],
+    moving_average_v2: Mapping[str, Any],
+) -> dict[str, Any]:
+    components = {
+        "technical": _component(technical_v2.get("score"), technical_v2.get("status", "missing"), raw={"data_coverage": technical_v2.get("data_coverage")}),
+        "fundamental": _component(fundamental_v2.get("score"), fundamental_v2.get("status", "missing"), raw={"data_coverage": fundamental_v2.get("data_coverage")}),
+        "chart": _component(chart_v2.get("score"), chart_v2.get("status", "missing"), raw={"data_coverage": chart_v2.get("data_coverage")}),
+        "moving_average": _component(moving_average_v2.get("score"), moving_average_v2.get("status", "missing"), raw={"data_coverage": moving_average_v2.get("data_coverage")}),
+    }
+    result = _weighted_score(components, OVERALL_WEIGHTS)
+    result["status"] = "available" if result["available_weight"] == 1.0 else "limited"
+    result["weights"] = dict(OVERALL_WEIGHTS)
+    return result
+
+
+def _eligibility_context(checks: Sequence[AssessmentCheck]) -> dict[str, Any]:
+    by_label = {check.label: check for check in checks}
+    rules = {}
+    for key, label in (("minimum_price", "Preis >= $15"), ("minimum_liquidity", "Dollar-Volumen >= $30 Mio.")):
+        check = by_label.get(label)
+        rules[key] = {
+            "passed": bool(check and check.passed),
+            "available": bool(check and check.detail != "Nicht verfügbar"),
+            "label": label,
+            "detail": check.detail if check else "Nicht verfügbar",
+        }
+    failed = [rule["label"] for rule in rules.values() if rule["available"] and not rule["passed"]]
+    return {"status": "passed" if not failed and all(rule["available"] for rule in rules.values()) else "failed" if failed else "missing", "failed_reasons": failed, "rules": rules}
+
+
+def _setup_context(df: pd.DataFrame, signals: Sequence[ChartSignal]) -> dict[str, Any]:
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    price = _safe_float(close.iloc[-1])
+    averages = {
+        "10-SMA": (_safe_float(close.rolling(10, min_periods=10).mean().iloc[-1]), 10.0),
+        "21-EMA": (_safe_float(close.ewm(span=21, adjust=False).mean().iloc[-1]), 14.0),
+        "50-SMA": (_safe_float(close.rolling(50, min_periods=50).mean().iloc[-1]), 25.0),
+        "200-SMA": (_safe_float(close.rolling(200, min_periods=200).mean().iloc[-1]), 70.0),
+    }
+    distances = {
+        label: {"distance_pct": _distance_pct(price, average), "threshold_pct": threshold}
+        for label, (average, threshold) in averages.items()
+    }
+    active_labels = {signal.label for signal in signals}
+    overextended = any(
+        item["distance_pct"] is not None and abs(item["distance_pct"]) >= item["threshold_pct"]
+        for item in distances.values()
+    )
+    return {
+        "status": "overextended" if overextended else "normal",
+        "overextended": overextended,
+        "moving_average_distances": distances,
+        "natural_reaction": "Natürliche Reaktion" in active_labels,
+        "test_21_ema": "Test der 21-EMA" in active_labels,
+        "test_50_sma": "Test der 50-SMA" in active_labels,
+    }
+
+
 def _technical_points_score(
     technical_checks: Sequence[AssessmentCheck],
     rs_rating: int | float | None,
@@ -1043,7 +2026,7 @@ def _fundamental_checklist_score_100(
     if margin is not None and margin > 0:
         score += unit * min(margin / 25.0, 1.0)
 
-    return round(float(np.clip(score, 0, 100)), 1)
+    return float(np.clip(score, 0, 100))
 
 
 def _build_verdict(
@@ -2027,16 +3010,20 @@ def _support_week_signal(
     close: pd.Series,
     volume: pd.Series,
     sma50: pd.Series,
+    *,
+    weekly_bars: pd.DataFrame | None = None,
 ) -> ChartSignal | None:
-    weekly = pd.DataFrame(
-        {
-            "Open": open_,
-            "High": high,
-            "Low": low,
-            "Close": close,
-            "Volume": volume,
-        }
-    ).resample("W-FRI").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+    weekly = weekly_bars
+    if weekly is None:
+        weekly = pd.DataFrame(
+            {
+                "Open": open_,
+                "High": high,
+                "Low": low,
+                "Close": close,
+                "Volume": volume,
+            }
+        ).resample("W-FRI").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
     if len(weekly) < 50:
         return None
 

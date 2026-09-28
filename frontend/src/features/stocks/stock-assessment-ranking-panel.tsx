@@ -11,7 +11,7 @@ import { api } from "@/lib/api/client";
 
 const control = "rounded-lg border border-[#d3dce6] bg-white px-3 py-2 text-sm text-[#172033] focus-visible:outline-2 focus-visible:outline-teal-700 disabled:opacity-40";
 const terminal = new Set(["done", "failed", "skipped", "cancelled"]);
-const scoreLabels = { overall_score: "Gesamtscore", technical_score: "Technisch", fundamental_score: "Fundamental", moving_average_score: "Trend", chart_behavior_score: "Chart", rs_rating: "RS-Rating" };
+const scoreLabels = { overall_score: "Gesamtscore", technical_score: "Technical", fundamental_score: "Fundamental", moving_average_score: "Moving Average", chart_behavior_score: "Chart", rs_rating: "RS-Rating" };
 type ScoreKey = keyof typeof scoreLabels;
 
 export function StockAssessmentRankingPanel() {
@@ -116,11 +116,11 @@ export function StockAssessmentRankingPanel() {
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1040px] text-left text-sm text-[#172033]">
-          <thead className="border-y border-[#e3e8ef] bg-[#f6f8fb] text-xs text-[#687386]"><tr>{["Platz", "Aktie", "Score", "Technisch", "Fundamental", "Trend", "Chart", "RS", "Warnungen", "Kursstand / Daten"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead>
+          <thead className="border-y border-[#e3e8ef] bg-[#f6f8fb] text-xs text-[#687386]"><tr>{["Platz", "Aktie", "Score", "Technical", "Fundamental", "Moving Average", "Chart", "RS", "Warnungen", "Kursstand / Daten"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.ticker} className="border-b border-[#e3e8ef] hover:bg-teal-50/40">
             <td className="px-3 py-3 tabular-nums">{currentPage * 50 + index + 1}</td>
             <td className="px-3 py-3"><Link className="font-semibold text-teal-800 hover:underline" href={"/stocks/" + encodeURIComponent(row.ticker)}>{row.ticker}</Link><div className="max-w-44 truncate text-xs text-[#687386]" title={row.name}>{row.name}</div></td>
-            <td className="px-3 py-3"><StatusChip tone={row.verdict_tone}>{row.overall_score} · {row.verdict_label}</StatusChip></td>
+            <td className="px-3 py-3"><StatusChip tone={row.overall_status === "limited" ? "warning" : row.verdict_tone}>{row.overall_score} · {row.overall_status === "limited" ? `eingeschränkt (${Math.round((row.available_weight ?? 0) * 100)}%)` : row.verdict_label}</StatusChip></td>
             <td className="px-3 py-3">{row.technical_score.toFixed(0)}</td><td className="px-3 py-3">{row.fundamentals_available ? row.fundamental_score.toFixed(0) : "Fehlen"}</td>
             <td className="px-3 py-3">{row.moving_average_score.toFixed(0)}</td><td className="px-3 py-3">{row.chart_behavior_score}</td><td className="px-3 py-3">{row.rs_rating ?? "Fehlt"}</td>
             <td className="px-3 py-3"><span title={row.top_warning}>{row.warnings_count}</span></td>

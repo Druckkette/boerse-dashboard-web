@@ -246,7 +246,16 @@ def get_stock_assessment_compare(*, tickers: str, limit: int = 12) -> StockAsses
             )
         )
 
-    items.sort(key=lambda item: (item.overall_score, item.technical_score, item.rs_rating or 0, item.ticker), reverse=True)
+    items.sort(
+        key=lambda item: (
+            item.overall_status == "available",
+            item.overall_score,
+            item.technical_score,
+            item.rs_rating or 0,
+            item.ticker,
+        ),
+        reverse=True,
+    )
     ranked = [item.model_copy(update={"rank": index + 1}) for index, item in enumerate(items)]
     missing = [item.ticker for item in ranked if item.source == "missing"]
     database_count = len(ranked) - len(missing)
@@ -452,6 +461,13 @@ def _rs_context(
         "distance_to_high_pct": metadata.get("distance_to_high_pct"),
         "near_high_52w": metadata.get("near_high_52w"),
         "new_high_52w": metadata.get("new_high_52w"),
+        "rs_history": metadata.get("rs_history") if isinstance(metadata.get("rs_history"), list) else [],
+        "rs_3m_percentile": metadata.get("rs_3m_percentile"),
+        "rs_6m_percentile": metadata.get("rs_6m_percentile"),
+        "rs_12m_percentile": metadata.get("rs_12m_percentile"),
+        "rs_3m_rating": metadata.get("rs_3m_rating"),
+        "rs_6m_rating": metadata.get("rs_6m_rating"),
+        "rs_12m_rating": metadata.get("rs_12m_rating"),
     }
 
 
@@ -806,6 +822,10 @@ def _coerce_eps_quarter_history(value: Any) -> list[dict[str, Any]]:
         out.append(
             {
                 "fiscal_period": fiscal_period,
+                "fiscal_year": str(raw.get("fiscal_year") or raw.get("fiscalYear") or raw.get("calendarYear") or "").strip(),
+                "period_end_date": raw.get("period_end_date") or raw.get("period_end") or raw.get("periodEndDate"),
+                "period_key": raw.get("period_key") or raw.get("periodKey"),
+                "report_date": raw.get("report_date") or raw.get("reportDate"),
                 "eps_current_quarter": current,
                 "eps_same_quarter_last_year": previous,
                 "eps_growth_yoy_pct": growth,
@@ -835,6 +855,10 @@ def _coerce_revenue_quarter_history(value: Any) -> list[dict[str, Any]]:
         out.append(
             {
                 "fiscal_period": fiscal_period,
+                "fiscal_year": str(raw.get("fiscal_year") or raw.get("fiscalYear") or raw.get("calendarYear") or "").strip(),
+                "period_end_date": raw.get("period_end_date") or raw.get("period_end") or raw.get("periodEndDate"),
+                "period_key": raw.get("period_key") or raw.get("periodKey"),
+                "report_date": raw.get("report_date") or raw.get("reportDate"),
                 "revenue_current_quarter": current,
                 "revenue_same_quarter_last_year": previous,
                 "revenue_growth_yoy_pct": growth,
@@ -1129,6 +1153,10 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
                 category=signal.category,
                 label=signal.label,
                 detail=signal.detail,
+                key=signal.key,
+                source=signal.source,
+                score_relevant=signal.score_relevant,
+                display_relevant=signal.display_relevant,
             )
             for signal in result.chart_signals
         ],
@@ -1142,6 +1170,13 @@ def _to_response(result: StockAssessmentResult) -> StockAssessmentResponse:
         },
         drivers=result.drivers,
         warnings=result.warnings,
+        overall_v2=dict(result.overall_v2),
+        technical_v2=dict(result.technical_v2),
+        fundamental_v2=dict(result.fundamental_v2),
+        chart_v2=dict(result.chart_v2),
+        moving_average_v2=dict(result.moving_average_v2),
+        setup=dict(result.setup),
+        eligibility=dict(result.eligibility),
     )
 
 
@@ -1167,6 +1202,8 @@ def _to_ranking_item(result: StockAssessmentResult, name: str) -> StockAssessmen
         fundamental_score=result.scores.fundamental,
         moving_average_score=result.scores.moving_averages,
         chart_behavior_score=result.scores.chart_behavior,
+        overall_status=str(result.overall_v2.get("status") or "available"),
+        available_weight=float(result.overall_v2.get("available_weight") or 0.0),
         rs_rating=result.metrics.rs_rating,
         dollar_volume_mio=result.metrics.dollar_volume_mio,
         atr_pct=result.metrics.atr_pct,
@@ -1182,9 +1219,9 @@ def _to_compare_item(result: StockAssessmentResult, *, name: str, rs_context: di
     fundamental_counts = _check_counts(fundamental_checks)
     technical_counts = _check_counts(technical_checks)
     chart_counts = {
-        "positive": sum(1 for signal in result.chart_signals if signal.category == "positive"),
-        "negative": sum(1 for signal in result.chart_signals if signal.category == "negative"),
-        "neutral": sum(1 for signal in result.chart_signals if signal.category == "neutral"),
+        "positive": sum(1 for signal in result.chart_signals if signal.category == "positive" and signal.score_relevant),
+        "negative": sum(1 for signal in result.chart_signals if signal.category == "negative" and signal.score_relevant),
+        "neutral": sum(1 for signal in result.chart_signals if signal.category == "neutral" and signal.source == "price_action"),
     }
 
     return StockAssessmentCompareItem(
@@ -1201,6 +1238,8 @@ def _to_compare_item(result: StockAssessmentResult, *, name: str, rs_context: di
         fundamental_score=result.scores.fundamental,
         moving_average_score=result.scores.moving_averages,
         chart_behavior_score=result.scores.chart_behavior,
+        overall_status=str(result.overall_v2.get("status") or "available"),
+        available_weight=float(result.overall_v2.get("available_weight") or 0.0),
         price=result.metrics.last_close,
         perf_1m_pct=_safe_number(rs_context.get("ret_1m_pct")),
         perf_3m_pct=_safe_number(rs_context.get("ret_3m_pct")),

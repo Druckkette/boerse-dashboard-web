@@ -66,6 +66,12 @@ LABELS = {
     "weight": "Gewichtung", "weight_pct": "Gewichtung (%)", "severity": "Schweregrad",
     "fundamentals": "Fundamentaldaten", "earnings": "Quartalszahlen", "drivers": "Treiber",
     "chart_signals": "Chartsignale", "chart_signal_states": "Chartzustände", "metrics": "Kennzahlen",
+    "overall_v2": "Gesamtbewertung v2", "technical_v2": "Technical v2",
+    "fundamental_v2": "Fundamental v2", "chart_v2": "Chart v2",
+    "moving_average_v2": "Moving Average v2", "setup": "Setup / Kontext",
+    "eligibility": "Handelbarkeit", "score_relevant": "Score-relevant",
+    "display_relevant": "Anzeigerelevant", "effective_weight": "Effektives Gewicht",
+    "base_weight": "Basisgewicht", "available_weight": "Verfügbares Gewicht",
     "quarterly_eps_growth_pct": "EPS-Wachstum Quartal (%)", "annual_eps_growth_pct": "EPS-Wachstum Jahr (%)",
     "quarterly_revenue_growth_pct": "Umsatzwachstum Quartal (%)", "annual_revenue_growth_pct": "Umsatzwachstum Jahr (%)",
     "roe_pct": "Eigenkapitalrendite (%)", "profit_margin_pct": "Gewinnmarge (%)", "trailing_eps": "EPS (TTM)",
@@ -210,7 +216,11 @@ def add_assessment(story, assessment, title="Aktienbewertung"):
             rows.append([check.get("label", ""), result, detail])
         story.extend([paragraph(label(category) or "Kriterien", HEADING),
                       table(["Kriterium", "Bewertung", "Wert / Erläuterung"], rows, [132, 90, WIDTH - 222])])
-    for key in ("metrics", "earnings", "drivers", "warnings", "chart_signals", "chart_signal_states", "data_quality"):
+    for key in (
+        "overall_v2", "technical_v2", "fundamental_v2", "chart_v2", "moving_average_v2",
+        "setup", "eligibility", "metrics", "earnings", "drivers", "warnings",
+        "chart_signals", "chart_signal_states", "data_quality",
+    ):
         if assessment.get(key):
             add_data(story, label(key), assessment[key])
 

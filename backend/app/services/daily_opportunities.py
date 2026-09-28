@@ -88,7 +88,8 @@ def calculate_daily_rows(
         latest = bars.get(ticker, [])
         current_bar = next((bar for bar in reversed(latest) if bar[0] == day), None)
         fresh = bool(current_bar and (not require_fresh_price or price_is_current(day, current_bar[2])))
-        qualified = (fresh and score >= min_quality and rs is not None and rs >= min_rs
+        qualified = (fresh and (item.get("overall_status") or "available") == "available"
+                     and score >= min_quality and rs is not None and rs >= min_rs
                      and (_number(item.get("fundamental_score")) or 0) >= min_fundamental
                      and (_number(item.get("moving_average_score")) or 0) >= min_trend
                      and close is not None and close >= min_price
@@ -192,6 +193,7 @@ def refresh_top_daily(writes=None) -> dict:
     source = writes if writes is not None else stock_assessments.list_all_snapshots()
     settings = get_settings()
     items = [row.item_json for row in source if row.as_of == day
+             and (row.item_json.get("overall_status") or "available") == "available"
              and row.overall_score >= max(0, settings.daily_min_quality - 20)]
     candidate_tickers = [item["ticker"] for item in items if item.get("overall_score", 0) >= settings.daily_min_quality]
     with SessionLocal() as db:

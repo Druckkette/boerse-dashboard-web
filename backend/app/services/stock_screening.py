@@ -115,6 +115,14 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
                     item["next_earnings_date"] = result.earnings.next_earnings_date if result.earnings else None
                     item["positive_signals"] = [signal.label for signal in result.chart_signals if signal.category == "positive"]
                     item["negative_signals"] = [signal.label for signal in result.chart_signals if signal.category == "negative"]
+                    item["signals"] = [asdict(signal) for signal in result.chart_signals if signal.display_relevant]
+                    item["overall_v2"] = dict(result.overall_v2)
+                    item["technical_v2"] = dict(result.technical_v2)
+                    item["fundamental_v2"] = dict(result.fundamental_v2)
+                    item["chart_v2"] = dict(result.chart_v2)
+                    item["moving_average_v2"] = dict(result.moving_average_v2)
+                    item["setup"] = dict(result.setup)
+                    item["eligibility"] = dict(result.eligibility)
                     item["_input_fingerprint"] = fingerprint
                 except (ValueError, TypeError, ArithmeticError) as exc:
                     errors.append({"ticker": ticker, "error": f"{type(exc).__name__}: {exc}"[:200]})

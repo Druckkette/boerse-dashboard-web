@@ -4,7 +4,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, Gauge, TrendingUp, XCircle 
 import { useQuery } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
-import type { StockAssessment, StockAssessmentCheck, StockAssessmentSignal, Tone } from "@/lib/types/api";
+import type { AssessmentV2Detail, StockAssessment, StockAssessmentCheck, StockAssessmentSignal, Tone } from "@/lib/types/api";
 
 export function StockAssessmentPanel({ ticker, mode = "all" }: { ticker: string; mode?: "all" | "overview" | "technical" }) {
   const clean = ticker.toUpperCase();
@@ -83,15 +83,15 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
       </div>
 
       <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
-        <ScoreCard label="Technisch" value={assessment.scores.technical} detail="Preis, Volumen, RS und CMF" />
+        <ScoreCard label="Technical" value={assessment.scores.technical} detail="RS Leadership, Dynamics, Rating, Highs und Akkumulation" />
         <ScoreCard
           label="Fundamental"
           value={assessment.scores.fundamental}
           detail={assessment.fundamentals_available ? assessment.fundamentals?.source ?? "Fundamental-Cache" : "Noch neutral, Datenquelle offen"}
           tone={assessment.fundamentals_available ? toneForScore(assessment.scores.fundamental) : "neutral"}
         />
-        <ScoreCard label="Trend" value={assessment.scores.moving_averages} detail="10/21/50/200 + Ordnung" />
-        <ScoreCard label="Chart" value={assessment.scores.chart_behavior} detail="Positiv-/Negativsignale" />
+        <ScoreCard label="Moving Average" value={assessment.scores.moving_averages} detail="Position, Ordnung, Persistenz und Richtung" />
+        <ScoreCard label="Chart" value={assessment.scores.chart_behavior} detail="Price Action, K35 und K38" />
       </div>
 
       <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-5">
@@ -120,6 +120,8 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
         <ReasonList title="Warnungen" tone="warning" items={assessment.warnings} empty="Keine harten Warnungen." />
       </div>
       </> : null}
+
+      <AssessmentV2Breakdown assessment={assessment} mode={mode} />
 
       {mode !== "overview" ?
       <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
@@ -155,6 +157,132 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
       : null}
     </section>
   );
+}
+
+const componentLabels: Record<string, string> = {
+  k4_rs_leadership: "K4 RS Leadership",
+  k13_rs_dynamics: "K13 RS Dynamics",
+  rs_rating: "RS Rating",
+  high_position: "ATH-/52W-High Position",
+  up_down_volume: "Up/Down Volume",
+  cmf: "CMF / Akkumulation",
+  fundamental_core: "Fundamental Core",
+  k9_eps_sales_alignment: "K9 EPS/Sales Alignment",
+  price_action_core: "Price Action Core",
+  k35_down_week_quality: "K35 Down-Week Quality",
+  k38_hh_hl_good_close: "K38 HH/HL + Good Close",
+  price_above_200_sma: "Kurs > 200 SMA",
+  price_above_50_sma: "Kurs > 50 SMA",
+  price_above_21_ema: "Kurs > 21 EMA",
+  price_above_10_sma: "Kurs > 10 SMA",
+  ma_order: "MA Order",
+  persistence: "MA Persistence",
+  slope: "MA Direction"
+};
+
+function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessment; mode: "all" | "overview" | "technical" }) {
+  const groups = [
+    { title: "Technical", detail: assessment.technical_v2 },
+    { title: "Fundamental", detail: assessment.fundamental_v2 },
+    { title: "Chart", detail: assessment.chart_v2 },
+    { title: "Moving Average", detail: assessment.moving_average_v2 }
+  ].filter((group) => mode !== "technical" || group.title !== "Fundamental");
+  return (
+    <div className="space-y-3">
+      {assessment.overall_v2?.status === "limited" ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Eingeschränkte Gesamtbewertung · verfügbare Gewichtung {Math.round((assessment.overall_v2.available_weight ?? 0) * 100)}%. Im Ranking wird sie nicht wie eine vollständige Bewertung behandelt.
+        </div>
+      ) : null}
+      <div className="grid gap-3 xl:grid-cols-2">
+        {groups.map((group) => <ComponentBreakdown key={group.title} title={group.title} detail={group.detail} />)}
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <EligibilityCard eligibility={assessment.eligibility} />
+        <SetupCard setup={assessment.setup} />
+      </div>
+    </div>
+  );
+}
+
+function ComponentBreakdown({ title, detail }: { title: string; detail?: AssessmentV2Detail }) {
+  const components = Object.entries(detail?.components ?? {});
+  if (!detail || !components.length) return null;
+  return (
+    <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.045)]">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-[#172033]">{title}</h3>
+        <StatusChip tone={detail.status === "available" ? toneForScore(detail.score ?? 0) : "neutral"}>
+          {typeof detail.score === "number" ? `${Math.round(detail.score)}/100` : statusLabel(detail.status)}
+        </StatusChip>
+      </div>
+      <div className="space-y-1.5">
+        {components.map(([key, component]) => (
+          <div key={key} className="flex items-center justify-between gap-3 rounded-[9px] bg-[#f9fbfd] px-3 py-2 text-sm">
+            <div>
+              <div className="font-medium text-[#172033]">{componentLabels[key] ?? key}</div>
+              <div className="text-[11px] text-[#687386]">Basis {Math.round((component.base_weight ?? 0) * 1000) / 10}% · effektiv {Math.round((component.effective_weight ?? 0) * 1000) / 10}% · {statusLabel(component.status)}</div>
+            </div>
+            <span className="shrink-0 font-semibold tabular-nums text-[#172033]">{typeof component.score === "number" ? component.score.toFixed(1) : "–"}</span>
+          </div>
+        ))}
+      </div>
+      {title === "Fundamental" ? <K9Detail detail={detail} /> : null}
+    </div>
+  );
+}
+
+function K9Detail({ detail }: { detail: AssessmentV2Detail }) {
+  const raw = detail.components?.k9_eps_sales_alignment?.raw as { matched_quarters?: Array<Record<string, unknown>>; research_trigger?: boolean } | undefined;
+  const quarters = raw?.matched_quarters ?? [];
+  if (!quarters.length) return null;
+  return (
+    <div className="mt-3 rounded-[9px] border border-[#e3e8ef] p-3 text-xs text-[#4b5565]">
+      {quarters.map((quarter) => (
+        <div key={String(quarter.period)} className="mb-1 last:mb-0">
+          <strong>{String(quarter.period)}</strong> · EPS {signedPercent(quarter.eps_growth_yoy_pct)} · Sales {signedPercent(quarter.revenue_growth_yoy_pct)} · Divergenz {signedPp(quarter.divergence_pp)}
+        </div>
+      ))}
+      {raw?.research_trigger ? <div className="mt-2 font-semibold text-amber-800">⚠ Research Trigger</div> : null}
+    </div>
+  );
+}
+
+function EligibilityCard({ eligibility }: { eligibility?: Record<string, unknown> }) {
+  const rules = (eligibility?.rules ?? {}) as Record<string, { label?: string; passed?: boolean; available?: boolean; detail?: string }>;
+  return (
+    <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4">
+      <h3 className="mb-2 text-base font-semibold text-[#172033]">Eligibility</h3>
+      {Object.entries(rules).map(([key, rule]) => <div key={key} className="flex items-center justify-between gap-3 py-1 text-sm"><span>{rule.label}</span><span className={rule.passed ? "text-emerald-700" : "text-rose-700"}>{rule.available ? rule.passed ? "✓" : "✕" : "–"} {rule.detail}</span></div>)}
+    </div>
+  );
+}
+
+function SetupCard({ setup }: { setup?: Record<string, unknown> }) {
+  const distances = (setup?.moving_average_distances ?? {}) as Record<string, { distance_pct?: number | null; threshold_pct?: number }>;
+  return (
+    <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4">
+      <h3 className="mb-2 text-base font-semibold text-[#172033]">Setup / Kontext</h3>
+      <div className="text-sm text-[#4b5565]">{setup?.overextended ? "⚠ Überdehnt" : "Keine MA-Überdehnung"} · Test 21 EMA: {yesNo(setup?.test_21_ema)} · Test 50 SMA: {yesNo(setup?.test_50_sma)} · Natural Reaction: {yesNo(setup?.natural_reaction)}</div>
+      <div className="mt-2 text-xs text-[#687386]">{Object.entries(distances).map(([label, item]) => `${label} ${signedPercent(item.distance_pct)} (Limit ±${item.threshold_pct ?? "–"}%)`).join(" · ")}</div>
+    </div>
+  );
+}
+
+function statusLabel(status?: string) {
+  return status === "available" ? "verfügbar" : status === "partial" ? "teilweise" : status === "neutral" ? "neutral" : status === "insufficient_history" ? "zu wenig Historie" : "fehlt";
+}
+
+function signedPercent(value: unknown) {
+  return typeof value === "number" ? `${value >= 0 ? "+" : ""}${value.toFixed(1)}%` : "–";
+}
+
+function signedPp(value: unknown) {
+  return typeof value === "number" ? `${value >= 0 ? "+" : ""}${value.toFixed(1)} PP` : "–";
+}
+
+function yesNo(value: unknown) {
+  return value === true ? "ja" : value === false ? "nein" : "–";
 }
 
 function ScoreCard({

@@ -575,6 +575,10 @@ class StockAssessmentSignal(BaseModel):
     category: Literal["positive", "negative", "neutral"]
     label: str
     detail: str = ""
+    key: str = ""
+    source: str = "price_action"
+    score_relevant: bool = True
+    display_relevant: bool = True
 
 
 class StockAssessmentSignalState(BaseModel):
@@ -612,6 +616,10 @@ class StockAssessmentMetrics(BaseModel):
 
 class StockFundamentalsEpsQuarter(BaseModel):
     fiscal_period: str = ""
+    fiscal_year: str = ""
+    period_end_date: str | None = None
+    period_key: str | None = None
+    report_date: str | None = None
     eps_current_quarter: float | None = None
     eps_same_quarter_last_year: float | None = None
     eps_growth_yoy_pct: float | None = None
@@ -628,6 +636,10 @@ class StockFundamentalsAnnualEps(BaseModel):
 
 class StockFundamentalsRevenueQuarter(BaseModel):
     fiscal_period: str = ""
+    fiscal_year: str = ""
+    period_end_date: str | None = None
+    period_key: str | None = None
+    report_date: str | None = None
     revenue_current_quarter: float | None = None
     revenue_same_quarter_last_year: float | None = None
     revenue_growth_yoy_pct: float | None = None
@@ -734,6 +746,13 @@ class StockAssessmentResponse(BaseModel):
     chart_signal_states: dict[str, StockAssessmentSignalState] = Field(default_factory=dict)
     drivers: list[str]
     warnings: list[str]
+    overall_v2: dict = Field(default_factory=dict)
+    technical_v2: dict = Field(default_factory=dict)
+    fundamental_v2: dict = Field(default_factory=dict)
+    chart_v2: dict = Field(default_factory=dict)
+    moving_average_v2: dict = Field(default_factory=dict)
+    setup: dict = Field(default_factory=dict)
+    eligibility: dict = Field(default_factory=dict)
 
 
 class StockAssessmentRankingItem(BaseModel):
@@ -754,6 +773,8 @@ class StockAssessmentRankingItem(BaseModel):
     warnings_count: int
     top_warning: str = ""
     top_driver: str = ""
+    overall_status: Literal["available", "limited"] = "available"
+    available_weight: float = Field(default=1.0, ge=0, le=1)
 
 
 class StockAssessmentRankingResponse(BaseModel):
@@ -840,6 +861,8 @@ class StockAssessmentCompareItem(BaseModel):
     fundamental_score: float
     moving_average_score: float
     chart_behavior_score: int
+    overall_status: Literal["available", "limited"] = "available"
+    available_weight: float = Field(default=1.0, ge=0, le=1)
     price: float | None = None
     perf_1m_pct: float | None = None
     perf_3m_pct: float | None = None

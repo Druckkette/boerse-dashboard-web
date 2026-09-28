@@ -992,6 +992,27 @@ export type StockAssessmentSignal = {
   category: "positive" | "negative" | "neutral";
   label: string;
   detail: string;
+  key?: string;
+  source?: string;
+  score_relevant?: boolean;
+  display_relevant?: boolean;
+};
+
+export type AssessmentV2Detail = {
+  score?: number | null;
+  status?: string;
+  available_weight?: number;
+  data_coverage?: number;
+  data_quality?: string;
+  components?: Record<string, {
+    score?: number | null;
+    status?: string;
+    base_weight?: number;
+    effective_weight?: number;
+    data_quality?: string;
+    raw?: Record<string, unknown>;
+  }>;
+  [key: string]: unknown;
 };
 
 export type StockAssessmentSignalState = {
@@ -1029,6 +1050,10 @@ export type StockAssessmentMetrics = {
 
 export type StockFundamentalsEpsQuarter = {
   fiscal_period: string;
+  fiscal_year?: string;
+  period_end_date?: string | null;
+  period_key?: string | null;
+  report_date?: string | null;
   eps_current_quarter?: number | null;
   eps_same_quarter_last_year?: number | null;
   eps_growth_yoy_pct?: number | null;
@@ -1045,6 +1070,10 @@ export type StockFundamentalsAnnualEps = {
 
 export type StockFundamentalsRevenueQuarter = {
   fiscal_period: string;
+  fiscal_year?: string;
+  period_end_date?: string | null;
+  period_key?: string | null;
+  report_date?: string | null;
   revenue_current_quarter?: number | null;
   revenue_same_quarter_last_year?: number | null;
   revenue_growth_yoy_pct?: number | null;
@@ -1151,6 +1180,13 @@ export type StockAssessment = {
   chart_signal_states?: Record<string, StockAssessmentSignalState>;
   drivers: string[];
   warnings: string[];
+  overall_v2?: AssessmentV2Detail;
+  technical_v2?: AssessmentV2Detail;
+  fundamental_v2?: AssessmentV2Detail;
+  chart_v2?: AssessmentV2Detail;
+  moving_average_v2?: AssessmentV2Detail;
+  setup?: Record<string, unknown>;
+  eligibility?: Record<string, unknown>;
 };
 
 export type StockAssessmentRankingItem = {
@@ -1165,6 +1201,8 @@ export type StockAssessmentRankingItem = {
   fundamental_score: number;
   moving_average_score: number;
   chart_behavior_score: number;
+  overall_status?: "available" | "limited";
+  available_weight?: number;
   rs_rating?: number | null;
   dollar_volume_mio?: number | null;
   atr_pct?: number | null;
@@ -1222,6 +1260,8 @@ export type TopDailyStockItem = {
   fundamental_score: number;
   moving_average_score: number;
   chart_behavior_score: number;
+  overall_status?: "available" | "limited";
+  available_weight?: number;
   rs_rating: number | null;
   rs_rating_delta: number | null;
   relative_performance_1d: number | null;

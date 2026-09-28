@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import exists, func, or_, select, text
+from sqlalchemy import case, exists, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import StockAssessmentSnapshot, AppSetting, Instrument, PriceBar
@@ -142,6 +142,10 @@ def list_snapshots(*, limit: int = 60) -> list[StockAssessmentSnapshotRow]:
             rows = db.scalars(
                 select(StockAssessmentSnapshot)
                 .order_by(
+                    case(
+                        (StockAssessmentSnapshot.item_json["overall_status"].as_string() == "available", 1),
+                        else_=0,
+                    ).desc(),
                     StockAssessmentSnapshot.overall_score.desc(),
                     StockAssessmentSnapshot.technical_score.desc(),
                     StockAssessmentSnapshot.ticker.asc(),
@@ -168,6 +172,7 @@ def list_all_snapshots(tickers: list[str] | None = None) -> list[StockAssessment
             if tickers is not None:
                 query = query.where(StockAssessmentSnapshot.ticker.in_(tickers))
             rows = db.scalars(query.order_by(
+                case((StockAssessmentSnapshot.item_json["overall_status"].as_string() == "available", 1), else_=0).desc(),
                 StockAssessmentSnapshot.overall_score.desc(),
                 StockAssessmentSnapshot.technical_score.desc(),
                 StockAssessmentSnapshot.ticker.asc(),
@@ -221,6 +226,7 @@ def query_screening(filters: StockScreeningFilters, *, expected_date: date, expo
             summary["stale_count"] = db.scalar(select(func.count()).select_from(model).where(or_(model.as_of < expected_date, ~current_price))) or 0
             total = db.scalar(select(func.count()).select_from(model).where(*conditions)) or 0
             query = select(model, current_price.label("price_current")).where(*conditions).order_by(
+                case((data["overall_status"].as_string() == "available", 1), else_=0).desc(),
                 score.desc().nullslast(), model.overall_score.desc(), model.ticker.asc(),
             )
             if not export:

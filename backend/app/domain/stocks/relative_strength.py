@@ -105,6 +105,11 @@ def compute_relative_strength_ratings(
                 "date": raw_rs.index[-1].date(),
                 "score": float(score),
                 "metadata": metadata,
+                "horizon_scores": {
+                    "3m": _return_pct(raw_rs, 63),
+                    "6m": _return_pct(raw_rs, 126),
+                    "12m": _return_pct(raw_rs, 252),
+                },
             }
         )
 
@@ -114,12 +119,28 @@ def compute_relative_strength_ratings(
     score_series = pd.Series({row["ticker"]: row["score"] for row in scored_rows}, dtype=float)
     percentile_ranks = score_series.rank(pct=True, method="average")
     universe_size = int(len(score_series))
+    horizon_ranks: dict[str, pd.Series] = {}
+    for horizon in ("3m", "6m", "12m"):
+        values = {
+            str(row["ticker"]): float(row["horizon_scores"][horizon])
+            for row in scored_rows
+            if row["horizon_scores"][horizon] is not None
+        }
+        horizon_ranks[horizon] = pd.Series(values, dtype=float).rank(pct=True, method="average")
 
     ratings: list[RelativeStrengthRating] = []
     for row in scored_rows:
         ticker = str(row["ticker"])
         percentile = float(percentile_ranks.loc[ticker] * 100)
         rating = int(np.clip(round(float(percentile_ranks.loc[ticker]) * 99), 1, 99))
+        metadata = dict(row["metadata"])
+        for horizon, ranks in horizon_ranks.items():
+            if ticker not in ranks.index:
+                continue
+            horizon_percentile = float(ranks.loc[ticker] * 100)
+            metadata[f"rs_{horizon}_percentile"] = horizon_percentile
+            metadata[f"rs_{horizon}_rating"] = int(np.clip(round(float(ranks.loc[ticker]) * 99), 1, 99))
+            metadata[f"rs_{horizon}_universe_size"] = int(len(ranks))
         ratings.append(
             RelativeStrengthRating(
                 ticker=ticker,
@@ -129,7 +150,7 @@ def compute_relative_strength_ratings(
                 percentile=percentile,
                 method=RS_METHOD_UNIVERSE_PERCENTILE,
                 universe_size=universe_size,
-                metadata=row["metadata"],
+                metadata=metadata,
             )
         )
 
