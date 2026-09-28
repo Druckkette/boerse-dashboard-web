@@ -155,6 +155,12 @@ def test_external_rs_ranking_accepts_configured_csv_source(monkeypatch: pytest.M
     assert result.rows[0].ticker == "NVDA"
 
 
+def test_relative_strength_universe_is_not_truncated_to_5000() -> None:
+    tickers = [f"TEST{index}" for index in range(5601)]
+
+    assert service._normalize_tickers(tickers) == tickers
+
+
 def _series(daily_growth: float, *, days: int = 320) -> list[ClosePoint]:
     start = date(2025, 1, 1)
     price = 100.0

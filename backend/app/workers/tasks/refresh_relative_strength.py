@@ -26,7 +26,7 @@ def refresh_relative_strength(self, job_id: str | None = None, payload: dict | N
 
     tickers = resolve_universe_tickers(
         explicit_tickers=payload.get("tickers"),
-        universe_key=payload.get("universe"),
+        universe_key=payload.get("universe") or "us_common_stocks",
         fallback=DEFAULT_MARKET_UNIVERSE_TICKERS,
         limit=int(payload.get("limit_universe") or 10000),
     )

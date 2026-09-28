@@ -283,7 +283,7 @@ def _relative_strength_step(
         "lookback_days": 430,
         "benchmark_ticker": "SPY",
         "universe": "us_common_stocks",
-        "limit_universe": 5000,
+        "limit_universe": 10000,
     }
     if freshness is None or freshness.status == "missing":
         return _job_step(

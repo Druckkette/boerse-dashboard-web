@@ -21,6 +21,7 @@ DEFAULT_RS_BENCHMARK_TICKER = "SPY"
 DEFAULT_RS_SOURCE = "computed"
 DEFAULT_RS_LOOKBACK_DAYS = 430
 SUPPORTED_RS_SOURCES = {"computed", "csv_latest"}
+MAX_RS_UNIVERSE_TICKERS = 10_000
 
 
 def configured_rs_source() -> str:
@@ -347,7 +348,9 @@ def _row_to_payload(row: RsRatingRow) -> dict:
 
 
 def _normalize_tickers(tickers: list[str]) -> list[str]:
-    return list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))[:5000]
+    return list(
+        dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip())
+    )[:MAX_RS_UNIVERSE_TICKERS]
 
 
 def _float_or_none(value: object) -> float | None:
