@@ -1679,6 +1679,15 @@ export type AppSettings = {
   pushover_configured: boolean;
   rs_rating_source: "csv_latest" | "computed";
   data_jobs_enabled: boolean;
+  assessment_score_weights: AssessmentScoreWeights;
+};
+
+export type AssessmentScoreWeights = {
+  overall: Record<"technical" | "fundamental" | "chart" | "moving_average", number>;
+  technical: Record<"k4_rs_leadership" | "k13_rs_dynamics" | "rs_rating" | "high_position" | "up_down_volume" | "cmf", number>;
+  fundamental: Record<"fundamental_core" | "k9_eps_sales_alignment", number>;
+  chart: Record<"price_action_core" | "k35_down_week_quality" | "k38_hh_hl_good_close", number>;
+  moving_average: Record<"price_above_200_sma" | "price_above_50_sma" | "price_above_21_ema" | "price_above_10_sma" | "ma_order" | "persistence" | "slope", number>;
 };
 
 export type RuntimeConfigItem = {

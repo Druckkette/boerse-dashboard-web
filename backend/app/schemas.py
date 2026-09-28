@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -1676,6 +1676,35 @@ class SetupStatusResponse(BaseModel):
     steps: list[SetupStep]
 
 
+ASSESSMENT_SCORE_WEIGHT_KEYS = {
+    "overall": {"technical", "fundamental", "chart", "moving_average"},
+    "technical": {"k4_rs_leadership", "k13_rs_dynamics", "rs_rating", "high_position", "up_down_volume", "cmf"},
+    "fundamental": {"fundamental_core", "k9_eps_sales_alignment"},
+    "chart": {"price_action_core", "k35_down_week_quality", "k38_hh_hl_good_close"},
+    "moving_average": {"price_above_200_sma", "price_above_50_sma", "price_above_21_ema", "price_above_10_sma", "ma_order", "persistence", "slope"},
+}
+
+
+class AssessmentScoreWeights(BaseModel):
+    overall: dict[str, float]
+    technical: dict[str, float]
+    fundamental: dict[str, float]
+    chart: dict[str, float]
+    moving_average: dict[str, float]
+
+    @field_validator("overall", "technical", "fundamental", "chart", "moving_average")
+    @classmethod
+    def validate_weight_group(cls, value: dict[str, float], info) -> dict[str, float]:
+        expected = ASSESSMENT_SCORE_WEIGHT_KEYS[info.field_name]
+        if set(value) != expected:
+            raise ValueError(f"Gewichte für {info.field_name} müssen exakt diese Schlüssel enthalten: {sorted(expected)}")
+        if any(weight < 0 or weight > 100 for weight in value.values()):
+            raise ValueError("Score-Gewichte müssen zwischen 0 und 100 Prozent liegen.")
+        if sum(value.values()) <= 0:
+            raise ValueError("Mindestens ein Gewicht je Score muss größer als null sein.")
+        return value
+
+
 class AppSettings(BaseModel):
     atr_threshold: float
     risk_per_position_pct: float = 1.0
@@ -1696,6 +1725,7 @@ class AppSettings(BaseModel):
     pushover_configured: bool = False
     rs_rating_source: Literal["csv_latest", "computed"]
     data_jobs_enabled: bool
+    assessment_score_weights: AssessmentScoreWeights
 
 
 class SettingsPatch(BaseModel):
@@ -1717,6 +1747,7 @@ class SettingsPatch(BaseModel):
     pushover_enabled: bool | None = None
     rs_rating_source: Literal["csv_latest", "computed"] | None = None
     data_jobs_enabled: bool | None = None
+    assessment_score_weights: AssessmentScoreWeights | None = None
 
 
 class RuntimeConfigItem(BaseModel):

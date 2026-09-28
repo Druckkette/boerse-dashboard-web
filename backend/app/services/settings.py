@@ -53,6 +53,28 @@ DEFAULT_SETTINGS = AppSettings(
     pushover_configured=False,
     rs_rating_source="computed",
     data_jobs_enabled=True,
+    assessment_score_weights={
+        "overall": {"technical": 30, "fundamental": 30, "chart": 30, "moving_average": 10},
+        "technical": {
+            "k4_rs_leadership": 30,
+            "k13_rs_dynamics": 23.3333,
+            "rs_rating": 20,
+            "high_position": 10,
+            "up_down_volume": 8.33335,
+            "cmf": 8.33335,
+        },
+        "fundamental": {"fundamental_core": 83.3333, "k9_eps_sales_alignment": 16.6667},
+        "chart": {"price_action_core": 66.6666, "k35_down_week_quality": 16.6667, "k38_hh_hl_good_close": 16.6667},
+        "moving_average": {
+            "price_above_200_sma": 20,
+            "price_above_50_sma": 15,
+            "price_above_21_ema": 10,
+            "price_above_10_sma": 5,
+            "ma_order": 15,
+            "persistence": 15,
+            "slope": 20,
+        },
+    },
 )
 
 

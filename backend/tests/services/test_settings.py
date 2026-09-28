@@ -3,7 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
+from app.schemas import AssessmentScoreWeights
 from app.services import settings as settings_service
 
 
@@ -41,3 +43,20 @@ def test_database_target_migration_does_not_expose_url_on_failure(monkeypatch: p
 
     assert "top-secret" not in str(exc_info.value)
     assert "<database-url>" in str(exc_info.value)
+
+
+def test_default_assessment_weights_are_percentage_groups() -> None:
+    groups = settings_service.DEFAULT_SETTINGS.assessment_score_weights.model_dump()
+    assert all(sum(weights.values()) == pytest.approx(100) for weights in groups.values())
+
+
+def test_assessment_weights_reject_missing_keys_and_empty_group() -> None:
+    values = settings_service.DEFAULT_SETTINGS.assessment_score_weights.model_dump()
+    values["overall"].pop("technical")
+    with pytest.raises(ValidationError):
+        AssessmentScoreWeights.model_validate(values)
+
+    values = settings_service.DEFAULT_SETTINGS.assessment_score_weights.model_dump()
+    values["chart"] = {key: 0 for key in values["chart"]}
+    with pytest.raises(ValidationError):
+        AssessmentScoreWeights.model_validate(values)

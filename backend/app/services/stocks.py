@@ -32,6 +32,7 @@ from app.repositories.stock_assessments import (
 from app.services.relative_strength import configured_rs_source
 from app.services.assessment_quality import dependency_quality
 from app.services.market_calendar import price_is_current
+from app.services.settings import get_app_settings
 from app.schemas import (
     StockEarningsWarning,
     StockAssessmentCheck,
@@ -108,6 +109,7 @@ def get_stock_signal_changes(ticker: str) -> StockSignalChangesResponse:
         rs_context=_rs_context(rs_row),
         fundamentals_context=fundamentals,
         institutional_context=institutional,
+        score_weights=_assessment_score_weights(),
     )
     previous = compute_stock_assessment(
         clean,
@@ -115,6 +117,7 @@ def get_stock_signal_changes(ticker: str) -> StockSignalChangesResponse:
         rs_context=_rs_context(rs_row),
         fundamentals_context=fundamentals,
         institutional_context=institutional,
+        score_weights=_assessment_score_weights(),
     )
     changes = _assessment_changes(current, previous)
     return StockSignalChangesResponse(
@@ -214,6 +217,7 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
         rs_context=rs_context,
         fundamentals_context=fundamentals_context,
         institutional_context=institutional_context,
+        score_weights=_assessment_score_weights(),
     )
     response = _to_response(result)
     response.data_quality = dependency_quality(
@@ -504,6 +508,7 @@ def _build_assessment_result(ticker: str) -> tuple[StockAssessmentResult, RsRati
         rs_context=rs_context,
         fundamentals_context=_fundamentals_context(_safe_latest_fundamentals(clean)),
         institutional_context=_institutional_context(_safe_latest_13f(clean)),
+        score_weights=_assessment_score_weights(),
     )
     return result, rs_row, rs_context
 
@@ -578,6 +583,7 @@ def _load_assessment_inputs(
         computed_rs_rows = {}
 
     results = []
+    score_weights = _assessment_score_weights()
     try:
         earnings_dates = earnings_repository.next_earnings_dates([
             ticker for ticker, row in fundamentals_by_ticker.items()
@@ -611,8 +617,13 @@ def _load_assessment_inputs(
             "rs_context": rs_context,
             "fundamentals_context": context,
             "institutional_context": _institutional_context(institutional_by_ticker.get(ticker)),
+            "score_weights": score_weights,
         }))
     return results
+
+
+def _assessment_score_weights() -> dict[str, dict[str, float]]:
+    return get_app_settings().assessment_score_weights.model_dump()
 
 
 def _fundamentals_context(

@@ -14,7 +14,7 @@ from app.domain.stocks import assessment
 from app.repositories import jobs, stock_assessments, universes
 from app.repositories.stock_assessments import StockAssessmentSnapshotWrite
 from app.services.market_calendar import expected_us_market_session
-from app.services.stocks import _load_assessment_inputs, _to_ranking_item
+from app.services.stocks import _assessment_score_weights, _load_assessment_inputs, _to_ranking_item
 from app.schemas import StockScreeningFilters
 from app.services.assessment_quality import dependency_quality
 from app.workers.tasks.common import raise_if_cancelled
@@ -63,6 +63,7 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
     calculated = 0
     current_job = jobs.get_job(source_job_id) if source_job_id else None
     base_progress = min(90, max(5, current_job.progress)) if current_job else 5
+    score_weights = _assessment_score_weights()
 
     for offset in range(0, len(tickers), BATCH_SIZE):
         if source_job_id:
@@ -76,7 +77,11 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
         # Read each dependency once per bounded batch. Database failures abort publication.
         batch = tickers[offset:offset + BATCH_SIZE]
         revision_keys = {
-            ticker: input_fingerprint({"revision": revisions[ticker]}, engine_version=engine_version, today=today)
+            ticker: input_fingerprint(
+                {"revision": revisions[ticker], "score_weights": score_weights},
+                engine_version=engine_version,
+                today=today,
+            )
             for ticker in batch if ticker in revisions
         }
         unchanged = {

@@ -20,11 +20,35 @@ import { api } from "@/lib/api/client";
 import { qualityLabel } from "@/lib/format";
 import type {
   AppSettings,
+  AssessmentScoreWeights,
   DataDiagnosticIssue,
   DataDiagnostics,
   SystemReadiness,
   SystemReadinessCheck
 } from "@/lib/types/api";
+
+const defaultAssessmentScoreWeights: AssessmentScoreWeights = {
+  overall: { technical: 30, fundamental: 30, chart: 30, moving_average: 10 },
+  technical: {
+    k4_rs_leadership: 30,
+    k13_rs_dynamics: 23.3333,
+    rs_rating: 20,
+    high_position: 10,
+    up_down_volume: 8.33335,
+    cmf: 8.33335
+  },
+  fundamental: { fundamental_core: 83.3333, k9_eps_sales_alignment: 16.6667 },
+  chart: { price_action_core: 66.6666, k35_down_week_quality: 16.6667, k38_hh_hl_good_close: 16.6667 },
+  moving_average: {
+    price_above_200_sma: 20,
+    price_above_50_sma: 15,
+    price_above_21_ema: 10,
+    price_above_10_sma: 5,
+    ma_order: 15,
+    persistence: 15,
+    slope: 20
+  }
+};
 
 const fallbackSettings: AppSettings = {
   atr_threshold: 1.5,
@@ -45,7 +69,31 @@ const fallbackSettings: AppSettings = {
   pushover_enabled: false,
   pushover_configured: false,
   rs_rating_source: "computed",
-  data_jobs_enabled: true
+  data_jobs_enabled: true,
+  assessment_score_weights: defaultAssessmentScoreWeights
+};
+
+const scoreWeightLabels: Record<keyof AssessmentScoreWeights, { title: string; fields: Record<string, string> }> = {
+  overall: {
+    title: "Gewichtung im Gesamtscore",
+    fields: { technical: "Technical", fundamental: "Fundamental", chart: "Chart", moving_average: "Moving Average" }
+  },
+  technical: {
+    title: "Teil-Scores · Technical",
+    fields: { k4_rs_leadership: "K4 RS Leadership", k13_rs_dynamics: "K13 RS Dynamics", rs_rating: "RS Rating", high_position: "Hoch-Position", up_down_volume: "Up/Down-Volumen", cmf: "CMF" }
+  },
+  fundamental: {
+    title: "Teil-Scores · Fundamental",
+    fields: { fundamental_core: "Fundamental Core", k9_eps_sales_alignment: "K9 EPS/Umsatz" }
+  },
+  chart: {
+    title: "Teil-Scores · Chart",
+    fields: { price_action_core: "Price Action Core", k35_down_week_quality: "K35 Down-Week-Qualität", k38_hh_hl_good_close: "K38 HH/HL Good Close" }
+  },
+  moving_average: {
+    title: "Teil-Scores · Moving Average",
+    fields: { price_above_200_sma: "Kurs > 200 SMA", price_above_50_sma: "Kurs > 50 SMA", price_above_21_ema: "Kurs > 21 EMA", price_above_10_sma: "Kurs > 10 SMA", ma_order: "MA-Reihenfolge", persistence: "Persistenz", slope: "Steigung" }
+  }
 };
 
 const monitorReferenceDescriptions: Record<AppSettings["position_monitor_reference"], string> = {
@@ -119,6 +167,22 @@ export function SettingsPanel() {
     update(key, Math.max(min, Math.min(max, Number(rounded.toFixed(4)))) as never);
   }
 
+  function updateScoreWeight(group: keyof AssessmentScoreWeights, key: string, value: number) {
+    const base = local ?? data ?? fallbackSettings;
+    const currentGroup = base.assessment_score_weights[group] as Record<string, number>;
+    const nextGroup = { ...currentGroup, [key]: Math.max(0, Math.min(100, Number(value.toFixed(4)))) };
+    if (Object.values(nextGroup).reduce((sum, weight) => sum + weight, 0) <= 0) return;
+    setLocal({
+      ...base,
+      assessment_score_weights: { ...base.assessment_score_weights, [group]: nextGroup }
+    });
+    setDirty(true);
+  }
+
+  function resetScoreWeights() {
+    update("assessment_score_weights", structuredClone(defaultAssessmentScoreWeights));
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
@@ -149,6 +213,36 @@ export function SettingsPanel() {
 
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">
+          <SettingCard
+            description="Lege fest, wie stark die Hauptscores und ihre Teilkriterien in die Bewertung einfließen. Fehlende Daten werden weiterhin automatisch über die verfügbaren Gewichte renormalisiert."
+            title="Gewichtung der Aktienbewertung"
+            value="prozentual"
+          >
+            <div className="space-y-4">
+              {(Object.keys(scoreWeightLabels) as Array<keyof AssessmentScoreWeights>).map((group) => (
+                <ScoreWeightGroup
+                  group={group}
+                  key={group}
+                  values={settings.assessment_score_weights[group] as Record<string, number>}
+                  onChange={(key, value) => updateScoreWeight(group, key, value)}
+                />
+              ))}
+              <div className="flex flex-col gap-2 border-t border-[#2d333d] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-5 text-[#a0a7b4]">
+                  Änderungen wirken sofort auf Detailbewertungen. Für Ranking und Screening anschließend den Job „Aktienbewertungen aktualisieren“ starten.
+                </p>
+                <button className="shrink-0 rounded border border-[#3a424f] px-3 py-2 text-xs transition hover:border-emerald-300/60" type="button" onClick={resetScoreWeights}>
+                  Standard wiederherstellen
+                </button>
+              </div>
+              {mutation.error ? (
+                <p className="rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+                  {mutation.error instanceof Error ? mutation.error.message : "Gewichtung konnte nicht gespeichert werden."}
+                </p>
+              ) : null}
+            </div>
+          </SettingCard>
+
           <SettingCard
             description="Ein eigener Monitor-Worker prüft offene Positionen werktags jede Minute mit einem gemeinsamen Yahoo-Intraday-Abruf. Schwere Datenjobs können ATR-Alarme dadurch nicht mehr verzögern."
             title="Positionsmonitor"
@@ -328,6 +422,54 @@ export function SettingsPanel() {
         onRefresh={() => dataDiagnostics.refetch()}
         onStartJob={(issue) => diagnosticJobMutation.mutate(issue)}
       />
+    </div>
+  );
+}
+
+function ScoreWeightGroup({
+  group,
+  values,
+  onChange
+}: {
+  group: keyof AssessmentScoreWeights;
+  values: Record<string, number>;
+  onChange: (key: string, value: number) => void;
+}) {
+  const definition = scoreWeightLabels[group];
+  const total = Object.values(values).reduce((sum, value) => sum + value, 0);
+  const totalIsHundred = Math.abs(total - 100) < 0.01;
+  return (
+    <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{definition.title}</h3>
+        <span className={totalIsHundred ? "text-xs text-emerald-300" : "text-xs text-amber-300"}>
+          Summe {total.toFixed(1)}%
+        </span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {Object.entries(definition.fields).map(([key, label]) => (
+          <label className="block text-sm" key={key}>
+            <span className="mb-1 block text-[#a0a7b4]">{label}</span>
+            <div className="relative">
+              <input
+                className="input-dark pr-8"
+                max={100}
+                min={0}
+                step={0.1}
+                type="number"
+                value={Number(values[key].toFixed(4))}
+                onChange={(event) => onChange(key, Number(event.target.value))}
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#a0a7b4]">%</span>
+            </div>
+          </label>
+        ))}
+      </div>
+      {!totalIsHundred ? (
+        <p className="mt-3 text-xs leading-5 text-amber-200">
+          Die Berechnung normiert diese Werte auf 100%. Für eine leichter lesbare Konfiguration sollte die Summe 100% betragen.
+        </p>
+      ) : null}
     </div>
   );
 }

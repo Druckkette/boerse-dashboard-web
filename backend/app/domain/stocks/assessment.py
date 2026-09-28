@@ -153,6 +153,7 @@ def compute_stock_assessment(
     rs_context: Mapping[str, Any] | None = None,
     fundamentals_context: Mapping[str, Any] | None = None,
     institutional_context: Mapping[str, Any] | None = None,
+    score_weights: Mapping[str, Mapping[str, float]] | None = None,
 ) -> StockAssessmentResult:
     clean = ticker.strip().upper()
     df = _coerce_bars_to_frame(bars)
@@ -216,19 +217,29 @@ def compute_stock_assessment(
         earnings=earnings,
     )
     weekly = _completed_weekly_bars(df, weekly_bars=weekly_bars)
-    technical_v2 = _technical_score_v2(df, technical_checks, metrics, rs, cmf_value)
+    configured_weights = dict(score_weights or {})
+    technical_v2 = _technical_score_v2(
+        df, technical_checks, metrics, rs, cmf_value,
+        weights=_weight_group(configured_weights, "technical", TECHNICAL_WEIGHTS),
+    )
     fundamental_v2 = _fundamental_score_v2(
         fundamentals,
         core_score=fundamental_core_score,
         core_available=fundamentals_available,
+        weights=_weight_group(configured_weights, "fundamental", FUNDAMENTAL_WEIGHTS),
     )
-    moving_average_v2 = _moving_average_score_v2(df)
-    chart_v2 = _chart_score_v2(chart_signals, weekly)
+    moving_average_v2 = _moving_average_score_v2(
+        df, weights=_weight_group(configured_weights, "moving_average", MOVING_AVERAGE_WEIGHTS),
+    )
+    chart_v2 = _chart_score_v2(
+        chart_signals, weekly, weights=_weight_group(configured_weights, "chart", CHART_WEIGHTS),
+    )
     overall_v2 = _overall_score_v2(
         technical_v2=technical_v2,
         fundamental_v2=fundamental_v2,
         chart_v2=chart_v2,
         moving_average_v2=moving_average_v2,
+        weights=_weight_group(configured_weights, "overall", OVERALL_WEIGHTS),
     )
     technical_score = float(technical_v2["score"] or 0.0)
     # The legacy scalar remains numeric for old consumers. The v2 status is the
@@ -1097,7 +1108,7 @@ def _component(
 
 def _weighted_score(
     components: Mapping[str, Mapping[str, Any]],
-    weights: Mapping[str, int],
+    weights: Mapping[str, float],
 ) -> dict[str, Any]:
     total_weight = float(sum(weights.values()))
     scoreable = [
@@ -1137,12 +1148,28 @@ def _weighted_score(
     }
 
 
+def _weight_group(
+    configured: Mapping[str, Mapping[str, float]],
+    key: str,
+    default: Mapping[str, int],
+) -> dict[str, float]:
+    candidate = configured.get(key)
+    if not isinstance(candidate, Mapping) or set(candidate) != set(default):
+        return {name: float(weight) for name, weight in default.items()}
+    weights = {name: float(candidate[name]) for name in default}
+    if any(not np.isfinite(weight) or weight < 0 for weight in weights.values()) or sum(weights.values()) <= 0:
+        return {name: float(weight) for name, weight in default.items()}
+    return weights
+
+
 def _technical_score_v2(
     df: pd.DataFrame,
     technical_checks: Sequence[AssessmentCheck],
     metrics: StockAssessmentMetrics,
     rs_context: Mapping[str, Any],
     cmf_value: float | None,
+    *,
+    weights: Mapping[str, float] = TECHNICAL_WEIGHTS,
 ) -> dict[str, Any]:
     check_map = {check.label: check for check in technical_checks}
     k4 = _k4_rs_leadership(rs_context)
@@ -1201,9 +1228,9 @@ def _technical_score_v2(
             "up_down_volume": up_down,
             "cmf": cmf,
         },
-        TECHNICAL_WEIGHTS,
+        weights,
     )
-    result["weights"] = dict(TECHNICAL_WEIGHTS)
+    result["weights"] = dict(weights)
     return result
 
 
@@ -1432,6 +1459,7 @@ def _fundamental_score_v2(
     *,
     core_score: float,
     core_available: bool,
+    weights: Mapping[str, float] = FUNDAMENTAL_WEIGHTS,
 ) -> dict[str, Any]:
     k9 = _k9_eps_sales_alignment(fundamentals_context)
     core_status: ScoreStatus = "available" if core_available else "missing"
@@ -1444,9 +1472,9 @@ def _fundamental_score_v2(
             ),
             "k9_eps_sales_alignment": _component(k9.get("score"), k9["status"], raw=k9),
         },
-        FUNDAMENTAL_WEIGHTS,
+        weights,
     )
-    result["weights"] = dict(FUNDAMENTAL_WEIGHTS)
+    result["weights"] = dict(weights)
     return result
 
 
@@ -1593,7 +1621,11 @@ def _k9_quarter_score(eps: float, sales: float, *, noise_pct: float) -> tuple[fl
     return 35.0, gap > 35, "EPS-Rückgang bei stabilem Umsatz" if gap > 35 else ""
 
 
-def _moving_average_score_v2(df: pd.DataFrame) -> dict[str, Any]:
+def _moving_average_score_v2(
+    df: pd.DataFrame,
+    *,
+    weights: Mapping[str, float] = MOVING_AVERAGE_WEIGHTS,
+) -> dict[str, Any]:
     close = pd.to_numeric(df["Close"], errors="coerce")
     price = _safe_float(close.iloc[-1])
     series = {
@@ -1668,8 +1700,8 @@ def _moving_average_score_v2(df: pd.DataFrame) -> dict[str, Any]:
             "sma50_direction": direction_50,
         },
     )
-    result = _weighted_score(components, MOVING_AVERAGE_WEIGHTS)
-    result["weights"] = dict(MOVING_AVERAGE_WEIGHTS)
+    result = _weighted_score(components, weights)
+    result["weights"] = dict(weights)
     return result
 
 
@@ -1742,7 +1774,12 @@ def _completed_weekly_bars(df: pd.DataFrame, *, weekly_bars: pd.DataFrame | None
     return weekly.loc[weekly.index.normalize() <= last_session]
 
 
-def _chart_score_v2(chart_signals: Sequence[ChartSignal], weekly: pd.DataFrame) -> dict[str, Any]:
+def _chart_score_v2(
+    chart_signals: Sequence[ChartSignal],
+    weekly: pd.DataFrame,
+    *,
+    weights: Mapping[str, float] = CHART_WEIGHTS,
+) -> dict[str, Any]:
     scored_signals = [signal for signal in chart_signals if signal.score_relevant]
     positive_count = sum(signal.category == "positive" for signal in scored_signals)
     negative_count = sum(signal.category == "negative" for signal in scored_signals)
@@ -1763,9 +1800,9 @@ def _chart_score_v2(chart_signals: Sequence[ChartSignal], weekly: pd.DataFrame) 
             "k35_down_week_quality": _component(k35.get("score"), k35["status"], raw=k35),
             "k38_hh_hl_good_close": _component(k38.get("score"), k38["status"], raw=k38),
         },
-        CHART_WEIGHTS,
+        weights,
     )
-    result["weights"] = dict(CHART_WEIGHTS)
+    result["weights"] = dict(weights)
     return result
 
 
@@ -1887,6 +1924,7 @@ def _overall_score_v2(
     fundamental_v2: Mapping[str, Any],
     chart_v2: Mapping[str, Any],
     moving_average_v2: Mapping[str, Any],
+    weights: Mapping[str, float] = OVERALL_WEIGHTS,
 ) -> dict[str, Any]:
     components = {
         "technical": _component(technical_v2.get("score"), technical_v2.get("status", "missing"), raw={"data_coverage": technical_v2.get("data_coverage")}),
@@ -1894,9 +1932,9 @@ def _overall_score_v2(
         "chart": _component(chart_v2.get("score"), chart_v2.get("status", "missing"), raw={"data_coverage": chart_v2.get("data_coverage")}),
         "moving_average": _component(moving_average_v2.get("score"), moving_average_v2.get("status", "missing"), raw={"data_coverage": moving_average_v2.get("data_coverage")}),
     }
-    result = _weighted_score(components, OVERALL_WEIGHTS)
+    result = _weighted_score(components, weights)
     result["status"] = "available" if result["available_weight"] == 1.0 else "limited"
-    result["weights"] = dict(OVERALL_WEIGHTS)
+    result["weights"] = dict(weights)
     return result
 
 

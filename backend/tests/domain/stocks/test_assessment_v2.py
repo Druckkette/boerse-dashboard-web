@@ -38,6 +38,24 @@ def test_v2_weight_sets_are_exact_integer_ratios() -> None:
     assert sum(MOVING_AVERAGE_WEIGHTS.values()) == 100
 
 
+def test_custom_overall_weights_change_score_and_are_exposed() -> None:
+    def component(score: float) -> dict:
+        return {"score": score, "status": "available", "data_coverage": 1.0}
+
+    weights = {"technical": 70.0, "fundamental": 10.0, "chart": 10.0, "moving_average": 10.0}
+    result = _overall_score_v2(
+        technical_v2=component(100),
+        fundamental_v2=component(0),
+        chart_v2=component(0),
+        moving_average_v2=component(0),
+        weights=weights,
+    )
+
+    assert result["score"] == pytest.approx(70)
+    assert result["weights"] == weights
+    assert result["components"]["technical"]["base_weight"] == pytest.approx(0.7)
+
+
 def test_k4_uses_position_persistence_high_and_capped_white_space_only() -> None:
     context = _strong_rs_context()
     result = _k4_rs_leadership(context)

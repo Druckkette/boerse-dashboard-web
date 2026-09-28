@@ -109,6 +109,15 @@ def test_fingerprint_tracks_rules_fundamentals_rs_and_calendar():
     assert screening.input_fingerprint(data, engine_version="v1", today=date(2026, 9, 12)) != original
 
 
+def test_fingerprint_tracks_score_weights():
+    data = inputs()
+    first = {**data, "score_weights": {"overall": {"technical": 30, "fundamental": 30}}}
+    second = {**data, "score_weights": {"overall": {"technical": 60, "fundamental": 30}}}
+    assert screening.input_fingerprint(first, engine_version="v1", today=date(2026, 9, 11)) != screening.input_fingerprint(
+        second, engine_version="v1", today=date(2026, 9, 11)
+    )
+
+
 def test_missing_prices_reported_and_not_scored_as_real_candidates(monkeypatch, storage):
     monkeypatch.setattr(screening.universes, "list_universe_tickers", lambda limit: ["READY", "EMPTY"])
     monkeypatch.setattr(screening, "_load_assessment_inputs", lambda *args, **kwargs: [
