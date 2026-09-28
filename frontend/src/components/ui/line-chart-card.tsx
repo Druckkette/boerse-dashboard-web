@@ -383,7 +383,7 @@ export function LineChartCard({
         onDoubleClick={resetZoom}
       >
         {!isLoading && !hasError && !empty && activePoint && (
-          <ChartHoverReadout chartMode={chartMode} point={activePoint} series={visibleSeries} volumeKey={volumeKey} isHovered={Boolean(hoveredPoint)} isLatest={activePoint === latestPoint} previousClose={previousClose} />
+          <ChartHoverReadout chartMode={chartMode} point={activePoint} series={visibleSeries} volumeKey={volumeKey} isHovered={Boolean(hoveredPoint)} isLatest={activePoint === latestPoint} previousClose={previousClose} showPreviousCloseChange={showPreviousCloseChange} />
         )}
         {isLoading && <ChartMessage>Daten werden geladen...</ChartMessage>}
         {hasError && <ChartMessage tone="error">Chart-Daten konnten nicht geladen werden.</ChartMessage>}
@@ -593,7 +593,7 @@ function AxisLabel({ canvasWidth, color, plotRight, text, y }: { canvasWidth: nu
   );
 }
 
-function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isLatest, previousClose }: { chartMode: "line" | "candlestick"; point: ChartDatum; series: ChartSeries[]; volumeKey?: string; isHovered: boolean; isLatest: boolean; previousClose: number | null }) {
+function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isLatest, previousClose, showPreviousCloseChange }: { chartMode: "line" | "candlestick"; point: ChartDatum; series: ChartSeries[]; volumeKey?: string; isHovered: boolean; isLatest: boolean; previousClose: number | null; showPreviousCloseChange: boolean }) {
   const open = toNumber(point.open);
   const high = toNumber(point.high);
   const low = toNumber(point.low);
@@ -609,8 +609,14 @@ function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isL
         {chartMode === "candlestick" && (
           <>
             <HoverValue label="O" value={open} /><HoverValue label="H" value={high} /><HoverValue label="T" value={low} /><HoverValue label="S" value={close} />
-            {dayChange !== null && <span className={dayChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>Seit Eröffnung {formatPercent(dayChange, 2)}</span>}
-            {previousCloseChange !== null && <span className={previousCloseChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>Zum Vortag {formatPercent(previousCloseChange, 2)}</span>}
+            {showPreviousCloseChange ? (
+              previousCloseChange !== null && <>
+                <HoverValue label="Vortagesschluss" value={previousClose} />
+                <span className={previousCloseChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>Zum Vortag {formatPercent(previousCloseChange, 2)}</span>
+              </>
+            ) : (
+              dayChange !== null && <span className={dayChange >= 0 ? "font-semibold text-[var(--green)]" : "font-semibold text-[var(--red)]"}>Seit Eröffnung {formatPercent(dayChange, 2)}</span>
+            )}
             {volume !== null && <span className="text-[var(--muted)]">Vol. <span className="font-semibold text-[var(--text)]">{formatCompact(volume)}</span></span>}
           </>
         )}
