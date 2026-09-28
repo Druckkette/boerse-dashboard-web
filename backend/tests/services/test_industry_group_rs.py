@@ -216,3 +216,68 @@ def test_top_members_require_current_price_and_assessment():
         {"ticker": "DDD", "latest_close": 30.0, "overall_score": 70},
     ]
     assert [item["ticker"] for item in service._top_members(members)] == ["CCC", "DDD"]
+
+
+def test_horizon_eligibility_uses_benchmark_session_dates():
+    benchmark = _prices(100, 0.0005, count=280)
+    as_of = benchmark[-1].date
+    anchor = benchmark[-(service.HORIZON_SESSIONS["1m"] + 1)].date
+    members = [_member(f"A{index}", "aligned") for index in range(5)]
+    history = {
+        member.ticker: [point for point in _prices(100, 0.001, count=280) if point.date != anchor]
+        for member in members
+    }
+
+    raw = service._raw_group_data(
+        {"aligned": members},
+        history,
+        benchmark,
+        as_of,
+        include_performance_series=False,
+    )
+    service._rank_raw(raw)
+
+    assert raw["aligned"]["eligible_counts"]["1m"] == 0
+    assert raw["aligned"]["is_ranked"] is False
+
+
+def test_rank_requires_five_members_on_every_session_in_each_horizon():
+    benchmark = _prices(100, 0.0005, count=280)
+    as_of = benchmark[-1].date
+    gap_date = benchmark[-10].date
+    members = [_member(f"G{index}", "gaps") for index in range(5)]
+    history = {}
+    for index, member in enumerate(members):
+        points = _prices(100, 0.001, count=280)
+        history[member.ticker] = (
+            [point for point in points if point.date != gap_date]
+            if index < 2
+            else points
+        )
+
+    raw = service._raw_group_data(
+        {"gaps": members},
+        history,
+        benchmark,
+        as_of,
+        include_performance_series=False,
+    )
+    service._rank_raw(raw)
+
+    assert raw["gaps"]["eligible_counts"]["1m"] == 5
+    assert raw["gaps"]["minimum_daily_eligible_counts"]["1m"] == 3
+    assert raw["gaps"]["is_ranked"] is False
+
+
+def test_series_return_rejects_a_session_without_any_group_price():
+    start = date(2026, 1, 1)
+    series = [
+        {
+            "date": (start + timedelta(days=index)).isoformat(),
+            "group_index": 100.0 + index,
+            "eligible_members": 0 if index == 2 else 5,
+        }
+        for index in range(5)
+    ]
+
+    assert service._series_return_pct(series, start + timedelta(days=4), 4) is None

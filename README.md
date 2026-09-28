@@ -206,7 +206,7 @@ run yfinance or Pandas recomputes in the click path.
 ### Industry Group RS
 
 Industry Group RS uses the frozen `industry_groups_v4` taxonomy as a read-only membership layer.
-The algorithm version is `industry_group_rs_v2`; daily results are persisted in
+The algorithm version is `industry_group_rs_v3`; daily results are persisted in
 `industry_group_rs_snapshots`, and normal UI/API reads use these prepared snapshots.
 
 - Group performance is built from one canonical equal-weight daily index across issuer
@@ -214,6 +214,10 @@ The algorithm version is `industry_group_rs_v2`; daily results are persisted in
   equal-weight mean is compounded. The 21/63/126/252-session returns are derived from that same
   index, so chart and horizon returns use one calculation path. SPY is the default benchmark;
   excess return is group return minus benchmark return.
+- Horizon eligibility is aligned to the benchmark's exact trading-session dates. An official
+  horizon percentile requires at least five eligible issuer representatives on every session in
+  the horizon; a session without any usable group price invalidates the raw horizon return instead
+  of silently carrying the group index forward as a zero return.
 - Horizon scores are percentile ranks on a 1–100 scale. The composite formula is
   `0.15*RS_1M + 0.25*RS_3M + 0.30*RS_6M + 0.30*RS_12M`. Tied observations share a percentile,
   and tied composite scores share an official rank.

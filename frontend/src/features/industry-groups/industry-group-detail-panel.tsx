@@ -56,7 +56,7 @@ export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Metric label="RS" value={group.rs_score != null ? Math.round(group.rs_score).toString() : "–"} />
-            <Metric label="Rank" value={group.is_ranked && group.rank ? `#${group.rank}/${group.ranked_group_count}` : "Kleine Gruppe"} />
+            <Metric label="Rank" value={rankLabel(group)} />
             <Metric label="Δ 5D" value={momentum(group.rank_change_5d)} />
             <Metric label="Δ 20D" value={momentum(group.rank_change_20d)} />
           </div>
@@ -165,6 +165,17 @@ export function IndustryGroupDetailPanel({ groupCode }: { groupCode: string }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="min-w-28 rounded-[10px] border border-[#e3e8ef] bg-[#f9fbfc] p-3"><div className="text-xs text-[#687386]">{label}</div><div className="mt-1 font-semibold text-[#172033]">{value}</div></div>;
+}
+
+function rankLabel(group: {
+  is_ranked: boolean;
+  rank?: number | null;
+  ranked_group_count: number;
+  rank_status: "ranked" | "small_group" | "insufficient_history";
+}) {
+  if (group.is_ranked && group.rank) return `#${group.rank}/${group.ranked_group_count}`;
+  if (group.rank_status === "small_group") return "Kleine Gruppe";
+  return "Historie fehlt";
 }
 
 function ReturnTile({ label, value, excess }: { label: string; value?: number | null; excess?: number | null }) {

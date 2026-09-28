@@ -27,7 +27,7 @@ export function IndustryGroupsPanel() {
     staleTime: 60_000
   });
 
-  const rows = query.data?.rows ?? [];
+  const rows = useMemo(() => query.data?.rows ?? [], [query.data?.rows]);
   const sectors = useMemo(() => Array.from(new Set(rows.map((row) => row.sector))).sort(), [rows]);
   const families = useMemo(() => Array.from(new Set(rows.map((row) => row.industry_family))).sort(), [rows]);
 
@@ -94,7 +94,7 @@ export function IndustryGroupsPanel() {
               <tbody>
                 {visible.map((row) => (
                   <tr key={row.code} className="border-b border-[#eef2f6] last:border-0 hover:bg-[#f9fbfc]">
-                    <td className="px-3 py-3 font-semibold tabular-nums">{row.is_ranked && row.rank ? `#${row.rank}` : "–"}</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums" title={rankStatusLabel(row)}>{row.is_ranked && row.rank ? `#${row.rank}` : "–"}</td>
                     <td className="px-3 py-3">
                       <Link className="font-semibold text-[#0f766e] hover:underline" href={`/industry-groups/${encodeURIComponent(row.code)}`}>{row.name}</Link>
                       <div className="mt-0.5 text-xs text-[#687386]">{row.code} · {row.industry_family}</div>
@@ -146,4 +146,10 @@ function formatMomentum(value?: number | null) {
   if (value > 0) return `↑${value}`;
   if (value < 0) return `↓${Math.abs(value)}`;
   return "→0";
+}
+
+function rankStatusLabel(row: IndustryGroupRankingRow) {
+  if (row.rank_status === "small_group") return "Zu wenige Emittenten für ein offizielles Ranking";
+  if (row.rank_status === "insufficient_history") return "Nicht genügend vollständige Kurshistorie";
+  return `Offizieller Rang ${row.rank ?? "–"} von ${row.ranked_group_count}`;
 }

@@ -13,7 +13,7 @@ from app.repositories import industry_group_rs as repository
 from app.repositories import stock_assessments as stock_assessment_repository
 
 
-ALGORITHM_VERSION = "industry_group_rs_v2"
+ALGORITHM_VERSION = "industry_group_rs_v3"
 DEFAULT_BENCHMARK = "SPY"
 MIN_GROUP_MEMBERS_FOR_RS = 5
 WINSOR_LOWER_QUANTILE = 0.05
@@ -86,6 +86,40 @@ def _return_pct(
     if current <= 0 or previous <= 0:
         return None
     return (current / previous - 1.0) * 100.0
+
+
+def _return_pct_between_dates(
+    points: list[repository.PricePoint],
+    start_date: date | None,
+    end_date: date,
+) -> float | None:
+    if start_date is None:
+        return None
+    start_index = _current_point_index(points, start_date)
+    end_index = _current_point_index(points, end_date)
+    if start_index < 0 or end_index < 0 or start_index >= end_index:
+        return None
+    current = points[end_index].close
+    previous = points[start_index].close
+    if current <= 0 or previous <= 0:
+        return None
+    return (current / previous - 1.0) * 100.0
+
+
+def _benchmark_session_starts(
+    benchmark_points: list[repository.PricePoint],
+    as_of: date,
+    sessions: set[int],
+) -> dict[int, date | None]:
+    index = _current_point_index(benchmark_points, as_of)
+    return {
+        session_count: (
+            benchmark_points[index - session_count].date
+            if index >= session_count
+            else None
+        )
+        for session_count in sessions
+    }
 
 
 def _latest_close(points: list[repository.PricePoint], as_of: date) -> float | None:
@@ -249,11 +283,32 @@ def _series_return_pct(
     index = bisect_right(dates, as_of) - 1
     if index < sessions or dates[index] != as_of:
         return None
+    window = series[index - sessions + 1 : index + 1]
+    if any(
+        "eligible_members" in point and int(point.get("eligible_members") or 0) <= 0
+        for point in window
+    ):
+        return None
     current = float(series[index]["group_index"])
     previous = float(series[index - sessions]["group_index"])
     if current <= 0 or previous <= 0:
         return None
     return (current / previous - 1.0) * 100.0
+
+
+def _minimum_daily_eligible_members(
+    series: list[dict],
+    as_of: date,
+    sessions: int,
+) -> int | None:
+    if not series:
+        return None
+    dates = [date.fromisoformat(str(point["date"])) for point in series]
+    index = bisect_right(dates, as_of) - 1
+    if index < sessions or dates[index] != as_of:
+        return None
+    window = series[index - sessions + 1 : index + 1]
+    return min(int(point.get("eligible_members") or 0) for point in window)
 
 
 def _member_metrics(
@@ -262,9 +317,18 @@ def _member_metrics(
     representative_by_ticker: dict[str, str],
     price_history: dict[str, list[repository.PricePoint]],
     as_of: date,
+    *,
+    benchmark_session_starts: dict[int, date | None] | None = None,
 ) -> list[dict]:
     representative_tickers = {row.ticker for row in representatives}
     result = []
+    session_starts = benchmark_session_starts or {}
+
+    def member_return(points: list[repository.PricePoint], sessions: int) -> float | None:
+        if benchmark_session_starts is None:
+            return _return_pct(points, as_of, sessions)
+        return _return_pct_between_dates(points, session_starts.get(sessions), as_of)
+
     for member in members:
         points = price_history.get(member.ticker, [])
         result.append(
@@ -276,12 +340,12 @@ def _member_metrics(
                 "representative_ticker": representative_by_ticker.get(member.ticker, member.ticker),
                 "latest_close": _latest_close(points, as_of),
                 "average_dollar_volume_20d": round(_average_dollar_volume(points, as_of), 2),
-                "return_1d": _return_pct(points, as_of, HORIZON_SESSIONS["1d"]),
-                "return_1w": _return_pct(points, as_of, MEMBER_1W_SESSIONS),
-                "return_1m": _return_pct(points, as_of, HORIZON_SESSIONS["1m"]),
-                "return_3m": _return_pct(points, as_of, HORIZON_SESSIONS["3m"]),
-                "return_6m": _return_pct(points, as_of, HORIZON_SESSIONS["6m"]),
-                "return_12m": _return_pct(points, as_of, HORIZON_SESSIONS["12m"]),
+                "return_1d": member_return(points, HORIZON_SESSIONS["1d"]),
+                "return_1w": member_return(points, MEMBER_1W_SESSIONS),
+                "return_1m": member_return(points, HORIZON_SESSIONS["1m"]),
+                "return_3m": member_return(points, HORIZON_SESSIONS["3m"]),
+                "return_6m": member_return(points, HORIZON_SESSIONS["6m"]),
+                "return_12m": member_return(points, HORIZON_SESSIONS["12m"]),
             }
         )
     return result
@@ -297,6 +361,11 @@ def _raw_group_data(
     representatives_by_group: dict[str, tuple[list[repository.GroupMemberRow], dict[str, str]]] | None = None,
     performance_series_by_group: dict[str, list[dict]] | None = None,
 ) -> dict[str, dict]:
+    benchmark_session_starts = _benchmark_session_starts(
+        benchmark_points,
+        as_of,
+        set(HORIZON_SESSIONS.values()) | {MEMBER_1W_SESSIONS},
+    )
     benchmark_returns = {
         horizon: _return_pct(benchmark_points, as_of, sessions)
         for horizon, sessions in HORIZON_SESSIONS.items()
@@ -315,7 +384,11 @@ def _raw_group_data(
         for member in representatives:
             points = price_history.get(member.ticker, [])
             for horizon, sessions in HORIZON_SESSIONS.items():
-                value = _return_pct(points, as_of, sessions)
+                value = _return_pct_between_dates(
+                    points,
+                    benchmark_session_starts.get(sessions),
+                    as_of,
+                )
                 if value is not None:
                     horizon_values[horizon].append(value)
 
@@ -332,12 +405,17 @@ def _raw_group_data(
             horizon: _series_return_pct(canonical_series, as_of, sessions)
             for horizon, sessions in HORIZON_SESSIONS.items()
         }
+        minimum_daily_eligible_counts = {
+            horizon: _minimum_daily_eligible_members(canonical_series, as_of, sessions)
+            for horizon, sessions in HORIZON_SESSIONS.items()
+        }
         raw[group_id] = {
             "group": members[0],
             "member_count": len(members),
             "issuer_count": len(representatives),
             "eligible_member_count": len(horizon_values["1m"]),
             "eligible_counts": {key: len(value) for key, value in horizon_values.items()},
+            "minimum_daily_eligible_counts": minimum_daily_eligible_counts,
             "returns": returns,
             "benchmark_returns": benchmark_returns,
             "member_metrics": _member_metrics(
@@ -346,6 +424,7 @@ def _raw_group_data(
                 representative_by_ticker,
                 price_history,
                 as_of,
+                benchmark_session_starts=benchmark_session_starts,
             ),
             "performance_series": (
                 [
@@ -368,6 +447,8 @@ def _rank_raw(raw: dict[str, dict]) -> None:
             for group_id, item in raw.items()
             if item["issuer_count"] >= MIN_GROUP_MEMBERS_FOR_RS
             and item["eligible_counts"][horizon] >= MIN_GROUP_MEMBERS_FOR_RS
+            and (item["minimum_daily_eligible_counts"][horizon] or 0)
+            >= MIN_GROUP_MEMBERS_FOR_RS
             and item["returns"][horizon] is not None
         }
         horizon_percentiles[horizon] = _percentiles(candidates)
@@ -454,6 +535,7 @@ def _snapshot_writes(
                     "weights": INDUSTRY_GROUP_RS_WEIGHTS,
                     "horizon_sessions": HORIZON_SESSIONS,
                     "eligible_counts": item["eligible_counts"],
+                    "minimum_daily_eligible_counts": item["minimum_daily_eligible_counts"],
                     "min_group_members_for_rs": MIN_GROUP_MEMBERS_FOR_RS,
                     "aggregation": "daily_equal_weight_winsorized_5_95",
                     "winsor_lower_quantile": WINSOR_LOWER_QUANTILE,
@@ -595,6 +677,15 @@ def refresh_industry_group_rs(
 
 
 def _snapshot_payload(group, snapshot) -> dict:
+    rank_status = (
+        "ranked"
+        if snapshot.is_ranked
+        else (
+            "small_group"
+            if int(snapshot.issuer_count) < MIN_GROUP_MEMBERS_FOR_RS
+            else "insufficient_history"
+        )
+    )
     return {
         "id": group.id,
         "code": group.group_code,
@@ -606,6 +697,7 @@ def _snapshot_payload(group, snapshot) -> dict:
         "eligible_member_count": snapshot.eligible_member_count,
         "issuer_count": snapshot.issuer_count,
         "is_ranked": snapshot.is_ranked,
+        "rank_status": rank_status,
         "rank": snapshot.rank,
         "ranked_group_count": snapshot.ranked_group_count,
         "rs_score": snapshot.rs_score,

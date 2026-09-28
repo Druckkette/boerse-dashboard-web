@@ -1916,6 +1916,7 @@ export type IndustryGroupRankingRow = {
   eligible_member_count: number;
   issuer_count: number;
   is_ranked: boolean;
+  rank_status: "ranked" | "small_group" | "insufficient_history";
   rank?: number | null;
   ranked_group_count: number;
   rs_score?: number | null;
@@ -1984,6 +1985,7 @@ export type IndustryGroupRsDiagnostics = {
   total_groups: number;
   ranked_groups: number;
   small_groups: number;
+  insufficient_history_groups: number;
   total_members: number;
   eligible_issuers: number;
   missing_1m: number;
