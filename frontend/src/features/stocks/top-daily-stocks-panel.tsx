@@ -19,7 +19,7 @@ export function TopDailyStocksPanel() {
   const query = useQuery({ queryKey: ["top-daily-stocks"], queryFn: api.topDailyStocks, staleTime: 60_000, refetchInterval: 60_000 });
   const data = query.data;
   return (
-    <section className="rounded-2xl border border-[#dce5ed] bg-white p-5 shadow-sm" aria-label="Top 3 Aktien des Tages">
+    <section id="top-daily" className="rounded-2xl border border-[#dce5ed] bg-white p-5 shadow-sm" aria-label="Top 3 Aktien des Tages">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-700">Research-Shortlist</p>

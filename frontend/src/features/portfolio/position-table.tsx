@@ -100,7 +100,7 @@ export function PositionTable({
   if (!positions.length) return <EmptyPortfolio />;
 
   return (
-    <section className="overflow-hidden rounded-[14px] border border-[#e3e8ef] bg-white shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+    <section id="positionen" className="overflow-hidden rounded-[14px] border border-[#e3e8ef] bg-white shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className="flex items-center justify-between gap-3 border-b border-[#e8edf2] px-4 py-3">
         <div><h2 className="text-sm font-semibold text-[#172033]">Positionen</h2><p className="mt-0.5 text-xs text-[#687386]">Sortierung und sichtbare Spalten werden in diesem Browser gespeichert.</p></div>
         <details className="relative">

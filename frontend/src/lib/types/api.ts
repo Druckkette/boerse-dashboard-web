@@ -1866,13 +1866,16 @@ export type HomeDashboard = {
     breadth?: BreadthPoint | null;
     volatility?: VolatilityPoint | null;
   };
-  priorities: Array<{ ticker: string; label: string; detail: string; href: string; tone: Tone }>;
+  priorities: Array<{ ticker: string; category: string; label: string; detail: string; href: string; tone: Tone }>;
   opportunities: TopDailyStockItem[];
-  changes: Array<{ ticker: string; detail: string; href: string }>;
+  changes: Array<{ ticker: string; detail: string; source: string; href: string }>;
   portfolio: {
     positions_count: number;
     stop_coverage_count?: number;
     stop_coverage_total?: number;
+    daily_performance_pct?: number | null;
+    daily_performance_as_of?: string | null;
+    comparable_positions?: number;
     positions: Array<{ ticker: string; name: string; pnl_pct: number; has_stop: boolean }>;
   };
   sell_rows: SellRankingRow[];
