@@ -80,7 +80,8 @@ import type {
   UniverseSymbolMappingUpdate,
   Volatility,
   WorkspacePatch,
-  WorkspaceState
+  WorkspaceState,
+  HomeDashboard
 } from "@/lib/types/api";
 
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -178,6 +179,7 @@ async function errorMessage(response: Response) {
 }
 
 export const api = {
+  home: () => getJson<HomeDashboard>("/home"),
   marketOverview: (ticker = "^GSPC") =>
     getJson<MarketOverview>(`/market/overview?ticker=${encodeURIComponent(ticker)}`),
   marketAmpel: (ticker = "SPY", days = 90) =>

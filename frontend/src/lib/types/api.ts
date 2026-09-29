@@ -1855,6 +1855,31 @@ export type WorkspacePatch = {
   recent_tickers?: string[];
 };
 
+export type HomeDashboard = {
+  generated_at: string;
+  as_of?: string | null;
+  data_quality?: { decision_status?: string; summary?: string } | null;
+  errors: string[];
+  market: {
+    overview?: MarketOverview | null;
+    nasdaq?: MarketOverview | null;
+    breadth?: BreadthPoint | null;
+    volatility?: VolatilityPoint | null;
+  };
+  priorities: Array<{ ticker: string; label: string; detail: string; href: string; tone: Tone }>;
+  opportunities: TopDailyStockItem[];
+  changes: Array<{ ticker: string; detail: string; href: string }>;
+  portfolio: {
+    positions_count: number;
+    stop_coverage_count?: number;
+    stop_coverage_total?: number;
+    positions: Array<{ ticker: string; name: string; pnl_pct: number; has_stop: boolean }>;
+  };
+  sell_rows: SellRankingRow[];
+  industry_groups: IndustryGroupRankingRow[];
+  watchlist: Array<StockAssessmentRankingItem & { [key: string]: unknown }>;
+};
+
 export type SetupStep = {
   key:
     | "system"

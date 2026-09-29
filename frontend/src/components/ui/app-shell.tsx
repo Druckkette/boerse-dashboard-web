@@ -5,6 +5,7 @@ import {
   BriefcaseBusiness,
   ChartCandlestick,
   Gauge,
+  Home,
   LineChart,
   Layers3,
   NotebookPen,
@@ -20,6 +21,7 @@ import { ReactNode } from "react";
 import { HeaderTools } from "@/components/ui/header-tools";
 
 const navItems = [
+  { href: "/", label: "Startseite", icon: Home, exact: true },
   { href: "/market", label: "Marktübersicht", icon: Gauge },
   { href: "/sectors", label: "Sektoren", icon: Shield },
   { href: "/industry-groups", label: "Industry Groups", icon: Layers3 },
@@ -39,6 +41,7 @@ const hiddenPageLabels = [
 ];
 
 const pageDescriptions: Record<string, string> = {
+  "/": "Persönlicher Überblick über Markt, Chancen, Portfolio und heutige Aufgaben.",
   "/market": "Marktampel, Marktbreite und Frühwarnzeichen in einer ruhigen Übersicht.",
   "/sectors": "Sektorrotation und relative Stärke nach Tages- oder Wochenansicht.",
   "/industry-groups": "Industry-Group-RS, Rangdynamik und die stärksten Aktien innerhalb jeder Gruppe.",
@@ -131,7 +134,7 @@ function pageLabel(pathname: string) {
     .sort((left, right) => right.href.length - left.href.length)
     .find((item) => isActive(pathname, item.href, item.exact));
   if (match) return match.label;
-  if (pathname === "/") return "Market";
+  if (pathname === "/") return "Startseite";
   return "Workspace";
 }
 
