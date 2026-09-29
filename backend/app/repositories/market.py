@@ -100,19 +100,20 @@ def load_cached_prices(tickers: Iterable[str], *, start_date: date) -> dict[str,
     return {ticker: points for ticker, points in series.items() if points}
 
 
-def load_latest_close_pair(ticker: str) -> list[MarketClosePair]:
-    """Read the latest two distinct closing sessions without loading index history.
+def load_latest_close_pairs(tickers: Iterable[str]) -> dict[str, list[MarketClosePair]]:
+    """Read a small set of canonical closes for several indices in one query.
 
     Price bars can exist for more than one provider.  The newest fetched row is
     selected per date, so a duplicate provider row can never become a false
-    "previous close".
+    "previous close".  The home dashboard discards any still-intraday row and
+    therefore needs a few recent sessions rather than exactly two rows.
     """
-    clean = ticker.strip().upper()
-    if not clean:
-        return []
+    clean_tickers = list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))
+    if not clean_tickers:
+        return {}
     try:
         with SessionLocal() as db:
-            ranked = (
+            canonical_by_date = (
                 select(
                     Instrument.ticker.label("ticker"),
                     PriceBar.date.label("date"),
@@ -126,24 +127,50 @@ def load_latest_close_pair(ticker: str) -> list[MarketClosePair]:
                     .label("provider_rank"),
                 )
                 .join(PriceBar, PriceBar.instrument_id == Instrument.id)
-                .where(Instrument.ticker == clean, PriceBar.close.is_not(None))
+                .where(Instrument.ticker.in_(clean_tickers), PriceBar.close.is_not(None))
+                .subquery()
+            )
+            ranked = (
+                select(
+                    canonical_by_date.c.ticker,
+                    canonical_by_date.c.date,
+                    canonical_by_date.c.close,
+                    canonical_by_date.c.fetched_at,
+                    func.row_number()
+                    .over(
+                        partition_by=canonical_by_date.c.ticker,
+                        order_by=canonical_by_date.c.date.desc(),
+                    )
+                    .label("session_rank"),
+                )
+                .where(canonical_by_date.c.provider_rank == 1)
                 .subquery()
             )
             rows = db.execute(
                 select(ranked.c.ticker, ranked.c.date, ranked.c.close, ranked.c.fetched_at)
-                .where(ranked.c.provider_rank == 1)
-                .order_by(ranked.c.date.desc())
+                .where(ranked.c.session_rank <= 12)
+                .order_by(ranked.c.ticker.asc(), ranked.c.date.asc())
                 # Read a handful of sessions so callers can discard an intraday
                 # row and still obtain two confirmed closes.
-                .limit(12)
             ).all()
     except SQLAlchemyError as exc:
         raise MarketRepositoryUnavailable(str(exc)) from exc
-    return [
-        MarketClosePair(ticker=str(row_ticker), date=bar_date, close=float(close), fetched_at=fetched_at)
-        for row_ticker, bar_date, close, fetched_at in reversed(rows)
-        if close is not None
-    ]
+    series: dict[str, list[MarketClosePair]] = {ticker: [] for ticker in clean_tickers}
+    for row_ticker, bar_date, close, fetched_at in rows:
+        if close is not None:
+            series.setdefault(str(row_ticker), []).append(
+                MarketClosePair(ticker=str(row_ticker), date=bar_date, close=float(close), fetched_at=fetched_at)
+            )
+    return series
+
+
+def load_latest_close_pair(ticker: str) -> list[MarketClosePair]:
+    """Read recent canonical closes for a single index.
+
+    Kept as a small convenience wrapper for callers that only need one series.
+    """
+    clean = ticker.strip().upper()
+    return load_latest_close_pairs([clean]).get(clean, []) if clean else []
 
 
 def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint]:

@@ -37,11 +37,11 @@ def _phase_label(phase: str | None) -> str:
     }.get(phase or "", "Nicht verfügbar")
 
 
-def _index_summary(ticker: str, label: str) -> dict[str, Any]:
+def _index_summary(ticker: str, label: str, points: list[Any] | None = None) -> dict[str, Any]:
     """Build a daily index comparison from two canonical persisted closes."""
     completed = completed_us_market_session()
     points = [
-        point for point in market_repository.load_latest_close_pair(ticker)
+        point for point in (points if points is not None else market_repository.load_latest_close_pair(ticker))
         if daily_bar_is_final(point.date, point.fetched_at)
     ][-2:]
     if not points:
@@ -69,7 +69,8 @@ def _market_summary() -> dict[str, Any]:
     snapshot = market_repository.get_latest_market_snapshot()
     breadth_rows = market_repository.list_breadth_daily(DEFAULT_MARKET_UNIVERSE_KEY, limit=1)
     breadth = breadth_rows[-1] if breadth_rows else None
-    vix = _index_summary("^VIX", "VIX")
+    closes_by_ticker = market_repository.load_latest_close_pairs(["^VIX", "^GSPC", "^IXIC"])
+    vix = _index_summary("^VIX", "VIX", closes_by_ticker.get("^VIX", []))
     return {
         "session": {
             "phase": "open" if expected.phase == "intraday" else "closed" if expected.phase == "closed" else "unknown",
@@ -86,7 +87,10 @@ def _market_summary() -> dict[str, Any]:
         "volatility": {
             "as_of": vix.get("as_of"), "close": vix.get("close"), "status": vix.get("status"),
         },
-        "indices": [_index_summary("^GSPC", "S&P 500"), _index_summary("^IXIC", "Nasdaq")],
+        "indices": [
+            _index_summary("^GSPC", "S&P 500", closes_by_ticker.get("^GSPC", [])),
+            _index_summary("^IXIC", "Nasdaq", closes_by_ticker.get("^IXIC", [])),
+        ],
         "as_of": snapshot.date.isoformat() if snapshot else None,
     }
 

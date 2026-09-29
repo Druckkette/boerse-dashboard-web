@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -86,6 +87,34 @@ def test_index_summary_ignores_unconfirmed_intraday_close(monkeypatch) -> None:
     assert payload["as_of"] == "2026-09-28"
     assert payload["previous_as_of"] == "2026-09-25"
     assert payload["change_pct"] == 2.0
+
+
+def test_market_summary_reads_all_home_indices_in_one_batch(monkeypatch) -> None:
+    from app.services import home
+
+    monkeypatch.setattr(home, "expected_us_market_session", lambda: SimpleNamespace(phase="closed", date=date(2026, 9, 28)))
+    monkeypatch.setattr(home, "completed_us_market_session", lambda: SimpleNamespace(date=date(2026, 9, 28)))
+    monkeypatch.setattr(home.market_repository, "get_latest_market_snapshot", lambda: None)
+    monkeypatch.setattr(home.market_repository, "list_breadth_daily", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(home, "daily_bar_is_final", lambda *_: True)
+    calls: list[list[str]] = []
+
+    def close_rows(tickers: list[str]) -> dict[str, list[MarketClosePair]]:
+        calls.append(tickers)
+        return {
+            ticker: [
+                MarketClosePair(ticker=ticker, date=date(2026, 9, 25), close=100.0),
+                MarketClosePair(ticker=ticker, date=date(2026, 9, 28), close=101.0),
+            ]
+            for ticker in tickers
+        }
+
+    monkeypatch.setattr(home.market_repository, "load_latest_close_pairs", close_rows)
+
+    payload = home._market_summary()
+
+    assert calls == [["^VIX", "^GSPC", "^IXIC"]]
+    assert [item["change_pct"] for item in payload["indices"]] == [1.0, 1.0]
 
 
 def test_home_changes_are_one_row_per_ticker_and_keep_comparison_dates(monkeypatch) -> None:
