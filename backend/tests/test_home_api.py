@@ -13,7 +13,7 @@ client = TestClient(app)
 def test_home_contract_tolerates_partial_sources(monkeypatch) -> None:
     from app.api.v1 import home as home_api
 
-    monkeypatch.setattr(home_api, "get_home_dashboard", lambda: {
+    monkeypatch.setattr(home_api, "get_cached_home_dashboard", lambda: {
         "as_of": "2026-09-28", "errors": ["industry_groups"], "priorities": [],
         "priorities_total": 0, "review_positions_count": 0, "opportunities": [], "changes": [],
         "portfolio": {"positions_count": 0, "positions": []}, "industry_groups": [],
@@ -186,3 +186,22 @@ def test_home_service_reads_only_persisted_helpers(monkeypatch) -> None:
     assert payload["sell_rows"] == []
     assert payload["opportunities"] == []
     assert payload["market"]["indices"] == []
+
+
+def test_home_cache_reuses_a_recent_persisted_snapshot(monkeypatch) -> None:
+    from app.services import home
+
+    calls = 0
+
+    def dashboard() -> dict:
+        nonlocal calls
+        calls += 1
+        return {"generated_at": str(calls)}
+
+    monkeypatch.setattr(home, "get_home_dashboard", dashboard)
+    monkeypatch.setattr(home, "_home_cache", None)
+
+    assert home.get_cached_home_dashboard()["generated_at"] == "1"
+    assert home.get_cached_home_dashboard()["generated_at"] == "1"
+    assert calls == 1
+    home._home_cache = None

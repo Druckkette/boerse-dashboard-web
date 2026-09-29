@@ -13,7 +13,15 @@ from app.middleware.request_context import RequestContextMiddleware
 async def lifespan(app: FastAPI):
     # Construct the exchange schedule before serving concurrent dashboard requests.
     from app.services.market_calendar import completed_us_market_session
+    from app.services.home import warm_home_dashboard_cache
+
     completed_us_market_session()
+    # This only reads persisted dashboard snapshots.  It keeps the first visit
+    # to the investor home page from paying the database connection warm-up.
+    try:
+        warm_home_dashboard_cache()
+    except Exception:  # noqa: BLE001 - dashboard data must never block API startup
+        pass
     yield
 
 

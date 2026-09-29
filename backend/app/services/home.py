@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from threading import Lock
+from time import monotonic
 from typing import Any, Callable
 
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY
@@ -19,6 +21,11 @@ from app.services.industry_group_rs import ALGORITHM_VERSION
 from app.services.market_calendar import completed_us_market_session, daily_bar_is_final, expected_us_market_session
 from app.services.settings import get_data_quality_summary
 from app.services.workspace import get_workspace_state
+
+
+_HOME_CACHE_TTL_SECONDS = 30.0
+_home_cache: tuple[float, dict[str, Any]] | None = None
+_home_cache_lock = Lock()
 
 
 def _read(label: str, callback: Callable[[], Any], errors: list[str], default: Any) -> Any:
@@ -314,3 +321,25 @@ def get_home_dashboard() -> dict[str, Any]:
         "watchlist": _watchlist_rows(shown_watchlist, assessments, failed="watchlist_assessments" in errors),
         "watchlist_total": len(all_watchlist),
     }
+
+
+def get_cached_home_dashboard() -> dict[str, Any]:
+    """Serve a very short-lived snapshot so the home route stays responsive.
+
+    All values are persisted dashboard data.  A 30-second cache avoids repeated
+    database aggregation on navigation while keeping newly stored snapshots
+    visible almost immediately.  It never triggers external data retrieval.
+    """
+    global _home_cache
+    now = monotonic()
+    with _home_cache_lock:
+        if _home_cache and now - _home_cache[0] < _HOME_CACHE_TTL_SECONDS:
+            return _home_cache[1]
+        payload = get_home_dashboard()
+        _home_cache = (now, payload)
+        return payload
+
+
+def warm_home_dashboard_cache() -> None:
+    """Precompute the small home payload before the API starts serving traffic."""
+    get_cached_home_dashboard()
