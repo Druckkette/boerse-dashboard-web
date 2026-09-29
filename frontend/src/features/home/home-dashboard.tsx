@@ -9,7 +9,7 @@ import { formatPercent } from "@/lib/format";
 import type { HomeDashboard as HomeData, Tone } from "@/lib/types/api";
 
 const number = (value: number | null | undefined, digits = 0) => value == null ? "–" : value.toLocaleString("de-DE", { maximumFractionDigits: digits, minimumFractionDigits: digits });
-const date = (value?: string | null) => value ? new Date(`${value}T12:00:00`).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }) : "–";
+const date = (value: Date) => value.toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 
 export function HomeDashboard() {
   const query = useQuery({ queryKey: ["home-dashboard"], queryFn: api.home, staleTime: 60_000, refetchInterval: 60_000 });
@@ -22,7 +22,7 @@ export function HomeDashboard() {
   const qualityTone: Tone = data.data_quality?.decision_status === "blocked" ? "bad" : data.data_quality?.decision_status === "limited" ? "warning" : "good";
   return <div className="space-y-4">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="text-sm font-semibold text-[#0f766e]">Guten Morgen</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#172033]">Dein Börsen-Cockpit</h1><p className="mt-1 text-sm text-[#687386]">{date(data.as_of)} · Datenstand: {data.as_of || "noch nicht verfügbar"}</p></div>
+      <div><p className="text-sm font-semibold text-[#0f766e]">Guten Morgen</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#172033]">Dein Börsen-Cockpit</h1><p className="mt-1 text-sm text-[#687386]">{date(new Date())} · Datenstand: {data.as_of || "noch nicht verfügbar"}</p></div>
       <Link href="/settings#data-quality" className="inline-flex items-center gap-2 self-start rounded-full border border-[#e3e8ef] bg-white px-3 py-1.5 text-xs font-semibold text-[#687386] hover:text-[#0f766e]"><span className={`size-2 rounded-full ${qualityTone === "good" ? "bg-[#138a57]" : qualityTone === "bad" ? "bg-[#c2413b]" : "bg-[#b7791f]"}`} />{data.data_quality?.summary || "Datenqualität prüfen"}<ExternalLink size={13} /></Link>
     </header>
 
