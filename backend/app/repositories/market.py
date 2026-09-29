@@ -37,6 +37,7 @@ class MarketClosePair:
     ticker: str
     date: date
     close: float
+    fetched_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ def load_latest_close_pair(ticker: str) -> list[MarketClosePair]:
                     Instrument.ticker.label("ticker"),
                     PriceBar.date.label("date"),
                     PriceBar.close.label("close"),
+                    PriceBar.fetched_at.label("fetched_at"),
                     func.row_number()
                     .over(
                         partition_by=PriceBar.date,
@@ -128,16 +130,18 @@ def load_latest_close_pair(ticker: str) -> list[MarketClosePair]:
                 .subquery()
             )
             rows = db.execute(
-                select(ranked.c.ticker, ranked.c.date, ranked.c.close)
+                select(ranked.c.ticker, ranked.c.date, ranked.c.close, ranked.c.fetched_at)
                 .where(ranked.c.provider_rank == 1)
                 .order_by(ranked.c.date.desc())
-                .limit(2)
+                # Read a handful of sessions so callers can discard an intraday
+                # row and still obtain two confirmed closes.
+                .limit(12)
             ).all()
     except SQLAlchemyError as exc:
         raise MarketRepositoryUnavailable(str(exc)) from exc
     return [
-        MarketClosePair(ticker=str(row_ticker), date=bar_date, close=float(close))
-        for row_ticker, bar_date, close in reversed(rows)
+        MarketClosePair(ticker=str(row_ticker), date=bar_date, close=float(close), fetched_at=fetched_at)
+        for row_ticker, bar_date, close, fetched_at in reversed(rows)
         if close is not None
     ]
 

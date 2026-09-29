@@ -16,7 +16,7 @@ from app.repositories import sell_state as sell_state_repository
 from app.repositories import stock_assessments
 from app.services import daily_opportunities
 from app.services.industry_group_rs import ALGORITHM_VERSION
-from app.services.market_calendar import completed_us_market_session, expected_us_market_session
+from app.services.market_calendar import completed_us_market_session, daily_bar_is_final, expected_us_market_session
 from app.services.settings import get_data_quality_summary
 from app.services.workspace import get_workspace_state
 
@@ -40,7 +40,10 @@ def _phase_label(phase: str | None) -> str:
 def _index_summary(ticker: str, label: str) -> dict[str, Any]:
     """Build a daily index comparison from two canonical persisted closes."""
     completed = completed_us_market_session()
-    points = market_repository.load_latest_close_pair(ticker)
+    points = [
+        point for point in market_repository.load_latest_close_pair(ticker)
+        if daily_bar_is_final(point.date, point.fetched_at)
+    ][-2:]
     if not points:
         return {"ticker": ticker, "label": label, "status": "missing"}
     current = points[-1]

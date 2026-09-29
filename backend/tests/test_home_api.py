@@ -38,6 +38,7 @@ def test_index_summary_uses_two_distinct_persisted_sessions(monkeypatch) -> None
         ],
     )
     monkeypatch.setattr(home, "completed_us_market_session", lambda: type("Session", (), {"date": date(2026, 9, 28)})())
+    monkeypatch.setattr(home, "daily_bar_is_final", lambda *_: True)
 
     payload = home._index_summary("^GSPC", "S&P 500")
 
@@ -56,12 +57,35 @@ def test_index_summary_marks_missing_previous_close_as_partial(monkeypatch) -> N
         lambda ticker: [MarketClosePair(ticker=ticker, date=date(2026, 9, 28), close=100.0)],
     )
     monkeypatch.setattr(home, "completed_us_market_session", lambda: type("Session", (), {"date": date(2026, 9, 28)})())
+    monkeypatch.setattr(home, "daily_bar_is_final", lambda *_: True)
 
     payload = home._index_summary("^IXIC", "Nasdaq")
 
     assert payload["status"] == "partial"
     assert payload["previous_close"] is None
     assert payload["change_pct"] is None
+
+
+def test_index_summary_ignores_unconfirmed_intraday_close(monkeypatch) -> None:
+    from app.services import home
+
+    monkeypatch.setattr(
+        home.market_repository,
+        "load_latest_close_pair",
+        lambda ticker: [
+            MarketClosePair(ticker=ticker, date=date(2026, 9, 25), close=100.0),
+            MarketClosePair(ticker=ticker, date=date(2026, 9, 28), close=102.0),
+            MarketClosePair(ticker=ticker, date=date(2026, 9, 29), close=99.0),
+        ],
+    )
+    monkeypatch.setattr(home, "completed_us_market_session", lambda: type("Session", (), {"date": date(2026, 9, 28)})())
+    monkeypatch.setattr(home, "daily_bar_is_final", lambda value, *_: value != date(2026, 9, 29))
+
+    payload = home._index_summary("^GSPC", "S&P 500")
+
+    assert payload["as_of"] == "2026-09-28"
+    assert payload["previous_as_of"] == "2026-09-25"
+    assert payload["change_pct"] == 2.0
 
 
 def test_home_changes_are_one_row_per_ticker_and_keep_comparison_dates(monkeypatch) -> None:
