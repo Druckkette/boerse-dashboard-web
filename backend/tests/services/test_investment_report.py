@@ -49,6 +49,44 @@ def test_missing_does_not_export_placeholder_scores_or_markup():
         ("Zero", "0"), ("False", "Nein"), ("Unknown", "Nicht vorhanden")]
 
 
+def test_v2_assessment_is_rendered_as_investor_facing_scorecard_without_raw_internals():
+    data = report(
+        currency="USD",
+        prices={"last_close": 123.45, "last_date": "2026-09-18", "currency": "USD"},
+        assessment={
+            "source": "database",
+            "as_of": "2026-09-18",
+            "verdict_label": "Attraktiv",
+            "scores": {"overall": 78},
+            "overall_v2": {"score": 78, "status": "available"},
+            "technical_v2": {
+                "score": 81,
+                "status": "available",
+                "components": {
+                    "k4_rs_leadership": {
+                        "score": 87.5,
+                        "status": "available",
+                        "base_weight": 0.3,
+                        "effective_weight": 0.3,
+                        "raw": {"internal_formula_operand": 123456},
+                    }
+                },
+            },
+        },
+    )
+
+    text = "\n".join(page.extract_text() for page in PdfReader(BytesIO(render_report(data))).pages)
+
+    assert "INVESTMENT- UND TRADING-REPORT" in text
+    assert "GESAMTSCORE" in text
+    assert "Attraktiv" in text
+    assert "Bewertung im Detail" in text
+    assert "K4 RS Leadership" in text
+    assert "Basis 30 %" in text
+    assert "internal formula operand" not in text
+    assert "123456" not in text
+
+
 def test_export_route_headers_and_trade_id(monkeypatch):
     from app.reports import collect
     calls = []

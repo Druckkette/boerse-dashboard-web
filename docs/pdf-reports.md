@@ -44,6 +44,9 @@ A4 mit festen Rändern, Dashboard-Farben, eingebetteter Vera-Schrift, Vektor-Kur
 Score-Balken. Tabellen wiederholen ihre Kopfzeile, lange Texte fließen über Seiten hinweg.
 Header und Footer inklusive Seitenzahl erscheinen auf jeder Seite. Gleiche Reportdaten mit
 gleicher Exportzeit erzeugen identische PDF-Bytes. Keine Browser-Navigation oder Zoom-Abhängigkeit.
+Der Bericht beginnt mit einer kompakten Management-Zusammenfassung und der Position. Die
+Bewertung-v2-Komponenten erscheinen als lesbare Scorecard mit Score, Status und Gewichtung;
+interne Rohoperanden und Transportfelder werden nicht als technischer Datendump ausgegeben.
 
 Freitexte werden XML-escaped. Nur begrenzte eingebettete PNG/JPEG/WebP-Bilder werden gelesen;
 externe URLs und Dateipfade werden nicht geladen. Fehlerhafte Bilder werden als Hinweis dargestellt.

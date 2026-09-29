@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Image, LongTable, Paragraph, SimpleDocTemplate, Spacer, TableStyle
+from reportlab.platypus import CondPageBreak, Image, LongTable, Paragraph, SimpleDocTemplate, Spacer, TableStyle
 
 from app.reports.model import InvestmentReport
 
@@ -31,8 +31,10 @@ BODY = ParagraphStyle("Body", fontName="Report", fontSize=9, leading=13, textCol
                       spaceAfter=5, splitLongWords=True)
 SMALL = ParagraphStyle("Small", parent=BODY, fontSize=8, leading=11, textColor=MUTED)
 HEADING = ParagraphStyle("Heading", parent=BODY, fontName="ReportBold", fontSize=14,
-                         leading=19, spaceBefore=17, spaceAfter=9, keepWithNext=True)
+                         leading=19, spaceBefore=17, spaceAfter=9)
 TITLE = ParagraphStyle("Title", parent=HEADING, fontSize=25, leading=31)
+KICKER = ParagraphStyle("Kicker", parent=SMALL, fontName="ReportBold", textColor=TEAL,
+                        fontSize=7.5, leading=10, spaceAfter=3)
 LABELS = {
     "fundamental": "Fundamental", "technical": "Technisch", "trend": "Trend", "risk": "Risiko",
     "overall": "Gesamtbewertung", "moving_averages": "Gleitende Durchschnitte", "chart_behavior": "Chartverhalten",
@@ -87,11 +89,19 @@ LABELS = {
     "target_total_sold_percent": "Zielverkaufsanteil (%)", "already_sold_percent": "Bereits verkauft (%)",
     "next_tranche_trigger_price": "Kurs für nächste Tranche", "full_exit_price": "Kurs für vollständigen Ausstieg",
     "ampel_phase": "Marktampel", "volatility_regime": "Volatilitätsregime", "breadth_mode": "Marktbreite",
+    "k4_rs_leadership": "K4 RS Leadership", "k13_rs_dynamics": "K13 RS Dynamics",
+    "high_position": "ATH-/52W-High Position", "up_down_volume": "Up/Down Volume",
+    "cmf": "CMF / Akkumulation", "fundamental_core": "Fundamental Core",
+    "k9_eps_sales_alignment": "K9 EPS/Sales Alignment", "price_action_core": "Price Action Core",
+    "k35_down_week_quality": "K35 Down-Week Quality", "k38_hh_hl_good_close": "K38 HH/HL + Good Close",
+    "price_above_200_sma": "Kurs > 200 SMA", "price_above_50_sma": "Kurs > 50 SMA",
+    "price_above_21_ema": "Kurs > 21 EMA", "price_above_10_sma": "Kurs > 10 SMA",
+    "ma_order": "MA-Reihenfolge", "persistence": "MA-Persistenz", "slope": "MA-Richtung",
 }
 # Transport/state-machine fields are not investor data. Never fetch remote chart URLs.
 SKIP = {"assessment_version", "reason_code", "source_transaction_id", "trade_group_id", "position_id", "buy_transaction_id", "ticker", "id", "linked_entry_id", "key", "tone", "verdict_tone", "snapshot_schema",
         "next_recommendation_state", "book_references", "raw_payload", "chart_images", "stock_snapshot",
-        "points", "rs_history", "history", "error"}
+        "points", "rs_history", "history", "error", "raw"}
 
 
 def label(key):
@@ -121,13 +131,34 @@ def paragraph(text, style=BODY):
 def table(headers, rows, widths):
     result = LongTable([[paragraph(cell) for cell in headers]] +
                        [[paragraph(cell) for cell in row] for row in rows],
-                       colWidths=widths, repeatRows=1, splitByRow=1, splitInRow=1, hAlign="LEFT")
+                       colWidths=widths, repeatRows=1, splitByRow=1, splitInRow=0, hAlign="LEFT")
     result.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6f5f2")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, -1), .4, BORDER),
         ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
         ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    return result
+
+
+def summary_table(items):
+    """Quiet dashboard-style KPI strip; values are supplied data, never inferred here."""
+    cells = []
+    for item_label, item_value in items:
+        cells.append(Paragraph(
+            f'<font name="ReportBold" size="7" color="#687386">{escape(value(item_label).upper())}</font>'
+            f'<br/><font name="ReportBold" size="13" color="#172033">{escape(value(item_value))}</font>',
+            BODY,
+        ))
+    result = LongTable([cells], colWidths=[WIDTH / len(cells)] * len(cells), hAlign="LEFT")
+    result.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("BOX", (0, 0), (-1, -1), .5, BORDER),
+        ("INNERGRID", (0, 0), (-1, -1), .5, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 9), ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
     return result
 
@@ -150,7 +181,7 @@ def fields(data, prefix=""):
 def add_data(story, title, data):
     if not data:
         return
-    story.append(paragraph(title, HEADING))
+    story.extend([CondPageBreak(90), paragraph(title, HEADING)])
     # Compact criteria arrays retain all available evidence and scoring fields.
     if isinstance(data, list) and all(isinstance(item, dict) and "label" in item for item in data):
         rows = []
@@ -180,8 +211,59 @@ def add_data(story, title, data):
         add_data(story, label(key), item)
 
 
+def status_text(status):
+    return {
+        "available": "Verfügbar", "partial": "Teilweise", "neutral": "Neutral",
+        "limited": "Eingeschränkt", "insufficient_history": "Zu wenig Historie",
+        "missing": "Nicht vorhanden",
+    }.get(status, label(status) if status else "Nicht vorhanden")
+
+
+def add_v2_assessment(story, assessment):
+    groups = (
+        ("Technische Bewertung", assessment.get("technical_v2")),
+        ("Fundamentale Bewertung", assessment.get("fundamental_v2")),
+        ("Chartbewertung", assessment.get("chart_v2")),
+        ("Gleitende Durchschnitte", assessment.get("moving_average_v2")),
+    )
+    available = [(title, detail) for title, detail in groups if isinstance(detail, dict) and detail]
+    if not available:
+        return
+    story.extend([CondPageBreak(90), paragraph("Bewertung im Detail", HEADING)])
+    overall = assessment.get("overall_v2") or {}
+    if overall.get("status") == "limited":
+        available_weight = overall.get("available_weight")
+        suffix = f" ({value(available_weight * 100)} % Gewichtung verfügbar)" if isinstance(available_weight, (int, float)) else ""
+        story.append(paragraph(f"Gesamtbewertung eingeschränkt{suffix}.", SMALL))
+    for title, detail in available:
+        score = detail.get("score")
+        score_text = f"{value(score)} / 100" if isinstance(score, (int, float)) else status_text(detail.get("status"))
+        story.extend([CondPageBreak(90), paragraph(f"{title}  ·  {score_text}", HEADING)])
+        rows = []
+        for key, component in (detail.get("components") or {}).items():
+            if not isinstance(component, dict):
+                continue
+            component_score = component.get("score")
+            base = component.get("base_weight")
+            effective = component.get("effective_weight")
+            weight_bits = []
+            if isinstance(base, (int, float)):
+                weight_bits.append(f"Basis {value(base * 100)} %")
+            if isinstance(effective, (int, float)):
+                weight_bits.append(f"effektiv {value(effective * 100)} %")
+            rows.append([
+                label(key),
+                f"{value(component_score)} / 100" if isinstance(component_score, (int, float)) else "–",
+                status_text(component.get("status")),
+                " · ".join(weight_bits) or "–",
+            ])
+        if rows:
+            story.append(table(["Kriterium", "Score", "Status", "Gewichtung"], rows,
+                               [190, 72, 86, WIDTH - 348]))
+
+
 def add_assessment(story, assessment, title="Aktienbewertung"):
-    story.append(paragraph(title, HEADING))
+    story.extend([CondPageBreak(190), paragraph(title, HEADING)])
     if not assessment or assessment.get("source") == "missing":
         story.append(paragraph("Keine Bewertung gespeichert."))
         return
@@ -214,10 +296,10 @@ def add_assessment(story, assessment, title="Aktienbewertung"):
                 if key in check:
                     detail += f"\n{label(key)}: {value(check[key])}"
             rows.append([check.get("label", ""), result, detail])
-        story.extend([paragraph(label(category) or "Kriterien", HEADING),
+        story.extend([CondPageBreak(90), paragraph(label(category) or "Kriterien", HEADING),
                       table(["Kriterium", "Bewertung", "Wert / Erläuterung"], rows, [132, 90, WIDTH - 222])])
+    add_v2_assessment(story, assessment)
     for key in (
-        "overall_v2", "technical_v2", "fundamental_v2", "chart_v2", "moving_average_v2",
         "setup", "eligibility", "metrics", "earnings", "drivers", "warnings",
         "chart_signals", "chart_signal_states", "data_quality",
     ):
@@ -229,7 +311,7 @@ def add_chart(story, prices):
     points = [p for p in prices.get("points", []) if isinstance(p.get("close"), (int, float)) and math.isfinite(p["close"])]
     if len(points) < 2:
         return
-    story.append(paragraph("Kursverlauf · Schlusskurse", HEADING))
+    story.extend([CondPageBreak(210), paragraph("Kursverlauf · Schlusskurse", HEADING)])
     story.append(paragraph(f"{points[0]['date']} bis {points[-1]['date']} · {prices.get('currency') or 'Währung nicht gespeichert'}", SMALL))
     chart = Drawing(WIDTH, 165)
     low, high = min(p["close"] for p in points), max(p["close"] for p in points)
@@ -266,7 +348,7 @@ def add_images(story, images):
             scale = min(WIDTH / picture.imageWidth, 340 / picture.imageHeight)
             picture.drawWidth = picture.imageWidth * scale
             picture.drawHeight = picture.imageHeight * scale
-            story.extend([paragraph(title, HEADING), picture])
+            story.extend([CondPageBreak(200), paragraph(title, HEADING), picture])
         except Exception:
             story.append(paragraph(f"{title}: gespeichertes Bild nicht darstellbar.", SMALL))
 
@@ -292,20 +374,33 @@ def render_report(report: InvestmentReport) -> bytes:
         canvas.drawRightString(A4[0] - 44, 26, f"Seite {document.page}")
         canvas.restoreState()
 
-    story = [paragraph(report.name, TITLE), paragraph(
-        " · ".join(filter(None, [report.ticker, report.isin, "Trade-Report" if report.trade_id else "Aktien-Report"])), SMALL)]
     assessment = report.assessment
     close = report.prices.get("last_close")
     if close is None:
         close = assessment.get("metrics", {}).get("last_close")
-    story.append(paragraph(f"{'Historischer Kurs' if report.trade_id else 'Letzter gespeicherter Kurs'}: "
-                           f"{value(close)} {report.prices.get('currency') or report.currency} · "
-                           f"Datenstand: {report.prices.get('last_date') or assessment.get('as_of') or 'unbekannt'}"))
+    overall = None if assessment.get("source") == "missing" else (assessment.get("overall_v2") or {}).get("score")
+    if overall is None and assessment.get("source") != "missing":
+        overall = assessment.get("scores", {}).get("overall")
+    verdict = assessment.get("verdict_label") or "Nicht bewertet"
+    data_as_of = report.prices.get("last_date") or assessment.get("as_of") or "Unbekannt"
+    currency = report.prices.get("currency") or report.currency
+    story = [paragraph("INVESTMENT- UND TRADING-REPORT", KICKER), paragraph(report.name, TITLE), paragraph(
+        " · ".join(filter(None, [report.ticker, report.isin, "Trade-Report" if report.trade_id else "Aktien-Report"])), SMALL)]
+    story.extend([Spacer(1, 7), summary_table([
+        ("Kurs", f"{value(close)} {currency}".strip()),
+        ("Gesamtscore", f"{value(overall)} / 100" if overall is not None else "–"),
+        ("Urteil", verdict),
+        ("Datenstand", data_as_of),
+    ])])
     for notice in report.notices:
         story.append(paragraph(notice, SMALL))
+    position_sections = [section for section in report.sections if section.title.startswith("Position")]
+    other_sections = [section for section in report.sections if section not in position_sections]
+    for section in position_sections:
+        add_data(story, section.title, section.data)
     add_chart(story, report.prices)
     add_assessment(story, assessment)
-    for section in report.sections:
+    for section in other_sections:
         add_data(story, section.title, section.data)
     if report.journal:
         story.append(paragraph("Handelstagebuch", HEADING))

@@ -29,7 +29,7 @@ export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string
 
   if (query.isLoading) {
     return (
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-5 text-[#172033] shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         Bewertung für {windowLabel} lädt...
       </div>
     );
@@ -37,7 +37,7 @@ export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string
 
   if (!data) {
     return (
-      <div className="rounded border border-rose-300/30 bg-rose-300/10 p-5 text-rose-100">
+      <div className="rounded-[14px] border border-[#f0b9b5] bg-[#fff0ef] p-5 text-[#9f302c]">
         {query.error instanceof Error ? query.error.message : "Bewertung konnte nicht geladen werden."}
       </div>
     );
@@ -49,13 +49,13 @@ export function BuyStrengthDetail({ ticker, initialWeeks = 3 }: { ticker: string
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link className="inline-flex items-center gap-2 text-sm text-[#a0a7b4] hover:text-white" href={`/portfolio/buy-strength?weeks=${weeks}`}>
+        <Link className="inline-flex items-center gap-2 text-sm text-[#687386] hover:text-[#0f766e]" href={`/portfolio/buy-strength?weeks=${weeks}`}>
           <ArrowLeft size={16} />
           Zurück zur Stärke-Übersicht
         </Link>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-sm">
-            <span className="mb-1 block text-xs uppercase text-[#a0a7b4]">Zeitraum</span>
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Zeitraum</span>
             <select
               className="input-dark h-9 min-w-[8rem]"
               value={weeks}
@@ -131,21 +131,21 @@ function CheckSection({
   empty: string;
 }) {
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className="mb-4">
         <h2 className="text-base font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-[#a0a7b4]">{subtitle}</p>
+        <p className="mt-1 text-sm text-[#687386]">{subtitle}</p>
       </div>
       {checks.length === 0 ? (
-        <div className="rounded border border-[#2d333d] bg-[#111419] p-4 text-sm text-[#a0a7b4]">{empty}</div>
+        <div className="rounded-[10px] border border-dashed border-[#cbd5e1] bg-[#f9fbfd] p-4 text-sm text-[#687386]">{empty}</div>
       ) : (
         <div className="space-y-3">
           {checks.map((check) => (
-            <div key={check.key} className="rounded border border-[#2d333d] bg-[#111419] p-4">
+            <div key={check.key} className="rounded-[10px] border border-[#e3e8ef] bg-[#fbfcfe] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold">{check.label}</h3>
-                  <p className="mt-1 text-sm text-[#a0a7b4]">{check.detail}</p>
+                  <h3 className="text-sm font-semibold text-[#172033]">{check.label}</h3>
+                  <p className="mt-1 text-sm leading-5 text-[#687386]">{check.detail}</p>
                 </div>
                 <StatusChip tone={check.tone}>{check.category === "warning" ? (check.passed ? "OK" : "aktiv") : check.passed ? "gut" : "fehlt"}</StatusChip>
               </div>
@@ -168,11 +168,11 @@ function InfoTile({
   value: string;
   tone?: "good" | "neutral" | "bad";
 }) {
-  const color = tone === "good" ? "text-emerald-300" : tone === "bad" ? "text-rose-300" : "text-white";
+  const color = tone === "good" ? "text-[#138a57]" : tone === "bad" ? "text-[#c2413b]" : "text-[#172033]";
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-      <div className="mb-3 text-[#a0a7b4]">{icon}</div>
-      <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
+    <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+      <div className="mb-3 text-[#687386]">{icon}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#687386]">{label}</div>
       <div className={`mt-1 text-lg font-semibold ${color}`}>{value}</div>
     </div>
   );
@@ -187,10 +187,10 @@ function Metric({
   value: string;
   tone?: "good" | "neutral" | "bad";
 }) {
-  const color = tone === "good" ? "text-emerald-300" : tone === "bad" ? "text-rose-300" : "text-white";
+  const color = tone === "good" ? "text-[#138a57]" : tone === "bad" ? "text-[#c2413b]" : "text-[#172033]";
   return (
-    <div className="rounded border border-[#2d333d] bg-[#111419] px-3 py-2">
-      <div className="text-[11px] uppercase text-[#a0a7b4]">{label}</div>
+    <div className="rounded-[9px] border border-[#e3e8ef] bg-[#fbfcfe] px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.05em] text-[#687386]">{label}</div>
       <div className={`mt-1 text-sm font-semibold ${color}`}>{value}</div>
     </div>
   );
