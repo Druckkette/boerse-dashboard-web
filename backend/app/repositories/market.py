@@ -121,7 +121,7 @@ def load_latest_close_pairs(tickers: Iterable[str]) -> dict[str, list[MarketClos
                     PriceBar.fetched_at.label("fetched_at"),
                     func.row_number()
                     .over(
-                        partition_by=PriceBar.date,
+                        partition_by=(Instrument.ticker, PriceBar.date),
                         order_by=(PriceBar.fetched_at.desc().nulls_last(), PriceBar.id.desc()),
                     )
                     .label("provider_rank"),
