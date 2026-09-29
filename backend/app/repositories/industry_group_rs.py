@@ -306,6 +306,80 @@ def list_latest_snapshots(
         raise IndustryGroupRsRepositoryUnavailable(str(exc)) from exc
 
 
+def list_home_rankings(
+    *,
+    taxonomy_version: str,
+    algorithm_version: str,
+    limit: int = 5,
+    history_limit: int = 21,
+) -> tuple[date | None, list[dict]]:
+    """Return only the ranked groups and history needed by the home dashboard."""
+    latest = latest_snapshot_date(
+        taxonomy_version=taxonomy_version,
+        algorithm_version=algorithm_version,
+    )
+    if latest is None:
+        return None, []
+    try:
+        with SessionLocal() as db:
+            pairs = db.execute(
+                select(IndustryGroup, IndustryGroupRsSnapshot)
+                .join(IndustryGroupRsSnapshot, IndustryGroupRsSnapshot.industry_group_id == IndustryGroup.id)
+                .where(
+                    IndustryGroupRsSnapshot.snapshot_date == latest,
+                    IndustryGroupRsSnapshot.taxonomy_version == taxonomy_version,
+                    IndustryGroupRsSnapshot.algorithm_version == algorithm_version,
+                    IndustryGroupRsSnapshot.is_ranked.is_(True),
+                    IndustryGroup.taxonomy_version == taxonomy_version,
+                )
+                .order_by(IndustryGroupRsSnapshot.rank.asc(), IndustryGroup.name.asc())
+                .limit(max(1, min(20, int(limit))))
+            ).all()
+            group_ids = [group.id for group, _snapshot in pairs]
+            if not group_ids:
+                return latest, []
+            ranked_history = (
+                select(
+                    IndustryGroupRsSnapshot.industry_group_id.label("group_id"),
+                    IndustryGroupRsSnapshot.rank.label("rank"),
+                    func.row_number().over(
+                        partition_by=IndustryGroupRsSnapshot.industry_group_id,
+                        order_by=IndustryGroupRsSnapshot.snapshot_date.desc(),
+                    ).label("history_rank"),
+                )
+                .where(
+                    IndustryGroupRsSnapshot.industry_group_id.in_(group_ids),
+                    IndustryGroupRsSnapshot.algorithm_version == algorithm_version,
+                )
+                .subquery()
+            )
+            history_rows = db.execute(
+                select(ranked_history.c.group_id, ranked_history.c.rank, ranked_history.c.history_rank)
+                .where(ranked_history.c.history_rank <= max(2, min(60, int(history_limit))))
+            ).all()
+    except SQLAlchemyError as exc:
+        raise IndustryGroupRsRepositoryUnavailable(str(exc)) from exc
+
+    twentieth_rank = {
+        group_id: rank for group_id, rank, history_rank in history_rows
+        if history_rank == 21 and rank is not None
+    }
+    return latest, [
+        {
+            "code": group.group_code,
+            "name": group.name,
+            "rank": snapshot.rank,
+            "rs_score": snapshot.rs_score,
+            "rank_change_20d": (
+                twentieth_rank.get(group.id) - snapshot.rank
+                if twentieth_rank.get(group.id) is not None and snapshot.rank is not None
+                else None
+            ),
+        }
+        for group, snapshot in pairs
+    ]
+
+
 def get_latest_group_snapshot(
     group_code: str,
     *,

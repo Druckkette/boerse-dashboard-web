@@ -257,3 +257,59 @@ def get_top_daily() -> dict:
                      "chart_behavior_score": row.chart_behavior_score,
                      "rs_rating": row.rs_rating, **row.details_json}
                     for row in rows]}
+
+
+def get_home_changes(*, priority_tickers: list[str], limit: int = 8) -> dict:
+    """Read persisted opportunity deltas once per ticker for the home dashboard.
+
+    The daily-opportunity table retains its own previous-session comparison.  It
+    is therefore the only source used here for score and signal deltas; current
+    assessment and sell snapshots do not contain a prior version.
+    """
+    clean_priority = {ticker.strip().upper() for ticker in priority_tickers if ticker.strip()}
+    with SessionLocal() as db:
+        day = db.scalar(select(func.max(DailyStockOpportunity.as_of)))
+        if day is None:
+            return {"as_of": None, "previous_as_of": None, "rows": []}
+        previous_day = db.scalar(
+            select(func.max(DailyStockOpportunity.as_of)).where(DailyStockOpportunity.as_of < day)
+        )
+        rows = db.scalars(
+            select(DailyStockOpportunity)
+            .where(DailyStockOpportunity.as_of == day)
+            .order_by(
+                DailyStockOpportunity.rank.asc().nulls_last(),
+                DailyStockOpportunity.daily_opportunity_score.desc().nulls_last(),
+                DailyStockOpportunity.ticker.asc(),
+            )
+            .limit(400)
+        ).all()
+
+    changed = []
+    for row in rows:
+        details = row.details_json or {}
+        positive = list(details.get("positive_changes") or [])
+        if not positive:
+            continue
+        ticker = row.ticker.upper()
+        if ticker not in clean_priority and (row.rank is None or row.rank > 3):
+            continue
+        changed.append({
+            "ticker": ticker,
+            "rank": row.rank,
+            "name": details.get("name") or ticker,
+            "overall_score_delta": details.get("overall_score_delta"),
+            "technical_score_delta": details.get("technical_score_delta"),
+            "rs_rating_delta": details.get("rs_rating_delta"),
+            "positive_changes": positive,
+        })
+    changed.sort(key=lambda row: (
+        0 if row["ticker"] in clean_priority else 1,
+        row["rank"] if row["rank"] is not None else 9999,
+        row["ticker"],
+    ))
+    return {
+        "as_of": day.isoformat(),
+        "previous_as_of": previous_day.isoformat() if previous_day else None,
+        "rows": changed[:max(1, min(20, int(limit)))],
+    }

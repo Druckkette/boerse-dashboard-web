@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, Save } from "lucide-react";
+import { ArrowRight, CircleAlert, Minus, Plus, Save } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -72,8 +73,8 @@ export default function SellMonitorTickerPage() {
   const params = useParams<{ ticker: string }>();
   const ticker = params.ticker.toUpperCase();
   const queryClient = useQueryClient();
-  const metrics = useQuery({ queryKey: ["sell-metrics", ticker], queryFn: () => api.sellMetrics(ticker) });
-  const evaluation = useQuery({ queryKey: ["sell-evaluation", ticker], queryFn: () => api.sellEvaluation(ticker) });
+  const metrics = useQuery({ queryKey: ["sell-metrics", ticker], queryFn: () => api.sellMetrics(ticker), retry: false });
+  const evaluation = useQuery({ queryKey: ["sell-evaluation", ticker], queryFn: () => api.sellEvaluation(ticker), retry: false });
   const [manualDraft, setManualDraft] = useState<{ ticker: string; value: SellManualInput } | null>(null);
 
   const saveManual = useMutation({
@@ -90,6 +91,11 @@ export default function SellMonitorTickerPage() {
   const currentManual =
     manualDraft?.ticker === ticker ? manualDraft.value : evaluation.data?.manual ?? null;
   const manualDirty = manualDraft?.ticker === ticker;
+
+  const unavailableError = evaluation.error ?? metrics.error;
+  if (unavailableError) {
+    return <SellMonitorUnavailable ticker={ticker} detail={errorText(unavailableError)} />;
+  }
 
   const mainSignals = [
     ...(evaluation.data?.killer_signals ?? []),
@@ -186,7 +192,7 @@ export default function SellMonitorTickerPage() {
             <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#687386]">Verkaufsmonitor</div>
             <h1 className="mt-0.5 text-2xl font-semibold text-[#172033]">{ticker}</h1>
             <div className="mt-1 text-xs leading-5 text-[#687386]">
-              {evaluation.data?.explanation_short ?? "Evaluation wird geladen."}
+              {evaluation.isLoading ? "Evaluation wird geladen…" : evaluation.data?.explanation_short ?? "Für diese Position liegt keine Evaluation vor."}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -354,6 +360,30 @@ export default function SellMonitorTickerPage() {
       )}
     </div>
   );
+}
+
+function SellMonitorUnavailable({ ticker, detail }: { ticker: string; detail: string }) {
+  return <div className="space-y-4">
+    <div className="rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#687386]">Verkaufsmonitor</div>
+      <h1 className="mt-0.5 text-2xl font-semibold text-[#172033]">{ticker}</h1>
+    </div>
+    <section className="rounded-[14px] border border-[#f0c9c4] bg-[#fff8f7] p-5" role="alert">
+      <div className="flex items-start gap-3">
+        <CircleAlert className="mt-0.5 shrink-0 text-[#c2413b]" size={19} />
+        <div>
+          <h2 className="font-semibold text-[#172033]">Diese Position kann aktuell nicht bewertet werden.</h2>
+          <p className="mt-1 text-sm leading-6 text-[#687386]">{detail}</p>
+          <p className="mt-2 text-sm leading-6 text-[#687386]">Sobald genügend Kursdaten vorliegen, steht die Evaluation wieder zur Verfügung.</p>
+          <Link className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[#0f766e]" href="/settings#data-quality">Datenqualität öffnen <ArrowRight size={14} /></Link>
+        </div>
+      </div>
+    </section>
+  </div>;
+}
+
+function errorText(error: unknown) {
+  return error instanceof Error && error.message ? error.message : "Die Evaluation konnte nicht geladen werden.";
 }
 
 function SellStrategyPanel({ strategy }: { strategy?: SellStrategyResult }) {

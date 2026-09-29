@@ -1861,26 +1861,56 @@ export type HomeDashboard = {
   data_quality?: { decision_status?: string; summary?: string } | null;
   errors: string[];
   market: {
-    overview?: MarketOverview | null;
-    nasdaq?: MarketOverview | null;
-    breadth?: BreadthPoint | null;
-    volatility?: VolatilityPoint | null;
+    session?: {
+      phase: "open" | "closed" | "unknown";
+      last_completed_as_of?: string | null;
+      current_session_as_of?: string | null;
+    };
+    phase?: string | null;
+    phase_label?: string | null;
+    warning_count?: number | null;
+    breadth?: { as_of?: string | null; pct_above_50sma?: number | null } | null;
+    volatility?: { as_of?: string | null; close?: number | null; status?: string } | null;
+    indices: Array<{
+      ticker: string;
+      label: string;
+      as_of?: string | null;
+      previous_as_of?: string | null;
+      close?: number | null;
+      previous_close?: number | null;
+      change_pct?: number | null;
+      status: "available" | "stale" | "partial" | "missing";
+    }>;
   };
   priorities: Array<{ ticker: string; category: string; label: string; detail: string; href: string; tone: Tone }>;
+  priorities_total: number;
+  review_positions_count: number;
   opportunities: TopDailyStockItem[];
-  changes: Array<{ ticker: string; detail: string; source: string; href: string }>;
+  changes: Array<{
+    ticker: string;
+    scopes: Array<"portfolio" | "watchlist" | "top_stocks">;
+    kind: "score" | "signal";
+    summary: string;
+    details: string[];
+    as_of?: string | null;
+    previous_as_of?: string | null;
+    href: string;
+  }>;
   portfolio: {
     positions_count: number;
     stop_coverage_count?: number;
     stop_coverage_total?: number;
-    daily_performance_pct?: number | null;
-    daily_performance_as_of?: string | null;
+    daily_price_change_pct?: number | null;
+    daily_price_change_as_of?: string | null;
+    daily_price_change_status?: "available" | "partial" | "mixed_currency" | "missing";
     comparable_positions?: number;
     positions: Array<{ ticker: string; name: string; pnl_pct: number; has_stop: boolean }>;
   };
   sell_rows: SellRankingRow[];
-  industry_groups: IndustryGroupRankingRow[];
-  watchlist: Array<StockAssessmentRankingItem & { [key: string]: unknown }>;
+  industry_groups: Array<Pick<IndustryGroupRankingRow, "code" | "name" | "rank" | "rs_score" | "rank_change_20d">>;
+  industry_groups_as_of?: string | null;
+  watchlist: Array<(StockAssessmentRankingItem & { data_status: "available" | "missing" | "error"; name?: string; as_of?: string | null })>;
+  watchlist_total: number;
 };
 
 export type SetupStep = {

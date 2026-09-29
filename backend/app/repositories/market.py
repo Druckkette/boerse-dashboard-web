@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import BreadthDaily, Instrument, MarketSnapshot, PriceBar
@@ -28,6 +28,15 @@ class MarketOhlcvPoint:
     close: float
     volume: float
     fetched_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class MarketClosePair:
+    """Two canonical, persisted closes for a compact index comparison."""
+
+    ticker: str
+    date: date
+    close: float
 
 
 @dataclass(frozen=True)
@@ -88,6 +97,49 @@ def load_cached_prices(tickers: Iterable[str], *, start_date: date) -> dict[str,
             MarketPricePoint(ticker=str(ticker), date=bar_date, close=float(close))
         )
     return {ticker: points for ticker, points in series.items() if points}
+
+
+def load_latest_close_pair(ticker: str) -> list[MarketClosePair]:
+    """Read the latest two distinct closing sessions without loading index history.
+
+    Price bars can exist for more than one provider.  The newest fetched row is
+    selected per date, so a duplicate provider row can never become a false
+    "previous close".
+    """
+    clean = ticker.strip().upper()
+    if not clean:
+        return []
+    try:
+        with SessionLocal() as db:
+            ranked = (
+                select(
+                    Instrument.ticker.label("ticker"),
+                    PriceBar.date.label("date"),
+                    PriceBar.close.label("close"),
+                    func.row_number()
+                    .over(
+                        partition_by=PriceBar.date,
+                        order_by=(PriceBar.fetched_at.desc().nulls_last(), PriceBar.id.desc()),
+                    )
+                    .label("provider_rank"),
+                )
+                .join(PriceBar, PriceBar.instrument_id == Instrument.id)
+                .where(Instrument.ticker == clean, PriceBar.close.is_not(None))
+                .subquery()
+            )
+            rows = db.execute(
+                select(ranked.c.ticker, ranked.c.date, ranked.c.close)
+                .where(ranked.c.provider_rank == 1)
+                .order_by(ranked.c.date.desc())
+                .limit(2)
+            ).all()
+    except SQLAlchemyError as exc:
+        raise MarketRepositoryUnavailable(str(exc)) from exc
+    return [
+        MarketClosePair(ticker=str(row_ticker), date=bar_date, close=float(close))
+        for row_ticker, bar_date, close in reversed(rows)
+        if close is not None
+    ]
 
 
 def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint]:
