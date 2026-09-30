@@ -123,7 +123,7 @@ export function TradeJournalWorkspace() {
     }
   });
   const backfillMutation = useMutation({
-    mutationFn: () => api.startJob({ type: "backfill_trade_journal_contexts", payload: { limit: 500, source: "trade_journal" } })
+    mutationFn: () => api.startJob({ type: "backfill_trade_journal_contexts", payload: { limit: 5000, source: "trade_journal" } })
   });
 
   const entries = entriesQuery.data?.entries ?? [];

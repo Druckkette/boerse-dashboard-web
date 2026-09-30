@@ -32,7 +32,7 @@ def backfill_trade_journal_contexts(self, job_id: str | None = None, payload: di
         )
         result = run_backfill(
             entry_ids=[str(value) for value in payload.get("entry_ids", []) if value],
-            limit=int(payload.get("limit") or 500),
+            limit=int(payload.get("limit") or 5000),
         )
         raise_if_cancelled(job.job_id)
         job_repository.mark_done(
@@ -51,4 +51,3 @@ def backfill_trade_journal_contexts(self, job_id: str | None = None, payload: di
             result={"ok": False, "job_type": "backfill_trade_journal_contexts"},
         )
         raise
-
