@@ -27,7 +27,7 @@ from app.domain.market.ampel import compute_trend_ampel
 from app.domain.market.regime import MarketRegimeInput, market_regime_warning_checks
 from app.domain.stocks.assessment import compute_stock_assessment
 from app.domain.stocks.relative_strength import compute_relative_strength_line
-from app.services.market import _build_ampel_warning_checks
+from app.services.market import _build_ampel_warning_checks, _phase_label
 from app.services.stocks import _fundamentals_context, _rs_context, _assessment_score_weights
 from app.repositories.relative_strength import RsRatingRow
 from app.services.market_calendar import previous_us_market_session_date
@@ -339,6 +339,10 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
         "temporal_reliability": "conservative_previous_session",
         "benchmark": {"instrument": "SPY", "daily_return_pct": benchmark_return, "basis": "price_return",
                       "as_of": spy_bars[0].date.isoformat() if spy_bars else None},
+        "trend": ({"as_of": points[-1].as_of, "phase": points[-1].phase,
+                   "phase_label": _phase_label(points[-1].phase),
+                   "phase_reason": points[-1].phase_reason, "source": "historical_prices"}
+                  if len(points) >= 200 else {}),
         "market_warning_checks": market_checks,
         "warning_checks": [check.model_dump(mode="json") for check in checks],
         "warning_scope": "Historische Indexwarnungen nach heutigen Regeln. Intermarket- und Sektorrotation sind nicht enthalten.",
