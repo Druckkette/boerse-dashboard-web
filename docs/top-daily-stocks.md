@@ -66,5 +66,28 @@ ohne vollen Marktdatenlauf kann einmalig im Backend-Container
 ausgeführt werden. Ohne ältere Tageshistorie zeigt die UI den fehlenden
 Vortagsvergleich ausdrücklich an.
 
-Produktiver Smoke-Test und tatsächliche Aktivierung werden nach Deployment
-bestätigt; bis dahin ist diese Dokumentation keine Freigabebestätigung.
+## Produktive Aktivierung und Smoke-Test (23.09.2026)
+
+Commit `46debe5a09c201484f9040b6729429a3ce7096f2` wurde mit dem bestehenden
+`update-nas.sh` auf dem NAS ausgerollt; darin enthalten ist auch der zuvor
+gemergte Full-Price-Batch-Fix. Die Migration steht auf
+`0019_daily_stock_opportunities`. PostgreSQL und Redis blieben ohne
+Neuinitialisierung gesund. Backend, Frontend, allgemeiner Worker,
+Report-Worker, Interactive-Worker, Monitor und Scheduler starteten mit dem
+versionierten Image; Backend meldete `healthy`.
+
+Die einmalige leichte Initialisierung aus bereits gespeicherten Assessments
+speicherte für den letzten abgeschlossenen Handelstag `2026-09-22` 1.013
+kompakte Zeilen und qualifizierte 26 Kandidaten. Der API-Endpunkt meldete
+`status=current` und genau drei Zeilen: HALO, AMD und FTNT. Das Browser-Smoke-
+Testing bestätigte drei Karten auf `/stocks`, funktionierenden Link zur HALO-
+Detailanalyse, weiterhin ladendes bestehendes Aktienranking und die Marktseite.
+Backend-Health war `ok`, Celery-Worker meldeten `ready`, Beat versandte die
+planmäßige Berichtspflege, und es trat seit dem Neustart keine Exception-
+Schleife in den geprüften Logs auf. Ein Detail-Refresh für HALO endete
+erfolgreich. Kein neuer Volluniversumsjob wurde für die Top 3 gestartet.
+
+Da keine frühere Tageshistorie existierte, sind Vortagsrang und Score-Deltas
+am ersten Tag `null`; die Oberfläche kennzeichnet das ausdrücklich. Ab dem
+nächsten erfolgreichen vollständigen Aktienbewertungs-Lauf erfolgt der
+Vergleich mit dem letzten gespeicherten Handelstag automatisch.
