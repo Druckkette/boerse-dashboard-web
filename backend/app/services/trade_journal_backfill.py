@@ -340,7 +340,7 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
         "temporal_reliability": "conservative_previous_session",
         "benchmark": {"instrument": "SPY", "daily_return_pct": benchmark_return, "basis": "price_return",
                       "as_of": spy_bars[0].date.isoformat() if spy_bars else None},
-        "trend": ({"as_of": points[-1].as_of, "phase": points[-1].phase,
+        "trend": ({"as_of": points[-1].date, "phase": points[-1].phase,
                    "phase_label": _phase_label(points[-1].phase),
                    "phase_reason": points[-1].phase_reason, "source": "historical_prices"}
                   if len(points) >= 200 else {}),

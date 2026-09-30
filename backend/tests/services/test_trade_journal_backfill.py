@@ -111,3 +111,41 @@ def test_context_fingerprint_ignores_generation_time_but_not_score_changes():
     second["payload"]["assessment"] = {"technical_v2": {"score": 80}}
     _store_context(db2, "entry", "stock", second)
     assert db2.statement.compile().params["data_fingerprint"] != fp1
+
+
+def test_market_reconstruction_explains_saved_warnings_and_returns_dated_index_phase(monkeypatch):
+    from datetime import timedelta
+    from app.db.models import MarketSnapshot, PriceBar
+    from app.services import trade_journal_backfill as service
+
+    day = date(2026, 9, 21)
+    bars = [PriceBar(date=day - timedelta(days=259-i), open=100+i/10,
+                     high=101+i/10, low=99+i/10, close=100+i/10,
+                     volume=100000+i*100, source="test") for i in range(260)]
+    snapshot = MarketSnapshot(date=day, ampel_phase="rot", warning_count=5,
+        volatility_regime="Risk On / ruhig", metrics_json={
+            "pct_above_50sma": 34.7, "pct_above_200sma": 44.5,
+            "mcclellan": -21.5, "advancers": 2851, "decliners": 2406,
+            "new_highs": 80, "new_lows": 199, "coverage_ratio": 0.974,
+            "margin_debt": {"warning_active": True, "margin_debt_ratio_pct": 77.4},
+        })
+
+    class Database:
+        def __init__(self, snapshot):
+            self.values = iter([None, snapshot, None, None])
+        def scalar(self, statement):
+            return next(self.values)
+
+    monkeypatch.setattr(service, "_bars_for_ticker", lambda *args: bars)
+    context = service._market_context(Database(snapshot), day,
+                                     datetime(2026, 9, 21, 23, 59, tzinfo=UTC))
+    payload = context["payload"]
+    assert payload["trend"]["as_of"] == day.isoformat()
+    assert payload["trend"]["phase_label"]
+    assert sum(check["active_warning"] for check in payload["market_warning_checks"]) == 5
+    assert all(check["detail"] for check in payload["market_warning_checks"])
+    # A phase is still reconstructed from dated index prices without a stored snapshot.
+    missing_snapshot = service._market_context(Database(None), day,
+                                     datetime(2026, 9, 21, 23, 59, tzinfo=UTC))
+    assert missing_snapshot["payload"]["trend"]["phase"] == payload["trend"]["phase"]
+    assert "market_snapshot_missing" in missing_snapshot["reason_codes"]
