@@ -588,6 +588,7 @@ def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
     market_snapshot = contexts.get("market").payload_json if contexts.get("market") else row.market_snapshot_json or {}
     return TradeJournalEntryDetail(
         **summary.model_dump(),
+        executions=[_summary_from_row(item) for item in journal_repository.related_entries(row)],
         sell_assessment=getattr(row, "sell_assessment_json", {}) or {},
         stop_price=row.stop_price,
         stop_distance_pct=row.stop_distance_pct,
@@ -624,12 +625,12 @@ def _entry_summary(row: Any) -> str:
 
 def _has_note(row: Any) -> bool:
     return any((
-        bool(row.basis_text),
+        bool(row.basis_text and row.basis_text != "Automatisch aus Trade-Republic-Ausführung übernommen."),
         bool(row.alternative_entry_text),
         bool(row.primary_reasons),
         bool(row.sell_reason),
         bool(row.questionnaire_json),
-        bool(row.chart_images_json),
+        any((row.chart_images_json or {}).values()),
     ))
 
 

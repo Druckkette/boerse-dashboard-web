@@ -129,21 +129,32 @@ def classify_market_regime(regime_input: MarketRegimeInput) -> MarketRegimeResul
     )
 
 
+def market_regime_warning_checks(regime_input: MarketRegimeInput) -> list[dict]:
+    """Shared warning thresholds for the live market and historical journal."""
+    data = regime_input
+    checks = [
+        ("Aktien über 50-SMA", data.pct_above_50sma is not None and data.pct_above_50sma < 45,
+         f"{_format_pct(data.pct_above_50sma)} des Universums; Warnschwelle unter 45%."),
+        ("Aktien über 200-SMA", data.pct_above_200sma is not None and data.pct_above_200sma < 45,
+         f"{_format_pct(data.pct_above_200sma)} des Universums; Warnschwelle unter 45%."),
+        ("McClellan unter null", data.mcclellan < 0, f"A/D-Momentum: {data.mcclellan:+.1f}."),
+        ("Mehr fallende als steigende Aktien", data.decliners > data.advancers,
+         f"{data.decliners} fallende / {data.advancers} steigende Aktien."),
+        ("Mehr neue Tiefs als Hochs", data.new_lows > data.new_highs,
+         f"{data.new_lows} neue Tiefs / {data.new_highs} neue Hochs."),
+        ("Datenabdeckung unter 65%", data.coverage_ratio < 0.65,
+         f"{data.coverage_ratio * 100:.1f}% des Universums abgedeckt."),
+        ("Volatilitätsstress", data.volatility_regime in STRESS_VOLATILITY_REGIMES,
+         data.volatility_regime),
+        ("Margin Debt", bool((data.margin_debt_summary or {}).get("warning_active")),
+         f"Kreditfinanzierung: {_format_pct((data.margin_debt_summary or {}).get('margin_debt_ratio_pct'))}."),
+    ]
+    return [{"label": label, "active_warning": bool(active), "detail": detail}
+            for label, active, detail in checks]
+
+
 def _count_warnings(regime_input: MarketRegimeInput, *, volatility_regime: str) -> int:
-    warning_count = 0
-    warning_count += int(
-        regime_input.pct_above_50sma is not None and regime_input.pct_above_50sma < 45
-    )
-    warning_count += int(
-        regime_input.pct_above_200sma is not None and regime_input.pct_above_200sma < 45
-    )
-    warning_count += int(regime_input.mcclellan < 0)
-    warning_count += int(regime_input.decliners > regime_input.advancers)
-    warning_count += int(regime_input.new_lows > regime_input.new_highs)
-    warning_count += int(regime_input.coverage_ratio < 0.65)
-    warning_count += int(volatility_regime in STRESS_VOLATILITY_REGIMES)
-    warning_count += int(bool((regime_input.margin_debt_summary or {}).get("warning_active")))
-    return warning_count
+    return sum(item["active_warning"] for item in market_regime_warning_checks(regime_input))
 
 
 def _phase_from_warnings(

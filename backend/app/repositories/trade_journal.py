@@ -116,6 +116,19 @@ def get_entry(entry_id: str) -> TradeJournalEntry | None:
         raise TradeJournalRepositoryUnavailable(str(exc)) from exc
 
 
+def related_entries(row: TradeJournalEntry) -> list[TradeJournalEntry]:
+    if not row.trade_group_id:
+        return [row]
+    try:
+        with SessionLocal() as db:
+            return list(db.scalars(select(TradeJournalEntry).where(
+                TradeJournalEntry.trade_group_id == row.trade_group_id,
+                TradeJournalEntry.ticker == row.ticker,
+            ).order_by(TradeJournalEntry.trade_date, TradeJournalEntry.created_at)).all())
+    except SQLAlchemyError as exc:
+        raise TradeJournalRepositoryUnavailable(str(exc)) from exc
+
+
 def execution_metadata(source_transaction_id: str | None, ticker: str) -> dict:
     try:
         with SessionLocal() as db:

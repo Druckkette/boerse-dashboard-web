@@ -739,6 +739,7 @@ export type TradeJournalEntrySummary = {
 };
 
 export type TradeJournalEntryDetail = TradeJournalEntrySummary & {
+  executions?: TradeJournalEntrySummary[];
   sell_assessment?: Record<string, unknown>;
   stop_price?: number | null;
   stop_distance_pct?: number | null;

@@ -1426,6 +1426,7 @@ class TradeJournalEntrySummary(BaseModel):
 
 
 class TradeJournalEntryDetail(TradeJournalEntrySummary):
+    executions: list[TradeJournalEntrySummary] = Field(default_factory=list)
     sell_assessment: dict = Field(default_factory=dict)
     stop_price: float | None = None
     stop_distance_pct: float | None = None

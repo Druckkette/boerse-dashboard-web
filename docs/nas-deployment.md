@@ -228,6 +228,23 @@ cd /volume1/docker/boerse-dashboard-web/infra
 ./update-nas.sh
 ```
 
+## Historical Trade Journal
+
+The journal combines buys, additions and sales in one execution list (20 entries per page).
+Opening an execution shows a modal with the complete position cycle and links to each execution's
+historical context. FIFO allocations display both purchase and sale dates.
+
+`update-nas.sh` also reconstructs journal stock and market contexts. This writes new immutable,
+fingerprinted versions; broker facts, notes and earlier contexts are preserved. Repeat runs with
+unchanged inputs write no duplicate versions. The job uses the previous US trading session and
+never reads current prices for a past execution. Technical/chart scores use today's configured
+rules applied to historical bars. Fundamentals are used only when the stored snapshot was created
+and last updated before the cutoff; publication timing remains explicitly qualified. Missing
+fundamentals leave the overall score unavailable rather than manufacturing a neutral score.
+Historical market warnings use the stored breadth/volatility/margin-debt inputs and the same
+thresholds as the current market classifier. Additional index warnings are computed from dated
+index bars and displayed separately. The **Historie ergänzen** button runs the same reconstruction.
+
 ## Start After NAS Reboot
 
 The Compose services use `restart: unless-stopped`, but Synology can still leave a Compose project
