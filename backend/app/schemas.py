@@ -1375,6 +1375,10 @@ class TradeJournalEntryRequest(BaseModel):
     trade_date: date | None = None
     price: float | None = Field(default=None, gt=0)
     shares: float | None = Field(default=None, gt=0)
+    currency: str = Field(default="USD", min_length=3, max_length=8)
+    fees: float | None = Field(default=None, ge=0)
+    tax: float | None = Field(default=None, ge=0)
+    source_evidence: str = ""
     stop_price: float | None = Field(default=None, gt=0)
     linked_entry_id: str | None = None
     status: Literal["open", "closed", "draft"] | None = None
@@ -1394,6 +1398,17 @@ class TradeJournalEntrySummary(BaseModel):
     source_transaction_id: str | None = None
     trade_group_id: str | None = None
     position_id: str | None = None
+    instrument_name: str = ""
+    isin: str = ""
+    execution_at: str | None = None
+    source: Literal["trade_republic", "manual"] = "manual"
+    fees: float | None = None
+    tax: float | None = None
+    gross_amount: float | None = None
+    net_amount: float | None = None
+    context_status: Literal["archived", "reconstructed", "partial", "missing", "pending", "failed"] = "missing"
+    context_label: str = "Fehlt"
+    has_note: bool = False
     id: str
     ticker: str
     entry_type: Literal["buy", "sell", "ex_post"]
@@ -1430,6 +1445,71 @@ class TradeJournalEntryDetail(TradeJournalEntrySummary):
 class TradeJournalEntriesResponse(BaseModel):
     ticker: str | None = None
     entries: list[TradeJournalEntrySummary]
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+    next_offset: int | None = None
+
+
+class TradeJournalNoteRequest(BaseModel):
+    basis_text: str = ""
+    alternative_entry: bool = False
+    alternative_entry_text: str = ""
+    primary_reasons: str = ""
+    sell_reason: str = ""
+    questionnaire: dict = Field(default_factory=dict)
+    chart_images: TradeJournalImageSet = Field(default_factory=TradeJournalImageSet)
+
+
+class TradeJournalTradeSummary(BaseModel):
+    id: str
+    ticker: str
+    status: Literal["open", "closed", "partial"]
+    first_entry_date: str
+    last_exit_date: str | None = None
+    currency: str
+    execution_count: int
+    buy_count: int
+    sell_count: int
+    bought_shares: float
+    sold_shares: float
+    remaining_shares: float
+    invested_capital: float | None = None
+    realized_pnl: float | None = None
+    realized_pnl_pct: float | None = None
+    context_status: Literal["archived", "reconstructed", "partial", "missing", "pending", "failed"] = "missing"
+    has_review: bool = False
+    executions: list[TradeJournalEntrySummary] = Field(default_factory=list)
+
+
+class TradeJournalTradesResponse(BaseModel):
+    trades: list[TradeJournalTradeSummary]
+    total: int
+
+
+class TradeJournalAnalyticsResponse(BaseModel):
+    closed_trades: int = 0
+    net_result: float = 0
+    winners: int = 0
+    losers: int = 0
+    hit_rate_pct: float | None = None
+    average_win: float | None = None
+    average_loss: float | None = None
+    profit_factor: float | None = None
+    excluded_incomplete: int = 0
+
+
+class TradeJournalCoverageBlock(BaseModel):
+    name: str
+    minimum: str | None = None
+    maximum: str | None = None
+    rows: int = 0
+    status: Literal["available", "partial", "missing"]
+
+
+class TradeJournalCoverageResponse(BaseModel):
+    generated_at: str
+    blocks: list[TradeJournalCoverageBlock]
 
 
 class TradeJournalEntryResponse(BaseModel):
@@ -1500,6 +1580,7 @@ JobType = Literal[
     "pushover_test",
     "yahoo_symbol_diagnostics",
     "yahoo_symbol_rescue",
+    "backfill_trade_journal_contexts",
 ]
 
 

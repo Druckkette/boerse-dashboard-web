@@ -508,6 +508,92 @@ class TradeJournalEntry(Base):
     )
 
 
+class StockAssessmentHistory(Base):
+    __tablename__ = "stock_assessment_history"
+    __table_args__ = (
+        UniqueConstraint("ticker", "session_date", "data_fingerprint", name="uq_stock_assessment_history_version"),
+        Index("ix_stock_assessment_history_lookup", "ticker", "information_cutoff"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    instrument_id: Mapped[str | None] = mapped_column(ForeignKey("instruments.id"), nullable=True)
+    ticker: Mapped[str] = mapped_column(String(32), index=True)
+    session_date: Mapped[date] = mapped_column(Date, index=True)
+    information_cutoff: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    data_as_of: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(32), default="archived", index=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    assessment_version: Mapped[str] = mapped_column(String(64), default="")
+    ruleset_hash: Mapped[str] = mapped_column(String(128), default="")
+    data_fingerprint: Mapped[str] = mapped_column(String(128))
+    source: Mapped[str] = mapped_column(String(64), default="daily_archive")
+    coverage_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MarketAssessmentHistory(Base):
+    __tablename__ = "market_assessment_history"
+    __table_args__ = (
+        UniqueConstraint("benchmark", "session_date", "data_fingerprint", name="uq_market_assessment_history_version"),
+        Index("ix_market_assessment_history_lookup", "benchmark", "information_cutoff"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    benchmark: Mapped[str] = mapped_column(String(32), default="SPY", index=True)
+    universe: Mapped[str] = mapped_column(String(96), default="us_common_stocks")
+    session_date: Mapped[date] = mapped_column(Date, index=True)
+    information_cutoff: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="archived", index=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    assessment_version: Mapped[str] = mapped_column(String(64), default="")
+    ruleset_hash: Mapped[str] = mapped_column(String(128), default="")
+    data_fingerprint: Mapped[str] = mapped_column(String(128))
+    source: Mapped[str] = mapped_column(String(64), default="daily_archive")
+    coverage_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class JournalContextVersion(Base):
+    __tablename__ = "journal_context_versions"
+    __table_args__ = (
+        UniqueConstraint("journal_entry_id", "block_type", "data_fingerprint", name="uq_journal_context_version"),
+        Index("ix_journal_context_entry_block", "journal_entry_id", "block_type", "generated_at"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    journal_entry_id: Mapped[str] = mapped_column(ForeignKey("trade_journal_entries.id"), index=True)
+    block_type: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    origin: Mapped[str] = mapped_column(String(64), default="reconstruction")
+    information_cutoff: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    data_as_of: Mapped[date | None] = mapped_column(Date)
+    archive_reference_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    assessment_version: Mapped[str] = mapped_column(String(64), default="")
+    ruleset_hash: Mapped[str] = mapped_column(String(128), default="")
+    data_fingerprint: Mapped[str] = mapped_column(String(128))
+    sources_json: Mapped[list] = mapped_column(JSONB, default=list)
+    reason_codes_json: Mapped[list] = mapped_column(JSONB, default=list)
+    payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TradeJournalNoteRevision(Base):
+    __tablename__ = "trade_journal_note_revisions"
+    __table_args__ = (
+        UniqueConstraint("journal_entry_id", "revision", name="uq_trade_journal_note_revision"),
+        Index("ix_trade_journal_note_entry_created", "journal_entry_id", "created_at"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    journal_entry_id: Mapped[str] = mapped_column(ForeignKey("trade_journal_entries.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    content_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Institutional13FTrend(Base):
     __tablename__ = "institutional_13f_trends"
     __table_args__ = (

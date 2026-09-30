@@ -669,6 +669,10 @@ export type TradeJournalDefaults = {
   trade_date: string;
   price?: number | null;
   shares?: number | null;
+  currency?: string;
+  fees?: number | null;
+  tax?: number | null;
+  source_evidence?: string;
   open_buy_entry_id?: string | null;
   open_buy_price?: number | null;
   open_buy_date?: string | null;
@@ -684,6 +688,10 @@ export type TradeJournalEntryRequest = {
   trade_date?: string | null;
   price?: number | null;
   shares?: number | null;
+  currency?: string;
+  fees?: number | null;
+  tax?: number | null;
+  source_evidence?: string;
   stop_price?: number | null;
   linked_entry_id?: string | null;
   status?: TradeJournalEntryStatus | null;
@@ -703,6 +711,17 @@ export type TradeJournalEntrySummary = {
   source_transaction_id?: string | null;
   trade_group_id?: string | null;
   position_id?: string | null;
+  instrument_name: string;
+  isin: string;
+  execution_at?: string | null;
+  source: "trade_republic" | "manual";
+  fees?: number | null;
+  tax?: number | null;
+  gross_amount?: number | null;
+  net_amount?: number | null;
+  context_status: "archived" | "reconstructed" | "partial" | "missing" | "pending" | "failed";
+  context_label: string;
+  has_note: boolean;
   id: string;
   ticker: string;
   entry_type: TradeJournalEntryType;
@@ -739,6 +758,57 @@ export type TradeJournalEntryDetail = TradeJournalEntrySummary & {
 export type TradeJournalEntriesResponse = {
   ticker?: string | null;
   entries: TradeJournalEntrySummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  next_offset?: number | null;
+};
+
+export type TradeJournalFilters = {
+  query?: string;
+  entry_type?: TradeJournalEntryType | "";
+  status?: TradeJournalEntryStatus | "";
+  source?: "broker" | "manual" | "";
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+  sort?: "newest" | "oldest";
+};
+
+export type TradeJournalTradeSummary = {
+  id: string;
+  ticker: string;
+  status: "open" | "closed" | "partial";
+  first_entry_date: string;
+  last_exit_date?: string | null;
+  currency: string;
+  execution_count: number;
+  buy_count: number;
+  sell_count: number;
+  bought_shares: number;
+  sold_shares: number;
+  remaining_shares: number;
+  invested_capital?: number | null;
+  realized_pnl?: number | null;
+  realized_pnl_pct?: number | null;
+  context_status: TradeJournalEntrySummary["context_status"];
+  has_review: boolean;
+  executions: TradeJournalEntrySummary[];
+};
+
+export type TradeJournalTradesResponse = { trades: TradeJournalTradeSummary[]; total: number };
+
+export type TradeJournalAnalytics = {
+  closed_trades: number;
+  net_result: number;
+  winners: number;
+  losers: number;
+  hit_rate_pct?: number | null;
+  average_win?: number | null;
+  average_loss?: number | null;
+  profit_factor?: number | null;
+  excluded_incomplete: number;
 };
 
 export type TradeJournalEntryResponse = {
@@ -1657,7 +1727,8 @@ export type JobType =
   | "position_atr_monitor"
   | "pushover_test"
   | "yahoo_symbol_diagnostics"
-  | "yahoo_symbol_rescue";
+  | "yahoo_symbol_rescue"
+  | "backfill_trade_journal_contexts";
 
 export type AppSettings = {
   atr_threshold: number;

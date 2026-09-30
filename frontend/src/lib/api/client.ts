@@ -75,6 +75,9 @@ import type {
   TradeJournalEntryRequest,
   TradeJournalEntryResponse,
   TradeJournalEntryType,
+  TradeJournalFilters,
+  TradeJournalTradesResponse,
+  TradeJournalAnalytics,
   UniverseStatus,
   UniverseSymbolMappingReview,
   UniverseSymbolMappingUpdate,
@@ -375,9 +378,24 @@ export const api = {
   addWorkspaceTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/watchlist", { ticker }),
   removeWorkspaceTicker: (ticker: string) => deleteJson<WorkspaceState>(`/workspace/watchlist/${encodeURIComponent(ticker)}`),
   addRecentTicker: (ticker: string) => postJson<WorkspaceState>("/workspace/recent-tickers", { ticker }),
-  tradeJournalEntries: (ticker?: string) => {
-    const query = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  tradeJournalEntries: (filters: TradeJournalFilters | string = {}) => {
+    const params = new URLSearchParams();
+    const resolved = typeof filters === "string" ? { query: filters } : filters;
+    Object.entries(resolved).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+    });
+    const query = params.size ? `?${params.toString()}` : "";
     return getJson<TradeJournalEntriesResponse>(`/trade-journal${query}`);
+  },
+  tradeJournalTrades: (filters: Pick<TradeJournalFilters, "query" | "date_from" | "date_to"> = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
+    return getJson<TradeJournalTradesResponse>(`/trade-journal/trades${params.size ? `?${params}` : ""}`);
+  },
+  tradeJournalAnalytics: (filters: Pick<TradeJournalFilters, "query" | "date_from" | "date_to"> = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
+    return getJson<TradeJournalAnalytics>(`/trade-journal/analytics${params.size ? `?${params}` : ""}`);
   },
   tradeJournalDefaults: (ticker: string, entryType: TradeJournalEntryType) =>
     getJson<TradeJournalDefaults>(
@@ -389,6 +407,8 @@ export const api = {
     postJson<TradeJournalEntryResponse>("/trade-journal", body),
   updateTradeJournalEntry: (entryId: string, body: TradeJournalEntryRequest) =>
     patchJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}`, body),
+  updateTradeJournalNotes: (entryId: string, body: TradeJournalEntryRequest) =>
+    patchJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}/notes`, body),
   closeTradeJournalEntry: (entryId: string) =>
     postJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}/close`)
 };

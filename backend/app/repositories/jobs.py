@@ -33,6 +33,7 @@ SUPPORTED_JOB_TYPES: set[str] = {
     "pushover_test",
     "yahoo_symbol_diagnostics",
     "yahoo_symbol_rescue",
+    "backfill_trade_journal_contexts",
 }
 
 _MEMORY_JOBS: dict[str, Job] = {}

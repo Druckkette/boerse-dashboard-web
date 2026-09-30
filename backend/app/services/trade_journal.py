@@ -6,12 +6,18 @@ from typing import Any
 from app.repositories import trade_journal as journal_repository
 from app.repositories.trade_journal import TradeJournalRepositoryUnavailable
 from app.schemas import (
+    TradeJournalAnalyticsResponse,
+    TradeJournalCoverageBlock,
+    TradeJournalCoverageResponse,
     TradeJournalDefaultsResponse,
     TradeJournalEntriesResponse,
     TradeJournalEntryDetail,
+    TradeJournalNoteRequest,
     TradeJournalEntryRequest,
     TradeJournalEntryResponse,
     TradeJournalEntrySummary,
+    TradeJournalTradeSummary,
+    TradeJournalTradesResponse,
     TradeJournalImageSet,
 )
 from app.services.fx import get_eur_usd_rate
@@ -26,10 +32,92 @@ from app.services.stocks import get_stock_assessment, get_stock_fundamentals
 IMAGE_DATA_URL_LIMIT = 2_500_000
 
 
-def get_trade_journal_entries(ticker: str | None = None) -> TradeJournalEntriesResponse:
+def get_trade_journal_entries(
+    ticker: str | None = None,
+    *,
+    query: str | None = None,
+    entry_type: str | None = None,
+    status: str | None = None,
+    source: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort: str = "newest",
+) -> TradeJournalEntriesResponse:
     clean = _clean_ticker(ticker) if ticker else None
-    rows = journal_repository.list_entries(clean)
-    return TradeJournalEntriesResponse(ticker=clean, entries=[_summary_from_row(row) for row in rows])
+    rows, total = journal_repository.list_entries(
+        clean,
+        query=query,
+        entry_type=entry_type,
+        status=status,
+        source=source,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+    )
+    next_offset = offset + len(rows) if offset + len(rows) < total else None
+    return TradeJournalEntriesResponse(
+        ticker=clean,
+        entries=[_summary_from_row(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+        next_offset=next_offset,
+    )
+
+
+def get_trade_journal_trades(
+    *, query: str | None = None, date_from: date | None = None, date_to: date | None = None
+) -> TradeJournalTradesResponse:
+    rows = journal_repository.list_trade_entries(query=query, date_from=date_from, date_to=date_to)
+    grouped: dict[str, list[Any]] = {}
+    for row in rows:
+        # Position IDs survive prepended broker history and are therefore the stable public trade ID.
+        key = row.position_id or row.trade_group_id or row.linked_entry_id or row.id
+        grouped.setdefault(key, []).append(row)
+    trades = [_trade_summary(key, group) for key, group in grouped.items()]
+    trades.sort(key=lambda item: (item.first_entry_date, item.id), reverse=True)
+    return TradeJournalTradesResponse(trades=trades, total=len(trades))
+
+
+def get_trade_journal_trade(trade_id: str) -> TradeJournalTradeSummary:
+    response = get_trade_journal_trades()
+    trade = next((item for item in response.trades if item.id == trade_id), None)
+    if trade is None:
+        raise ValueError("Trade wurde nicht gefunden.")
+    return trade
+
+
+def get_trade_journal_analytics(
+    *, query: str | None = None, date_from: date | None = None, date_to: date | None = None
+) -> TradeJournalAnalyticsResponse:
+    trades = get_trade_journal_trades(query=query, date_from=date_from, date_to=date_to).trades
+    closed = [item for item in trades if item.status == "closed" and item.realized_pnl is not None]
+    winners = [item.realized_pnl for item in closed if (item.realized_pnl or 0) > 0]
+    losers = [item.realized_pnl for item in closed if (item.realized_pnl or 0) < 0]
+    gross_profit = sum(winners)
+    gross_loss = abs(sum(losers))
+    return TradeJournalAnalyticsResponse(
+        closed_trades=len(closed),
+        net_result=sum(item.realized_pnl or 0 for item in closed),
+        winners=len(winners),
+        losers=len(losers),
+        hit_rate_pct=round(len(winners) / len(closed) * 100, 2) if closed else None,
+        average_win=round(gross_profit / len(winners), 2) if winners else None,
+        average_loss=round(sum(losers) / len(losers), 2) if losers else None,
+        profit_factor=round(gross_profit / gross_loss, 2) if gross_loss else None,
+        excluded_incomplete=sum(1 for item in trades if item.status == "closed" and item.realized_pnl is None),
+    )
+
+
+def get_trade_journal_coverage() -> TradeJournalCoverageResponse:
+    return TradeJournalCoverageResponse(
+        generated_at=datetime.now(UTC).isoformat(),
+        blocks=[TradeJournalCoverageBlock(**item) for item in journal_repository.coverage_summary()],
+    )
 
 
 def get_trade_journal_entry(entry_id: str) -> TradeJournalEntryResponse:
@@ -85,6 +173,7 @@ def create_trade_journal_entry(payload: TradeJournalEntryRequest) -> TradeJourna
     values = {
         "ticker": clean,
         "entry_type": entry_type,
+        "currency": payload.currency.strip().upper(),
         "status": status,
         "trade_date": trade_date,
         "price": price,
@@ -101,9 +190,15 @@ def create_trade_journal_entry(payload: TradeJournalEntryRequest) -> TradeJourna
         "primary_reasons": payload.primary_reasons.strip(),
         "sell_reason": payload.sell_reason.strip(),
         "questionnaire_json": payload.questionnaire,
-        "stock_snapshot_json": _stock_snapshot(clean),
-        "market_snapshot_json": _market_snapshot(),
-        "portfolio_snapshot_json": _portfolio_context(clean, price=price, shares=shares),
+        "stock_snapshot_json": _manual_snapshot_context(_stock_snapshot(clean), trade_date),
+        "market_snapshot_json": _manual_snapshot_context(_market_snapshot(), trade_date),
+        "portfolio_snapshot_json": {
+            **_portfolio_context(clean, price=price, shares=shares),
+            "source": "manual",
+            "fees": _finite(payload.fees),
+            "tax": _finite(payload.tax),
+            "source_evidence": payload.source_evidence.strip(),
+        },
         "chart_images_json": payload.chart_images.model_dump(),
     }
     row = journal_repository.create_entry(values)
@@ -131,6 +226,7 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
     values = {
         "ticker": clean,
         "entry_type": entry_type,
+        "currency": existing.currency if imported else payload.currency.strip().upper(),
         "status": _default_status(entry_type, payload.status, payload.close_with_related_buy),
         "trade_date": payload.trade_date or existing.trade_date,
         "price": price,
@@ -147,12 +243,19 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
         "primary_reasons": payload.primary_reasons.strip(),
         "sell_reason": payload.sell_reason.strip(),
         "questionnaire_json": payload.questionnaire,
-        "portfolio_snapshot_json": {} if imported else _portfolio_context(clean, price=price, shares=shares),
+        "portfolio_snapshot_json": {} if imported else {
+            **(existing.portfolio_snapshot_json or {}),
+            **_portfolio_context(clean, price=price, shares=shares),
+            "source": "manual",
+            "fees": _finite(payload.fees),
+            "tax": _finite(payload.tax),
+            "source_evidence": payload.source_evidence.strip(),
+        },
         "chart_images_json": payload.chart_images.model_dump(),
     }
     if getattr(existing, "source_transaction_id", None):
         # Broker executions and FIFO results remain authoritative when editing notes.
-        for key in ("ticker", "entry_type", "status", "trade_date", "price", "shares",
+        for key in ("ticker", "entry_type", "currency", "status", "trade_date", "price", "shares",
                     "linked_entry_id", "realized_pnl_eur", "realized_pnl_pct", "portfolio_snapshot_json"):
             values.pop(key, None)
     row = journal_repository.update_entry(entry_id, values)
@@ -161,6 +264,25 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
     if payload.close_with_related_buy and row.linked_entry_id and not getattr(row, "source_transaction_id", None):
         journal_repository.close_related_entries([row.id, row.linked_entry_id])
         row = journal_repository.get_entry(row.id) or row
+    return TradeJournalEntryResponse(entry=_detail_from_row(row))
+
+
+def update_trade_journal_notes(entry_id: str, payload: TradeJournalNoteRequest) -> TradeJournalEntryResponse:
+    existing = journal_repository.get_entry(entry_id)
+    if existing is None:
+        raise ValueError("Tagebucheintrag wurde nicht gefunden.")
+    _validate_images(payload.chart_images)
+    row = journal_repository.update_notes(entry_id, {
+        "basis_text": payload.basis_text.strip(),
+        "alternative_entry": payload.alternative_entry,
+        "alternative_entry_text": payload.alternative_entry_text.strip(),
+        "primary_reasons": payload.primary_reasons.strip(),
+        "sell_reason": payload.sell_reason.strip(),
+        "questionnaire_json": payload.questionnaire,
+        "chart_images_json": payload.chart_images.model_dump(),
+    })
+    if row is None:
+        raise ValueError("Tagebucheintrag wurde nicht gefunden.")
     return TradeJournalEntryResponse(entry=_detail_from_row(row))
 
 
@@ -225,6 +347,25 @@ def _stock_snapshot(ticker: str) -> dict:
     except Exception as exc:
         snapshot["relative_strength"] = {"ticker": ticker, "source": "missing", "error": f"{type(exc).__name__}: {exc}"}
     return snapshot
+
+
+def _manual_snapshot_context(snapshot: dict, trade_date: date) -> dict:
+    captured_at = datetime.now(UTC).isoformat()
+    is_backdated = trade_date < date.today()
+    return {
+        **snapshot,
+        "context_status": "partial" if is_backdated else "archived",
+        "generated_at": captured_at,
+        "captured_at": captured_at,
+        "trade_date": trade_date.isoformat(),
+        "information_cutoff": None if is_backdated else captured_at,
+        "temporal_reliability": "unverified_backfill" if is_backdated else "captured_at_entry",
+        "context_notice": (
+            "Beim Nachtrag erfasste aktuelle Daten; kein Beleg fuer den damaligen Informationsstand."
+            if is_backdated else
+            "Beim Speichern erfasster Datenstand."
+        ),
+    }
 
 
 def _market_snapshot() -> dict:
@@ -399,6 +540,12 @@ def _validate_images(images: TradeJournalImageSet) -> None:
 
 
 def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
+    metadata = journal_repository.execution_metadata(
+        getattr(row, "source_transaction_id", None), row.ticker
+    )
+    contexts = journal_repository.latest_contexts(row.id)
+    context_status, context_label = _context_status(row, contexts)
+    portfolio = row.portfolio_snapshot_json or {}
     return TradeJournalEntrySummary(
         id=row.id,
         ticker=row.ticker,
@@ -415,6 +562,17 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
         source_transaction_id=getattr(row, "source_transaction_id", None),
         trade_group_id=getattr(row, "trade_group_id", None),
         position_id=getattr(row, "position_id", None),
+        instrument_name=metadata["instrument_name"],
+        isin=metadata["isin"],
+        execution_at=metadata["execution_at"],
+        source="trade_republic" if getattr(row, "source_transaction_id", None) else "manual",
+        fees=metadata["fees"] if metadata["fees"] is not None else _finite(portfolio.get("fees")),
+        tax=metadata["tax"] if metadata["tax"] is not None else _finite(portfolio.get("tax")),
+        gross_amount=metadata["gross_amount"],
+        net_amount=metadata["net_amount"],
+        context_status=context_status,
+        context_label=context_label,
+        has_note=_has_note(row),
         title=_entry_title(row),
         summary=_entry_summary(row),
         created_at=_iso_datetime(row.created_at),
@@ -425,6 +583,9 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
 def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
     summary = _summary_from_row(row)
     images = row.chart_images_json or {}
+    contexts = journal_repository.latest_contexts(row.id)
+    stock_snapshot = contexts.get("stock").payload_json if contexts.get("stock") else row.stock_snapshot_json or {}
+    market_snapshot = contexts.get("market").payload_json if contexts.get("market") else row.market_snapshot_json or {}
     return TradeJournalEntryDetail(
         **summary.model_dump(),
         sell_assessment=getattr(row, "sell_assessment_json", {}) or {},
@@ -437,8 +598,8 @@ def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
         primary_reasons=row.primary_reasons or "",
         sell_reason=row.sell_reason or "",
         questionnaire=row.questionnaire_json or {},
-        stock_snapshot=row.stock_snapshot_json or {},
-        market_snapshot=row.market_snapshot_json or {},
+        stock_snapshot=stock_snapshot,
+        market_snapshot=market_snapshot,
         portfolio_snapshot=row.portfolio_snapshot_json or {},
         chart_images=TradeJournalImageSet(
             daily_chart=str(images.get("daily_chart") or ""),
@@ -453,11 +614,104 @@ def _entry_title(row: Any) -> str:
 
 
 def _entry_summary(row: Any) -> str:
-    price = f"{row.price:.2f} USD" if row.price is not None else "Preis offen"
+    currency = getattr(row, "currency", "USD") or "USD"
+    price = f"{row.price:.2f} {currency}" if row.price is not None else "Preis offen"
     shares = f"{row.shares:g} Stk." if row.shares is not None else "Stückzahl offen"
     if row.entry_type == "sell" and row.realized_pnl_pct is not None:
         return f"{shares} zu {price} · P&L {row.realized_pnl_pct:+.1f}%"
     return f"{shares} zu {price}"
+
+
+def _has_note(row: Any) -> bool:
+    return any((
+        bool(row.basis_text),
+        bool(row.alternative_entry_text),
+        bool(row.primary_reasons),
+        bool(row.sell_reason),
+        bool(row.questionnaire_json),
+        bool(row.chart_images_json),
+    ))
+
+
+def _context_status(row: Any, contexts: dict[str, Any] | None = None) -> tuple[str, str]:
+    stock = row.stock_snapshot_json or {}
+    market = row.market_snapshot_json or {}
+    sell = getattr(row, "sell_assessment_json", {}) or {}
+    explicit = str(stock.get("context_status") or market.get("context_status") or "").lower()
+    labels = {
+        "archived": "Archiviert",
+        "reconstructed": "Rekonstruiert",
+        "partial": "Teilweise",
+        "missing": "Fehlt",
+        "pending": "Wird ergänzt",
+        "failed": "Ergänzung fehlgeschlagen",
+    }
+    if contexts:
+        statuses = [context.status for context in contexts.values()]
+        rank = {"failed": 0, "missing": 1, "pending": 2, "partial": 3, "reconstructed": 4, "archived": 5}
+        status = min(statuses, key=lambda item: rank.get(item, 1))
+        return status, labels.get(status, "Fehlt")
+    if explicit in labels:
+        return explicit, labels[explicit]
+    if sell.get("status") == "pending":
+        return "pending", labels["pending"]
+    if sell.get("status") == "failed":
+        return "failed", labels["failed"]
+    populated = bool(stock) + bool(market)
+    if populated == 2:
+        # Legacy snapshots lack a provable information cutoff and must not claim archival truth.
+        if all((stock.get("information_cutoff"), stock.get("generated_at"), stock.get("assessment_version"))):
+            return "archived", labels["archived"]
+        return "partial", labels["partial"]
+    if populated or sell.get("status") == "available":
+        return "partial", labels["partial"]
+    return "missing", labels["missing"]
+
+
+def _trade_summary(trade_id: str, rows: list[Any]) -> TradeJournalTradeSummary:
+    ordered = sorted(rows, key=lambda row: (row.trade_date, row.created_at))
+    buys = [row for row in ordered if row.entry_type == "buy"]
+    sells = [row for row in ordered if row.entry_type == "sell"]
+    bought = sum(float(row.shares or 0) for row in buys)
+    sold = sum(float(row.shares or 0) for row in sells)
+    remaining = max(0.0, bought - sold)
+    statuses = [_context_status(row)[0] for row in ordered]
+    rank = {"failed": 0, "missing": 1, "pending": 2, "partial": 3, "reconstructed": 4, "archived": 5}
+    context_status = min(statuses, key=lambda item: rank[item]) if statuses else "missing"
+    realized_values = [float(row.realized_pnl) for row in sells if row.realized_pnl is not None]
+    incomplete = any(row.realized_pnl is None for row in sells)
+    realized = None if incomplete and sells else sum(realized_values)
+    cost = 0.0
+    for row in sells:
+        for allocation in (row.portfolio_snapshot_json or {}).get("allocations", []):
+            basis = _finite(allocation.get("cost_basis"))
+            if basis is not None:
+                cost += basis
+    invested = sum(float(row.price or 0) * float(row.shares or 0) for row in buys) or None
+    if remaining > 1e-9:
+        trade_status = "open" if not sells else "partial"
+    else:
+        trade_status = "closed"
+    return TradeJournalTradeSummary(
+        id=trade_id,
+        ticker=ordered[0].ticker,
+        status=trade_status,
+        first_entry_date=ordered[0].trade_date.isoformat(),
+        last_exit_date=sells[-1].trade_date.isoformat() if sells else None,
+        currency=getattr(ordered[0], "currency", "USD") or "USD",
+        execution_count=len(ordered),
+        buy_count=len(buys),
+        sell_count=len(sells),
+        bought_shares=round(bought, 8),
+        sold_shares=round(sold, 8),
+        remaining_shares=round(remaining, 8),
+        invested_capital=round(invested, 2) if invested is not None else None,
+        realized_pnl=round(realized, 2) if realized is not None else None,
+        realized_pnl_pct=round(realized / cost * 100, 2) if realized is not None and cost else None,
+        context_status=context_status,
+        has_review=any(row.entry_type == "ex_post" or bool(row.questionnaire_json) for row in ordered),
+        executions=[_summary_from_row(row) for row in ordered],
+    )
 
 
 def _finite(value: Any) -> float | None:

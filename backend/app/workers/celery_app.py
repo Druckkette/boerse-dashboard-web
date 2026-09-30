@@ -61,6 +61,7 @@ celery_app.conf.update(
         "app.workers.tasks.position_atr_monitor",
         "app.workers.tasks.pushover_test",
         "app.workers.tasks.yahoo_symbol_diagnostics",
+        "app.workers.tasks.backfill_trade_journal_contexts",
     ),
 )
 

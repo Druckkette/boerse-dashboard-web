@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import date, timedelta
 
 import pytest
 
@@ -77,3 +78,27 @@ def test_trade_journal_stock_snapshot_includes_stock_detail_sources(monkeypatch)
     assert snapshot["institutional_13f"]["item"]["holder_count"] == 12
     assert snapshot["relative_strength"]["item"]["rating"] == 91
     assert snapshot["price_history"]["points"][0]["date"] == "2026-06-23"
+
+
+def test_empty_context_is_missing_and_never_positive() -> None:
+    row = SimpleNamespace(
+        stock_snapshot_json={}, market_snapshot_json={}, sell_assessment_json={}
+    )
+
+    assert trade_journal._context_status(row) == ("missing", "Fehlt")
+
+
+def test_backdated_manual_snapshot_is_temporally_unverified() -> None:
+    context = trade_journal._manual_snapshot_context(
+        {"assessment": {"scores": {"overall": 90}}}, date.today() - timedelta(days=7)
+    )
+
+    assert context["context_status"] == "partial"
+    assert context["information_cutoff"] is None
+    assert context["temporal_reliability"] == "unverified_backfill"
+
+
+def test_entry_summary_uses_execution_currency() -> None:
+    row = SimpleNamespace(price=42.5, shares=3, currency="EUR", entry_type="buy")
+
+    assert trade_journal._entry_summary(row) == "3 Stk. zu 42.50 EUR"
