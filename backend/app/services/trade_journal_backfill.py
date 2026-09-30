@@ -295,8 +295,11 @@ def _store_context(db, entry_id: str, block_type: str, context: dict) -> bool:
         payload_json=context["payload"],
     ).on_conflict_do_nothing(
         constraint="uq_journal_context_version"
-    )
-    return bool(db.execute(statement).rowcount)
+    ).returning(JournalContextVersion.id)
+    # Some PostgreSQL drivers expose ``rowcount == -1`` for INSERT .. ON
+    # CONFLICT statements.  ``bool(-1)`` incorrectly reported an unchanged
+    # context as newly written even though the unique constraint did its job.
+    return db.execute(statement).scalar_one_or_none() is not None
 
 
 def _model_dict(value: Any) -> dict:
