@@ -70,7 +70,7 @@ def test_stock_reconstruction_computes_partial_scores_without_future_fundamental
 
     class Database:
         def __init__(self):
-            self.values = iter([None, Instrument(id="instrument", ticker="TEST", currency="USD"), None, None])
+            self.values = iter([None, Instrument(id="instrument", ticker="TEST", currency="EUR"), None, None])
             self.rows = iter([bars[::-1], []])
             self.statements = []
         def scalar(self, statement):
@@ -91,6 +91,7 @@ def test_stock_reconstruction_computes_partial_scores_without_future_fundamental
     assert assessment["fundamental_v2"]["score"] is None
     assert assessment["overall_v2"]["score"] is None
     assert context["payload"]["metrics"]["last_close"] == bars[-1].close
+    assert context["payload"]["quote_currency"] == "USD"
     assert context["status"] == "partial"
     assert "fundamentals_missing" in context["reason_codes"]
     assert any("fundamental_snapshots.updated_at <=" in sql for sql in db.statements)

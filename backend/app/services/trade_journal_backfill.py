@@ -31,6 +31,7 @@ from app.services.market import _build_ampel_warning_checks, _phase_label
 from app.services.stocks import _fundamentals_context, _rs_context, _assessment_score_weights
 from app.repositories.relative_strength import RsRatingRow
 from app.services.market_calendar import previous_us_market_session_date
+from app.services.fx import yahoo_quote_currency
 
 
 RULESET = "journal_reconstruction_v2_current_rules"
@@ -220,7 +221,7 @@ def _stock_context(db, entry: TradeJournalEntry, session_date: date, cutoff: dat
         "assessment_version": RULESET,
         "temporal_reliability": "conservative_previous_session",
         "assessment": assessment,
-        "quote_currency": (instrument.currency if instrument is not None else "USD") or "USD",
+        "quote_currency": yahoo_quote_currency(entry.ticker),
         "metrics": metrics,
         "relative_strength": _model_dict(rating),
         "fundamentals": _model_dict(fundamentals),
