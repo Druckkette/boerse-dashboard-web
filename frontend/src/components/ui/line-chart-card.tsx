@@ -4,6 +4,7 @@ import { Eye, EyeOff, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucid
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
+import { lastChartDataIndex, previousChartClose } from "./chart-data";
 import { formatNumber, formatPercent } from "@/lib/format";
 
 type ChartDatum = {
@@ -202,8 +203,12 @@ export function LineChartCard({
       .filter((value): value is number => value !== null)
   );
   const maxVolume = volumeValues.length || volumeSeriesValues.length ? Math.max(...volumeValues, ...volumeSeriesValues) : 0;
-  const latestVisible = visiblePoints.at(-1);
-  const latestPoint = points.at(-1);
+  const readoutKeys = [...series, ...subSeries, ...volumeSeries].map((item) => item.key);
+  if (chartMode === "candlestick") readoutKeys.push("close");
+  if (volumeKey) readoutKeys.push(volumeKey);
+  const latestVisibleIndex = lastChartDataIndex(visiblePoints, readoutKeys);
+  const latestVisible = visiblePoints[latestVisibleIndex];
+  const latestPoint = points[lastChartDataIndex(points, readoutKeys)];
   const latestClose = chartMode === "candlestick" ? toNumber(latestPoint?.close) : null;
   const latestIsVisible = normalizedRange.end === points.length - 1;
   const latestUp = (toNumber(latestPoint?.close) ?? 0) >= (toNumber(latestPoint?.open) ?? 0);
@@ -335,8 +340,8 @@ export function LineChartCard({
   const hoveredPoint = hover ? visiblePoints[hover.index] : null;
   const hoveredX = hover ? xForIndex(hover.index, visiblePoints.length, plotRight) : null;
   const activePoint = hoveredPoint ?? latestVisible;
-  const activeIndex = hover ? normalizedRange.start + hover.index : normalizedRange.end;
-  const previousClose = showPreviousCloseChange && activeIndex > 0 ? toNumber(points[activeIndex - 1]?.close) : null;
+  const activeIndex = hover ? normalizedRange.start + hover.index : normalizedRange.start + latestVisibleIndex;
+  const previousClose = showPreviousCloseChange ? previousChartClose(points, activeIndex) : null;
 
   return (
     <section
@@ -625,7 +630,7 @@ function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isL
           if (value === null) return null;
           return <span key={item.key} className="text-[var(--muted)]">{item.label} <span className="font-semibold text-[var(--text)]">{item.formatter?.(value) ?? formatNumber(value, 2)}</span></span>;
         })}
-        {!isHovered && <span className="text-[var(--muted-soft)]">{isLatest ? "Letzter Handelstag" : "Letzter sichtbarer Tag"}</span>}
+        {chartMode === "candlestick" && close === null ? <span className="text-[var(--muted-soft)]">Keine Kurskerze archiviert</span> : !isHovered && <span className="text-[var(--muted-soft)]">{isLatest ? "Letzter Handelstag" : "Letzter sichtbarer Tag"}</span>}
       </div>
     </div>
   );
