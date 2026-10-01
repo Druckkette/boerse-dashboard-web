@@ -27,6 +27,7 @@ from app.services.prices import get_price_history
 from app.services.relative_strength import get_relative_strength_for_ticker
 from app.services.sec13f import get_institutional_13f_for_ticker
 from app.services.stocks import get_stock_assessment, get_stock_fundamentals
+from app.services.trade_journal_chart import historical_chart
 
 
 IMAGE_DATA_URL_LIMIT = 2_500_000
@@ -586,9 +587,11 @@ def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
     contexts = journal_repository.latest_contexts(row.id)
     stock_snapshot = contexts.get("stock").payload_json if contexts.get("stock") else row.stock_snapshot_json or {}
     market_snapshot = contexts.get("market").payload_json if contexts.get("market") else row.market_snapshot_json or {}
+    executions = journal_repository.related_entries(row)
     return TradeJournalEntryDetail(
         **summary.model_dump(),
-        executions=[_summary_from_row(item) for item in journal_repository.related_entries(row)],
+        executions=[_summary_from_row(item) for item in executions],
+        historical_chart=historical_chart(row, executions, stock_snapshot),
         sell_assessment=getattr(row, "sell_assessment_json", {}) or {},
         stop_price=row.stop_price,
         stop_distance_pct=row.stop_distance_pct,

@@ -11,8 +11,37 @@ from sqlalchemy.orm import Session
 
 from app.db.models import FundamentalSnapshot, Instrument, PriceBar, StockAssessmentHistory, TradeJournalEntry
 from app.services import trade_journal_backfill as service
+from app.repositories import trade_journal as repository
 
 pytestmark = pytest.mark.skipif(not os.environ.get("TEST_POSTGRES_URL"), reason="Disposable Postgres not configured")
+
+
+def test_chart_repository_bounds_and_duplicate_source_order(monkeypatch):
+    url = os.environ["TEST_POSTGRES_URL"]
+    assert make_url(url).database == "audit_tests"
+    engine = create_engine(url)
+    with Session(engine) as db:
+        ticker = "JC" + uuid4().hex[:12].upper()
+        instrument = Instrument(ticker=ticker, name="Chart bounds", currency="USD")
+        other = Instrument(ticker=ticker + "X", name="Other", currency="USD")
+        db.add_all([instrument, other])
+        db.flush()
+        day = date(2026, 9, 22)
+        db.add_all([
+            PriceBar(instrument_id=instrument.id, date=day - timedelta(days=2), close=10, source="test"),
+            PriceBar(instrument_id=instrument.id, date=day, close=20, source="old",
+                     fetched_at=datetime(2026, 9, 22, tzinfo=UTC)),
+            PriceBar(instrument_id=instrument.id, date=day, close=21, source="new",
+                     fetched_at=datetime(2026, 9, 23, tzinfo=UTC)),
+            PriceBar(instrument_id=instrument.id, date=day + timedelta(days=1), close=999, source="test"),
+            PriceBar(instrument_id=other.id, date=day, close=999, source="test"),
+        ])
+        db.flush()
+        monkeypatch.setattr(repository, "SessionLocal", lambda: db)
+        rows = repository.historical_price_bars(ticker, start_date=day - timedelta(days=1), end_date=day)
+        assert [row.close for row in rows] == [21, 20]
+        assert all(row.date == day for row in rows)
+    engine.dispose()
 
 
 def test_historical_cutoffs_overwritten_fundamentals_and_idempotence(monkeypatch):

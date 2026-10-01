@@ -129,6 +129,20 @@ def related_entries(row: TradeJournalEntry) -> list[TradeJournalEntry]:
         raise TradeJournalRepositoryUnavailable(str(exc)) from exc
 
 
+def historical_price_bars(ticker: str, *, start_date: date, end_date: date) -> list[PriceBar]:
+    """Read a bounded, deterministic daily history without fetching live quotes."""
+    try:
+        with SessionLocal() as db:
+            return list(db.scalars(
+                select(PriceBar).join(Instrument, Instrument.id == PriceBar.instrument_id)
+                .where(Instrument.ticker == ticker, PriceBar.date >= start_date,
+                       PriceBar.date <= end_date, PriceBar.close.is_not(None))
+                .order_by(PriceBar.date, PriceBar.fetched_at.desc().nullslast(), PriceBar.source, PriceBar.id)
+            ).all())
+    except SQLAlchemyError as exc:
+        raise TradeJournalRepositoryUnavailable(str(exc)) from exc
+
+
 def execution_metadata(source_transaction_id: str | None, ticker: str) -> dict:
     try:
         with SessionLocal() as db:

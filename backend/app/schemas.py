@@ -1425,9 +1425,37 @@ class TradeJournalEntrySummary(BaseModel):
     updated_at: str
 
 
+class TradeJournalChartPoint(PriceBarPoint):
+    sma10: float | None = None
+    ema21: float | None = None
+    sma50: float | None = None
+    sma200: float | None = None
+
+
+class TradeJournalChartMarker(BaseModel):
+    entry_id: str = ""
+    date: str
+    entry_type: Literal["buy", "sell"]
+    price: float | None = None
+    currency: str = "EUR"
+    shares: float | None = None
+    selected: bool = False
+
+
+class TradeJournalHistoricalChart(BaseModel):
+    currency: str = "USD"
+    execution_date: str
+    assessment_as_of: str
+    first_date: str | None = None
+    last_date: str | None = None
+    points: list[TradeJournalChartPoint] = Field(default_factory=list)
+    markers: list[TradeJournalChartMarker] = Field(default_factory=list)
+
+
 class TradeJournalEntryDetail(TradeJournalEntrySummary):
     executions: list[TradeJournalEntrySummary] = Field(default_factory=list)
     sell_assessment: dict = Field(default_factory=dict)
+    historical_chart: TradeJournalHistoricalChart | None = None
     stop_price: float | None = None
     stop_distance_pct: float | None = None
     stop_deviation_pct: float | None = None

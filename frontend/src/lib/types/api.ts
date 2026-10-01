@@ -741,6 +741,15 @@ export type TradeJournalEntrySummary = {
 export type TradeJournalEntryDetail = TradeJournalEntrySummary & {
   executions?: TradeJournalEntrySummary[];
   sell_assessment?: Record<string, unknown>;
+  historical_chart?: {
+    currency: string;
+    execution_date: string;
+    assessment_as_of: string;
+    first_date: string | null;
+    last_date: string | null;
+    points: (PriceBarPoint & { sma10: number | null; ema21: number | null; sma50: number | null; sma200: number | null })[];
+    markers: { entry_id: string; date: string; entry_type: "buy" | "sell"; price: number | null; currency: string; shares: number | null; selected: boolean }[];
+  } | null;
   stop_price?: number | null;
   stop_distance_pct?: number | null;
   stop_deviation_pct?: number | null;
