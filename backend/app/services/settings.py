@@ -53,6 +53,7 @@ DEFAULT_SETTINGS = AppSettings(
     pushover_configured=False,
     rs_rating_source="computed",
     data_jobs_enabled=True,
+    market_ampel_logic="current",
     assessment_score_weights={
         "overall": {"technical": 30, "fundamental": 30, "chart": 30, "moving_average": 10},
         "technical": {
