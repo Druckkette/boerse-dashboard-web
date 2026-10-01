@@ -159,8 +159,18 @@ function CompactMarketAmpel({
           <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
           {data.logic === "ibd" ? <StatusChip tone="neutral">IBD Logik</StatusChip> : null}
           {data.powertrend.enabled && data.powertrend.state !== "off" ? (
-            <StatusChip tone={data.powertrend.state === "on" ? "good" : "warning"}>
-              {data.powertrend.state === "on" ? "⚡ Powertrend aktiv" : "⚡ Powertrend unter Druck"}
+            <StatusChip
+              tone={
+                data.powertrend.state === "on" && data.phase_info.phase === "aufwaertstrend"
+                  ? "good"
+                  : "warning"
+              }
+            >
+              {data.powertrend.state === "on"
+                ? data.phase_info.phase === "aufwaertstrend"
+                  ? "⚡ Powertrend aktiv"
+                  : "⚡ Powertrend-Kriterien erfüllt"
+                : "⚡ Powertrend unter Druck"}
             </StatusChip>
           ) : null}
           <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
@@ -311,10 +321,17 @@ function CompactMarketAmpel({
 function PowerTrendCard({ data }: { data: MarketAmpel }) {
   const powertrend = data.powertrend;
   const tone: Tone =
-    powertrend.state === "on" ? "good" : powertrend.state === "under_pressure" ? "warning" : "neutral";
+    powertrend.state === "on" && data.phase_info.phase === "aufwaertstrend"
+      ? "good"
+      : powertrend.state === "off"
+        ? "neutral"
+        : "warning";
+  const powertrendApplied = powertrend.state === "on" && data.phase_info.phase === "aufwaertstrend";
   const label =
     powertrend.state === "on"
-      ? "Powertrend aktiv"
+      ? powertrendApplied
+        ? "Powertrend aktiv"
+        : "Kriterien erfüllt"
       : powertrend.state === "under_pressure"
         ? "Powertrend unter Druck"
         : "Powertrend aus";
@@ -327,7 +344,9 @@ function PowerTrendCard({ data }: { data: MarketAmpel }) {
           <div>
             <div className="text-sm font-semibold text-[#172033]">Powertrend</div>
             <div className="text-xs text-[#687386]">
-              Zusatzstatus zur normalen Aufwärtstrend-Logik
+              {powertrendApplied
+                ? "Zusatzstatus zum bestätigten Aufwärtstrend"
+                : "Technische Powertrend-Bedingungen werden unabhängig mitgeführt"}
               {powertrend.start_date ? ` · seit ${powertrend.start_date}` : ""}
             </div>
           </div>
