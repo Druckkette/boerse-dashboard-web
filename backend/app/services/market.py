@@ -2485,7 +2485,7 @@ def _ampel_lights(phase: str, *, logic: MarketAmpelLogic = "current") -> list[Ma
     start_rule = (
         "GELB - STARTSCHUSS ist ab Rally Day 4 möglich: mindestens +1,0%, Volumen über Vortag und Rally-Day-1-Tief intakt."
         if logic == "ibd"
-        else "GELB - STARTSCHUSS wird frühestens ab Tag 6 nach dem Ankertag aktiv: mindestens +1,0%, Volumen über Vortag und Tagestief nicht unter der Bodenmarke."
+        else "GELB - STARTSCHUSS wird frühestens ab Tag 5 nach dem Ankertag aktiv: mindestens +1,0%, Volumen über Vortag und Tagestief nicht unter der Bodenmarke."
     )
     rules = {
         "rot": rot_rule,
