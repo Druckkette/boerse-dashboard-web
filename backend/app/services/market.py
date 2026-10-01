@@ -2451,7 +2451,7 @@ def _next_phase_step(
     if logic == "ibd":
         return (
             "Ein neuer IBD-Rallyversuch wird bei mindestens 8% Drawdown oder früherer technischer Schwäche "
-            "unter der 50-SMA beobachtet (ab 5% Drawdown oder drei aktiven Distributionstagen)."
+            "unter der 50-SMA beobachtet (ab 3% Drawdown oder drei aktiven Distributionstagen)."
         )
     return (
         "Ein neuer Ampelzyklus beginnt erst bei einer Korrektur: mindestens 10% Drawdown vom relevanten Hoch "
