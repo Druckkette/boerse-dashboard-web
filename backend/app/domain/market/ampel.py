@@ -17,6 +17,8 @@ REVERSAL_ATR_MULTIPLIER = 1.5
 PIVOT_TOLERANCE_ATR = 0.25
 
 MarketStructure = Literal["up", "down", "mixed", "unknown"]
+MarketAmpelLogic = Literal["current", "ibd"]
+PowerTrendState = Literal["off", "on", "under_pressure"]
 
 
 @dataclass(frozen=True)
@@ -106,12 +108,22 @@ class TrendAmpelPoint:
     phase_warning_streak: int = 0
     green_below_sma200: bool = False
     phase_reason: str | None = None
+    ftd_negated: bool = False
+    powertrend_state: PowerTrendState = "off"
+    powertrend_start_date: str | None = None
+    powertrend_formally_active: bool = False
+    powertrend_low_above_21_streak: int = 0
+    powertrend_ema21_over_50_streak: int = 0
+    powertrend_sma50_rising_1d: bool | None = None
+    powertrend_positive_or_flat_day: bool | None = None
+    powertrend_reason: str | None = None
 
 
 def compute_trend_ampel(
     bars: Sequence[TrendAmpelBar | Mapping[str, Any]],
     *,
     over_50_warning_pct: float = 5.0,
+    logic: MarketAmpelLogic = "current",
 ) -> list[TrendAmpelPoint]:
     frame = _frame_from_bars(bars)
     if frame.empty:
@@ -124,7 +136,7 @@ def compute_trend_ampel(
         structure_frame,
         over_50_warning_pct=over_50_warning_pct,
     )
-    ampel_frame = _compute_ampel_frame(warning_frame)
+    ampel_frame = _compute_ampel_frame(warning_frame, logic=logic)
     return [_trend_ampel_point(index, row) for index, row in ampel_frame.iterrows()]
 
 
@@ -198,6 +210,10 @@ def add_trend_indicators(frame: pd.DataFrame) -> pd.DataFrame:
     df["Consec_Close_Below_21"] = _consecutive_true(df["Close"] < df["EMA21"])
     df["EMA21_Rising"] = df["EMA21"] > df["EMA21"].shift(5)
     df["SMA50_Rising"] = df["SMA50"] > df["SMA50"].shift(10)
+    df["EMA21_Above_SMA50"] = df["EMA21"] > df["SMA50"]
+    df["Consec_EMA21_Above_SMA50"] = _consecutive_true(df["EMA21_Above_SMA50"])
+    df["SMA50_Rising_1D"] = df["SMA50"] > df["SMA50"].shift(1)
+    df["Positive_Or_Flat_Day"] = df["Close"] >= previous_close
     return df
 
 
@@ -411,9 +427,14 @@ def add_phase_warning_counts(
     return df
 
 
-def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
+def _compute_ampel_frame(
+    frame: pd.DataFrame,
+    *,
+    logic: MarketAmpelLogic = "current",
+) -> pd.DataFrame:
     df = frame.copy()
     row_count = len(df)
+    ibd_logic = logic == "ibd"
     phase: MarketPhase = "neutral"
     anchor_idx: int | None = None
     floor_mark: float | None = None
@@ -426,6 +447,9 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     pressure_closes_above_21 = 0
     uptrend_high: float | None = None
     uptrend_structure_low: float | None = None
+    ftd_negated = False
+    powertrend_formally_active = False
+    powertrend_start_date: str | None = None
 
     phases: list[MarketPhase] = ["neutral"] * row_count
     anchor_dates: list[str | None] = [None] * row_count
@@ -436,6 +460,11 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     uptrend_highs: list[float | None] = [None] * row_count
     green_below_sma200: list[bool] = [False] * row_count
     phase_reasons: list[str | None] = [None] * row_count
+    ftd_negated_flags: list[bool] = [False] * row_count
+    powertrend_states: list[PowerTrendState] = ["off"] * row_count
+    powertrend_start_dates: list[str | None] = [None] * row_count
+    powertrend_formal_flags: list[bool] = [False] * row_count
+    powertrend_reasons: list[str | None] = [None] * row_count
 
     close = df["Close"].to_numpy(dtype=float)
     high = df["High"].to_numpy(dtype=float)
@@ -452,20 +481,32 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     consec_low_above_21 = df["Consec_Low_above_21"].to_numpy(dtype=int)
     consec_low_above_50 = df["Consec_Low_above_50"].to_numpy(dtype=int)
     consec_close_below_21 = df["Consec_Close_Below_21"].to_numpy(dtype=int)
+    consec_ema21_above_50 = (
+        df["Consec_EMA21_Above_SMA50"].to_numpy(dtype=int)
+        if "Consec_EMA21_Above_SMA50" in df
+        else np.zeros(row_count, dtype=int)
+    )
     ma_order_streak = df["MA_Order_Streak"].to_numpy(dtype=int)
     ema21_rising = df["EMA21_Rising"].fillna(False).to_numpy(dtype=bool)
     sma50_rising = df["SMA50_Rising"].fillna(False).to_numpy(dtype=bool)
+    sma50_rising_1d = (
+        df["SMA50_Rising_1D"].fillna(False).to_numpy(dtype=bool)
+        if "SMA50_Rising_1D" in df
+        else np.zeros(row_count, dtype=bool)
+    )
+    positive_or_flat_day = (
+        df["Positive_Or_Flat_Day"].fillna(False).to_numpy(dtype=bool)
+        if "Positive_Or_Flat_Day" in df
+        else np.zeros(row_count, dtype=bool)
+    )
     market_structure = df["Market_Structure"].astype(str).to_numpy()
     latest_swing_low = df["Latest_Swing_Low"].to_numpy(dtype=float)
     phase_warning_streak = df["Phase_Warning_Streak"].to_numpy(dtype=int)
     dates = [pd.Timestamp(value).strftime("%Y-%m-%d") for value in df.index]
 
-    def clear_state() -> None:
-        nonlocal anchor_idx, floor_mark, startschuss_idx, startschuss_low, startschuss_date
-        nonlocal startschuss_bonus, demand_confirmed, closes_above_21_since_start
-        nonlocal pressure_closes_above_21, uptrend_high, uptrend_structure_low
-        anchor_idx = None
-        floor_mark = None
+    def clear_startschuss_state() -> None:
+        nonlocal startschuss_idx, startschuss_low, startschuss_date, startschuss_bonus
+        nonlocal demand_confirmed, closes_above_21_since_start, pressure_closes_above_21
         startschuss_idx = None
         startschuss_low = None
         startschuss_date = None
@@ -473,19 +514,43 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
         demand_confirmed = False
         closes_above_21_since_start = 0
         pressure_closes_above_21 = 0
+
+    def clear_state() -> None:
+        nonlocal anchor_idx, floor_mark, uptrend_high, uptrend_structure_low, ftd_negated
+        anchor_idx = None
+        floor_mark = None
         uptrend_high = None
         uptrend_structure_low = None
+        ftd_negated = False
+        clear_startschuss_state()
 
     def correction_detected(index: int) -> bool:
-        lookback = max(0, index - 60)
+        lookback = max(0, index - (59 if ibd_logic else 60))
         recent_high = np.nanmax(high[lookback : index + 1])
         if not np.isfinite(recent_high) or recent_high <= 0:
             return False
         drawdown_pct = (close[index] - recent_high) / recent_high * 100
+        if ibd_logic:
+            below_50 = _is_finite(sma50[index]) and close[index] < sma50[index]
+            return bool(
+                drawdown_pct <= -8.0
+                or (below_50 and (drawdown_pct <= -3.0 or dist_count_25[index] >= 3))
+            )
         below_sma50_with_distribution = (
             _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4
         )
         return drawdown_pct <= -10 or below_sma50_with_distribution
+
+    def leave_uptrend(index: int) -> None:
+        nonlocal uptrend_high, uptrend_structure_low, ftd_negated
+        if ibd_logic and anchor_idx is not None and not rally_day_one_low_broken(index):
+            # A book-risk exit is not necessarily a failure of Rally Day 1.
+            ftd_negated = ftd_negated or startschuss_low_broken(index)
+            clear_startschuss_state()
+            uptrend_high = None
+            uptrend_structure_low = None
+        else:
+            clear_state()
 
     def uptrend_confirmed(index: int) -> bool:
         return bool(
@@ -504,7 +569,12 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
         )
 
     def startschuss_low_broken(index: int) -> bool:
-        return startschuss_low is not None and close[index] < startschuss_low
+        if startschuss_low is None or (ibd_logic and ftd_negated):
+            return False
+        return bool((low[index] if ibd_logic else close[index]) < startschuss_low)
+
+    def rally_day_one_low_broken(index: int) -> bool:
+        return floor_mark is not None and low[index] < floor_mark
 
     def update_uptrend_reference(index: int) -> None:
         nonlocal uptrend_high, uptrend_structure_low
@@ -514,7 +584,10 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             uptrend_structure_low = float(latest_swing_low[index])
 
     def uptrend_hard_red(index: int) -> str | None:
-        if startschuss_low_broken(index):
+        if ibd_logic:
+            if rally_day_one_low_broken(index):
+                return "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
+        elif startschuss_low_broken(index):
             return "Schlusskurs unter Startschuss-Tief"
         if _is_finite(sma200[index]) and close[index] < sma200[index]:
             return "Schlusskurs unter 200-SMA"
@@ -562,6 +635,26 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             and market_structure[index] != "down"
         )
 
+    def powertrend_start(index: int) -> bool:
+        return bool(
+            ibd_logic
+            and consec_low_above_21[index] >= 10
+            and consec_ema21_above_50[index] >= 5
+            and sma50_rising_1d[index]
+            and positive_or_flat_day[index]
+        )
+
+    def powertrend_under_pressure(index: int) -> bool:
+        if phase in {"rot", "gelb_trend_unter_druck"}:
+            return True
+        if consec_close_below_21[index] >= 3:
+            return True
+        return bool(
+            _is_finite(sma50[index])
+            and _is_finite(atr21[index])
+            and close[index] < sma50[index] - 0.5 * atr21[index]
+        )
+
     for index in range(1, row_count):
         daily_pct = pct_change[index] if _is_finite(pct_change[index]) else 0.0
         range_position = closing_range[index] if _is_finite(closing_range[index]) else 0.5
@@ -570,7 +663,11 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
         if phase == "neutral":
             if correction_detected(index):
                 phase = "rot"
-                transition_reason = "Substanzielle Korrektur erkannt"
+                transition_reason = (
+                    "IBD-nahe Korrektur erkannt; Rallyversuch wird beobachtet"
+                    if ibd_logic
+                    else "Substanzielle Korrektur erkannt"
+                )
                 clear_state()
         elif phase == "rot":
             if (
@@ -581,15 +678,18 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             ):
                 anchor_idx = None
                 floor_mark = None
+                clear_startschuss_state()
+                ftd_negated = False
 
             if anchor_idx is None and (daily_pct > 0.0 or range_position >= 0.5):
                 anchor_idx = index
-                floor_mark = float(np.nanmin([low[index], low[index - 1]]))
+                floor_mark = float(low[index]) if ibd_logic else float(np.nanmin([low[index], low[index - 1]]))
 
+            earliest_start_offset = 3 if ibd_logic else 5
             if (
                 anchor_idx is not None
                 and floor_mark is not None
-                and index >= anchor_idx + 5
+                and index >= anchor_idx + earliest_start_offset
                 and daily_pct >= 1.0
                 and volume[index] > volume[index - 1]
                 and low[index] >= floor_mark
@@ -601,12 +701,22 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                 startschuss_bonus = _is_finite(ema21[index]) and close[index] > ema21[index]
                 demand_confirmed = False
                 closes_above_21_since_start = 0
+                ftd_negated = False
                 transition_reason = "Startschuss erkannt"
         elif phase == "gelb_startschuss":
-            if startschuss_low_broken(index):
+            if ibd_logic and rally_day_one_low_broken(index):
                 phase = "rot"
-                transition_reason = "Schlusskurs unter Startschuss-Tief"
+                transition_reason = "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
                 clear_state()
+            elif startschuss_low_broken(index):
+                phase = "rot"
+                if ibd_logic:
+                    transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Rally-Day-1-Tief intakt"
+                    clear_startschuss_state()
+                    ftd_negated = True
+                else:
+                    transition_reason = "Schlusskurs unter Startschuss-Tief"
+                    clear_state()
             else:
                 closes_above_21_since_start = (
                     closes_above_21_since_start + 1
@@ -632,10 +742,19 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
                         else "Drei Schlusskurse über der 21-EMA bestätigen Grün"
                     )
         elif phase == "gruen":
-            if startschuss_low_broken(index):
+            if ibd_logic and rally_day_one_low_broken(index):
                 phase = "rot"
-                transition_reason = "Schlusskurs unter Startschuss-Tief"
+                transition_reason = "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
                 clear_state()
+            elif startschuss_low_broken(index):
+                phase = "rot"
+                if ibd_logic:
+                    transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Rally-Day-1-Tief intakt"
+                    clear_startschuss_state()
+                    ftd_negated = True
+                else:
+                    transition_reason = "Schlusskurs unter Startschuss-Tief"
+                    clear_state()
             elif uptrend_confirmed(index):
                 phase = "aufwaertstrend"
                 uptrend_high = float(high[index])
@@ -649,7 +768,12 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             if hard_red_reason:
                 phase = "rot"
                 transition_reason = hard_red_reason
-                clear_state()
+                leave_uptrend(index)
+            elif ibd_logic and not ftd_negated and startschuss_low_broken(index):
+                ftd_negated = True
+                phase = "gelb_trend_unter_druck"
+                pressure_closes_above_21 = 0
+                transition_reason = "Startschuss/FTD negiert; Rally-Day-1-Tief hält"
             else:
                 pressure_reason = uptrend_pressure_reason(index)
                 if pressure_reason:
@@ -667,19 +791,53 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
             if hard_red_reason:
                 phase = "rot"
                 transition_reason = hard_red_reason
-                clear_state()
-            elif pressure_recovered(index):
-                if market_structure[index] == "up":
-                    phase = "aufwaertstrend"
-                    transition_reason = "21-EMA qualifiziert zurückerobert; Aufwärtsstruktur intakt"
+                leave_uptrend(index)
+            else:
+                if ibd_logic and not ftd_negated and startschuss_low_broken(index):
+                    ftd_negated = True
+                    transition_reason = "Startschuss/FTD negiert; Rally-Day-1-Tief hält"
+                if pressure_recovered(index):
+                    if market_structure[index] == "up":
+                        phase = "aufwaertstrend"
+                        transition_reason = "21-EMA qualifiziert zurückerobert; Aufwärtsstruktur intakt"
+                    else:
+                        phase = "gruen"
+                        uptrend_high = None
+                        uptrend_structure_low = None
+                        transition_reason = "21-EMA zurückerobert; Marktstruktur noch nicht eindeutig aufwärts"
+
+        powertrend_reason: str | None = None
+        if ibd_logic:
+            if (
+                powertrend_formally_active
+                and _is_finite(ema21[index])
+                and _is_finite(sma50[index])
+                and ema21[index] < sma50[index]
+            ):
+                powertrend_formally_active = False
+                powertrend_start_date = None
+                powertrend_reason = "Powertrend beendet: 21-EMA unter 50-SMA"
+            if not powertrend_formally_active and powertrend_start(index):
+                powertrend_formally_active = True
+                powertrend_start_date = dates[index]
+                powertrend_reason = "Powertrend aktiviert: 10/5-Regel, steigende 50-SMA und positiver/neutraler Tag"
+
+            if powertrend_formally_active:
+                if powertrend_under_pressure(index):
+                    powertrend_states[index] = "under_pressure"
+                    powertrend_reason = powertrend_reason or "Powertrend formal aktiv, Marktphase technisch unter Druck"
                 else:
-                    phase = "gruen"
-                    uptrend_high = None
-                    uptrend_structure_low = None
-                    transition_reason = "21-EMA zurückerobert; Marktstruktur noch nicht eindeutig aufwärts"
+                    powertrend_states[index] = "on"
+                    powertrend_reason = powertrend_reason or "Powertrend formal aktiv"
+                powertrend_start_dates[index] = powertrend_start_date
+                powertrend_formal_flags[index] = True
+            else:
+                powertrend_states[index] = "off"
+        powertrend_reasons[index] = powertrend_reason
 
         phases[index] = phase
         phase_reasons[index] = transition_reason or (phase_reasons[index - 1] if index > 0 else None)
+        ftd_negated_flags[index] = ftd_negated
         if anchor_idx is not None:
             anchor_dates[index] = pd.Timestamp(df.index[anchor_idx]).strftime("%Y-%m-%d")
         if floor_mark is not None:
@@ -705,6 +863,11 @@ def _compute_ampel_frame(frame: pd.DataFrame) -> pd.DataFrame:
     df["Uptrend_High"] = uptrend_highs
     df["Green_Below_SMA200"] = green_below_sma200
     df["Phase_Reason"] = phase_reasons
+    df["FTD_Negated"] = ftd_negated_flags
+    df["PowerTrend_State"] = powertrend_states
+    df["PowerTrend_Start_Date"] = powertrend_start_dates
+    df["PowerTrend_Formally_Active"] = powertrend_formal_flags
+    df["PowerTrend_Reason"] = powertrend_reasons
     return df
 
 
@@ -811,6 +974,15 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         phase_warning_streak=_safe_int(row.get("Phase_Warning_Streak")),
         green_below_sma200=bool(_safe_bool(row.get("Green_Below_SMA200"))),
         phase_reason=_safe_str(row.get("Phase_Reason")),
+        ftd_negated=bool(_safe_bool(row.get("FTD_Negated"))),
+        powertrend_state=str(row.get("PowerTrend_State") or "off"),  # type: ignore[arg-type]
+        powertrend_start_date=_safe_str(row.get("PowerTrend_Start_Date")),
+        powertrend_formally_active=bool(_safe_bool(row.get("PowerTrend_Formally_Active"))),
+        powertrend_low_above_21_streak=_safe_int(row.get("Consec_Low_above_21")),
+        powertrend_ema21_over_50_streak=_safe_int(row.get("Consec_EMA21_Above_SMA50")),
+        powertrend_sma50_rising_1d=_safe_bool(row.get("SMA50_Rising_1D")),
+        powertrend_positive_or_flat_day=_safe_bool(row.get("Positive_Or_Flat_Day")),
+        powertrend_reason=_safe_str(row.get("PowerTrend_Reason")),
     )
 
 

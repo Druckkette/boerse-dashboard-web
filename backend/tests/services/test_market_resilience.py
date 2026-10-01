@@ -32,3 +32,11 @@ def test_daily_confirmation_computes_calendar_boundary_once(monkeypatch):
     bars = [SimpleNamespace(date=date(2025, 1, 2), fetched_at=None) for _ in range(500)]
     assert len(market._confirmed_ampel_bars(bars)) == 500
     assert len(calls) == 1
+
+
+def test_missing_ampel_preserves_selected_logic():
+    response = market._missing_market_ampel("^IXIC", logic="ibd")
+    assert response.logic == "ibd"
+    assert response.data_status == "missing"
+    assert not response.powertrend.formal_active
+    assert "Rally Day 4" in response.lights[1].rule

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import AssessmentScoreWeights
+from app.schemas import AppSettings, AssessmentScoreWeights
 from app.services import settings as settings_service
 
 
@@ -60,3 +60,21 @@ def test_assessment_weights_reject_missing_keys_and_empty_group() -> None:
     values["chart"] = {key: 0 for key in values["chart"]}
     with pytest.raises(ValidationError):
         AssessmentScoreWeights.model_validate(values)
+
+
+def test_market_ampel_logic_defaults_to_current_and_accepts_ibd() -> None:
+    assert settings_service.DEFAULT_SETTINGS.market_ampel_logic == "current"
+
+    current = settings_service.DEFAULT_SETTINGS.model_copy(update={"market_ampel_logic": "current"})
+    ibd = settings_service.DEFAULT_SETTINGS.model_copy(update={"market_ampel_logic": "ibd"})
+
+    assert current.market_ampel_logic == "current"
+    assert ibd.market_ampel_logic == "ibd"
+
+
+def test_market_ampel_logic_rejects_unknown_value() -> None:
+    payload = settings_service.DEFAULT_SETTINGS.model_dump()
+    payload["market_ampel_logic"] = "unknown"
+
+    with pytest.raises(ValidationError):
+        AppSettings.model_validate(payload)

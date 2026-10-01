@@ -11,6 +11,7 @@ from app.services.market_calendar import completed_us_market_session, expected_u
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
     GREEN_CONFIRMATION_DAYS,
+    MarketAmpelLogic,
     TrendAmpelBar,
     TrendAmpelPoint,
     compute_trend_ampel,
@@ -36,6 +37,7 @@ from app.domain.market.volatility import (
     summarize_volatility_points,
 )
 from app.repositories import market as market_repository
+from app.services.settings import get_app_settings
 from app.repositories.market import (
     BreadthDailyWrite,
     MarketOhlcvPoint,
@@ -55,6 +57,7 @@ from app.schemas import (
     MarketAmpelHero,
     MarketAmpelLight,
     MarketAmpelPhaseInfo,
+    MarketAmpelPowerTrend,
     MarketAmpelResponse,
     MarketAmpelWarningCheck,
     MarketBreadthOverviewPoint,
@@ -119,6 +122,14 @@ class BreadthComputationPoint:
     up_down_volume_ratio: float | None = None
 
 
+def _selected_market_ampel_logic() -> MarketAmpelLogic:
+    try:
+        value = get_app_settings().market_ampel_logic
+    except Exception:
+        value = "current"
+    return "ibd" if value == "ibd" else "current"
+
+
 def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOverviewResponse:
     clean_ticker = _normalize_ampel_ticker(ticker)
     try:
@@ -162,17 +173,24 @@ def get_market_ampel(
 ) -> MarketAmpelResponse:
     clean_ticker = _normalize_ampel_ticker(ticker)
     clean_days = max(30, min(240, int(days)))
+    ampel_logic = _selected_market_ampel_logic()
     start_date = date(1900, 1, 1)
     bars, used_ticker = _load_cached_index_ohlcv(clean_ticker, start_date=start_date)
 
     if len(bars) < 2:
-        return _missing_market_ampel(clean_ticker)
+        return _missing_market_ampel(clean_ticker, logic=ampel_logic)
 
-    all_points = _cached_ampel_calculation(tuple(_trend_bar_from_ohlcv(point) for point in bars), clean_ticker)
+    all_points = _cached_ampel_calculation(
+        tuple(_trend_bar_from_ohlcv(point) for point in bars), clean_ticker, ampel_logic
+    )
     confirmed_bars = _confirmed_ampel_bars(bars)
-    points = list(_cached_ampel_calculation(tuple(_trend_bar_from_ohlcv(p) for p in confirmed_bars), clean_ticker))
+    points = list(
+        _cached_ampel_calculation(
+            tuple(_trend_bar_from_ohlcv(p) for p in confirmed_bars), clean_ticker, ampel_logic
+        )
+    )
     if not points:
-        return _missing_market_ampel(clean_ticker)
+        return _missing_market_ampel(clean_ticker, logic=ampel_logic)
 
     try:
         snapshot = market_repository.get_latest_market_snapshot()
@@ -208,6 +226,7 @@ def get_market_ampel(
         rotation_groups=rotation_groups,
         defensive_lead=defensive_lead,
         defensive_spread_pct=defensive_spread,
+        logic=ampel_logic,
     )
     response.component_errors = component_errors
     if component_errors and response.data_status != "missing":
@@ -228,9 +247,19 @@ def get_market_ampel(
     return response
 
 
-@lru_cache(maxsize=12)
-def _cached_ampel_calculation(bars: tuple[TrendAmpelBar, ...], ticker: str) -> tuple[TrendAmpelPoint, ...]:
-    return tuple(compute_trend_ampel(bars, over_50_warning_pct=7.0 if ticker == "^IXIC" else 5.0))
+@lru_cache(maxsize=24)
+def _cached_ampel_calculation(
+    bars: tuple[TrendAmpelBar, ...],
+    ticker: str,
+    logic: MarketAmpelLogic,
+) -> tuple[TrendAmpelPoint, ...]:
+    return tuple(
+        compute_trend_ampel(
+            bars,
+            over_50_warning_pct=7.0 if ticker == "^IXIC" else 5.0,
+            logic=logic,
+        )
+    )
 
 
 def _confirmed_ampel_bars(bars):
@@ -257,6 +286,7 @@ def build_market_ampel_response(
     rotation_groups: list[MarketSectorRotationGroup],
     defensive_lead: bool | None,
     defensive_spread_pct: float | None,
+    logic: MarketAmpelLogic = "current",
 ) -> MarketAmpelResponse:
     latest = points[-1]
     previous = points[-2] if len(points) >= 2 else None
@@ -283,9 +313,11 @@ def build_market_ampel_response(
         anchor_date=anchor_date,
         floor_mark=floor_mark,
         startschuss_low=startschuss_low,
+        logic=logic,
     )
     chart_points = _ampel_chart_points(points[-days:])
     return MarketAmpelResponse(
+        logic=logic,
         as_of=latest.date,
         as_of_time=overview.as_of_time,
         ticker=ticker,
@@ -312,7 +344,7 @@ def build_market_ampel_response(
             ),
         ),
         phase_info=phase_info,
-        lights=_ampel_lights(latest.phase),
+        lights=_ampel_lights(latest.phase, logic=logic),
         cycle=_ampel_cycle(
             latest,
             anchor_date=anchor_date,
@@ -332,6 +364,23 @@ def build_market_ampel_response(
         warning_checks=warning_checks,
         chart_points=chart_points,
         chart_markers=_ampel_chart_markers(chart_points, latest, anchor_date=anchor_date, floor_mark=floor_mark),
+        powertrend=_powertrend_response(latest, enabled=logic == "ibd"),
+    )
+
+
+def _powertrend_response(latest: TrendAmpelPoint, *, enabled: bool) -> MarketAmpelPowerTrend:
+    if not enabled:
+        return MarketAmpelPowerTrend(enabled=False)
+    return MarketAmpelPowerTrend(
+        enabled=True,
+        state=latest.powertrend_state,
+        formal_active=latest.powertrend_formally_active,
+        start_date=latest.powertrend_start_date,
+        low_above_21_streak=latest.powertrend_low_above_21_streak,
+        ema21_over_50_streak=latest.powertrend_ema21_over_50_streak,
+        sma50_rising_1d=bool(latest.powertrend_sma50_rising_1d),
+        positive_or_flat_day=bool(latest.powertrend_positive_or_flat_day),
+        reason=latest.powertrend_reason or "",
     )
 
 
@@ -1466,7 +1515,11 @@ def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> Tren
     bars, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
     if len(bars) < 2:
         return None
-    points = _cached_ampel_calculation(tuple(_trend_bar_from_ohlcv(p) for p in _confirmed_ampel_bars(bars)), ticker)
+    points = _cached_ampel_calculation(
+        tuple(_trend_bar_from_ohlcv(p) for p in _confirmed_ampel_bars(bars)),
+        ticker,
+        _selected_market_ampel_logic(),
+    )
     return points[-1] if points else None
 
 
@@ -1972,9 +2025,10 @@ def _format_optional_pct(value: float | None) -> str:
     return f"{value:+.1f}%"
 
 
-def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
+def _missing_market_ampel(ticker: str, *, logic: MarketAmpelLogic = "current") -> MarketAmpelResponse:
     today = date.today().isoformat()
     return MarketAmpelResponse(
+        logic=logic,
         as_of=today,
         as_of_time="",
         ticker=ticker,
@@ -2003,7 +2057,7 @@ def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
             tone="neutral",
             next_step="Price-Cache laden. Danach kann die Ampel die erste Marktphase bestimmen.",
         ),
-        lights=_ampel_lights("neutral"),
+        lights=_ampel_lights("neutral", logic=logic),
         cycle=MarketAmpelCycle(diagnostics=["Keine Kursdaten im Cache"]),
         change_cards=[],
         distance_tiles=[],
@@ -2179,6 +2233,7 @@ def _ampel_phase_info(
     anchor_date: str | None,
     floor_mark: float | None,
     startschuss_low: float | None,
+    logic: MarketAmpelLogic = "current",
 ) -> MarketAmpelPhaseInfo:
     phase = latest.phase
     last_changed_at, last_change_reason = _last_phase_change(points)
@@ -2188,18 +2243,31 @@ def _ampel_phase_info(
         anchor_date=anchor_date,
         floor_mark=floor_mark,
         startschuss_low=startschuss_low,
+        logic=logic,
     )
     if phase == "rot":
-        reason = (
-            f"Substanzielle Korrektur läuft. Ankertag: {anchor_date}. Bodenmarke: {_format_number(floor_mark)}."
-            if anchor_date and floor_mark is not None
-            else "Substanzielle Korrektur läuft. Warte auf Ankertag, also den ersten positiven Schluss."
-        )
+        if logic == "ibd" and latest.ftd_negated and anchor_date and floor_mark is not None:
+            reason = (
+                f"Startschuss/FTD negiert. Der Rallyversuch seit {anchor_date} bleibt intakt, "
+                f"solange das Rally-Day-1-Tief {_format_number(floor_mark)} hält."
+            )
+            action = "Auf einen neuen Startschuss innerhalb des laufenden Rallyversuchs warten."
+        else:
+            reason = (
+                f"Substanzielle Korrektur läuft. Ankertag: {anchor_date}. Bodenmarke: {_format_number(floor_mark)}."
+                if anchor_date and floor_mark is not None
+                else "Substanzielle Korrektur läuft. Warte auf Ankertag, also den ersten positiven Schluss."
+            )
+            action = (
+                "Abwarten und den Markt auf Stabilisierung beobachten."
+                if logic == "ibd"
+                else "Nicht kaufen. Beobachte den Markt auf Stabilisierung."
+            )
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="ROT - Abwarten",
             reason=reason,
-            action="Nicht kaufen. Beobachte den Markt auf Stabilisierung.",
+            action=action,
             tone="bad",
             next_step=next_step,
             last_changed_at=last_changed_at,
@@ -2234,7 +2302,9 @@ def _ampel_phase_info(
         )
     if phase == "gruen":
         reason = (
-            f"Startschuss hält. Kurs bleibt über dem Startschuss-Tief {_format_number(startschuss_low)}."
+            "Erholung bestätigt; der frühere Startschuss/FTD bleibt negiert. Rally-Day-1-Tief hält."
+            if logic == "ibd" and latest.ftd_negated
+            else f"Startschuss hält. Kurs bleibt über dem Startschuss-Tief {_format_number(startschuss_low)}."
             if startschuss_low is not None
             else "Startschuss bestätigt."
         )
@@ -2305,6 +2375,7 @@ def _next_phase_step(
     anchor_date: str | None,
     floor_mark: float | None,
     startschuss_low: float | None,
+    logic: MarketAmpelLogic = "current",
 ) -> str:
     """Explain the next state transition from already calculated daily data."""
     phase = latest.phase
@@ -2316,7 +2387,8 @@ def _next_phase_step(
                 "oder Schluss in der oberen Hälfte der Tageskerze."
             )
         completed_days = max(0, len(points) - 1 - anchor_index)
-        remaining_days = max(0, 5 - completed_days)
+        required_offset = 3 if logic == "ibd" else 5
+        remaining_days = max(0, required_offset - completed_days)
         start_rule = (
             "Tagesplus von mindestens +1,0%, Volumen über dem Vortag und ein Tagestief "
             f"nicht unter der Bodenmarke {_format_number(floor_mark)}."
@@ -2383,6 +2455,11 @@ def _next_phase_step(
             "sonst zunächst auf GRÜN."
         )
 
+    if logic == "ibd":
+        return (
+            "Ein neuer IBD-Rallyversuch wird bei mindestens 8% Drawdown oder früherer technischer Schwäche "
+            "unter der 50-SMA beobachtet (ab 3% Drawdown oder drei aktiven Distributionstagen)."
+        )
     return (
         "Ein neuer Ampelzyklus beginnt erst bei einer Korrektur: mindestens 10% Drawdown vom relevanten Hoch "
         "oder Schlusskurs unter 50-SMA bei mindestens vier aktiven Distributionstagen."
@@ -2405,11 +2482,21 @@ def _consecutive_closes_above_ema(points: Sequence[TrendAmpelPoint], *, start_in
     return count
 
 
-def _ampel_lights(phase: str) -> list[MarketAmpelLight]:
+def _ampel_lights(phase: str, *, logic: MarketAmpelLogic = "current") -> list[MarketAmpelLight]:
     active_key = phase
+    rot_rule = (
+        "ROT beobachtet in der IBD Logik einen Rallyversuch bereits ab 8% Drawdown oder bei früherer Schwäche unter der 50-SMA."
+        if logic == "ibd"
+        else "ROT wird bei mindestens 10% Drawdown vom relevanten Hoch, bestätigter Abwärtsstruktur oder einer harten Bruchregel aktiv."
+    )
+    start_rule = (
+        "GELB - STARTSCHUSS ist ab Rally Day 4 möglich: mindestens +1,0%, Volumen über Vortag und Rally-Day-1-Tief intakt."
+        if logic == "ibd"
+        else "GELB - STARTSCHUSS wird frühestens ab Tag 5 nach dem Ankertag aktiv: mindestens +1,0%, Volumen über Vortag und Tagestief nicht unter der Bodenmarke."
+    )
     rules = {
-        "rot": "ROT wird bei mindestens 10% Drawdown vom relevanten Hoch, bestätigter Abwärtsstruktur oder einer harten Bruchregel aktiv.",
-        "gelb_startschuss": "GELB - STARTSCHUSS wird frühestens ab Tag 5 nach dem Ankertag aktiv: mindestens +1,0%, Volumen über Vortag und Tagestief nicht unter der Bodenmarke.",
+        "rot": rot_rule,
+        "gelb_startschuss": start_rule,
         "gruen": f"GRÜN benötigt mindestens {GREEN_CONFIRMATION_DAYS} vollständige Handelstage nach dem Startschuss sowie einen weiteren Akkumulationstag oder drei Schlusskurse über der 21-EMA.",
         "aufwaertstrend": "AUFWÄRTSTREND benötigt höhere Swing-Hochs und -Tiefs, drei vollständige Tage über 21-EMA und 50-SMA, drei Tage korrekte MA-Ordnung sowie steigende 21-EMA und 50-SMA.",
         "gelb_trend_unter_druck": "GELB - TREND UNTER DRUCK wird bei nachhaltigem 21-EMA-Bruch, deutlichem 50-SMA-Bruch, negativer Kreuzung, Strukturbruch oder vier Warnzeichen an zwei Tagen aktiv.",
@@ -2487,6 +2574,7 @@ def _ampel_cycle(
         startschuss_current=startschuss_current,
         startschuss_distance_pct=_safe_pct_change(close, startschuss_low),
         startschuss_bonus=latest.startschuss_bonus,
+        ftd_negated=latest.ftd_negated,
         ma_order=latest.ma_order,
         market_structure=latest.market_structure,
         uptrend_high=latest.uptrend_high,

@@ -77,6 +77,7 @@ export type MarketAmpelCycle = {
   startschuss_current?: boolean;
   startschuss_distance_pct?: number | null;
   startschuss_bonus?: boolean | null;
+  ftd_negated: boolean;
   ma_order?: boolean | null;
   market_structure: "up" | "down" | "mixed" | "unknown";
   uptrend_high?: number | null;
@@ -147,8 +148,21 @@ export type MarketAmpelChartMarker = {
   color: string;
 };
 
+export type MarketAmpelPowerTrend = {
+  enabled: boolean;
+  state: "off" | "on" | "under_pressure";
+  formal_active: boolean;
+  start_date?: string | null;
+  low_above_21_streak: number;
+  ema21_over_50_streak: number;
+  sma50_rising_1d: boolean;
+  positive_or_flat_day: boolean;
+  reason: string;
+};
+
 export type MarketAmpel = {
   component_errors?: string[];
+  logic: "current" | "ibd";
   confirmed_as_of?: string;
   quote_as_of?: string;
   intraday?: boolean;
@@ -172,6 +186,7 @@ export type MarketAmpel = {
   warning_checks: MarketAmpelWarningCheck[];
   chart_points: MarketAmpelChartPoint[];
   chart_markers: MarketAmpelChartMarker[];
+  powertrend: MarketAmpelPowerTrend;
 };
 
 export type BreadthPoint = {
@@ -1760,6 +1775,7 @@ export type AppSettings = {
   pushover_configured: boolean;
   rs_rating_source: "csv_latest" | "computed";
   data_jobs_enabled: boolean;
+  market_ampel_logic: "current" | "ibd";
   assessment_score_weights: AssessmentScoreWeights;
 };
 

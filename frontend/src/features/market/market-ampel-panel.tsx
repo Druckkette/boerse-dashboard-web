@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, ChevronDown, CircleAlert, CircleDot, RotateCw, ShieldAlert } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, CircleAlert, CircleDot, RotateCw, ShieldAlert, Zap } from "lucide-react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -157,6 +157,22 @@ function CompactMarketAmpel({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h1 className="mr-1 text-base font-semibold text-[#0f172a]">Marktampel</h1>
           <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
+          {data.logic === "ibd" ? <StatusChip tone="neutral">IBD Logik</StatusChip> : null}
+          {data.powertrend.enabled && data.powertrend.state !== "off" ? (
+            <StatusChip
+              tone={
+                data.powertrend.state === "on" && data.phase_info.phase === "aufwaertstrend"
+                  ? "good"
+                  : "warning"
+              }
+            >
+              {data.powertrend.state === "on"
+                ? data.phase_info.phase === "aufwaertstrend"
+                  ? "⚡ Powertrend aktiv"
+                  : "⚡ Powertrend formal aktiv"
+                : "⚡ Powertrend unter Druck"}
+            </StatusChip>
+          ) : null}
           <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
           {data.component_errors?.length ? <span role="status" className="text-xs text-amber-700">{data.component_errors.join(" · ")}</span> : null}
           {data.intraday ? (
@@ -253,6 +269,8 @@ function CompactMarketAmpel({
           <InfoBlock title="Letzte Statusänderung" text={lastStatusChangeText(data)} />
         </div>
 
+        {data.powertrend.enabled ? <PowerTrendCard data={data} /> : null}
+
         <div className="mt-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
           <CycleMetric
             label="Ankertag"
@@ -261,7 +279,7 @@ function CompactMarketAmpel({
             freshness={cycleFreshness(data.cycle.anchor_date, data.cycle.anchor_current)}
           />
           <CycleMetric
-            label="Bodenmarke"
+            label={data.logic === "ibd" ? "Rally-Day-1-Tief" : "Bodenmarke"}
             value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
             tone={distanceTone(data.cycle.floor_distance_pct)}
             freshness={cycleFreshness(data.cycle.floor_mark, data.cycle.floor_current)}
@@ -296,6 +314,90 @@ function CompactMarketAmpel({
         <RuleDefinitions lights={data.lights} />
         <MovingAverageDistanceSummary tiles={data.distance_tiles} />
       </div>
+    </div>
+  );
+}
+
+function PowerTrendCard({ data }: { data: MarketAmpel }) {
+  const powertrend = data.powertrend;
+  const tone: Tone =
+    powertrend.state === "on" && data.phase_info.phase === "aufwaertstrend"
+      ? "good"
+      : powertrend.state === "off"
+        ? "neutral"
+        : "warning";
+  const powertrendApplied = powertrend.state === "on" && data.phase_info.phase === "aufwaertstrend";
+  const label =
+    powertrend.state === "on"
+      ? powertrendApplied
+        ? "Powertrend aktiv"
+        : "Powertrend formal aktiv"
+      : powertrend.state === "under_pressure"
+        ? "Powertrend unter Druck"
+        : "Powertrend aus";
+
+  return (
+    <div className={clsx("mt-4 rounded-2xl border p-4", tileBorder(tone))}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Zap size={17} className={toneText(tone)} />
+          <div>
+            <div className="text-sm font-semibold text-[#172033]">Powertrend</div>
+            <div className="text-xs text-[#687386]">
+              {powertrendApplied
+                ? "Zusatzstatus zum bestätigten Aufwärtstrend"
+                : "Technische Powertrend-Bedingungen werden unabhängig mitgeführt"}
+              {powertrend.start_date ? ` · seit ${powertrend.start_date}` : ""}
+            </div>
+          </div>
+        </div>
+        <StatusChip tone={tone}>{label}</StatusChip>
+      </div>
+      <p className="mt-3 text-xs text-[#687386]">
+        Startbedingungen am letzten bestätigten Handelstag. Ein laufender Powertrend bleibt auch bei
+        nicht mehr erfüllten Startbedingungen formal aktiv, bis die 21-EMA unter die 50-SMA fällt.
+        Die Marktampel bestimmt weiterhin die Handlungsphase.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <PowerTrendCheck
+          label="Tagestief > 21-EMA"
+          value={`${Math.min(powertrend.low_above_21_streak, 10)}/10`}
+          passed={powertrend.low_above_21_streak >= 10}
+        />
+        <PowerTrendCheck
+          label="21-EMA > 50-SMA"
+          value={`${Math.min(powertrend.ema21_over_50_streak, 5)}/5`}
+          passed={powertrend.ema21_over_50_streak >= 5}
+        />
+        <PowerTrendCheck
+          label="50-SMA steigt"
+          value={powertrend.sma50_rising_1d ? "Ja" : "Nein"}
+          passed={powertrend.sma50_rising_1d}
+        />
+        <PowerTrendCheck
+          label="Tag positiv/neutral"
+          value={powertrend.positive_or_flat_day ? "Ja" : "Nein"}
+          passed={powertrend.positive_or_flat_day}
+        />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-[#687386]">
+        {powertrend.reason ||
+          "Powertrend startet erst, wenn alle vier Kriterien gleichzeitig erfüllt sind. Formal endet er bei 21-EMA unter 50-SMA."}
+      </p>
+      {data.cycle.ftd_negated ? (
+        <p className="mt-2 rounded-lg border border-[#fed7aa] bg-[#fffbeb] px-3 py-2 text-xs font-medium text-[#b45309]">
+          Startschuss/FTD negiert. Der Rallyversuch bleibt aktiv, solange das Rally-Day-1-Tief hält.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PowerTrendCheck({ label, passed, value }: { label: string; passed: boolean; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/70 bg-white/70 px-3 py-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">{label}</div>
+      <div className={clsx("mt-1 text-sm font-semibold", passed ? "text-[#059669]" : "text-[#64748b]")}>{value}</div>
     </div>
   );
 }
