@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import AssessmentScoreWeights
+from app.schemas import AppSettings, AssessmentScoreWeights
 from app.services import settings as settings_service
 
 
@@ -77,4 +77,4 @@ def test_market_ampel_logic_rejects_unknown_value() -> None:
     payload["market_ampel_logic"] = "unknown"
 
     with pytest.raises(ValidationError):
-        settings_service.AppSettings.model_validate(payload)
+        AppSettings.model_validate(payload)
