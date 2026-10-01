@@ -384,9 +384,9 @@ def test_ibd_logic_allows_startschuss_on_rally_day_four() -> None:
 
 def test_ibd_logic_detects_smaller_correction_while_current_logic_stays_neutral() -> None:
     frame = _book_frame(confirm_green=None)
-    frame.loc[frame.index[1], ["Open", "High", "Low", "Close"]] = [96.0, 96.5, 93.5, 94.0]
-    frame.loc[frame.index[1], "Pct_Change"] = -6.0
-    frame.loc[frame.index[1], "SMA50"] = 96.0
+    frame.loc[frame.index[1], ["Open", "High", "Low", "Close"]] = [98.0, 98.2, 96.0, 96.5]
+    frame.loc[frame.index[1], "Pct_Change"] = -3.5
+    frame.loc[frame.index[1], "SMA50"] = 97.0
     frame.loc[frame.index[1], "Dist_Count_25"] = 0
     frame["Consec_EMA21_Above_SMA50"] = 0
     frame["SMA50_Rising_1D"] = False
