@@ -99,6 +99,7 @@ class MarketAmpelCycle(BaseModel):
     startschuss_current: bool = False
     startschuss_distance_pct: float | None = None
     startschuss_bonus: bool | None = None
+    ftd_negated: bool = False
     ma_order: bool | None = None
     market_structure: Literal["up", "down", "mixed", "unknown"] = "unknown"
     uptrend_high: float | None = None
@@ -169,8 +170,21 @@ class MarketAmpelChartMarker(BaseModel):
     color: str
 
 
+class MarketAmpelPowerTrend(BaseModel):
+    enabled: bool = False
+    state: Literal["off", "on", "under_pressure"] = "off"
+    formal_active: bool = False
+    start_date: str | None = None
+    low_above_21_streak: int = 0
+    ema21_over_50_streak: int = 0
+    sma50_rising_1d: bool = False
+    positive_or_flat_day: bool = False
+    reason: str = ""
+
+
 class MarketAmpelResponse(BaseModel):
     component_errors: list[str] = Field(default_factory=list)
+    logic: Literal["current", "ibd"] = "current"
     as_of: str
     confirmed_as_of: str = ""
     quote_as_of: str = ""
@@ -194,6 +208,7 @@ class MarketAmpelResponse(BaseModel):
     warning_checks: list[MarketAmpelWarningCheck]
     chart_points: list[MarketAmpelChartPoint]
     chart_markers: list[MarketAmpelChartMarker]
+    powertrend: MarketAmpelPowerTrend = Field(default_factory=MarketAmpelPowerTrend)
 
 
 class MarketOverviewResponse(BaseModel):
@@ -1835,6 +1850,7 @@ class AppSettings(BaseModel):
     pushover_configured: bool = False
     rs_rating_source: Literal["csv_latest", "computed"]
     data_jobs_enabled: bool
+    market_ampel_logic: Literal["current", "ibd"] = "current"
     assessment_score_weights: AssessmentScoreWeights
 
 
@@ -1857,6 +1873,7 @@ class SettingsPatch(BaseModel):
     pushover_enabled: bool | None = None
     rs_rating_source: Literal["csv_latest", "computed"] | None = None
     data_jobs_enabled: bool | None = None
+    market_ampel_logic: Literal["current", "ibd"] | None = None
     assessment_score_weights: AssessmentScoreWeights | None = None
 
 
