@@ -126,6 +126,8 @@ export function SettingsPanel() {
     mutationFn: api.patchSettings,
     onSuccess: (updated) => {
       queryClient.setQueryData(["settings"], updated);
+      queryClient.invalidateQueries({ queryKey: ["market-ampel"] });
+      queryClient.invalidateQueries({ queryKey: ["market-overview"] });
       setLocal(null);
       setDirty(false);
     }
