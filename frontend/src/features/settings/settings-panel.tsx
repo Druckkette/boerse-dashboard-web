@@ -70,6 +70,7 @@ const fallbackSettings: AppSettings = {
   pushover_configured: false,
   rs_rating_source: "computed",
   data_jobs_enabled: true,
+  market_ampel_logic: "current",
   assessment_score_weights: defaultAssessmentScoreWeights
 };
 
@@ -340,6 +341,32 @@ export function SettingsPanel() {
                 Live-Kurs jede Minute geprüft. Die vollständige Aktienbewertung wird
                 ressourcenschonend alle {settings.position_monitor_assessment_interval_minutes} Minuten verglichen.
                 Nur Zustandsänderungen lösen eine Nachricht aus.
+              </p>
+            </div>
+          </SettingCard>
+
+          <SettingCard
+            description="Wähle zwischen der unveränderten bisherigen Marktampel und einer IBD-näheren Variante. Die Auswahl gilt für jeden Index separat."
+            title="Marktampel-Logik"
+            value={settings.market_ampel_logic === "ibd" ? "IBD Logik" : "Aktuelle Logik"}
+          >
+            <div className="space-y-3">
+              <Field label="Variante">
+                <select
+                  className="input-dark"
+                  value={settings.market_ampel_logic}
+                  onChange={(event) =>
+                    update("market_ampel_logic", event.target.value as AppSettings["market_ampel_logic"])
+                  }
+                >
+                  <option value="current">Aktuelle Logik</option>
+                  <option value="ibd">IBD Logik</option>
+                </select>
+              </Field>
+              <p className="text-xs leading-5 text-[#687386]">
+                IBD Logik startet die Beobachtung eines Rallyversuchs früher, erlaubt den Startschuss ab Rally Day 4
+                und trennt ein negiertes Startschuss-/FTD-Tief vom tieferen Rally-Day-1-Tief. Der Powertrend wird als
+                zusätzlicher Status berechnet und ersetzt die normale Aufwärtstrend-Phase nicht.
               </p>
             </div>
           </SettingCard>
