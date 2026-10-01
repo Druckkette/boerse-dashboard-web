@@ -51,8 +51,24 @@ function EqualWeightDetails({ signal }: { signal: MarketBreadthSignal }) {
 }
 
 function EtfMetric({ label, values }: { label: string; values: Record<string, unknown> }) {
+  const dayPct = readNumber(values.day_pct);
+  const benchmarkDayPct = readNumber(values.benchmark_day_pct);
+  const relativeDayPct = readNumber(values.relative_day_pct);
   const drawdown = readNumber(values.drawdown_from_high_pct);
-  return <div className="grid grid-cols-3 items-center gap-2 rounded-[9px] bg-[#f7f9fb] px-3 py-2 text-xs"><span className="font-semibold text-[#172033]">{label}</span><span className={toneText((readNumber(values.day_pct) ?? 0) >= 0 ? "good" : "bad")}>Tag {formatPercent(readNumber(values.day_pct))}</span><span className="text-right text-[#687386]">52W {drawdown === undefined ? "–" : `-${drawdown.toFixed(1)}%`}</span></div>;
+  const benchmarkName = typeof values.benchmark_name === "string" ? values.benchmark_name : "Benchmark";
+  const relativeTone: Tone =
+    relativeDayPct === undefined ? "neutral" : relativeDayPct >= 0 ? "good" : "warning";
+  return <div className="rounded-[9px] bg-[#f7f9fb] px-3 py-2 text-xs">
+    <div className="flex items-center justify-between gap-3">
+      <span className="font-semibold text-[#172033]">{label}</span>
+      <span className={toneText(relativeTone)}>rel. {relativeDayPct === undefined ? "–" : `${relativeDayPct >= 0 ? "+" : ""}${relativeDayPct.toFixed(2)} PP`}</span>
+    </div>
+    <div className="mt-1 grid gap-1 text-[#687386] sm:grid-cols-2">
+      <span>{label} Tag <strong className="font-semibold text-[#172033]">{formatPercent(dayPct)}</strong></span>
+      <span>{benchmarkName} Tag <strong className="font-semibold text-[#172033]">{formatPercent(benchmarkDayPct)}</strong></span>
+    </div>
+    <div className="mt-1 text-[#8b95a5]">52W-Abstand {drawdown === undefined ? "–" : `-${drawdown.toFixed(1)}%`}</div>
+  </div>;
 }
 
 function RussellDetails({ signal }: { signal: MarketBreadthSignal }) {
