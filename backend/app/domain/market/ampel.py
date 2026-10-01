@@ -525,7 +525,7 @@ def _compute_ampel_frame(
         clear_startschuss_state()
 
     def correction_detected(index: int) -> bool:
-        lookback = max(0, index - 60)
+        lookback = max(0, index - (59 if ibd_logic else 60))
         recent_high = np.nanmax(high[lookback : index + 1])
         if not np.isfinite(recent_high) or recent_high <= 0:
             return False
@@ -540,6 +540,17 @@ def _compute_ampel_frame(
             _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4
         )
         return drawdown_pct <= -10 or below_sma50_with_distribution
+
+    def leave_uptrend(index: int) -> None:
+        nonlocal uptrend_high, uptrend_structure_low, ftd_negated
+        if ibd_logic and anchor_idx is not None and not rally_day_one_low_broken(index):
+            # A book-risk exit is not necessarily a failure of Rally Day 1.
+            ftd_negated = ftd_negated or startschuss_low_broken(index)
+            clear_startschuss_state()
+            uptrend_high = None
+            uptrend_structure_low = None
+        else:
+            clear_state()
 
     def uptrend_confirmed(index: int) -> bool:
         return bool(
@@ -558,7 +569,9 @@ def _compute_ampel_frame(
         )
 
     def startschuss_low_broken(index: int) -> bool:
-        return startschuss_low is not None and close[index] < startschuss_low
+        if startschuss_low is None or (ibd_logic and ftd_negated):
+            return False
+        return bool((low[index] if ibd_logic else close[index]) < startschuss_low)
 
     def rally_day_one_low_broken(index: int) -> bool:
         return floor_mark is not None and low[index] < floor_mark
@@ -755,7 +768,7 @@ def _compute_ampel_frame(
             if hard_red_reason:
                 phase = "rot"
                 transition_reason = hard_red_reason
-                clear_state()
+                leave_uptrend(index)
             elif ibd_logic and not ftd_negated and startschuss_low_broken(index):
                 ftd_negated = True
                 phase = "gelb_trend_unter_druck"
@@ -778,7 +791,7 @@ def _compute_ampel_frame(
             if hard_red_reason:
                 phase = "rot"
                 transition_reason = hard_red_reason
-                clear_state()
+                leave_uptrend(index)
             else:
                 if ibd_logic and not ftd_negated and startschuss_low_broken(index):
                     ftd_negated = True

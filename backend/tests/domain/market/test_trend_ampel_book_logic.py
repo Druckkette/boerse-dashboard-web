@@ -477,3 +477,90 @@ def test_ibd_powertrend_needs_positive_or_flat_activation_day() -> None:
     result = _compute_ampel_frame(frame.copy(), logic="ibd")
 
     assert result.loc[row, "PowerTrend_State"] == "off"
+
+
+@pytest.mark.parametrize("confirm", [None, "ema21", "uptrend"])
+def test_ibd_ftd_intraday_undercut_negates_even_when_close_recovers(confirm) -> None:
+    frame = _uptrend_ready_frame() if confirm == "uptrend" else _book_frame(confirm_green=confirm)
+    break_index = 14 if confirm == "uptrend" else 11 if confirm else 8
+    ftd_low = float(frame.iloc[7]["Low"])
+    frame.loc[frame.index[break_index], "Low"] = ftd_low - 0.1
+    result = _compute_ampel_frame(frame.copy(), logic="ibd")
+    row = result.iloc[break_index]
+    assert row["Close"] > ftd_low
+    assert bool(row["FTD_Negated"])
+    assert row["Anchor_Date"] == frame.index[2].strftime("%Y-%m-%d")
+    assert row["Ampel_Phase"] == ("gelb_trend_unter_druck" if confirm == "uptrend" else "rot")
+    # The existing variant deliberately still uses the close.
+    assert not bool(_compute_ampel_frame(frame.copy()).iloc[break_index]["FTD_Negated"])
+
+
+def test_ibd_negated_ftd_does_not_repeat_after_pressure_recovery_to_green() -> None:
+    frame = _uptrend_ready_frame()
+    frame.loc[frame.index[14], "Low"] = float(frame.iloc[7]["Low"]) - 0.1
+    frame.loc[frame.index[15:19], "MA_Order"] = True
+    frame.loc[frame.index[15:19], "Market_Structure"] = "mixed"
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[14]["Ampel_Phase"] == "gelb_trend_unter_druck"
+    assert result.iloc[16]["Ampel_Phase"] == "gruen"
+    assert bool(result.iloc[16]["FTD_Negated"])
+    frame.loc[frame.index[17], ["Low", "Close"]] = [89.9, 90.0]
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[17]["Ampel_Phase"] == "gruen"
+    assert bool(result.iloc[17]["FTD_Negated"])
+
+
+def test_ibd_book_risk_exit_preserves_unbroken_rally_anchor() -> None:
+    frame = _uptrend_ready_frame()
+    frame.loc[frame.index[14], "SMA200"] = 100.0
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[14]["Ampel_Phase"] == "rot"
+    assert result.iloc[14]["Anchor_Date"] == frame.index[2].strftime("%Y-%m-%d")
+    assert not bool(result.iloc[14]["FTD_Negated"])
+    frame.loc[frame.index[15], "Low"] = 89.0
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert not bool(result.iloc[15]["FTD_Negated"])
+    assert result.iloc[15]["Anchor_Date"] != frame.index[2].strftime("%Y-%m-%d")
+
+
+def test_ibd_new_ftd_reuses_rally_and_clears_negation() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame.loc[frame.index[8], "Low"] = float(frame.iloc[7]["Low"]) - 0.1
+    frame.loc[frame.index[9], ["Pct_Change", "Volume"]] = [1.2, 1_300_000]
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert bool(result.iloc[8]["FTD_Negated"])
+    assert result.iloc[9]["Ampel_Phase"] == "gelb_startschuss"
+    assert not bool(result.iloc[9]["FTD_Negated"])
+    assert result.iloc[9]["Anchor_Date"] == frame.index[2].strftime("%Y-%m-%d")
+
+
+def test_powertrend_stays_active_with_lost_start_conditions_and_equal_averages() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = False
+    frame.loc[frame.index[13], ["Consec_Low_above_21", "Consec_EMA21_Above_SMA50"]] = [10, 5]
+    frame.loc[frame.index[13], ["SMA50_Rising_1D", "Positive_Or_Flat_Day"]] = True
+    frame.loc[frame.index[13:], ["EMA21", "SMA50"]] = [92.0, 90.0]
+    frame.loc[frame.index[14], "SMA50"] = 92.0
+    frame.loc[frame.index[15], ["Close", "Consec_Close_Below_21"]] = [90.0, 3]
+    result = _compute_ampel_frame(frame, logic="ibd")
+    start = frame.index[13].strftime("%Y-%m-%d")
+    assert result.iloc[14]["PowerTrend_State"] == "on"
+    assert result.iloc[15]["PowerTrend_State"] == "under_pressure"
+    assert result.iloc[16]["PowerTrend_State"] == "on"
+    assert result.iloc[16]["PowerTrend_Start_Date"] == start
+    assert all(result.iloc[13:17]["PowerTrend_Formally_Active"])
+
+
+def test_powertrend_real_bars_use_low_and_consecutive_trading_sessions() -> None:
+    from dataclasses import replace
+    bars = _simple_public_bars()
+    bars = [replace(bar, low=bar.close - 0.05) for bar in bars]
+    points = compute_trend_ampel(bars, logic="ibd")
+    assert points[-1].powertrend_formally_active
+    # Touching EMA breaks the low streak although the close remains above it.
+    bars[-1] = replace(bars[-1], low=points[-1].ema21)
+    touched = compute_trend_ampel(bars, logic="ibd")[-1]
+    assert touched.powertrend_low_above_21_streak == 0
+    assert touched.powertrend_formally_active

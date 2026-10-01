@@ -178,7 +178,7 @@ def get_market_ampel(
     bars, used_ticker = _load_cached_index_ohlcv(clean_ticker, start_date=start_date)
 
     if len(bars) < 2:
-        return _missing_market_ampel(clean_ticker)
+        return _missing_market_ampel(clean_ticker, logic=ampel_logic)
 
     all_points = _cached_ampel_calculation(
         tuple(_trend_bar_from_ohlcv(point) for point in bars), clean_ticker, ampel_logic
@@ -190,7 +190,7 @@ def get_market_ampel(
         )
     )
     if not points:
-        return _missing_market_ampel(clean_ticker)
+        return _missing_market_ampel(clean_ticker, logic=ampel_logic)
 
     try:
         snapshot = market_repository.get_latest_market_snapshot()
@@ -2025,9 +2025,10 @@ def _format_optional_pct(value: float | None) -> str:
     return f"{value:+.1f}%"
 
 
-def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
+def _missing_market_ampel(ticker: str, *, logic: MarketAmpelLogic = "current") -> MarketAmpelResponse:
     today = date.today().isoformat()
     return MarketAmpelResponse(
+        logic=logic,
         as_of=today,
         as_of_time="",
         ticker=ticker,
@@ -2056,7 +2057,7 @@ def _missing_market_ampel(ticker: str) -> MarketAmpelResponse:
             tone="neutral",
             next_step="Price-Cache laden. Danach kann die Ampel die erste Marktphase bestimmen.",
         ),
-        lights=_ampel_lights("neutral"),
+        lights=_ampel_lights("neutral", logic=logic),
         cycle=MarketAmpelCycle(diagnostics=["Keine Kursdaten im Cache"]),
         change_cards=[],
         distance_tiles=[],
@@ -2257,7 +2258,11 @@ def _ampel_phase_info(
                 if anchor_date and floor_mark is not None
                 else "Substanzielle Korrektur läuft. Warte auf Ankertag, also den ersten positiven Schluss."
             )
-            action = "Abwarten und den Markt auf Stabilisierung beobachten."
+            action = (
+                "Abwarten und den Markt auf Stabilisierung beobachten."
+                if logic == "ibd"
+                else "Nicht kaufen. Beobachte den Markt auf Stabilisierung."
+            )
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="ROT - Abwarten",
@@ -2297,7 +2302,9 @@ def _ampel_phase_info(
         )
     if phase == "gruen":
         reason = (
-            f"Startschuss hält. Kurs bleibt über dem Startschuss-Tief {_format_number(startschuss_low)}."
+            "Erholung bestätigt; der frühere Startschuss/FTD bleibt negiert. Rally-Day-1-Tief hält."
+            if logic == "ibd" and latest.ftd_negated
+            else f"Startschuss hält. Kurs bleibt über dem Startschuss-Tief {_format_number(startschuss_low)}."
             if startschuss_low is not None
             else "Startschuss bestätigt."
         )

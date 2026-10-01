@@ -169,7 +169,7 @@ function CompactMarketAmpel({
               {data.powertrend.state === "on"
                 ? data.phase_info.phase === "aufwaertstrend"
                   ? "⚡ Powertrend aktiv"
-                  : "⚡ Powertrend-Kriterien erfüllt"
+                  : "⚡ Powertrend formal aktiv"
                 : "⚡ Powertrend unter Druck"}
             </StatusChip>
           ) : null}
@@ -331,7 +331,7 @@ function PowerTrendCard({ data }: { data: MarketAmpel }) {
     powertrend.state === "on"
       ? powertrendApplied
         ? "Powertrend aktiv"
-        : "Kriterien erfüllt"
+        : "Powertrend formal aktiv"
       : powertrend.state === "under_pressure"
         ? "Powertrend unter Druck"
         : "Powertrend aus";
@@ -353,6 +353,11 @@ function PowerTrendCard({ data }: { data: MarketAmpel }) {
         </div>
         <StatusChip tone={tone}>{label}</StatusChip>
       </div>
+      <p className="mt-3 text-xs text-[#687386]">
+        Startbedingungen am letzten bestätigten Handelstag. Ein laufender Powertrend bleibt auch bei
+        nicht mehr erfüllten Startbedingungen formal aktiv, bis die 21-EMA unter die 50-SMA fällt.
+        Die Marktampel bestimmt weiterhin die Handlungsphase.
+      </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <PowerTrendCheck
           label="Tagestief > 21-EMA"
