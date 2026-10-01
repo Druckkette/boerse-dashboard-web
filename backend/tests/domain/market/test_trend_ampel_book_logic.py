@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from app.domain.market.ampel import (
     MarketSwingPoint,
@@ -363,3 +364,116 @@ def _zigzag_bars() -> list[TrendAmpelBar]:
         )
         previous = float(close)
     return bars
+
+
+def test_ibd_logic_allows_startschuss_on_rally_day_four() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = frame["Close"].diff().fillna(0.0) >= 0
+    # Correction on row 1, Rally Day 1 / anchor on row 2, eligible FTD on row 5.
+    frame.loc[frame.index[5], "Pct_Change"] = 1.2
+    frame.loc[frame.index[5], "Volume"] = 1_200_000.0
+
+    result = _compute_ampel_frame(frame.copy(), logic="ibd")
+
+    assert result.iloc[4]["Ampel_Phase"] == "rot"
+    assert result.iloc[5]["Ampel_Phase"] == "gelb_startschuss"
+    assert result.iloc[5]["Anchor_Date"] == frame.index[2].strftime("%Y-%m-%d")
+
+
+def test_ibd_logic_detects_smaller_correction_while_current_logic_stays_neutral() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame.loc[frame.index[1], ["Open", "High", "Low", "Close"]] = [96.0, 96.5, 93.5, 94.0]
+    frame.loc[frame.index[1], "Pct_Change"] = -6.0
+    frame.loc[frame.index[1], "SMA50"] = 96.0
+    frame.loc[frame.index[1], "Dist_Count_25"] = 0
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = frame["Close"].diff().fillna(0.0) >= 0
+
+    current = _compute_ampel_frame(frame.copy(), logic="current")
+    ibd = _compute_ampel_frame(frame.copy(), logic="ibd")
+
+    assert current.iloc[1]["Ampel_Phase"] == "neutral"
+    assert ibd.iloc[1]["Ampel_Phase"] == "rot"
+
+
+def test_ibd_startschuss_low_can_be_negated_while_rally_day_one_low_holds() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = frame["Close"].diff().fillna(0.0) >= 0
+    frame.loc[frame.index[5], "Pct_Change"] = 1.2
+    frame.loc[frame.index[5], "Volume"] = 1_200_000.0
+    # FTD low is 90.1, Rally-Day-1 low is 89.5.
+    frame.loc[frame.index[6], ["Open", "High", "Low", "Close"]] = [90.2, 90.3, 89.7, 89.9]
+
+    result = _compute_ampel_frame(frame.copy(), logic="ibd")
+
+    assert result.iloc[5]["Ampel_Phase"] == "gelb_startschuss"
+    assert result.iloc[6]["Ampel_Phase"] == "rot"
+    assert bool(result.iloc[6]["FTD_Negated"]) is True
+    assert result.iloc[6]["Anchor_Date"] == frame.index[2].strftime("%Y-%m-%d")
+    assert result.iloc[6]["Floor_Mark"] == pytest.approx(89.5)
+    assert pd.isna(result.iloc[6]["Startschuss_Low"])
+
+
+def test_ibd_rally_day_one_low_break_ends_rally_attempt() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = frame["Close"].diff().fillna(0.0) >= 0
+    frame.loc[frame.index[5], "Pct_Change"] = 1.2
+    frame.loc[frame.index[5], "Volume"] = 1_200_000.0
+    frame.loc[frame.index[6], ["Open", "High", "Low", "Close"]] = [90.0, 90.1, 89.0, 89.4]
+
+    result = _compute_ampel_frame(frame.copy(), logic="ibd")
+
+    assert result.iloc[6]["Ampel_Phase"] == "rot"
+    assert pd.isna(result.iloc[6]["Anchor_Date"])
+    assert pd.isna(result.iloc[6]["Floor_Mark"])
+    assert bool(result.iloc[6]["FTD_Negated"]) is False
+
+
+def test_ibd_powertrend_activates_on_10_5_rule_and_ends_on_negative_cross() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = False
+    activation = frame.index[13]
+    frame.loc[activation, "Consec_Low_above_21"] = 10
+    frame.loc[activation, "Consec_EMA21_Above_SMA50"] = 5
+    frame.loc[activation, "SMA50_Rising_1D"] = True
+    frame.loc[activation, "Positive_Or_Flat_Day"] = True
+    frame.loc[activation, "EMA21"] = 92.0
+    frame.loc[activation, "SMA50"] = 90.0
+
+    end = frame.index[14]
+    frame.loc[end, "EMA21"] = 89.0
+    frame.loc[end, "SMA50"] = 90.0
+
+    result = _compute_ampel_frame(frame.copy(), logic="ibd")
+
+    assert result.loc[activation, "PowerTrend_State"] == "on"
+    assert bool(result.loc[activation, "PowerTrend_Formally_Active"]) is True
+    assert result.loc[end, "PowerTrend_State"] == "off"
+    assert bool(result.loc[end, "PowerTrend_Formally_Active"]) is False
+
+
+def test_ibd_powertrend_needs_positive_or_flat_activation_day() -> None:
+    frame = _book_frame(confirm_green=None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = False
+    row = frame.index[13]
+    frame.loc[row, "Consec_Low_above_21"] = 10
+    frame.loc[row, "Consec_EMA21_Above_SMA50"] = 5
+    frame.loc[row, "SMA50_Rising_1D"] = True
+    frame.loc[row, "Positive_Or_Flat_Day"] = False
+    frame.loc[row, "EMA21"] = 92.0
+    frame.loc[row, "SMA50"] = 90.0
+
+    result = _compute_ampel_frame(frame.copy(), logic="ibd")
+
+    assert result.loc[row, "PowerTrend_State"] == "off"
