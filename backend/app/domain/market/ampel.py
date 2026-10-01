@@ -534,7 +534,7 @@ def _compute_ampel_frame(
             below_50 = _is_finite(sma50[index]) and close[index] < sma50[index]
             return bool(
                 drawdown_pct <= -8.0
-                or (below_50 and (drawdown_pct <= -5.0 or dist_count_25[index] >= 3))
+                or (below_50 and (drawdown_pct <= -3.0 or dist_count_25[index] >= 3))
             )
         below_sma50_with_distribution = (
             _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4
