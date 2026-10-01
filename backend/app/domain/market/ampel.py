@@ -481,12 +481,24 @@ def _compute_ampel_frame(
     consec_low_above_21 = df["Consec_Low_above_21"].to_numpy(dtype=int)
     consec_low_above_50 = df["Consec_Low_above_50"].to_numpy(dtype=int)
     consec_close_below_21 = df["Consec_Close_Below_21"].to_numpy(dtype=int)
-    consec_ema21_above_50 = df["Consec_EMA21_Above_SMA50"].to_numpy(dtype=int)
+    consec_ema21_above_50 = (
+        df["Consec_EMA21_Above_SMA50"].to_numpy(dtype=int)
+        if "Consec_EMA21_Above_SMA50" in df
+        else np.zeros(row_count, dtype=int)
+    )
     ma_order_streak = df["MA_Order_Streak"].to_numpy(dtype=int)
     ema21_rising = df["EMA21_Rising"].fillna(False).to_numpy(dtype=bool)
     sma50_rising = df["SMA50_Rising"].fillna(False).to_numpy(dtype=bool)
-    sma50_rising_1d = df["SMA50_Rising_1D"].fillna(False).to_numpy(dtype=bool)
-    positive_or_flat_day = df["Positive_Or_Flat_Day"].fillna(False).to_numpy(dtype=bool)
+    sma50_rising_1d = (
+        df["SMA50_Rising_1D"].fillna(False).to_numpy(dtype=bool)
+        if "SMA50_Rising_1D" in df
+        else np.zeros(row_count, dtype=bool)
+    )
+    positive_or_flat_day = (
+        df["Positive_Or_Flat_Day"].fillna(False).to_numpy(dtype=bool)
+        if "Positive_Or_Flat_Day" in df
+        else np.zeros(row_count, dtype=bool)
+    )
     market_structure = df["Market_Structure"].astype(str).to_numpy()
     latest_swing_low = df["Latest_Swing_Low"].to_numpy(dtype=float)
     phase_warning_streak = df["Phase_Warning_Streak"].to_numpy(dtype=int)
