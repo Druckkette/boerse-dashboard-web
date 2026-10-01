@@ -2245,16 +2245,24 @@ def _ampel_phase_info(
         logic=logic,
     )
     if phase == "rot":
-        reason = (
-            f"Substanzielle Korrektur läuft. Ankertag: {anchor_date}. Bodenmarke: {_format_number(floor_mark)}."
-            if anchor_date and floor_mark is not None
-            else "Substanzielle Korrektur läuft. Warte auf Ankertag, also den ersten positiven Schluss."
-        )
+        if logic == "ibd" and latest.ftd_negated and anchor_date and floor_mark is not None:
+            reason = (
+                f"Startschuss/FTD negiert. Der Rallyversuch seit {anchor_date} bleibt intakt, "
+                f"solange das Rally-Day-1-Tief {_format_number(floor_mark)} hält."
+            )
+            action = "Auf einen neuen Startschuss innerhalb des laufenden Rallyversuchs warten."
+        else:
+            reason = (
+                f"Substanzielle Korrektur läuft. Ankertag: {anchor_date}. Bodenmarke: {_format_number(floor_mark)}."
+                if anchor_date and floor_mark is not None
+                else "Substanzielle Korrektur läuft. Warte auf Ankertag, also den ersten positiven Schluss."
+            )
+            action = "Abwarten und den Markt auf Stabilisierung beobachten."
         return MarketAmpelPhaseInfo(
             phase=phase,
             label="ROT - Abwarten",
             reason=reason,
-            action="Nicht kaufen. Beobachte den Markt auf Stabilisierung.",
+            action=action,
             tone="bad",
             next_step=next_step,
             last_changed_at=last_changed_at,
