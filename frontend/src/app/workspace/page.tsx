@@ -1,5 +1,5 @@
-import { WorkspacePanel } from "@/features/workspace/workspace-panel";
+import { redirect } from "next/navigation";
 
 export default function WorkspacePage() {
-  return <WorkspacePanel />;
+  redirect("/#watchlist");
 }

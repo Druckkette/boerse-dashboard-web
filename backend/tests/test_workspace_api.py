@@ -60,6 +60,7 @@ def test_workspace_patch_contract(monkeypatch) -> None:
 
 def test_workspace_watchlist_mutation_contract(monkeypatch) -> None:
     from app.api.v1 import workspace as workspace_api
+    from app.services import home
 
     def fake_add(ticker: str) -> WorkspaceState:
         return WorkspaceState(source="database", watchlist=[ticker.upper()], todos="", recent_tickers=[])
@@ -71,10 +72,14 @@ def test_workspace_watchlist_mutation_contract(monkeypatch) -> None:
     monkeypatch.setattr(workspace_api, "add_watchlist_ticker", fake_add)
     monkeypatch.setattr(workspace_api, "remove_watchlist_ticker", fake_remove)
 
+    monkeypatch.setattr(home, "_home_cache", (0, "ibd", {"watchlist": []}))
     add_response = client.post("/api/v1/workspace/watchlist", json={"ticker": "nvda"})
+    assert home._home_cache is None
+    monkeypatch.setattr(home, "_home_cache", (0, "ibd", {"watchlist": [{"ticker": "NVDA"}]}))
     remove_response = client.delete("/api/v1/workspace/watchlist/NVDA")
 
     assert add_response.status_code == 200
     assert add_response.json()["watchlist"] == ["NVDA"]
+    assert home._home_cache is None
     assert remove_response.status_code == 200
     assert remove_response.json()["watchlist"] == []

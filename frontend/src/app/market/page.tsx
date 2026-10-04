@@ -10,7 +10,8 @@ import {
   MarketRiskSectionsPanel,
   MarketSentimentPositioningPanel
 } from "@/features/market/market-risk-sections-panel";
-import { useState, type ReactNode } from "react";
+import { useState, Suspense, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 
 const indexes = [
   { ticker: "^GSPC", label: "S&P500" },
@@ -21,7 +22,18 @@ const indexes = [
 export type MarketIndexTicker = (typeof indexes)[number]["ticker"];
 
 export default function MarketPage() {
-  const [ticker, setTicker] = useState<MarketIndexTicker>("^GSPC");
+  return <Suspense fallback={<div className="dashboard-section">Marktübersicht wird geladen …</div>}><MarketContent /></Suspense>;
+}
+
+function MarketContent() {
+  const params = useSearchParams();
+  const requested = params.get("ticker");
+  const initial = indexes.find((index) => index.ticker === requested)?.ticker ?? "^GSPC";
+  return <MarketDashboard key={initial} initialTicker={initial} />;
+}
+
+function MarketDashboard({ initialTicker }: { initialTicker: MarketIndexTicker }) {
+  const [ticker, setTicker] = useState<MarketIndexTicker>(initialTicker);
 
   return (
     <div className="space-y-4">

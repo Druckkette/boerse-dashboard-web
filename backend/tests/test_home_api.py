@@ -1,6 +1,7 @@
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -96,6 +97,7 @@ def test_market_summary_reads_all_home_indices_in_one_batch(monkeypatch) -> None
     monkeypatch.setattr(home, "completed_us_market_session", lambda: SimpleNamespace(date=date(2026, 9, 28)))
     monkeypatch.setattr(home.market_repository, "get_latest_market_snapshot", lambda: None)
     monkeypatch.setattr(home.market_repository, "list_breadth_daily", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(home, "_market_trend_ampel_for_ticker", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(home, "daily_bar_is_final", lambda *_: True)
     calls: list[list[str]] = []
 
@@ -113,8 +115,82 @@ def test_market_summary_reads_all_home_indices_in_one_batch(monkeypatch) -> None
 
     payload = home._market_summary()
 
-    assert calls == [["^VIX", "^GSPC", "^IXIC"]]
-    assert [item["change_pct"] for item in payload["indices"]] == [1.0, 1.0]
+    assert calls == [["^VIX", "^GSPC", "^IXIC", "^RUT"]]
+    assert [item["change_pct"] for item in payload["indices"]] == [1.0, 1.0, 1.0]
+
+
+@pytest.fixture
+def home_market_sources(monkeypatch):
+    from app.services import home
+
+    monkeypatch.setattr(home, "expected_us_market_session", lambda: SimpleNamespace(phase="closed", date=date(2026, 10, 2)))
+    monkeypatch.setattr(home, "completed_us_market_session", lambda: SimpleNamespace(date=date(2026, 10, 2)))
+    monkeypatch.setattr(home.market_repository, "list_breadth_daily", lambda *a, **k: [])
+    monkeypatch.setattr(home.market_repository, "load_latest_close_pairs", lambda *a: {})
+    monkeypatch.setattr(home, "_selected_market_ampel_logic", lambda: "ibd")
+    trends = {ticker: SimpleNamespace(phase=phase, as_of="2026-10-02", price_data_complete=True, phase_reason="Test")
+              for ticker, phase in (("^GSPC", "rot"), ("^IXIC", "gelb_startschuss"), ("^RUT", "rot"))}
+    calls = []
+
+    def load(ticker, *, logic, lookback_days):
+        calls.append((ticker, logic))
+        trend = trends.get(ticker)
+        if isinstance(trend, Exception):
+            raise trend
+        return trend
+
+    monkeypatch.setattr(home, "_market_trend_ampel_for_ticker", load)
+    return home, trends, calls
+
+
+def test_home_mixed_index_phases_do_not_claim_the_whole_market_is_red(home_market_sources):
+    home, _trends, calls = home_market_sources
+    summary = home._market_summary()
+    assert summary["phase"] == "mixed"
+    assert summary["phase_label"] == "Uneinheitlich"
+    assert summary["status"] == "available"
+    assert [i["phase"] for i in summary["indices"]] == ["rot", "gelb_startschuss", "rot"]
+    assert "Nasdaq Composite: Startschuss" in summary["summary"]
+    assert calls == [("^GSPC", "ibd"), ("^IXIC", "ibd"), ("^RUT", "ibd")]
+
+
+@pytest.mark.parametrize("phase", ["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"])
+def test_home_uniform_phase_requires_all_three_current_indices(home_market_sources, phase):
+    home, trends, _calls = home_market_sources
+    for trend in trends.values():
+        trend.phase = phase
+    assert home._market_summary()["phase"] == phase
+
+
+@pytest.mark.parametrize("unavailable", [None, RuntimeError("source unavailable"), "stale", "incomplete"])
+def test_home_cannot_promote_an_old_or_incomplete_index_phase(home_market_sources, unavailable):
+    home, trends, _calls = home_market_sources
+    if unavailable == "stale":
+        trends["^IXIC"].as_of = "2026-10-01"
+    elif unavailable == "incomplete":
+        trends["^IXIC"].price_data_complete = False
+    else:
+        trends["^IXIC"] = unavailable
+    summary = home._market_summary()
+    assert summary["phase"] is None
+    assert summary["status"] == "partial"
+    assert summary["indices"][0]["phase"] == "rot"
+    assert summary["indices"][1]["phase_status"] != "available"
+    assert "2 von 3" in summary["summary"]
+
+
+def test_attention_merges_changes_into_risk_rows_without_losing_priority():
+    from app.services.home import _merge_attention_rows
+    rows = _merge_attention_rows([
+        {"ticker": "APP", "label": "Verkaufen", "tone": "bad", "detail": "Kurs unter 21-EMA · RS -4"},
+    ], [
+        {"ticker": "APP", "details": ["RS -4", "Gesamtscore -6"]},
+        {"ticker": "AAPL", "scopes": ["watchlist"], "summary": "RS -3", "href": "/stocks/AAPL"},
+    ])
+    assert [row["ticker"] for row in rows] == ["APP", "AAPL"]
+    assert rows[0]["label"] == "Verkaufen" and rows[0]["tone"] == "bad"
+    assert rows[0]["detail"] == "Kurs unter 21-EMA · RS -4 · Gesamtscore -6"
+    assert rows[1]["tone"] == "neutral"
 
 
 def test_home_changes_are_one_row_per_ticker_and_keep_comparison_dates(monkeypatch) -> None:

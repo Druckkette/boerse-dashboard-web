@@ -1965,6 +1965,9 @@ export type HomeDashboard = {
   data_quality?: { decision_status?: string; summary?: string } | null;
   errors: string[];
   market: {
+    logic?: "current" | "ibd";
+    summary?: string;
+    status?: "available" | "partial" | "missing";
     session?: {
       phase: "open" | "closed" | "unknown";
       last_completed_as_of?: string | null;
@@ -1984,6 +1987,11 @@ export type HomeDashboard = {
       previous_close?: number | null;
       change_pct?: number | null;
       status: "available" | "stale" | "partial" | "missing";
+      phase?: string | null;
+      phase_label?: string;
+      phase_as_of?: string | null;
+      phase_status?: "available" | "stale" | "partial" | "missing";
+      phase_reason?: string | null;
     }>;
   };
   priorities: Array<{ ticker: string; category: string; label: string; detail: string; href: string; tone: Tone }>;

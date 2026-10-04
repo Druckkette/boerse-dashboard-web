@@ -74,15 +74,37 @@ def _index_summary(ticker: str, label: str, points: list[Any] | None = None) -> 
 def _market_summary() -> dict[str, Any]:
     expected = expected_us_market_session()
     completed = completed_us_market_session()
-    snapshot = market_repository.get_latest_market_snapshot()
     logic = _selected_market_ampel_logic()
-    trend = _market_trend_ampel_for_ticker("^GSPC", lookback_days=550, logic=logic)
-    snapshot_logic = (snapshot.metrics_json or {}).get("market_ampel_logic", "current") if snapshot else None
-    phase = trend.phase if trend else snapshot.ampel_phase if snapshot and snapshot_logic == logic else None
     breadth_rows = market_repository.list_breadth_daily(DEFAULT_MARKET_UNIVERSE_KEY, limit=1)
     breadth = breadth_rows[-1] if breadth_rows else None
-    closes_by_ticker = market_repository.load_latest_close_pairs(["^VIX", "^GSPC", "^IXIC"])
+    closes_by_ticker = market_repository.load_latest_close_pairs(["^VIX", "^GSPC", "^IXIC", "^RUT"])
     vix = _index_summary("^VIX", "VIX", closes_by_ticker.get("^VIX", []))
+    indices = []
+    for ticker, label in (("^GSPC", "S&P 500"), ("^IXIC", "Nasdaq Composite"), ("^RUT", "Russell 2000")):
+        item = _index_summary(ticker, label, closes_by_ticker.get(ticker, []))
+        try:
+            trend = _market_trend_ampel_for_ticker(ticker, lookback_days=550, logic=logic)
+        except Exception:  # noqa: BLE001 - retain the other indices if one source fails
+            trend = None
+        item.update({
+            "phase": trend.phase if trend else None,
+            "phase_label": _phase_label(trend.phase if trend else None),
+            "phase_as_of": trend.as_of if trend else None,
+            "phase_status": (
+                "missing" if trend is None else "stale" if trend.as_of != completed.date.isoformat()
+                else "partial" if not trend.price_data_complete else "available"
+            ),
+            "phase_reason": trend.phase_reason if trend else None,
+        })
+        indices.append(item)
+    current_indices = [item for item in indices if item["phase_status"] == "available"]
+    phases = {item["phase"] for item in current_indices}
+    complete = len(current_indices) == len(indices)
+    phase = (next(iter(phases)) if len(phases) == 1 else "mixed") if complete else None
+    phase_label = "Uneinheitlich" if phase == "mixed" else _phase_label(phase) if complete else "Marktstand unvollständig"
+    summary = " · ".join(f"{item['label']}: {item['phase_label']}" for item in current_indices)
+    if not complete:
+        summary = f"{len(current_indices)} von {len(indices)} Index-Ampeln aktuell. " + summary
     return {
         "session": {
             "phase": "open" if expected.phase == "intraday" else "closed" if expected.phase == "closed" else "unknown",
@@ -91,8 +113,9 @@ def _market_summary() -> dict[str, Any]:
         },
         "logic": logic,
         "phase": phase,
-        "phase_label": _phase_label(phase),
-        "warning_count": snapshot.warning_count if snapshot else None,
+        "phase_label": phase_label,
+        "summary": summary,
+        "status": "available" if complete else "partial" if current_indices else "missing",
         "breadth": {
             "as_of": breadth.date.isoformat(),
             "pct_above_50sma": breadth.pct_above_50sma,
@@ -100,11 +123,8 @@ def _market_summary() -> dict[str, Any]:
         "volatility": {
             "as_of": vix.get("as_of"), "close": vix.get("close"), "status": vix.get("status"),
         },
-        "indices": [
-            _index_summary("^GSPC", "S&P 500", closes_by_ticker.get("^GSPC", [])),
-            _index_summary("^IXIC", "Nasdaq", closes_by_ticker.get("^IXIC", [])),
-        ],
-        "as_of": trend.as_of if trend else snapshot.date.isoformat() if snapshot and phase else None,
+        "indices": indices,
+        "as_of": completed.date.isoformat() if current_indices else None,
     }
 
 
@@ -286,6 +306,27 @@ def _watchlist_rows(tickers: list[str], assessments: list[Any], *, failed: bool)
     return rows
 
 
+def _merge_attention_rows(priorities: list[dict[str, Any]], changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep risk/earnings first and show each ticker's changes in the same row."""
+    rows = {row["ticker"]: dict(row) for row in priorities}
+    for change in changes:
+        ticker = change["ticker"]
+        if ticker in rows:
+            row = rows[ticker]
+            details = list(dict.fromkeys([
+                *str(row.get("detail") or "").split(" · "),
+                *change.get("details", []),
+            ]))
+            row["detail"] = " · ".join(part for part in details if part)
+        else:
+            scopes = {"portfolio": "Depot", "watchlist": "Watchlist", "top_stocks": "Recherche"}
+            rows[ticker] = {
+                "ticker": ticker, "category": " / ".join(scopes[scope] for scope in change["scopes"]),
+                "label": "Verändert", "detail": change["summary"], "href": change["href"], "tone": "neutral",
+            }
+    return list(rows.values())
+
+
 def get_home_dashboard() -> dict[str, Any]:
     errors: list[str] = []
     workspace = _read("workspace", get_workspace_state, errors, None)
@@ -316,10 +357,11 @@ def get_home_dashboard() -> dict[str, Any]:
     earnings = _read("earnings", lambda: earnings_repository.next_earnings_dates(sorted(portfolio_tickers)), errors, {})
     priorities, review_positions_count = _priority_rows(sell_rows, earnings, opportunity_rows, watchlist_set)
     changes = _read("changes", lambda: _home_changes(portfolio_tickers=portfolio_tickers, watchlist=watchlist_set), errors, [])
+    priorities = _merge_attention_rows(priorities, changes)
     return {
         "generated_at": datetime.now(UTC).isoformat(), "as_of": market.get("as_of"),
         "data_quality": quality, "errors": errors, "market": market,
-        "priorities": priorities[:7], "priorities_total": len(priorities),
+        "priorities": priorities[:20], "priorities_total": len(priorities),
         "review_positions_count": review_positions_count,
         "opportunities": opportunity_rows, "changes": changes, "portfolio": portfolio,
         "sell_rows": sell_rows[:12], "industry_groups": groups,
@@ -327,6 +369,12 @@ def get_home_dashboard() -> dict[str, Any]:
         "watchlist": _watchlist_rows(shown_watchlist, assessments, failed="watchlist_assessments" in errors),
         "watchlist_total": len(all_watchlist),
     }
+
+
+def invalidate_home_dashboard_cache() -> None:
+    global _home_cache
+    with _home_cache_lock:
+        _home_cache = None
 
 
 def get_cached_home_dashboard() -> dict[str, Any]:

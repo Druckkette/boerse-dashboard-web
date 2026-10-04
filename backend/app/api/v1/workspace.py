@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.schemas import WorkspacePatch, WorkspaceState, WorkspaceTickerRequest
+from app.services.home import invalidate_home_dashboard_cache
 from app.services.workspace import (
     add_recent_ticker,
     add_watchlist_ticker,
@@ -20,19 +21,27 @@ def read_workspace() -> WorkspaceState:
 
 @router.patch("", response_model=WorkspaceState)
 def patch_workspace(payload: WorkspacePatch) -> WorkspaceState:
-    return update_workspace_state(payload)
+    state = update_workspace_state(payload)
+    invalidate_home_dashboard_cache()
+    return state
 
 
 @router.post("/watchlist", response_model=WorkspaceState)
 def add_watchlist_item(payload: WorkspaceTickerRequest) -> WorkspaceState:
-    return add_watchlist_ticker(payload.ticker)
+    state = add_watchlist_ticker(payload.ticker)
+    invalidate_home_dashboard_cache()
+    return state
 
 
 @router.delete("/watchlist/{ticker}", response_model=WorkspaceState)
 def remove_watchlist_item(ticker: str) -> WorkspaceState:
-    return remove_watchlist_ticker(ticker)
+    state = remove_watchlist_ticker(ticker)
+    invalidate_home_dashboard_cache()
+    return state
 
 
 @router.post("/recent-tickers", response_model=WorkspaceState)
 def add_recent_ticker_item(payload: WorkspaceTickerRequest) -> WorkspaceState:
-    return add_recent_ticker(payload.ticker)
+    state = add_recent_ticker(payload.ticker)
+    invalidate_home_dashboard_cache()
+    return state

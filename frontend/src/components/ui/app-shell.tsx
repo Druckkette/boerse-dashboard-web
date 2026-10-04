@@ -9,7 +9,6 @@ import {
   LineChart,
   Layers3,
   NotebookPen,
-  NotebookTabs,
   Search,
   Settings,
   Shield,
@@ -30,7 +29,6 @@ const navItems = [
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/trade-journal", label: "Handelstagebuch", icon: NotebookPen },
   { href: "/sell-monitor", label: "Verkaufsmonitor", icon: ChartCandlestick },
-  { href: "/workspace", label: "Heute", icon: NotebookTabs },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
@@ -41,7 +39,7 @@ const hiddenPageLabels = [
 ];
 
 const pageDescriptions: Record<string, string> = {
-  "/": "Persönlicher Überblick über Markt, Chancen, Portfolio und heutige Aufgaben.",
+  "/": "Index-Ampeln, Aufgaben, Depot und Recherche an einem Ort.",
   "/market": "Marktampel, Marktbreite und Frühwarnzeichen in einer ruhigen Übersicht.",
   "/sectors": "Sektorrotation und relative Stärke nach Tages- oder Wochenansicht.",
   "/industry-groups": "Industry-Group-RS, Rangdynamik und die stärksten Aktien innerhalb jeder Gruppe.",
@@ -50,7 +48,6 @@ const pageDescriptions: Record<string, string> = {
   "/portfolio/buy-strength": "Frische Käufe systematisch gegen die Stärke-nach-Kauf-Regeln prüfen.",
   "/trade-journal": "Kauf- und Verkaufsentscheidungen dokumentieren und später auswerten.",
   "/sell-monitor": "Verkaufsregeln, Tranchensignale und Positionszustand kontrollieren.",
-  "/workspace": "Markt, Datenqualität und Positionen mit Handlungsbedarf auf einen Blick.",
   "/jobs": "Datenaktualisierung, Worker-Status und laufende Jobs überwachen.",
   "/settings": "Setup, Schlüssel, Datenquellen und Systemkonfiguration verwalten."
 };
