@@ -149,3 +149,39 @@ def test_persisted_etf_classification_excludes_unknown_ticker() -> None:
     assert result["FUND"]["status"] == "trusted"
     assert not data_quality._requires_fundamentals(_position(ticker="FUND"), {"FUND": "etf"})
     assert data_quality._requires_fundamentals(_position(), {})
+
+
+def test_diagnostics_exclude_etf_snapshots_and_keep_reached_stop_warning(monkeypatch) -> None:
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    now = datetime.now(UTC)
+    positions = [
+        _position(ticker="ARKK.L", name="ARK Innovation", stop_price=125),
+        _position(ticker="ZPDH.DE", name="SPDR", stop_price=100),
+    ]
+    db = MagicMock()
+    db.scalar.return_value = 2
+    db.execute.side_effect = [
+        SimpleNamespace(all=lambda: [(p.ticker, now.date(), now) for p in positions]),
+        SimpleNamespace(all=lambda: [("ARKK.L", now.date() - timedelta(days=30))]),
+    ]
+    db.scalars.return_value.all.return_value = [
+        SimpleNamespace(ticker=p.ticker, name=p.name, asset_class="stock", yahoo_symbol=p.ticker, metadata_json={})
+        for p in positions
+    ]
+    session = MagicMock()
+    session.__enter__.return_value = db
+    monkeypatch.setattr(data_quality, "SessionLocal", lambda: session)
+    monkeypatch.setattr(data_quality, "get_portfolio_positions", lambda: positions)
+    monkeypatch.setattr(data_quality, "get_freshness", lambda: SimpleNamespace(services=[]))
+    monkeypatch.setattr(data_quality, "_detect_corporate_action_candidates", lambda tickers: [])
+
+    result = data_quality.build_data_diagnostics()
+    assert result.missing_fundamentals_count == 0
+    assert [issue.key for issue in result.issues] == ["stops_already_reached"]
+    assert result.issues[0].tickers == ["ARKK.L"]
+    assert result.decision_status == "limited"
+    assert result.stop_coverage_pct == 100
+    assert "1 Hinweise" in result.summary
