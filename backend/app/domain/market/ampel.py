@@ -16,6 +16,7 @@ ATR_PERIOD = 21
 REVERSAL_ATR_MULTIPLIER = 1.5
 PIVOT_TOLERANCE_ATR = 0.25
 AMPEL_RULESET_VERSION = "trend_ampel_v3"
+POWER_TREND_RULESET_VERSION = "powertrend_v2"
 
 MarketStructure = Literal["up", "down", "mixed", "unknown"]
 MarketAmpelLogic = Literal["current", "ibd"]
@@ -113,6 +114,7 @@ class TrendAmpelPoint:
     ftd_negated: bool = False
     powertrend_state: PowerTrendState = "off"
     powertrend_start_date: str | None = None
+    powertrend_pressure_since: str | None = None
     powertrend_formally_active: bool = False
     powertrend_low_above_21_streak: int = 0
     powertrend_ema21_over_50_streak: int = 0
@@ -454,6 +456,8 @@ def _compute_ampel_frame(
     ftd_negated = False
     powertrend_formally_active = False
     powertrend_start_date: str | None = None
+    powertrend_state: PowerTrendState = "off"
+    powertrend_pressure_since: str | None = None
 
     phases: list[MarketPhase] = ["neutral"] * row_count
     anchor_dates: list[str | None] = [None] * row_count
@@ -467,6 +471,7 @@ def _compute_ampel_frame(
     ftd_negated_flags: list[bool] = [False] * row_count
     powertrend_states: list[PowerTrendState] = ["off"] * row_count
     powertrend_start_dates: list[str | None] = [None] * row_count
+    powertrend_pressure_dates: list[str | None] = [None] * row_count
     powertrend_formal_flags: list[bool] = [False] * row_count
     powertrend_reasons: list[str | None] = [None] * row_count
 
@@ -640,8 +645,6 @@ def _compute_ampel_frame(
         )
 
     def powertrend_under_pressure(index: int) -> bool:
-        if phase in {"rot", "gelb_trend_unter_druck"}:
-            return True
         if consec_close_below_21[index] >= 3:
             return True
         return bool(
@@ -807,7 +810,9 @@ def _compute_ampel_frame(
                         transition_reason = "21-EMA zurückerobert; Marktstruktur noch nicht eindeutig aufwärts"
 
         powertrend_reason: str | None = None
-        if ibd_logic:
+        # Independent state machine. Only complete, confirmed OHLC rows advance it;
+        # the market phase is intentionally not an input to any transition.
+        if ibd_logic and price_complete[index]:
             if (
                 powertrend_formally_active
                 and _is_finite(ema21[index])
@@ -815,25 +820,31 @@ def _compute_ampel_frame(
                 and ema21[index] < sma50[index]
             ):
                 powertrend_formally_active = False
+                powertrend_state = "off"
                 powertrend_start_date = None
+                powertrend_pressure_since = None
                 powertrend_reason = "Powertrend beendet: 21-EMA unter 50-SMA"
-            if not powertrend_formally_active and powertrend_start(index):
+            elif not powertrend_formally_active and powertrend_start(index):
                 powertrend_formally_active = True
+                powertrend_state = "on"
                 powertrend_start_date = dates[index]
                 powertrend_reason = "Powertrend aktiviert: 10/5-Regel, steigende 50-SMA und positiver/neutraler Tag"
-
-            if powertrend_formally_active:
-                if powertrend_under_pressure(index):
-                    powertrend_states[index] = "under_pressure"
-                    powertrend_reason = powertrend_reason or "Powertrend formal aktiv, Marktphase technisch unter Druck"
-                else:
-                    powertrend_states[index] = "on"
-                    powertrend_reason = powertrend_reason or "Powertrend formal aktiv"
-                powertrend_start_dates[index] = powertrend_start_date
-                powertrend_formal_flags[index] = True
-            else:
-                powertrend_states[index] = "off"
-        powertrend_reasons[index] = powertrend_reason
+            elif powertrend_formally_active:
+                if powertrend_state == "on" and powertrend_under_pressure(index):
+                    powertrend_state = "under_pressure"
+                    powertrend_pressure_since = dates[index]
+                elif powertrend_state == "under_pressure" and powertrend_start(index):
+                    powertrend_state = "on"
+                    powertrend_pressure_since = None
+                powertrend_reason = (
+                    "Powertrend unter Druck: vollständige 10/5-Requalifikation erforderlich"
+                    if powertrend_state == "under_pressure" else "Powertrend aktiv"
+                )
+        powertrend_states[index] = powertrend_state
+        powertrend_start_dates[index] = powertrend_start_date
+        powertrend_pressure_dates[index] = powertrend_pressure_since
+        powertrend_formal_flags[index] = powertrend_formally_active
+        powertrend_reasons[index] = powertrend_reason or powertrend_reasons[index - 1]
 
         phases[index] = phase
         phase_reasons[index] = transition_reason or (phase_reasons[index - 1] if index > 0 else None)
@@ -866,6 +877,7 @@ def _compute_ampel_frame(
     df["FTD_Negated"] = ftd_negated_flags
     df["PowerTrend_State"] = powertrend_states
     df["PowerTrend_Start_Date"] = powertrend_start_dates
+    df["PowerTrend_Pressure_Since"] = powertrend_pressure_dates
     df["PowerTrend_Formally_Active"] = powertrend_formal_flags
     df["PowerTrend_Reason"] = powertrend_reasons
     df["Ampel_Logic"] = logic
@@ -978,6 +990,7 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         ftd_negated=bool(_safe_bool(row.get("FTD_Negated"))),
         powertrend_state=str(row.get("PowerTrend_State") or "off"),  # type: ignore[arg-type]
         powertrend_start_date=_safe_str(row.get("PowerTrend_Start_Date")),
+        powertrend_pressure_since=_safe_str(row.get("PowerTrend_Pressure_Since")),
         powertrend_formally_active=bool(_safe_bool(row.get("PowerTrend_Formally_Active"))),
         powertrend_low_above_21_streak=_safe_int(row.get("Consec_Low_above_21")),
         powertrend_ema21_over_50_streak=_safe_int(row.get("Consec_EMA21_Above_SMA50")),

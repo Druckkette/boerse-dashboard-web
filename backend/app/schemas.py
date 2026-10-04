@@ -64,8 +64,10 @@ class MarketTrendAmpel(BaseModel):
     market_structure: Literal["up", "down", "mixed", "unknown"] = "unknown"
     uptrend_high: float | None = None
     phase_reason: str | None = None
+    powertrend_ruleset_version: str = "legacy"
     powertrend_state: Literal["off", "on", "under_pressure"] = "off"
     powertrend_start_date: str | None = None
+    powertrend_pressure_since: str | None = None
     powertrend_formally_active: bool = False
     source: Literal["database", "missing", "synthetic_fixture"] = "database"
 
@@ -178,10 +180,12 @@ class MarketAmpelChartMarker(BaseModel):
 
 
 class MarketAmpelPowerTrend(BaseModel):
+    ruleset_version: str = "legacy"
     enabled: bool = False
     state: Literal["off", "on", "under_pressure"] = "off"
     formal_active: bool = False
     start_date: str | None = None
+    pressure_since: str | None = None
     low_above_21_streak: int = 0
     ema21_over_50_streak: int = 0
     sma50_rising_1d: bool = False

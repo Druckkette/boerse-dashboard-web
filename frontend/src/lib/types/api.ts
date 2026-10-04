@@ -15,6 +15,7 @@ export type MarketTrendAmpel = {
   price_data_complete?: boolean;
   powertrend_state?: "off" | "on" | "under_pressure";
   powertrend_start_date?: string | null;
+  powertrend_pressure_since?: string | null;
   powertrend_formally_active?: boolean;
   ticker: string;
   as_of: string;
@@ -160,6 +161,7 @@ export type MarketAmpelPowerTrend = {
   state: "off" | "on" | "under_pressure";
   formal_active: boolean;
   start_date?: string | null;
+  pressure_since?: string | null;
   low_above_21_streak: number;
   ema21_over_50_streak: number;
   sma50_rising_1d: boolean;

@@ -597,7 +597,7 @@ def test_powertrend_stays_active_with_lost_start_conditions_and_equal_averages()
     start = frame.index[13].strftime("%Y-%m-%d")
     assert result.iloc[14]["PowerTrend_State"] == "on"
     assert result.iloc[15]["PowerTrend_State"] == "under_pressure"
-    assert result.iloc[16]["PowerTrend_State"] == "on"
+    assert result.iloc[16]["PowerTrend_State"] == "under_pressure"
     assert result.iloc[16]["PowerTrend_Start_Date"] == start
     assert all(result.iloc[13:17]["PowerTrend_Formally_Active"])
 
@@ -670,3 +670,138 @@ def test_negated_ftd_stays_negated_in_green_hero_and_cycle() -> None:
     assert "negiert" in hero
     assert "Startschuss bestätigt" not in hero
     assert "Absicherung" not in hero
+
+
+@pytest.mark.parametrize("expected_phase,activation", [("rot", 6), ("gelb_startschuss", 7), ("gruen", 11)])
+def test_powertrend_activation_is_independent_of_market_phase(expected_phase, activation):
+    frame = _book_frame(confirm_green="ema21" if expected_phase == "gruen" else None)
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = False
+    row = frame.index[activation]
+    frame.loc[row, ["Consec_Low_above_21", "Consec_EMA21_Above_SMA50"]] = [10, 5]
+    frame.loc[row, ["SMA50_Rising_1D", "Positive_Or_Flat_Day"]] = True
+    if expected_phase != "gruen":
+        # Keep this unit frame's precomputed MA series consistent with activation.
+        frame.loc[row, ["EMA21", "SMA50"]] = [92, 90]
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.loc[row, "Ampel_Phase"] == expected_phase
+    assert result.loc[row, "PowerTrend_State"] == "on"
+    assert result.loc[row, "PowerTrend_Start_Date"] == row.strftime("%Y-%m-%d")
+
+
+def test_market_pressure_and_red_do_not_pressure_an_active_powertrend():
+    frame = _uptrend_ready_frame()
+    frame["Consec_EMA21_Above_SMA50"] = 0
+    frame["SMA50_Rising_1D"] = False
+    frame["Positive_Or_Flat_Day"] = False
+    frame.loc[frame.index[13], ["Consec_Low_above_21", "Consec_EMA21_Above_SMA50"]] = [10, 5]
+    frame.loc[frame.index[13], ["SMA50_Rising_1D", "Positive_Or_Flat_Day"]] = True
+    frame.loc[frame.index[14], "Phase_Warning_Streak"] = 2
+    frame.loc[frame.index[15], "Market_Structure"] = "down"
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[14]["Ampel_Phase"] == "gelb_trend_unter_druck"
+    assert result.iloc[15]["Ampel_Phase"] == "rot"
+    assert all(result.iloc[13:16]["PowerTrend_State"] == "on")
+
+
+def _powertrend_recovery_frame(pressure_signal):
+    frame = _book_frame(confirm_green=None)
+    # Extend a complete confirmed daily frame for the recovery sequence.
+    extension = pd.concat([frame.iloc[[-1]]] * 12, ignore_index=True)
+    extension.index = pd.bdate_range(frame.index[-1] + pd.Timedelta(days=1), periods=12)
+    frame = pd.concat([frame, extension])
+    frame["Consec_Low_above_21"] = 0
+    frame["Consec_EMA21_Above_SMA50"] = 5
+    frame["SMA50_Rising_1D"] = True
+    frame["Positive_Or_Flat_Day"] = True
+    frame.loc[frame.index[13]:, ["EMA21", "SMA50", "ATR21"]] = [92, 90, 2]
+    frame.loc[frame.index[13], "Consec_Low_above_21"] = 10
+    if pressure_signal == "three_below":
+        frame.loc[frame.index[14], ["Close", "Consec_Close_Below_21"]] = [91, 3]
+    else:
+        frame.loc[frame.index[14], "Close"] = 88.9
+    for progress in range(1, 11):
+        frame.loc[frame.index[14 + progress], ["Close", "Consec_Low_above_21", "Consec_Close_Below_21"]] = [96, progress, 0]
+    frame.loc[frame.index[25], "EMA21"] = 89
+    frame.loc[frame.index[25], "Consec_Low_above_21"] = 0
+    return frame
+
+
+@pytest.mark.parametrize("pressure_signal", ["three_below", "strong_50_break"])
+def test_powertrend_pressure_persists_until_full_requalification(pressure_signal):
+    frame = _powertrend_recovery_frame(pressure_signal)
+    result = _compute_ampel_frame(frame, logic="ibd")
+    start = frame.index[13].strftime("%Y-%m-%d")
+    pressure = frame.index[14].strftime("%Y-%m-%d")
+    assert all(result.iloc[14:24]["PowerTrend_State"] == "under_pressure")
+    assert all(result.iloc[14:24]["PowerTrend_Pressure_Since"] == pressure)
+    assert all(result.iloc[13:25]["PowerTrend_Start_Date"] == start)
+    assert all(result.iloc[13:25]["PowerTrend_Formally_Active"])
+    assert result.iloc[24]["PowerTrend_State"] == "on"
+    assert pd.isna(result.iloc[24]["PowerTrend_Pressure_Since"])
+    assert result.iloc[25]["PowerTrend_State"] == "off"
+    assert not result.iloc[25]["PowerTrend_Formally_Active"]
+    assert pd.isna(result.iloc[25]["PowerTrend_Start_Date"])
+    assert pd.isna(result.iloc[25]["PowerTrend_Pressure_Since"])
+    # After a formal end, a fresh activation needs all four criteria and a new date.
+    frame.loc[frame.index[26]:, "EMA21"] = 92
+    frame.loc[frame.index[26], "Consec_Low_above_21"] = 1
+    frame.loc[frame.index[27], "Consec_Low_above_21"] = 10
+    restarted = _compute_ampel_frame(frame, logic="ibd")
+    assert restarted.iloc[26]["PowerTrend_State"] == "off"
+    assert restarted.iloc[27]["PowerTrend_State"] == "on"
+    assert restarted.iloc[27]["PowerTrend_Start_Date"] == frame.index[27].strftime("%Y-%m-%d")
+
+
+
+def test_sp500_august_2026_powertrend_survives_pressure_and_replay():
+    import json
+    from pathlib import Path
+    from app.services.market import _powertrend_response, _trend_ampel_metrics
+    from app.schemas import MarketTrendAmpel
+
+    fixture = json.loads((Path(__file__).parents[2] / "fixtures/market/powertrend/sp500_2026.json").read_text())
+    points = compute_trend_ampel(fixture["bars"], logic="ibd")
+    by_date = {point.date: point for point in points}
+    assert by_date["2026-08-18"].powertrend_state == "off"
+    assert by_date["2026-08-19"].powertrend_state == "on"
+    assert by_date["2026-08-20"].phase == "gelb_trend_unter_druck"
+    assert by_date["2026-08-20"].powertrend_state == "on"
+    assert by_date["2026-09-10"].powertrend_state == "under_pressure"
+    assert by_date["2026-09-21"].powertrend_low_above_21_streak == 1
+    assert by_date["2026-09-21"].powertrend_state == "under_pressure"
+    assert all(point.powertrend_start_date == "2026-08-19" for point in points if point.date >= "2026-08-19")
+    latest = points[-1]
+    assert latest.powertrend_pressure_since == "2026-09-10"
+    # API and JSON persisted metrics retain both dates; rebuilding after a restart does too.
+    api = _powertrend_response(latest, enabled=True)
+    assert api.start_date == "2026-08-19"
+    assert api.pressure_since == "2026-09-10"
+    stored = MarketTrendAmpel.model_validate(_trend_ampel_metrics(latest, ticker="^GSPC"))
+    restored = MarketTrendAmpel.model_validate_json(stored.model_dump_json())
+    assert restored.powertrend_pressure_since == "2026-09-10"
+    assert restored.powertrend_start_date == "2026-08-19"
+    assert compute_trend_ampel(fixture["bars"], logic="ibd")[-1] == latest
+
+
+@pytest.mark.parametrize("column,value", [
+    ("Consec_Low_above_21", 9), ("Consec_EMA21_Above_SMA50", 4),
+    ("SMA50_Rising_1D", False), ("Positive_Or_Flat_Day", False),
+])
+def test_powertrend_recovery_requires_all_four_conditions(column, value):
+    frame = _powertrend_recovery_frame("three_below")
+    frame.loc[frame.index[24], column] = value
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[24]["PowerTrend_State"] == "under_pressure"
+    assert result.iloc[24]["PowerTrend_Start_Date"] == frame.index[13].strftime("%Y-%m-%d")
+
+
+def test_powertrend_does_not_transition_on_incomplete_daily_prices():
+    frame = _powertrend_recovery_frame("three_below")
+    frame["OHLC_Complete"] = True
+    frame.loc[frame.index[14], "OHLC_Complete"] = False
+    frame.loc[frame.index[14], "EMA21"] = 89
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[14]["PowerTrend_State"] == "on"
+    assert result.iloc[14]["PowerTrend_Start_Date"] == frame.index[13].strftime("%Y-%m-%d")

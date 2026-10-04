@@ -11,6 +11,7 @@ from app.services.market_calendar import completed_us_market_session, expected_u
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
     AMPEL_RULESET_VERSION,
+    POWER_TREND_RULESET_VERSION,
     GREEN_CONFIRMATION_DAYS,
     MarketAmpelLogic,
     TrendAmpelBar,
@@ -386,9 +387,11 @@ def _powertrend_response(latest: TrendAmpelPoint, *, enabled: bool) -> MarketAmp
         return MarketAmpelPowerTrend(enabled=False)
     return MarketAmpelPowerTrend(
         enabled=True,
+        ruleset_version=POWER_TREND_RULESET_VERSION,
         state=latest.powertrend_state,
         formal_active=latest.powertrend_formally_active,
         start_date=latest.powertrend_start_date,
+        pressure_since=latest.powertrend_pressure_since,
         low_above_21_streak=latest.powertrend_low_above_21_streak,
         ema21_over_50_streak=latest.powertrend_ema21_over_50_streak,
         sma50_rising_1d=bool(latest.powertrend_sma50_rising_1d),
@@ -3311,8 +3314,10 @@ def _trend_ampel_metrics(point: TrendAmpelPoint | None, *, ticker: str) -> dict:
         "ruleset_version": AMPEL_RULESET_VERSION,
         "ftd_negated": point.ftd_negated,
         "price_data_complete": point.price_data_complete,
+        "powertrend_ruleset_version": POWER_TREND_RULESET_VERSION,
         "powertrend_state": point.powertrend_state,
         "powertrend_start_date": point.powertrend_start_date,
+        "powertrend_pressure_since": point.powertrend_pressure_since,
         "powertrend_formally_active": point.powertrend_formally_active,
         "source": "database",
         "as_of": point.date,

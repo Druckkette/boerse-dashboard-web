@@ -23,7 +23,7 @@ from app.db.models import (
     TradeJournalEntry,
 )
 from app.db.session import SessionLocal
-from app.domain.market.ampel import AMPEL_RULESET_VERSION, compute_trend_ampel
+from app.domain.market.ampel import AMPEL_RULESET_VERSION, POWER_TREND_RULESET_VERSION, compute_trend_ampel
 from app.domain.market.regime import MarketRegimeInput, market_regime_warning_checks
 from app.domain.stocks.assessment import compute_stock_assessment
 from app.domain.stocks.relative_strength import compute_relative_strength_line
@@ -372,7 +372,7 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
         "information_cutoff": cutoff,
         "data_as_of": session_date,
         "assessment_version": MARKET_RULESET,
-        "ruleset_hash": _fingerprint({"ruleset": MARKET_RULESET, "logic": logic, "ampel_ruleset": AMPEL_RULESET_VERSION}),
+        "ruleset_hash": _fingerprint({"ruleset": MARKET_RULESET, "logic": logic, "ampel_ruleset": AMPEL_RULESET_VERSION, "powertrend_ruleset": POWER_TREND_RULESET_VERSION}),
         "sources": ["market_snapshots", "breadth_daily", "price_bars"],
         "reason_codes": reasons,
         "payload": payload,
