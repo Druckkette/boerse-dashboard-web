@@ -8,7 +8,7 @@ export function powerTrendPresentation(state: MarketAmpelPowerTrend["state"]): {
     state === "under_pressure" ? { tone: "warning", label: "⚡ Powertrend unter Druck" } :
       { tone: "neutral", label: "Powertrend aus" };
 }
-export function PowerTrendBadge({ powertrend }: { powertrend: MarketAmpelPowerTrend }) {
+export function PowerTrendBadge({ powertrend }: { powertrend: Pick<MarketAmpelPowerTrend, "state"> }) {
   const { tone, label } = powerTrendPresentation(powertrend.state);
   return <StatusChip tone={tone}>{label}</StatusChip>;
 }
@@ -16,12 +16,16 @@ function germanDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${day}.${month}.${year}`;
 }
-export function PowerTrendCard({ powertrend }: { powertrend: MarketAmpelPowerTrend }) {
-  const { tone, label } = powerTrendPresentation(powertrend.state);
+export function powerTrendDescription(powertrend: Pick<MarketAmpelPowerTrend, "state" | "start_date" | "pressure_since">) {
   const start = powertrend.start_date ? germanDate(powertrend.start_date) : null;
   const started = start ? `Powertrend gestartet am ${start}` : "Startdatum nicht verfügbar";
-  const description = powertrend.state === "off" ? "Kein formal laufender Powertrend" :
+  return powertrend.state === "off" ? "Kein formal laufender Powertrend" :
     powertrend.state === "under_pressure" ? `${started} · ${powertrend.pressure_since ? `unter Druck seit ${germanDate(powertrend.pressure_since)}` : "aktuell unter Druck"}` : started;
+
+}
+export function PowerTrendCard({ powertrend }: { powertrend: MarketAmpelPowerTrend }) {
+  const { tone, label } = powerTrendPresentation(powertrend.state);
+  const description = powerTrendDescription(powertrend);
 
   return (
     <div className={clsx("mt-4 rounded-2xl border p-4", tileBorder(tone))}>

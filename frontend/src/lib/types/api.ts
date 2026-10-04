@@ -1994,6 +1994,7 @@ export type HomeDashboard = {
       phase_as_of?: string | null;
       phase_status?: "available" | "stale" | "partial" | "missing";
       phase_reason?: string | null;
+      powertrend?: Pick<MarketAmpelPowerTrend, "enabled" | "state" | "formal_active" | "start_date" | "pressure_since"> | null;
     }>;
   };
   priorities: Array<{ ticker: string; category: string; label: string; detail: string; href: string; tone: Tone }>;

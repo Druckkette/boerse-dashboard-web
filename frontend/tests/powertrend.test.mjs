@@ -18,7 +18,13 @@ registerHooks({
         if (existsSync(target + suffix)) return { url: pathToFileURL(target + suffix).href, shortCircuit: true };
       }
     }
-    return nextResolve(specifier, context);
+    if (specifier.startsWith(".") && context.parentURL?.startsWith(pathToFileURL(srcRoot).href)) {
+      const target = fileURLToPath(new URL(specifier, context.parentURL));
+      for (const suffix of [".tsx", ".ts"]) {
+        if (existsSync(target + suffix)) return { url: pathToFileURL(target + suffix).href, shortCircuit: true };
+      }
+    }
+    return nextResolve(specifier === "next/link" ? "next/link.js" : specifier, context);
   },
   load(url, context, nextLoad) {
     if (url.startsWith(pathToFileURL(srcRoot).href) && /\.tsx?$/.test(url)) {
@@ -66,4 +72,28 @@ test("off is displayed neutrally and pressure without date remains understandabl
   assert.ok(html.includes("Powertrend aus"));
   const card = renderToStaticMarkup(React.createElement(PowerTrendCard, { powertrend: { ...powertrend("under_pressure"), pressure_since: null } }));
   assert.ok(card.includes("aktuell unter Druck"));
+});
+
+const { IndexCard } = await import("../src/features/home/home-index-card.tsx");
+for (const [phase, label, state] of [["rot", "Rot", "on"], ["aufwaertstrend", "Aufwärtstrend", "under_pressure"]]) {
+  test(`home index card shows ${phase} and ${state} independently`, () => {
+    const html = renderToStaticMarkup(React.createElement(IndexCard, { index: {
+      ticker: "^GSPC", label: "S&P 500", phase, phase_label: label, phase_status: "available",
+      status: "available", as_of: "2026-10-02", close: 7722.72, change_pct: 0.73,
+      powertrend: powertrend(state)
+    } }));
+    assert.ok(html.includes(label));
+    assert.ok(html.includes(state === "on" ? "⚡ Powertrend aktiv" : "⚡ Powertrend unter Druck"));
+    assert.ok(html.includes("Powertrend gestartet am 19.08.2026"));
+    if (state === "under_pressure") assert.ok(html.includes("unter Druck seit 25.09.2026"));
+    assert.ok(html.includes("/market?ticker=%5EGSPC"));
+  });
+}
+test("home index card does not present an outdated Powertrend as current", () => {
+  const html = renderToStaticMarkup(React.createElement(IndexCard, { index: {
+    ticker: "^GSPC", label: "S&P 500", phase: "rot", phase_label: "Rot", phase_status: "stale",
+    status: "stale", phase_as_of: "2026-09-30", powertrend: powertrend("on")
+  } }));
+  assert.ok(!html.includes("⚡ Powertrend aktiv"));
+  assert.ok(html.includes("veraltet"));
 });

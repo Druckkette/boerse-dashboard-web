@@ -11,6 +11,8 @@ Only complete, confirmed daily OHLC observations advance the state. Stored price
 
 The daily engine point carries powertrend_state, powertrend_formally_active, powertrend_start_date and powertrend_pressure_since. MarketTrendAmpel JSON metrics persist all four fields plus powertrend_ruleset_version. The market API exposes pressure_since and ruleset_version inside powertrend. Captured journal contexts include the API fields; historical reconstruction includes the market metrics and the Powertrend version in its ruleset hash. No schema migration is required for these additive JSON fields. Existing captured contexts remain historical records; newly computed/reconstructed contexts use v2.
 
+The home page shows the separate Powertrend state and both dates for each available index. Stale or incomplete index data is marked explicitly and does not present a Powertrend badge as current.
+
 UI badges and cards accept only the Powertrend object, with no normal market-phase input. ON is green, UNDER_PRESSURE amber, OFF neutral. Current counters are displayed separately from the original activation date.
 
 Regression data: Yahoo (^GSPC) OHLCV from the NAS Price Cache, exported 2026-10-04, fixture tests/fixtures/market/powertrend/sp500_2026.json. It reproduces activation on 2026-08-19 and persistent pressure since 2026-09-10, including a later 1/10 streak. Synthetic state-transition tests separately cover full recovery and formal termination.

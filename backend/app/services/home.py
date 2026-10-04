@@ -95,6 +95,13 @@ def _market_summary() -> dict[str, Any]:
                 else "partial" if not trend.price_data_complete else "available"
             ),
             "phase_reason": trend.phase_reason if trend else None,
+            "powertrend": {
+                "enabled": logic == "ibd",
+                "state": trend.powertrend_state,
+                "formal_active": trend.powertrend_formally_active,
+                "start_date": trend.powertrend_start_date,
+                "pressure_since": trend.powertrend_pressure_since,
+            } if trend else None,
         })
         indices.append(item)
     current_indices = [item for item in indices if item["phase_status"] == "available"]

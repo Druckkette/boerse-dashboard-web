@@ -128,7 +128,9 @@ def home_market_sources(monkeypatch):
     monkeypatch.setattr(home.market_repository, "list_breadth_daily", lambda *a, **k: [])
     monkeypatch.setattr(home.market_repository, "load_latest_close_pairs", lambda *a: {})
     monkeypatch.setattr(home, "_selected_market_ampel_logic", lambda: "ibd")
-    trends = {ticker: SimpleNamespace(phase=phase, as_of="2026-10-02", price_data_complete=True, phase_reason="Test")
+    trends = {ticker: SimpleNamespace(phase=phase, as_of="2026-10-02", price_data_complete=True, phase_reason="Test",
+                                    powertrend_state="off", powertrend_formally_active=False,
+                                    powertrend_start_date=None, powertrend_pressure_since=None)
               for ticker, phase in (("^GSPC", "rot"), ("^IXIC", "gelb_startschuss"), ("^RUT", "rot"))}
     calls = []
 
@@ -302,3 +304,20 @@ def test_closing_position_invalidates_home_snapshot(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["closed"] is True
     assert home._home_cache is None
+
+
+@pytest.mark.parametrize("phase,state", [("rot", "on"), ("aufwaertstrend", "under_pressure")])
+def test_home_keeps_index_powertrend_independent_of_market_phase(home_market_sources, phase, state):
+    home, trends, _ = home_market_sources
+    sp500 = trends["^GSPC"]
+    sp500.phase = phase
+    sp500.powertrend_state = state
+    sp500.powertrend_formally_active = True
+    sp500.powertrend_start_date = "2026-08-19"
+    sp500.powertrend_pressure_since = "2026-09-10" if state == "under_pressure" else None
+    index = home._market_summary()["indices"][0]
+    assert index["phase"] == phase
+    assert index["powertrend"]["state"] == state
+    assert index["powertrend"]["start_date"] == "2026-08-19"
+    assert index["powertrend"]["pressure_since"] == sp500.powertrend_pressure_since
+    assert index["powertrend"]["enabled"]
