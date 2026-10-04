@@ -121,3 +121,67 @@ def test_critical_split_candidate_creates_warning_issue() -> None:
 
     issue = next(issue for issue in issues if issue.key == "corporate_action_candidates")
     assert issue.tickers == ["TEST"]
+
+
+def test_etf_fundamentals_are_inapplicable_but_prices_and_risk_remain_required() -> None:
+    today = date.today()
+    positions = [_position(ticker="ARKK.L", name="ARK Innovation"), _position(ticker="ZPDH.DE", name="SPDR")]
+    result = assess_position_quality(
+        positions, latest_by_ticker={p.ticker: today for p in positions},
+        fundamentals_by_ticker={"ARKK.L": today - timedelta(days=30)}, today=today,
+    )
+    assert all(item["status"] == "trusted" for item in result.values())
+    result = assess_position_quality(
+        [_position(ticker="ARKK.L", name="ARKK.L", atr_pct=None)],
+        latest_by_ticker={}, fundamentals_by_ticker={}, today=today,
+    )
+    assert result["ARKK.L"]["status"] == "blocked"
+    assert "ATR oder Beta fehlt" in result["ARKK.L"]["detail"]
+    assert "Fundamental-Snapshot fehlt" not in result["ARKK.L"]["detail"]
+
+
+def test_persisted_etf_classification_excludes_unknown_ticker() -> None:
+    today = date.today()
+    result = assess_position_quality(
+        [_position(ticker="FUND", name="Example")], latest_by_ticker={"FUND": today},
+        fundamentals_by_ticker={}, today=today, instrument_types={"FUND": "etf"},
+    )
+    assert result["FUND"]["status"] == "trusted"
+    assert not data_quality._requires_fundamentals(_position(ticker="FUND"), {"FUND": "etf"})
+    assert data_quality._requires_fundamentals(_position(), {})
+
+
+def test_diagnostics_exclude_etf_snapshots_and_keep_reached_stop_warning(monkeypatch) -> None:
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    now = datetime.now(UTC)
+    positions = [
+        _position(ticker="ARKK.L", name="ARK Innovation", stop_price=125),
+        _position(ticker="ZPDH.DE", name="SPDR", stop_price=100),
+    ]
+    db = MagicMock()
+    db.scalar.return_value = 2
+    db.execute.side_effect = [
+        SimpleNamespace(all=lambda: [(p.ticker, data_quality.expected_us_market_session(now).date, now) for p in positions]),
+        SimpleNamespace(all=lambda: [("ARKK.L", now.date() - timedelta(days=30))]),
+    ]
+    db.scalars.return_value.all.return_value = [
+        SimpleNamespace(ticker=p.ticker, name=p.name, asset_class="stock", yahoo_symbol=p.ticker, metadata_json={})
+        for p in positions
+    ]
+    session = MagicMock()
+    session.__enter__.return_value = db
+    monkeypatch.setattr(data_quality, "SessionLocal", lambda: session)
+    monkeypatch.setattr(data_quality, "get_portfolio_positions", lambda: positions)
+    monkeypatch.setattr(data_quality, "get_freshness", lambda: SimpleNamespace(services=[]))
+    monkeypatch.setattr(data_quality, "_detect_corporate_action_candidates", lambda tickers: [])
+
+    result = data_quality.build_data_diagnostics()
+    assert result.missing_fundamentals_count == 0
+    assert [issue.key for issue in result.issues] == ["stops_already_reached"]
+    assert result.issues[0].tickers == ["ARKK.L"]
+    assert result.decision_status == "limited"
+    assert result.stop_coverage_pct == 100
+    assert "1 Hinweise" in result.summary
