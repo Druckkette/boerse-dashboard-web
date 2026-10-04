@@ -265,12 +265,6 @@ export function SettingsPanel() {
 
   return (
     <div className="space-y-4 text-[#172033]">
-      <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-1 text-sm text-[#687386]">
-          Strategie, Risiko, Überwachung und Datenquellen konfigurieren.
-        </p>
-      </div>
       <nav
         aria-label="Einstellungsbereiche"
         className="flex gap-1 overflow-x-auto rounded-[12px] border border-[#e3e8ef] bg-white p-1"
