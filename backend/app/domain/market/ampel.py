@@ -15,6 +15,7 @@ GREEN_CONFIRMATION_DAYS = 3
 ATR_PERIOD = 21
 REVERSAL_ATR_MULTIPLIER = 1.5
 PIVOT_TOLERANCE_ATR = 0.25
+AMPEL_RULESET_VERSION = "trend_ampel_v2"
 
 MarketStructure = Literal["up", "down", "mixed", "unknown"]
 MarketAmpelLogic = Literal["current", "ibd"]
@@ -38,6 +39,7 @@ class TrendAmpelBar:
     low: float
     close: float
     volume: float
+    ohlc_complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,8 @@ class TrendAmpelPoint:
     powertrend_sma50_rising_1d: bool | None = None
     powertrend_positive_or_flat_day: bool | None = None
     powertrend_reason: str | None = None
+    logic: MarketAmpelLogic = "current"
+    price_data_complete: bool = True
 
 
 def compute_trend_ampel(
@@ -125,7 +129,7 @@ def compute_trend_ampel(
     over_50_warning_pct: float = 5.0,
     logic: MarketAmpelLogic = "current",
 ) -> list[TrendAmpelPoint]:
-    frame = _frame_from_bars(bars)
+    frame = _frame_from_bars(bars, strict_ohlc=logic == "ibd")
     if frame.empty:
         return []
 
@@ -278,7 +282,7 @@ def add_market_structure(frame: pd.DataFrame) -> tuple[pd.DataFrame, list[Market
             confirmed_lows.append(point)
 
     for index in range(row_count):
-        if not _is_finite(atr[index]) or atr[index] <= 0:
+        if not all(_is_finite(value) for value in (high[index], low[index], close[index], atr[index])) or atr[index] <= 0:
             continue
 
         if candidate_high is None:
@@ -504,6 +508,8 @@ def _compute_ampel_frame(
     phase_warning_streak = df["Phase_Warning_Streak"].to_numpy(dtype=int)
     dates = [pd.Timestamp(value).strftime("%Y-%m-%d") for value in df.index]
 
+    price_complete = df.get("OHLC_Complete", pd.Series(True, index=df.index)).to_numpy(dtype=bool)
+
     def clear_startschuss_state() -> None:
         nonlocal startschuss_idx, startschuss_low, startschuss_date, startschuss_bonus
         nonlocal demand_confirmed, closes_above_21_since_start, pressure_closes_above_21
@@ -660,7 +666,11 @@ def _compute_ampel_frame(
         range_position = closing_range[index] if _is_finite(closing_range[index]) else 0.5
         transition_reason: str | None = None
 
-        if phase == "neutral":
+        if ibd_logic and not price_complete[index]:
+            # Keep the last known phase, without confirming a transition from synthetic lows.
+            closes_above_21_since_start = 0
+            pressure_closes_above_21 = 0
+        elif phase == "neutral":
             if correction_detected(index):
                 phase = "rot"
                 transition_reason = (
@@ -868,6 +878,7 @@ def _compute_ampel_frame(
     df["PowerTrend_Start_Date"] = powertrend_start_dates
     df["PowerTrend_Formally_Active"] = powertrend_formal_flags
     df["PowerTrend_Reason"] = powertrend_reasons
+    df["Ampel_Logic"] = logic
     return df
 
 
@@ -983,24 +994,38 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         powertrend_sma50_rising_1d=_safe_bool(row.get("SMA50_Rising_1D")),
         powertrend_positive_or_flat_day=_safe_bool(row.get("Positive_Or_Flat_Day")),
         powertrend_reason=_safe_str(row.get("PowerTrend_Reason")),
+        logic=str(row.get("Ampel_Logic") or "current"),  # type: ignore[arg-type]
+        price_data_complete=bool(row.get("OHLC_Complete", True)),
     )
 
 
-def _frame_from_bars(bars: Sequence[TrendAmpelBar | Mapping[str, Any]]) -> pd.DataFrame:
+def _frame_from_bars(
+    bars: Sequence[TrendAmpelBar | Mapping[str, Any]], *, strict_ohlc: bool = False,
+) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for bar in bars:
         close = _safe_float(_get(bar, "close"))
         if close is None:
             continue
         bar_date = pd.Timestamp(_get(bar, "date"))
+        open_ = _safe_float(_get(bar, "open"))
+        high = _safe_float(_get(bar, "high"))
+        low = _safe_float(_get(bar, "low"))
+        volume = _safe_float(_get(bar, "volume"))
+        complete = bool(
+            _get(bar, "ohlc_complete") is not False
+            and open_ is not None and high is not None and low is not None
+            and low > 0 and high >= max(open_, close) and low <= min(open_, close)
+        )
         rows.append(
             {
                 "Date": bar_date,
-                "Open": _safe_float(_get(bar, "open")) or close,
-                "High": _safe_float(_get(bar, "high")) or close,
-                "Low": _safe_float(_get(bar, "low")) or close,
+                "Open": (open_ if complete else np.nan) if strict_ohlc else open_ or close,
+                "High": (high if complete else np.nan) if strict_ohlc else high or close,
+                "Low": (low if complete else np.nan) if strict_ohlc else low or close,
                 "Close": close,
-                "Volume": _safe_float(_get(bar, "volume")) or 0.0,
+                "Volume": (volume if volume is not None and volume > 0 else np.nan) if strict_ohlc else volume or 0.0,
+                "OHLC_Complete": complete,
             }
         )
 
@@ -1017,7 +1042,7 @@ def _frame_from_bars(bars: Sequence[TrendAmpelBar | Mapping[str, Any]]) -> pd.Da
 
 def _get(source: TrendAmpelBar | Mapping[str, Any], key: str) -> Any:
     if isinstance(source, Mapping):
-        return source.get(key) or source.get(key.capitalize())
+        return source[key] if key in source else source.get(key.capitalize())
     return getattr(source, key)
 
 

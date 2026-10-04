@@ -556,7 +556,7 @@ def test_powertrend_stays_active_with_lost_start_conditions_and_equal_averages()
 def test_powertrend_real_bars_use_low_and_consecutive_trading_sessions() -> None:
     from dataclasses import replace
     bars = _simple_public_bars()
-    bars = [replace(bar, low=bar.close - 0.05) for bar in bars]
+    bars = [replace(bar, open=bar.close - 0.025, low=bar.close - 0.05) for bar in bars]
     points = compute_trend_ampel(bars, logic="ibd")
     assert points[-1].powertrend_formally_active
     # Touching EMA breaks the low streak although the close remains above it.
@@ -564,3 +564,60 @@ def test_powertrend_real_bars_use_low_and_consecutive_trading_sessions() -> None
     touched = compute_trend_ampel(bars, logic="ibd")[-1]
     assert touched.powertrend_low_above_21_streak == 0
     assert touched.powertrend_formally_active
+
+
+@pytest.mark.parametrize("missing_field", ["open", "high", "low"])
+def test_ibd_missing_ohlc_cannot_activate_powertrend(missing_field) -> None:
+    from dataclasses import asdict
+
+    bars = [asdict(bar) for bar in _simple_public_bars()]
+    for bar in bars:
+        bar[missing_field] = None
+    points = compute_trend_ampel(bars, logic="ibd")
+    assert not any(point.powertrend_formally_active for point in points)
+    assert points[-1].powertrend_low_above_21_streak == 0
+    assert not points[-1].price_data_complete
+
+
+def test_ibd_incomplete_repository_candle_breaks_low_streak() -> None:
+    from dataclasses import replace
+
+    bars = [replace(bar, open=bar.close, low=bar.close - 0.05) for bar in _simple_public_bars()]
+    baseline = compute_trend_ampel(bars, logic="ibd")
+    assert baseline[-1].powertrend_formally_active
+    bars[-1] = replace(bars[-1], ohlc_complete=False)
+    point = compute_trend_ampel(bars, logic="ibd")[-1]
+    assert point.powertrend_low_above_21_streak == 0
+    assert not point.price_data_complete
+    assert point.low is None
+    # A data gap does not invent a formal exit from an already known Powertrend.
+    assert point.powertrend_formally_active
+
+
+def test_ibd_invalid_low_is_not_a_confirmed_candle() -> None:
+    from dataclasses import replace
+
+    bars = [replace(bar, low=bar.close + 0.5) for bar in _simple_public_bars()]
+    points = compute_trend_ampel(bars, logic="ibd")
+    assert not any(point.powertrend_formally_active for point in points)
+    assert not points[-1].price_data_complete
+
+
+def test_negated_ftd_stays_negated_in_green_hero_and_cycle() -> None:
+    from app.domain.market.ampel import _trend_ampel_point
+    from app.services.market import _ampel_cycle, _ampel_reason_line, _last_cycle_markers
+
+    frame = _uptrend_ready_frame()
+    frame.loc[frame.index[14], "Low"] = float(frame.iloc[7]["Low"]) - 0.1
+    frame.loc[frame.index[15:19], "Market_Structure"] = "mixed"
+    result = _compute_ampel_frame(frame, logic="ibd")
+    points = [_trend_ampel_point(index, row) for index, row in result.iloc[:17].iterrows()]
+    latest = points[-1]
+    assert latest.phase == "gruen" and latest.ftd_negated
+    anchor, floor, ftd = _last_cycle_markers(points, latest)
+    cycle = _ampel_cycle(latest, anchor_date=anchor, floor_mark=floor, startschuss_low=ftd)
+    hero = _ampel_reason_line(latest, anchor_date=anchor, floor_mark=floor, startschuss_low=ftd)
+    assert not cycle.startschuss_current
+    assert "negiert" in hero
+    assert "Startschuss bestätigt" not in hero
+    assert "Absicherung" not in hero

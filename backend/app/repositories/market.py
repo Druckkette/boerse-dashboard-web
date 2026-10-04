@@ -28,6 +28,7 @@ class MarketOhlcvPoint:
     close: float
     volume: float
     fetched_at: datetime | None = None
+    ohlc_complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -215,6 +216,7 @@ def load_cached_ohlcv(ticker: str, *, start_date: date) -> list[MarketOhlcvPoint
                 close=close_value,
                 volume=float(volume or 0),
                 fetched_at=fetched_at,
+                ohlc_complete=all(value is not None for value in (open_, high, low)),
             )
         )
     return points
@@ -262,6 +264,7 @@ def load_cached_ohlcv_for_tickers(tickers: Iterable[str], *, start_date: date) -
                 close=close_value,
                 volume=float(volume or 0),
                 fetched_at=fetched_at,
+                ohlc_complete=all(value is not None for value in (open_, high, low)),
             )
         )
     return {ticker: points for ticker, points in series.items() if points}

@@ -113,7 +113,7 @@ export function MarketAmpelPanel({
             : []),
           ...(data.cycle.floor_mark ? [{ key: "floor", label: "Bodenmarke", value: data.cycle.floor_mark, color: "#f87171" }] : []),
           ...(data.cycle.startschuss_low
-            ? [{ key: "startschuss", label: "Startschuss-Tief", value: data.cycle.startschuss_low, color: "#fbbf24" }]
+            ? [{ key: "startschuss", label: data.cycle.ftd_negated ? "FTD-Tief (negiert)" : "Startschuss-Tief", value: data.cycle.startschuss_low, color: data.cycle.ftd_negated ? "#94a3b8" : "#fbbf24" }]
             : [])
         ]}
         series={[
@@ -285,10 +285,10 @@ function CompactMarketAmpel({
             freshness={cycleFreshness(data.cycle.floor_mark, data.cycle.floor_current)}
           />
           <CycleMetric
-            label="Startschuss-Tief"
+            label={data.cycle.ftd_negated ? "FTD-Tief (negiert)" : "Startschuss-Tief"}
             value={formatValueWithDistance(data.cycle.startschuss_low, data.cycle.startschuss_distance_pct)}
-            tone={distanceTone(data.cycle.startschuss_distance_pct)}
-            freshness={cycleFreshness(data.cycle.startschuss_low, data.cycle.startschuss_current)}
+            tone={data.cycle.ftd_negated ? "neutral" : distanceTone(data.cycle.startschuss_distance_pct)}
+            freshness={data.cycle.ftd_negated ? "negated" : cycleFreshness(data.cycle.startschuss_low, data.cycle.startschuss_current)}
           />
           <CycleMetric
             label="MA-Ordnung"
@@ -690,7 +690,7 @@ function CycleMetric({
   value,
   tone = "neutral"
 }: {
-  freshness?: "current" | "old" | "missing";
+  freshness?: "current" | "old" | "missing" | "negated";
   label: string;
   value: string;
   tone?: Tone;
@@ -716,13 +716,14 @@ function cycleFreshness(value: string | number | null | undefined, current: bool
   return current ? ("current" as const) : ("old" as const);
 }
 
-function cycleFreshnessLabel(value: "current" | "old" | "missing") {
+function cycleFreshnessLabel(value: "current" | "old" | "missing" | "negated") {
+  if (value === "negated") return "negiert";
   if (value === "current") return "aktuell";
   if (value === "old") return "alter Wert";
   return "fehlt";
 }
 
-function cycleFreshnessClass(value: "current" | "old" | "missing") {
+function cycleFreshnessClass(value: "current" | "old" | "missing" | "negated") {
   if (value === "current") return "border-[#bbf7d0] bg-[#ecfdf5] text-[#047857]";
   if (value === "old") return "border-[#fed7aa] bg-[#fffbeb] text-[#b45309]";
   return "border-[#e2e8f0] bg-[#f8fafc] text-[#64748b]";

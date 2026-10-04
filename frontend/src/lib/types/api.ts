@@ -9,6 +9,13 @@ export type KpiCard = {
 };
 
 export type MarketTrendAmpel = {
+  logic?: "current" | "ibd";
+  ruleset_version?: string;
+  ftd_negated?: boolean;
+  price_data_complete?: boolean;
+  powertrend_state?: "off" | "on" | "under_pressure";
+  powertrend_start_date?: string | null;
+  powertrend_formally_active?: boolean;
   ticker: string;
   as_of: string;
   phase: MarketPhase;

@@ -128,6 +128,7 @@ export function SettingsPanel() {
       queryClient.setQueryData(["settings"], updated);
       queryClient.invalidateQueries({ queryKey: ["market-ampel"] });
       queryClient.invalidateQueries({ queryKey: ["market-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["home-dashboard"] });
       setLocal(null);
       setDirty(false);
     }

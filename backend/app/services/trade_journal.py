@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
+from app.domain.market.ampel import AMPEL_RULESET_VERSION
 from app.repositories import trade_journal as journal_repository
 from app.repositories.trade_journal import TradeJournalRepositoryUnavailable
 from app.schemas import (
@@ -402,6 +403,10 @@ def _market_snapshot() -> dict:
                 ),
             }
         snapshot["ampel"] = {
+            "logic": ampel.logic,
+            "ruleset_version": AMPEL_RULESET_VERSION,
+            "ftd_negated": ampel.cycle.ftd_negated,
+            "powertrend": ampel.powertrend.model_dump(mode="json"),
             "ticker": ampel.ticker,
             "as_of": ampel.as_of,
             "phase": ampel.phase_info.phase,

@@ -7,7 +7,7 @@ from app.services import market
 def test_overview_does_not_compute_full_ampel(monkeypatch):
     monkeypatch.setattr(market.market_repository, "get_latest_market_snapshot", lambda: SimpleNamespace())
     monkeypatch.setattr(market, "_market_trend_ampel_for_ticker", lambda *a, **k: "trend")
-    monkeypatch.setattr(market, "_build_market_overview_response", lambda ticker, snapshot, trend: trend)
+    monkeypatch.setattr(market, "_build_market_overview_response", lambda ticker, snapshot, trend, **k: trend)
     def unexpected(**kwargs):
         raise AssertionError("overview must not load the full ampel")
     monkeypatch.setattr(market, "get_market_ampel", unexpected)

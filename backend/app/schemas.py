@@ -47,6 +47,10 @@ class KpiCard(BaseModel):
 
 
 class MarketTrendAmpel(BaseModel):
+    logic: Literal["current", "ibd"] = "current"
+    ruleset_version: str = "legacy"
+    ftd_negated: bool = False
+    price_data_complete: bool = True
     ticker: str
     as_of: str
     phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
@@ -60,6 +64,9 @@ class MarketTrendAmpel(BaseModel):
     market_structure: Literal["up", "down", "mixed", "unknown"] = "unknown"
     uptrend_high: float | None = None
     phase_reason: str | None = None
+    powertrend_state: Literal["off", "on", "under_pressure"] = "off"
+    powertrend_start_date: str | None = None
+    powertrend_formally_active: bool = False
     source: Literal["database", "missing", "synthetic_fixture"] = "database"
 
 

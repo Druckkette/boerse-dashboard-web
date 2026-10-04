@@ -10,6 +10,7 @@ from app.services.market_calendar import completed_us_market_session, expected_u
 
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
+    AMPEL_RULESET_VERSION,
     GREEN_CONFIRMATION_DAYS,
     MarketAmpelLogic,
     TrendAmpelBar,
@@ -140,14 +141,22 @@ def get_market_overview(*, ticker: str = MARKET_TREND_BENCHMARK) -> MarketOvervi
     if snapshot is None:
         return _missing_market_overview()
 
-    trend_ampel = _market_trend_ampel_for_ticker(clean_ticker, lookback_days=550)
-    return _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
+    logic = _selected_market_ampel_logic()
+    trend_ampel = _market_trend_ampel_for_ticker(clean_ticker, lookback_days=550, logic=logic)
+    return _build_market_overview_response(clean_ticker, snapshot, trend_ampel, logic=logic)
 
 
-def _build_market_overview_response(clean_ticker, snapshot, trend_ampel) -> MarketOverviewResponse:
+def _build_market_overview_response(
+    clean_ticker, snapshot, trend_ampel, *, logic: MarketAmpelLogic = "current",
+) -> MarketOverviewResponse:
     metrics = snapshot.metrics_json or {}
     if trend_ampel is None and clean_ticker == MARKET_TREND_BENCHMARK:
         trend_ampel = _trend_ampel_from_metrics(metrics)
+        snapshot_logic = trend_ampel.logic if trend_ampel else metrics.get("market_ampel_logic", "current")
+        if snapshot_logic != logic:
+            response = _missing_market_overview()
+            response.message = "Keine bestätigte Kursberechnung für die gewählte Marktampel-Logik verfügbar."
+            return response
     phase = trend_ampel.phase if trend_ampel else _normalize_phase(snapshot.ampel_phase)
     return MarketOverviewResponse(
         as_of=trend_ampel.as_of if trend_ampel else snapshot.date.isoformat(),
@@ -198,7 +207,7 @@ def get_market_ampel(
         snapshot = None
     trend_ampel = MarketTrendAmpel.model_validate(_trend_ampel_metrics(points[-1], ticker=clean_ticker))
     overview = (
-        _build_market_overview_response(clean_ticker, snapshot, trend_ampel)
+        _build_market_overview_response(clean_ticker, snapshot, trend_ampel, logic=ampel_logic)
         if snapshot is not None
         else _missing_market_overview()
     )
@@ -214,6 +223,10 @@ def get_market_ampel(
         component_errors.append("Intermarket: keine Daten")
     if not rotation_groups:
         component_errors.append("Sektorrotation: keine Daten")
+    if ampel_logic == "ibd":
+        incomplete_days = sum(not point.price_data_complete for point in points[-50:])
+        if incomplete_days:
+            component_errors.append(f"OHLC-Daten: {incomplete_days} unvollständige Tage in den letzten 50 Sitzungen")
     response = build_market_ampel_response(
         ticker=clean_ticker,
         name=MARKET_AMPEL_INDEXES.get(clean_ticker, clean_ticker),
@@ -1488,6 +1501,8 @@ def build_market_snapshot(
         "breadth_phase": regime.phase,
         "equal_weight_breadth": equal_weight_breadth,
         "trend_ampel": trend_ampel,
+        "market_ampel_logic": trend_point.logic if trend_point else None,
+        "market_ampel_ruleset": AMPEL_RULESET_VERSION if trend_point else None,
         "daily_covered_count": point.covered_count,
         "valid_for_50sma": point.valid_for_50sma,
         "valid_for_200sma": point.valid_for_200sma,
@@ -1510,7 +1525,9 @@ def build_market_snapshot(
     )
 
 
-def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> TrendAmpelPoint | None:
+def _latest_cached_trend_ampel_point(
+    ticker: str, *, lookback_days: int, logic: MarketAmpelLogic | None = None,
+) -> TrendAmpelPoint | None:
     start_date = date(1900, 1, 1)
     bars, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
     if len(bars) < 2:
@@ -1518,14 +1535,16 @@ def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int) -> Tren
     points = _cached_ampel_calculation(
         tuple(_trend_bar_from_ohlcv(p) for p in _confirmed_ampel_bars(bars)),
         ticker,
-        _selected_market_ampel_logic(),
+        logic or _selected_market_ampel_logic(),
     )
     return points[-1] if points else None
 
 
-def _market_trend_ampel_for_ticker(ticker: str, *, lookback_days: int) -> MarketTrendAmpel | None:
+def _market_trend_ampel_for_ticker(
+    ticker: str, *, lookback_days: int, logic: MarketAmpelLogic | None = None,
+) -> MarketTrendAmpel | None:
     clean_ticker = _normalize_ampel_ticker(ticker)
-    point = _latest_cached_trend_ampel_point(clean_ticker, lookback_days=lookback_days)
+    point = _latest_cached_trend_ampel_point(clean_ticker, lookback_days=lookback_days, logic=logic)
     raw = _trend_ampel_metrics(point, ticker=clean_ticker)
     if raw.get("source") == "missing":
         return None
@@ -2133,6 +2152,7 @@ def _merge_proxy_volume(
                 close=point.close,
                 volume=volume_by_date.get(point.date, point.volume),
                 fetched_at=point.fetched_at,
+                ohlc_complete=point.ohlc_complete,
             )
         )
     return merged
@@ -2548,7 +2568,7 @@ def _ampel_cycle(
     diagnostics = []
     anchor_current = bool(anchor_date and latest.anchor_date == anchor_date)
     floor_current = _same_optional_number(latest.floor_mark, floor_mark)
-    startschuss_current = _same_optional_number(latest.startschuss_low, startschuss_low)
+    startschuss_current = not latest.ftd_negated and _same_optional_number(latest.startschuss_low, startschuss_low)
     if not anchor_date:
         diagnostics.append("Kein aktiver Ankertag")
     elif not anchor_current:
@@ -2560,7 +2580,7 @@ def _ampel_cycle(
     if startschuss_low is None:
         diagnostics.append("Startschuss-Tief noch nicht gesetzt")
     elif not startschuss_current:
-        diagnostics.append("Startschuss-Tief ist ein historischer letzter Wert")
+        diagnostics.append("Startschuss/FTD ist negiert" if latest.ftd_negated else "Startschuss-Tief ist ein historischer letzter Wert")
     diagnostics.append(f"Marktstruktur: {_market_structure_label(latest.market_structure)}")
     if latest.phase_reason:
         diagnostics.append(f"Letzter Phasengrund: {latest.phase_reason}")
@@ -2623,6 +2643,8 @@ def _ampel_reason_line(
     if latest.phase == "gelb_trend_unter_druck":
         return f"Trendwende-Ampel: GELB - Trend unter Druck · {latest.phase_reason or 'technische Beschädigung'}"
     if latest.phase == "gruen":
+        if latest.ftd_negated:
+            return "Trendwende-Ampel: GRÜN - Erholung bestätigt; früherer Startschuss/FTD bleibt negiert"
         if startschuss_low is not None:
             return f"Trendwende-Ampel: GRÜN - Startschuss bestätigt · Absicherung über {_format_number(startschuss_low)}"
         return "Trendwende-Ampel: GRÜN - Startschuss bestätigt"
@@ -3263,6 +3285,7 @@ def _trend_bar_from_ohlcv(point: MarketOhlcvPoint) -> TrendAmpelBar:
         low=point.low,
         close=point.close,
         volume=point.volume,
+        ohlc_complete=point.ohlc_complete,
     )
 
 
@@ -3271,6 +3294,13 @@ def _trend_ampel_metrics(point: TrendAmpelPoint | None, *, ticker: str) -> dict:
         return {"ticker": ticker, "source": "missing", "message": "Keine Benchmark-OHLCV-Daten im Cache."}
     return {
         "ticker": ticker,
+        "logic": point.logic,
+        "ruleset_version": AMPEL_RULESET_VERSION,
+        "ftd_negated": point.ftd_negated,
+        "price_data_complete": point.price_data_complete,
+        "powertrend_state": point.powertrend_state,
+        "powertrend_start_date": point.powertrend_start_date,
+        "powertrend_formally_active": point.powertrend_formally_active,
         "source": "database",
         "as_of": point.date,
         "phase": point.phase,

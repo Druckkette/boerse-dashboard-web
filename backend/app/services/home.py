@@ -19,12 +19,13 @@ from app.repositories import stock_assessments
 from app.services import daily_opportunities
 from app.services.industry_group_rs import ALGORITHM_VERSION
 from app.services.market_calendar import completed_us_market_session, daily_bar_is_final, expected_us_market_session
+from app.services.market import _market_trend_ampel_for_ticker, _selected_market_ampel_logic
 from app.services.settings import get_data_quality_summary
 from app.services.workspace import get_workspace_state
 
 
 _HOME_CACHE_TTL_SECONDS = 30.0
-_home_cache: tuple[float, dict[str, Any]] | None = None
+_home_cache: tuple[float, str, dict[str, Any]] | None = None
 _home_cache_lock = Lock()
 
 
@@ -74,6 +75,10 @@ def _market_summary() -> dict[str, Any]:
     expected = expected_us_market_session()
     completed = completed_us_market_session()
     snapshot = market_repository.get_latest_market_snapshot()
+    logic = _selected_market_ampel_logic()
+    trend = _market_trend_ampel_for_ticker("^GSPC", lookback_days=550, logic=logic)
+    snapshot_logic = (snapshot.metrics_json or {}).get("market_ampel_logic", "current") if snapshot else None
+    phase = trend.phase if trend else snapshot.ampel_phase if snapshot and snapshot_logic == logic else None
     breadth_rows = market_repository.list_breadth_daily(DEFAULT_MARKET_UNIVERSE_KEY, limit=1)
     breadth = breadth_rows[-1] if breadth_rows else None
     closes_by_ticker = market_repository.load_latest_close_pairs(["^VIX", "^GSPC", "^IXIC"])
@@ -84,8 +89,9 @@ def _market_summary() -> dict[str, Any]:
             "last_completed_as_of": completed.date.isoformat(),
             "current_session_as_of": expected.date.isoformat(),
         },
-        "phase": snapshot.ampel_phase if snapshot else None,
-        "phase_label": _phase_label(snapshot.ampel_phase if snapshot else None),
+        "logic": logic,
+        "phase": phase,
+        "phase_label": _phase_label(phase),
         "warning_count": snapshot.warning_count if snapshot else None,
         "breadth": {
             "as_of": breadth.date.isoformat(),
@@ -98,7 +104,7 @@ def _market_summary() -> dict[str, Any]:
             _index_summary("^GSPC", "S&P 500", closes_by_ticker.get("^GSPC", [])),
             _index_summary("^IXIC", "Nasdaq", closes_by_ticker.get("^IXIC", [])),
         ],
-        "as_of": snapshot.date.isoformat() if snapshot else None,
+        "as_of": trend.as_of if trend else snapshot.date.isoformat() if snapshot and phase else None,
     }
 
 
@@ -332,11 +338,12 @@ def get_cached_home_dashboard() -> dict[str, Any]:
     """
     global _home_cache
     now = monotonic()
+    logic = _selected_market_ampel_logic()
     with _home_cache_lock:
-        if _home_cache and now - _home_cache[0] < _HOME_CACHE_TTL_SECONDS:
-            return _home_cache[1]
+        if _home_cache and _home_cache[1] == logic and now - _home_cache[0] < _HOME_CACHE_TTL_SECONDS:
+            return _home_cache[2]
         payload = get_home_dashboard()
-        _home_cache = (now, payload)
+        _home_cache = (now, logic, payload)
         return payload
 
 

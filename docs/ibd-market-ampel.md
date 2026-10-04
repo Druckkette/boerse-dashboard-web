@@ -6,6 +6,25 @@ Standard. Ein Wechsel benötigt weder Migration noch Worker-Neustart. Die
 Berechnung verwendet für bestätigte Zustände nur abgeschlossene US-Handelstage;
 Intraday-Vorschauen ändern diese Zustände nicht.
 
+Die Startseite verwendet dieselbe gewählte Trendberechnung wie die Marktseite.
+Ihr kurzer Cache berücksichtigt die Variante; ein Settings-Wechsel benötigt
+keinen neuen Worker-Snapshot. Die Snapshots speichern Variante, Regelversion,
+FTD-Negation und den Powertrend-Zustand für spätere historische Auswertungen.
+
+Für IBD-Bestätigungen müssen Open, High und Low tatsächlich vorliegen und zur
+Tageskerze passen. Fehlende Werte werden nicht als belegte Tagestiefs behandelt.
+Eine unvollständige Kerze unterbricht den Powertrend-Low-Streak und bestätigt
+keine neue Ampelphase. Ein bereits formal aktiver Powertrend bleibt anhand der
+bekannten Schlusskurs-Durchschnitte bestehen; die Datenlücke wird angezeigt.
+Volumenlose Tage bestätigen keinen volumenabhängigen Startschuss.
+
+Die Journal-Rekonstruktion verwendet eine für denselben Handelstag gespeicherte
+Variante, sofern sie belegt ist. Fehlt dieser Nachweis, wird die ausgewählte
+heutige Variante auf historische Kurse angewandt und ausdrücklich als solche
+Rekonstruktion gekennzeichnet. Die damalige Auswahl wird dabei nicht behauptet.
+Bereits archivierte Kontexte bleiben unverändert. Varianten und Regelversionen
+sind Teil des Rekonstruktions-Fingerprints.
+
 ## Regelabgleich
 
 Die Variante `ibd` erhält die Buchkette Ankertag → Startschuss → Grün →

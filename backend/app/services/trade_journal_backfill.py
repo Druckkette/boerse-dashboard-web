@@ -23,11 +23,11 @@ from app.db.models import (
     TradeJournalEntry,
 )
 from app.db.session import SessionLocal
-from app.domain.market.ampel import compute_trend_ampel
+from app.domain.market.ampel import AMPEL_RULESET_VERSION, compute_trend_ampel
 from app.domain.market.regime import MarketRegimeInput, market_regime_warning_checks
 from app.domain.stocks.assessment import compute_stock_assessment
 from app.domain.stocks.relative_strength import compute_relative_strength_line
-from app.services.market import _build_ampel_warning_checks, _phase_label
+from app.services.market import _build_ampel_warning_checks, _selected_market_ampel_logic, _trend_ampel_metrics
 from app.services.stocks import _fundamentals_context, _rs_context, _assessment_score_weights
 from app.repositories.relative_strength import RsRatingRow
 from app.services.market_calendar import previous_us_market_session_date
@@ -35,6 +35,7 @@ from app.services.fx import yahoo_quote_currency
 
 
 RULESET = "journal_reconstruction_v2_current_rules"
+MARKET_RULESET = "journal_market_reconstruction_v3"
 
 
 def backfill_trade_journal_contexts(
@@ -301,7 +302,13 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
     if len(spy_bars) == 2 and spy_bars[0].close is not None and spy_bars[1].close is not None:
         benchmark_return = _return(float(spy_bars[0].close), float(spy_bars[1].close))
     trend_bars = _bars_for_ticker(db, "^GSPC", session_date, 800)
-    points = compute_trend_ampel([_model_dict(bar) for bar in trend_bars]) if trend_bars else []
+    stored_metrics = (snapshot.metrics_json or {}) if snapshot else {}
+    stored_trend = stored_metrics.get("trend_ampel") or {}
+    recorded_logic = stored_metrics.get("market_ampel_logic") or stored_trend.get("logic")
+    historical_logic_known = bool(snapshot and snapshot.date == session_date and recorded_logic in {"current", "ibd"})
+    logic = recorded_logic if historical_logic_known else _selected_market_ampel_logic()
+    logic_origin = "historical_snapshot" if historical_logic_known else "current_settings_reconstruction"
+    points = compute_trend_ampel([_model_dict(bar) for bar in trend_bars], logic=logic) if trend_bars else []
     checks = _build_ampel_warning_checks(
         points=points, latest=points[-1], intermarket=[], defensive_lead=None,
         defensive_spread_pct=None, index_name="S&P 500",
@@ -314,6 +321,10 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
         reasons.append("benchmark_prices_stale")
     if not checks:
         reasons.append("market_warning_history_missing")
+    if not historical_logic_known:
+        reasons.append("historical_market_logic_unknown")
+    if logic == "ibd" and any(not point.price_data_complete for point in points[-50:]):
+        reasons.append("market_ohlc_incomplete")
     status = "missing" if snapshot is None and breadth is None and not spy_bars else "partial" if reasons else "reconstructed"
     market_checks = []
     if snapshot is not None:
@@ -336,14 +347,17 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
         "information_cutoff": cutoff.isoformat(),
         "data_as_of": session_date.isoformat(),
         "generated_at": datetime.now(UTC).isoformat(),
-        "assessment_version": RULESET,
+        "assessment_version": MARKET_RULESET,
         "temporal_reliability": "conservative_previous_session",
         "benchmark": {"instrument": "SPY", "daily_return_pct": benchmark_return, "basis": "price_return",
                       "as_of": spy_bars[0].date.isoformat() if spy_bars else None},
-        "trend": ({"as_of": points[-1].date, "phase": points[-1].phase,
-                   "phase_label": _phase_label(points[-1].phase),
-                   "phase_reason": points[-1].phase_reason, "source": "historical_prices"}
+        "trend": ({**_trend_ampel_metrics(points[-1], ticker="^GSPC"), "source": "historical_prices",
+                   "logic_origin": logic_origin, "historical_logic_known": historical_logic_known}
                   if len(points) >= 200 else {}),
+        "market_ampel_logic": logic,
+        "market_ampel_ruleset": AMPEL_RULESET_VERSION,
+        "logic_origin": logic_origin,
+        "historical_logic_known": historical_logic_known,
         "market_warning_checks": market_checks,
         "warning_checks": [check.model_dump(mode="json") for check in checks],
         "warning_scope": "Historische Indexwarnungen nach heutigen Regeln. Intermarket- und Sektorrotation sind nicht enthalten.",
@@ -357,8 +371,8 @@ def _market_context(db, session_date: date, cutoff: datetime) -> dict:
         "archive_reference_id": None,
         "information_cutoff": cutoff,
         "data_as_of": session_date,
-        "assessment_version": RULESET,
-        "ruleset_hash": _fingerprint({"ruleset": RULESET}),
+        "assessment_version": MARKET_RULESET,
+        "ruleset_hash": _fingerprint({"ruleset": MARKET_RULESET, "logic": logic, "ampel_ruleset": AMPEL_RULESET_VERSION}),
         "sources": ["market_snapshots", "breadth_daily", "price_bars"],
         "reason_codes": reasons,
         "payload": payload,
