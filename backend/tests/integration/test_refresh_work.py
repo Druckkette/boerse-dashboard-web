@@ -121,6 +121,10 @@ def test_baseline_brings_current_statements_forward_without_losing_revision(queu
     item = work.claim()
     work.finish(item, result={'complete': True}, status='current', delay=timedelta(days=20))
     work.enqueue([request()])
+    with queue() as db:
+        row = db.get(RefreshWorkItem, 'statements:TEST')
+        assert row.status == 'current'
+        assert row.result_json == {'complete': True}
     next_item = work.claim()
     assert next_item is not None
     assert next_item['revision'] == revision
