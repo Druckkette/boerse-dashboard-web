@@ -35,7 +35,7 @@ def enqueue(requests: list[WorkRequest]) -> int:
                 "revision": case((new.revision == "baseline", RefreshWorkItem.revision), else_=new.revision),
                 "payload_json": new.payload_json,
                 "due_at": new.due_at, "priority": new.priority, "attempts": 0,
-                "result_json": case((new.revision == "baseline", RefreshWorkItem.result_json), else_={}),
+                "result_json": case((new.revision == "baseline", RefreshWorkItem.result_json), else_=new.result_json),
                 "status": case((RefreshWorkItem.status == "running", "running"),
                                (new.revision == "baseline", "current"), else_="queued"),
             }, where=((new.revision != "baseline") & (new.revision > RefreshWorkItem.revision)) | (
