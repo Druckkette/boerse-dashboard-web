@@ -433,6 +433,16 @@ def test_older_provider_quarter_does_not_replace_newer_summary():
     assert merged.metadata_json['annual_eps_history'][0]['fiscal_year'] == '2025'
 
 
+@pytest.mark.parametrize("reason", ["provider_error", "provider_rate_limited", "older_report_data"])
+def test_manual_refresh_merge_cannot_advance_date_after_source_failure(reason):
+    previous = FundamentalSnapshotWrite("TEST", date(2026, 9, 14), beta=1.0)
+    incoming = FundamentalSnapshotWrite("TEST", date(2026, 10, 4), beta=1.1,
+                                        metadata_json={"enrichment": {"reason_code": reason}})
+    merged = merge_snapshot_write(previous, incoming)
+    assert merged.as_of == previous.as_of
+    assert merged.beta == 1.1
+
+
 def test_complete_but_obsolete_foreign_annual_history_requires_fallback(monkeypatch):
     class Today(date):
         @classmethod

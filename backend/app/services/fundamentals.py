@@ -141,6 +141,11 @@ def merge_snapshot_write(previous, write: FundamentalSnapshotWrite) -> Fundament
             for key in metrics:
                 values[key] = getattr(previous, key)
     fresh_metadata = values["metadata_json"] or {}
+    if (fresh_metadata.get("enrichment") or {}).get("reason_code") in {
+        "provider_error", "provider_rate_limited", "older_report_data",
+    }:
+        # The same rule applies to manual refreshes and the report worker.
+        values["as_of"] = previous.as_of
     metadata = {**(previous.metadata_json or {}), **fresh_metadata}
     metadata["data_sources"] = {
         **((previous.metadata_json or {}).get("data_sources") or {}),
