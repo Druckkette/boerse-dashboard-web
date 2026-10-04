@@ -298,6 +298,9 @@ def _instrument_types(instruments: list[Instrument]) -> dict[str, str]:
 
 
 def _requires_fundamentals(position: PortfolioPosition, instrument_types: dict[str, str]) -> bool:
+    # Match the tracked-fundamentals exclusion, including curated ETF tickers.
+    if classify_instrument(ticker=position.ticker) == "etf":
+        return False
     instrument_type = instrument_types.get(position.ticker.upper()) or classify_instrument(
         ticker=position.ticker, name=position.name,
     )

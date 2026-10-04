@@ -125,7 +125,7 @@ def test_critical_split_candidate_creates_warning_issue() -> None:
 
 def test_etf_fundamentals_are_inapplicable_but_prices_and_risk_remain_required() -> None:
     today = date.today()
-    positions = [_position(ticker="ARKK.L", name="ARKK.L"), _position(ticker="ZPDH.DE", name="ZPDH.DE")]
+    positions = [_position(ticker="ARKK.L", name="ARK Innovation"), _position(ticker="ZPDH.DE", name="SPDR")]
     result = assess_position_quality(
         positions, latest_by_ticker={p.ticker: today for p in positions},
         fundamentals_by_ticker={"ARKK.L": today - timedelta(days=30)}, today=today,
