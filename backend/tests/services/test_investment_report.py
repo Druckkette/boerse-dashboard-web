@@ -28,7 +28,7 @@ def test_multipage_complete_a4_and_reproducible():
     for i in range(100):
         assert f"Kriterium {i}" in text
     assert "SCHLUSSMARKE" in text
-    assert "0 / 100" in text
+    assert "0,0 / 100" in text
     for number, page in enumerate(reader.pages, 1):
         assert abs(float(page.mediabox.width) - 595.276) < .01
         assert abs(float(page.mediabox.height) - 841.89) < .01
@@ -81,8 +81,8 @@ def test_v2_assessment_is_rendered_as_investor_facing_scorecard_without_raw_inte
     assert "GESAMTSCORE" in text
     assert "Attraktiv" in text
     assert "Bewertung im Detail" in text
-    assert "K4 RS Leadership" in text
-    assert "Basis 30 %" in text
+    assert "Führungsqualität (K4)" in " ".join(text.split())
+    assert "Basis 30,0 %" in text
     assert "internal formula operand" not in text
     assert "123456" not in text
 
@@ -176,3 +176,66 @@ def test_historical_report_never_calls_current_assessments(monkeypatch):
     assert "linked_entry_id" in queries[0]
     with pytest.raises(LookupError):
         collect.collect_report("OTHER", "entry-1")
+
+
+def pdf_text(data, **options):
+    return "\n".join(page.extract_text() for page in PdfReader(BytesIO(render_report(data, **options))).pages)
+
+
+def test_chart_states_use_authoritative_flags_and_plain_language():
+    data = report(assessment={"source": "database", "chart_signal_states": {
+        "Bearisher Outside Day": {"active": False, "available": True, "detail": "0/15 Tage · Warnung ab 1"},
+        "Negative Kurslücken bei hohem Vol.": {"active": True, "available": True, "detail": "2/10 Tage · Warnung ab 1"},
+        "Stau-Tage": {"active": False, "available": False, "detail": "Volumendaten fehlen"},
+    }})
+    text = pdf_text(data)
+    assert "Kein bearisher Outside Day in den letzten 15 Handelstagen" in text
+    assert "2 Ereignisse in den letzten 10 Handelstagen" in text
+    assert "Warnsignal aktiv" in text and "Unauffällig" in text and "Daten fehlen" in text
+    assert "wenig Kursfortschritt" in " ".join(text.split())
+    assert text.index("Negative Kurslücken") < text.index("Bearisher Outside Day")
+    assert "Aktiv Nein" not in text and "Verfügbar Ja" not in text
+
+
+def test_investor_sections_hide_diagnostics_and_preserve_zero_false_and_missing():
+    data = report(assessment={"source": "database", "setup": {"moving_average_distances": {
+        "21-EMA": {"distance_pct": 0, "threshold_pct": 14},
+        "50-SMA": {"distance_pct": None, "threshold_pct": 25},
+    }}}, sections=[ReportSection("Marktumfeld", {
+        "ampel_phase": "rot", "as_of": "2026-10-02", "action": "Risiko beachten",
+        "market_ampel_logic": "SECRET-LOGIC", "ruleset_version": "SECRET-RULESET", "covered_count": 12345,
+        "equal_weight_breadth": {"message": "Marktbreite wachsam", "candidate_streak": 9876},
+    })])
+    text = pdf_text(data)
+    assert "0,0 %" in text and "Daten fehlen" in text
+    assert "Marktampel: rot" in text and "Risiko beachten" in text and "Marktbreite wachsam" in text
+    assert "SECRET-LOGIC" not in text and "9876" not in text
+    assert "Distance pct" not in text and "Threshold pct" not in text
+    appendix = pdf_text(data, include_technical_appendix=True)
+    assert "Technischer Anhang" in appendix and "SECRET-LOGIC" in appendix
+    assert '"candidate_streak": 9876' in appendix
+    assert '"distance_pct": null' in appendix
+
+
+def test_optional_appendix_is_available_in_export_route(monkeypatch):
+    from app.reports import collect
+    monkeypatch.setattr(collect, "collect_report", lambda *args: report(assessment={"raw": {"formula_sentinel": 4321}}))
+    client = TestClient(app)
+    default = client.get("/api/v1/stocks/TEST/report.pdf")
+    full = client.get("/api/v1/stocks/TEST/report.pdf?include_technical_appendix=true")
+    assert default.status_code == full.status_code == 200
+    text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(full.content)).pages)
+    assert '"formula_sentinel": 4321' in text
+    assert "Technischer Anhang" not in "\n".join(p.extract_text() for p in PdfReader(BytesIO(default.content)).pages)
+
+
+def test_report_rendering_does_not_mutate_payload_and_keeps_full_histories_in_appendix():
+    import copy
+    histories = [{"fiscal_year": str(2025-i), "eps_current_year": 0, "eps_previous_year": 1, "eps_growth_yoy_pct": -100} for i in range(10)]
+    data = report(sections=[ReportSection("Fundamentaldaten", {"annual_eps_history": histories})])
+    before = copy.deepcopy(data)
+    text = pdf_text(data)
+    assert "jüngsten 8 von 10" in text
+    assert "2016" not in text
+    assert "2016" in pdf_text(data, include_technical_appendix=True)
+    assert data == before

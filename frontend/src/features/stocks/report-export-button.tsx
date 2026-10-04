@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 
 export function ReportExportButton({ ticker, tradeId }: { ticker: string; tradeId?: string }) {
+  const [includeAppendix, setIncludeAppendix] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -15,7 +16,10 @@ export function ReportExportButton({ ticker, tradeId }: { ticker: string; tradeI
     setError(null);
     try {
       const base = (process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1").replace(/\/$/, "");
-      const query = tradeId ? `?trade_id=${encodeURIComponent(tradeId)}` : "";
+      const params = new URLSearchParams();
+      if (tradeId) params.set("trade_id", tradeId);
+      if (includeAppendix) params.set("include_technical_appendix", "true");
+      const query = params.size ? `?${params.toString()}` : "";
       const response = await fetch(`${base}/stocks/${encodeURIComponent(ticker)}/report.pdf${query}`, {
         cache: "no-store",
         signal: AbortSignal.timeout(120_000)
@@ -52,6 +56,7 @@ export function ReportExportButton({ ticker, tradeId }: { ticker: string; tradeI
         {pending ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
         {pending ? "PDF wird erstellt …" : "Als PDF exportieren"}
       </button>
+      <label className="flex items-center gap-2 text-xs text-[#687386]"><input type="checkbox" checked={includeAppendix} disabled={pending} onChange={(event) => setIncludeAppendix(event.target.checked)} />Technischen Anhang einschließen</label>
       {error ? <p role="alert" className="max-w-sm text-sm text-[#c2413b]">{error}</p> : null}
     </div>
   );

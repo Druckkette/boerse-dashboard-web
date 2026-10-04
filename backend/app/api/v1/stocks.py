@@ -200,6 +200,7 @@ def stock_institutional_13f(ticker: str) -> Institutional13FTrendResponse:
 def investment_report_pdf(
     ticker: str,
     trade_id: str | None = Query(default=None, min_length=1, max_length=64),
+    include_technical_appendix: bool = Query(default=False),
 ) -> Response:
     import logging
     import re
@@ -212,7 +213,7 @@ def investment_report_pdf(
         raise HTTPException(status_code=422, detail="Ungültiger Ticker.")
     try:
         report = collect_report(clean, trade_id)
-        content = render_report(report)
+        content = render_report(report, include_technical_appendix=include_technical_appendix)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except SQLAlchemyError as exc:
