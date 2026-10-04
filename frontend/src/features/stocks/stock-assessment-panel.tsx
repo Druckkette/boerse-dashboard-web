@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { assessmentCriterionLabel } from "./assessment-criteria";
+import { criterionResults } from "./assessment-criterion-results";
 import { AssessmentCriterionNote } from "./assessment-criterion-note";
 import { api } from "@/lib/api/client";
 import type { AssessmentV2Detail, StockAssessment, StockAssessmentCheck, StockAssessmentSignal, Tone } from "@/lib/types/api";
@@ -178,7 +179,7 @@ function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessme
         </div>
       ) : null}
       <div className="grid gap-3 xl:grid-cols-2">
-        {groups.map((group) => <ComponentBreakdown key={group.title} title={group.title} detail={group.detail} />)}
+        {groups.map((group) => <ComponentBreakdown key={group.title} title={group.title} detail={group.detail} assessment={assessment} />)}
       </div>
       <div className="grid gap-3 xl:grid-cols-2">
         <EligibilityCard eligibility={assessment.eligibility} />
@@ -188,7 +189,7 @@ function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessme
   );
 }
 
-function ComponentBreakdown({ title, detail }: { title: string; detail?: AssessmentV2Detail }) {
+function ComponentBreakdown({ title, detail, assessment }: { title: string; detail?: AssessmentV2Detail; assessment: StockAssessment }) {
   const components = Object.entries(detail?.components ?? {});
   if (!detail || !components.length) return null;
   return (
@@ -199,12 +200,13 @@ function ComponentBreakdown({ title, detail }: { title: string; detail?: Assessm
           {typeof detail.score === "number" ? `${Math.round(detail.score)}/100` : statusLabel(detail.status)}
         </StatusChip>
       </div>
+      <p className="mb-3 text-xs text-[#687386]">Basis = konfigurierte Gewichtung in dieser Bewertung. Effektiv = Anteil nach Umverteilung fehlender Bestandteile. Abgestufte Kriterien gelten hier ab 70/100 als erfüllt; die Score-Berechnung bleibt unverändert.</p>
       <div className="space-y-1.5">
         {components.map(([key, component]) => (
           <div key={key} className="flex items-center justify-between gap-3 rounded-[9px] bg-[#f9fbfd] px-3 py-2 text-sm">
             <div>
               <div className="font-medium text-[#172033]">{assessmentCriterionLabel(key)}</div>
-              <AssessmentCriterionNote criterion={key} />
+              <AssessmentCriterionNote criterion={key} results={criterionResults(key, component, assessment.checks, assessment.chart_signals)} />
               <div className="text-[11px] text-[#687386]">Basis {Math.round((component.base_weight ?? 0) * 1000) / 10}% · effektiv {Math.round((component.effective_weight ?? 0) * 1000) / 10}% · {statusLabel(component.status)}</div>
             </div>
             <span className="shrink-0 font-semibold tabular-nums text-[#172033]">{typeof component.score === "number" ? component.score.toFixed(1) : "–"}</span>
