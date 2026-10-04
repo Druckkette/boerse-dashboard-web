@@ -22,6 +22,7 @@ REVIEWED_OPERATING_TICKERS = {
 # Curated examples retained for older universe rows whose only saved name is
 # the symbol. A fresh exchange description or SEC form can replace these.
 KNOWN_TICKER_TYPES = {
+    **dict.fromkeys(("ARKK.L", "ZPDH.DE"), "etf"),
     **dict.fromkeys(("EVF", "NRK", "NRO", "NMS", "NMZ", "NPV", "ADX", "AFB", "AOD", "ARDC"), "closed_end_fund"),
     **dict.fromkeys(("MSB", "NRT"), "investment_trust"),
     **dict.fromkeys(("FNGD", "FNGO"), "etn"),

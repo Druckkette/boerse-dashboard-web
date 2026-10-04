@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
+import pytest
+
 from app.services import freshness
 
 
@@ -171,3 +173,37 @@ def test_sell_ranking_requires_refresh_after_market_opens() -> None:
     )
 
     assert result.status == "stale"
+
+
+@pytest.mark.parametrize("stock_date,expected_status", [(date(2026, 10, 3), "fresh"), (date(2026, 9, 14), "stale")])
+def test_etfs_do_not_age_or_block_tracked_fundamentals(monkeypatch, stock_date, expected_status):
+    from types import SimpleNamespace
+    monkeypatch.setattr(freshness, "_tracked_fundamental_tickers", lambda db: ["ARKK.L", "ZPDH.DE", "FUND", "AAPL"])
+    profiles = [SimpleNamespace(ticker=ticker, name=ticker, asset_class="stock", metadata_json={}) for ticker in ("ARKK.L", "ZPDH.DE", "AAPL")]
+    profiles.append(SimpleNamespace(ticker="FUND", name="Example", asset_class="etf", metadata_json={}))
+    class Result:
+        def __init__(self, rows): self.rows = rows
+        def all(self): return self.rows
+    class Session:
+        def scalars(self, query): return Result(profiles)
+        def execute(self, query):
+            tickers = query.compile().params["ticker_1"]
+            assert tickers == ["AAPL"]
+            return Result([("AAPL", stock_date)])
+    result = freshness._tracked_fundamentals_freshness(Session(), datetime(2026, 10, 4, tzinfo=UTC))
+    assert result.status == expected_status
+    assert result.as_of == stock_date.isoformat()
+    assert result.metadata["excluded_etf_tickers"] == ["ARKK.L", "FUND", "ZPDH.DE"]
+    assert result.metadata["missing_tickers"] == []
+
+
+def test_only_etfs_need_no_fundamental_check(monkeypatch):
+    monkeypatch.setattr(freshness, "_tracked_fundamental_tickers", lambda db: ["ARKK.L", "ZPDH.DE"])
+    class Result:
+        def all(self): return []
+    class Session:
+        def scalars(self, query): return Result()
+        def execute(self, query): raise AssertionError("ETF snapshots must not be checked")
+    result = freshness._tracked_fundamentals_freshness(Session(), datetime(2026, 10, 4, tzinfo=UTC))
+    assert result.status == "fresh"
+    assert result.metadata["not_applicable"]

@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.domain.stocks.instrument_type import classify_instrument
 from app.db.models import (
     AppSetting,
     BreadthDaily,
@@ -611,16 +612,28 @@ def _trend_benchmark_freshness(db, now: datetime) -> ServiceFreshness:
 
 
 def _tracked_fundamentals_freshness(db, now: datetime) -> ServiceFreshness:
-    tickers = _tracked_fundamental_tickers(db)
+    tracked = _tracked_fundamental_tickers(db)
+    profiles = db.scalars(select(Instrument).where(Instrument.ticker.in_(tracked))).all() if tracked else []
+    excluded = set()
+    for profile in profiles:
+        metadata = profile.metadata_json or {}
+        listing = metadata.get("nasdaq_listing") or {}
+        kind = classify_instrument(
+            ticker=profile.ticker, name=profile.name or "", asset_class=profile.asset_class or "",
+            etf=str(listing.get("etf", "")), nextshares=str(listing.get("nextshares", "")),
+            sec_sic=metadata.get("sec_sic") or "", sec_forms=metadata.get("sec_forms"),
+            previous_type=metadata.get("instrument_type", ""),
+        )
+        if kind == "etf":
+            excluded.add(profile.ticker.upper())
+    # Include curated fallback classifications even if an instrument profile is missing.
+    excluded.update(ticker for ticker in tracked if classify_instrument(ticker=ticker) == "etf")
+    tickers = [ticker for ticker in tracked if ticker not in excluded]
     if not tickers:
-        latest_date = db.scalar(select(func.max(FundamentalSnapshot.as_of)))
-        return _date_freshness(
-            now,
-            "fundamentals_tracked",
-            latest_date,
-            max_lag_days=MAX_TRACKED_FUNDAMENTAL_LAG_DAYS,
-            detail="Kein getracktes Aktien-Set; Datum über alle Fundamental-Snapshots.",
-            metadata={"tracked_tickers": [], "missing_tickers": []},
+        return ServiceFreshness(
+            name="fundamentals_tracked", status="fresh", as_of="", lag_minutes=0,
+            detail="Keine getrackten Aktien mit erforderlichem Fundamentaldatencheck; ETFs sind ausgeschlossen.",
+            metadata={"tracked_tickers": [], "missing_tickers": [], "excluded_etf_tickers": sorted(excluded), "not_applicable": True},
         )
 
     rows = db.execute(
@@ -638,7 +651,7 @@ def _tracked_fundamentals_freshness(db, now: datetime) -> ServiceFreshness:
         return _missing(
             "fundamentals_tracked",
             detail="Für offene Positionen, Watchlist oder zuletzt geöffnete Aktien fehlen Fundamental-Snapshots.",
-            metadata={"tracked_tickers": tickers, "missing_tickers": missing_tickers},
+            metadata={"tracked_tickers": tickers, "missing_tickers": missing_tickers, "excluded_etf_tickers": sorted(excluded)},
         )
 
     oldest_fresh_ticker = min(latest_by_ticker, key=lambda ticker: latest_by_ticker[ticker])
@@ -654,6 +667,7 @@ def _tracked_fundamentals_freshness(db, now: datetime) -> ServiceFreshness:
         ),
         metadata={
             "tracked_tickers": tickers,
+            "excluded_etf_tickers": sorted(excluded),
             "missing_tickers": missing_tickers,
             "ticker_dates": {
                 ticker: value.isoformat()
