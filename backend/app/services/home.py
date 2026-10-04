@@ -340,6 +340,9 @@ def get_home_dashboard() -> dict[str, Any]:
         return [row.model_dump(mode="json") for row in rows]
 
     sell_rows = _read("sell", stored_sell_rows, errors, [])
+    # Monitor snapshots can predate an import or sale: portfolio membership is authoritative.
+    open_tickers = {str(ticker).strip().upper() for ticker in portfolio.get("tickers", [])}
+    sell_rows = [row for row in sell_rows if str(row.get("ticker") or "").strip().upper() in open_tickers]
     sell_rows.sort(key=_sell_sort_key)
     all_watchlist = [str(item).upper() for item in getattr(workspace, "watchlist", []) if str(item).strip()]
     shown_watchlist = all_watchlist[:8]

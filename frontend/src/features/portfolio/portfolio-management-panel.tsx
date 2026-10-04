@@ -362,6 +362,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function invalidatePortfolio(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ["home-dashboard"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-positions"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-curve"] });

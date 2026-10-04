@@ -112,6 +112,8 @@ def evaluate_position_sell_decision(
 def get_sell_position_ranking() -> SellRankingResponse:
     snapshot_rows, generated_at, source_job_id = sell_state_repository.list_ranking_snapshot()
     if snapshot_rows:
+        open_tickers = {row.ticker.strip().upper() for row in portfolio_repository.list_open_positions()}
+        snapshot_rows = [row for row in snapshot_rows if row.ticker.strip().upper() in open_tickers]
         quality_by_ticker = get_position_quality_by_ticker()
         return SellRankingResponse(
             rows=[_with_data_quality(row, quality_by_ticker) for row in snapshot_rows],

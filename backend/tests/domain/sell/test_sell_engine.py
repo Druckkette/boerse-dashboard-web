@@ -355,6 +355,10 @@ def test_sell_ranking_prefers_imported_portfolio_positions(monkeypatch: pytest.M
     evaluation = evaluate_position_sell_decision("AAPL")
 
     assert [row.ticker for row in ranking.rows] == ["AAPL"]
+
+    # A sale after snapshot generation must remove its stale sell recommendation.
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: [])
+    assert get_sell_position_ranking().rows == []
     assert ranking.rows[0].name == "Apple"
     assert metrics.current_price == pytest.approx(100 + 279 * 0.20, abs=0.01)
     assert metrics.pnl_pct == pytest.approx((metrics.current_price / 100 - 1) * 100, abs=0.01)

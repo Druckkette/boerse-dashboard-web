@@ -30,6 +30,7 @@ from app.schemas import (
     TradeRepublicTransactionImportRequest,
     TradeRepublicTransactionImportResponse,
 )
+from app.services.home import invalidate_home_dashboard_cache
 from app.services.portfolio import (
     calculate_position_size,
     create_portfolio_cash_flow,
@@ -64,7 +65,9 @@ def positions() -> PortfolioPositionsResponse:
 @router.post("/positions", response_model=PortfolioPositionWriteResponse)
 def create_or_update_position(payload: PortfolioPositionWriteRequest) -> PortfolioPositionWriteResponse:
     try:
-        return upsert_portfolio_position(payload)
+        response = upsert_portfolio_position(payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -76,7 +79,9 @@ def create_or_update_position(payload: PortfolioPositionWriteRequest) -> Portfol
 def patch_position(ticker: str, payload: PortfolioPositionWriteRequest) -> PortfolioPositionWriteResponse:
     try:
         next_payload = payload.model_copy(update={"ticker": ticker})
-        return upsert_portfolio_position(next_payload)
+        response = upsert_portfolio_position(next_payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -87,7 +92,9 @@ def patch_position(ticker: str, payload: PortfolioPositionWriteRequest) -> Portf
 @router.patch("/positions/{ticker}/stop", response_model=PortfolioPositionWriteResponse)
 def patch_position_stop(ticker: str, payload: PortfolioPositionStopRequest) -> PortfolioPositionWriteResponse:
     try:
-        return update_portfolio_position_stop(ticker, payload)
+        response = update_portfolio_position_stop(ticker, payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -98,7 +105,9 @@ def patch_position_stop(ticker: str, payload: PortfolioPositionStopRequest) -> P
 @router.delete("/positions/{ticker}", response_model=PortfolioPositionDeleteResponse)
 def delete_position(ticker: str) -> PortfolioPositionDeleteResponse:
     try:
-        return delete_portfolio_position(ticker)
+        response = delete_portfolio_position(ticker)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -109,7 +118,9 @@ def delete_position(ticker: str) -> PortfolioPositionDeleteResponse:
 @router.post("/positions/{ticker}/sell", response_model=PortfolioSellResponse)
 def sell_position(ticker: str, payload: PortfolioSellRequest) -> PortfolioSellResponse:
     try:
-        return sell_portfolio_position(ticker, payload)
+        response = sell_portfolio_position(ticker, payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -192,7 +203,9 @@ def patch_isin_mappings(payload: IsinMappingPatchRequest) -> IsinMappingListResp
 @router.post("/imports/positions", response_model=PortfolioImportResponse)
 def import_positions(payload: PortfolioImportRequest) -> PortfolioImportResponse:
     try:
-        return import_portfolio_positions(payload)
+        response = import_portfolio_positions(payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -205,7 +218,9 @@ def import_trade_republic_transactions(
     payload: TradeRepublicTransactionImportRequest,
 ) -> TradeRepublicTransactionImportResponse:
     try:
-        return import_trade_republic_transaction_export(payload)
+        response = import_trade_republic_transaction_export(payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

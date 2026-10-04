@@ -243,15 +243,19 @@ def test_watchlist_keeps_tickers_without_assessment() -> None:
     assert all(row["data_status"] == "missing" for row in rows)
 
 
-def test_home_service_reads_only_persisted_helpers(monkeypatch) -> None:
+@pytest.mark.parametrize("open_tickers", [["SNDK"], []])
+def test_home_service_reads_only_persisted_helpers(monkeypatch, open_tickers) -> None:
     from app.services import home
 
     monkeypatch.setattr(home, "get_workspace_state", lambda: None)
     monkeypatch.setattr(home, "_market_summary", lambda: {"indices": [], "as_of": "2026-09-28"})
     monkeypatch.setattr(home, "get_data_quality_summary", lambda: None)
     monkeypatch.setattr(home.daily_opportunities, "get_top_daily", lambda: {"rows": [], "status": "not_ready"})
-    monkeypatch.setattr(home, "_portfolio_summary", lambda: {"positions_count": 0, "positions": [], "tickers": []})
-    monkeypatch.setattr(home.sell_state_repository, "list_ranking_snapshot", lambda: ([], None, ""))
+    monkeypatch.setattr(home, "_portfolio_summary", lambda: {"positions_count": len(open_tickers), "positions": [], "tickers": open_tickers})
+    monkeypatch.setattr(home.sell_state_repository, "list_ranking_snapshot", lambda: ([
+        SimpleNamespace(model_dump=lambda **_: {"ticker": "APP", "status": "Verkaufen", "data_quality_status": "trusted"}),
+        SimpleNamespace(model_dump=lambda **_: {"ticker": "SNDK", "status": "Verkaufen", "data_quality_status": "trusted"}),
+    ], None, ""))
     monkeypatch.setattr(home.stock_assessments, "list_all_snapshots", lambda *_: [])
     monkeypatch.setattr(home.industry_group_repository, "list_home_rankings", lambda **_: (None, []))
     monkeypatch.setattr(home.earnings_repository, "next_earnings_dates", lambda *_: {})
@@ -259,7 +263,9 @@ def test_home_service_reads_only_persisted_helpers(monkeypatch) -> None:
 
     payload = home.get_home_dashboard()
 
-    assert payload["sell_rows"] == []
+    assert [row["ticker"] for row in payload["sell_rows"]] == open_tickers
+    assert [row["ticker"] for row in payload["priorities"]] == open_tickers
+    assert payload["review_positions_count"] == len(open_tickers)
     assert payload["opportunities"] == []
     assert payload["market"]["indices"] == []
 
@@ -281,3 +287,18 @@ def test_home_cache_reuses_a_recent_persisted_snapshot(monkeypatch) -> None:
     assert home.get_cached_home_dashboard()["generated_at"] == "1"
     assert calls == 1
     home._home_cache = None
+
+
+def test_closing_position_invalidates_home_snapshot(monkeypatch) -> None:
+    from app.api.v1 import portfolio as portfolio_api
+    from app.schemas import PortfolioPositionDeleteResponse
+    from app.services import home
+
+    monkeypatch.setattr(home, "_home_cache", (0, "ibd", {"priorities": [{"ticker": "APP"}]}))
+    monkeypatch.setattr(portfolio_api, "delete_portfolio_position", lambda ticker: PortfolioPositionDeleteResponse(ticker=ticker, closed=True))
+
+    response = client.delete("/api/v1/portfolio/positions/APP")
+
+    assert response.status_code == 200
+    assert response.json()["closed"] is True
+    assert home._home_cache is None
