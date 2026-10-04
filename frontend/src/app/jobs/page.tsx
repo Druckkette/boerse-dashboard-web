@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { ReportWorkStatus } from "@/components/ui/report-work-status";
+import { DataMaintenancePanel } from "@/features/settings/data-maintenance-panel";
 import { api } from "@/lib/api/client";
 import type {
   Job,
@@ -636,6 +637,7 @@ export default function JobsPage() {
         </button>
       </div>
 
+      <DataMaintenancePanel />
       <ReportWorkStatus />
       <JobsSetupStatusPanel
         activeJob={activeJob}

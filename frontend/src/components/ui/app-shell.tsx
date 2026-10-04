@@ -49,7 +49,7 @@ const pageDescriptions: Record<string, string> = {
   "/trade-journal": "Kauf- und Verkaufsentscheidungen dokumentieren und später auswerten.",
   "/sell-monitor": "Verkaufsregeln, Tranchensignale und Positionszustand kontrollieren.",
   "/jobs": "Datenaktualisierung, Worker-Status und laufende Jobs überwachen.",
-  "/settings": "Setup, Schlüssel, Datenquellen und Systemkonfiguration verwalten."
+  "/settings": "Strategie, Risiko, Überwachung und Datenquellen konfigurieren."
 };
 
 function isActive(pathname: string, href: string, exact = false) {

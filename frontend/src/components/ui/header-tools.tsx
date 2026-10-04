@@ -95,7 +95,7 @@ function DataQualityLink() {
   return (
     <Link
       className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-[10px] border px-3 text-sm font-semibold transition hover:brightness-[0.98] ${tone}`}
-      href="/settings#data-quality"
+      href="/jobs#data-quality"
       title={diagnostics.isError ? "Aktueller Systemstatus konnte nicht geladen werden." : diagnostics.data?.summary ?? "Datenqualität wird geprüft"}
     >
       {diagnostics.isLoading ? <Database className="size-4 animate-pulse" /> : <Icon className="size-4" />}
