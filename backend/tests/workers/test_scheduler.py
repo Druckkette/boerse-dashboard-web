@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+
 from app.workers.celery_app import celery_app
 from app.workers.scheduler import get_beat_schedule
 
@@ -77,6 +82,21 @@ def test_sec13f_monthly_schedule_remains_as_backup() -> None:
     assert monthly["task"] == "refresh_sec13f"
     assert monthly["args"][1]["source"] == "scheduler"
     assert monthly["options"]["expires"] == 24 * 60 * 60
+
+
+@pytest.mark.parametrize("day", [2, 3])  # Friday's recheck must run on Saturday too.
+def test_index_volume_recheck_runs_after_close_even_when_prices_are_fresh(day: int) -> None:
+    job = get_beat_schedule()["market-index-volume-recheck"]
+    schedule = job["schedule"]
+    schedule.nowfun = lambda: datetime(2026, 10, day, 1, 5, tzinfo=ZoneInfo("Europe/Berlin"))
+    assert schedule.is_due(datetime(2026, 10, day, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))).is_due
+    # Use refresh_prices directly so the freshness gate in Smart Repair cannot skip it.
+    assert job["task"] == "refresh_prices"
+    payload = job["args"][1]
+    assert set(payload["tickers"]) == {"^GSPC", "^IXIC", "^DJI", "^RUT", "SPY", "QQQ", "DIA", "IWM"}
+    assert payload["include_market_helpers"] is False
+    assert payload["incremental"] is True
+    assert payload["price_overlap_days"] >= 3
 
 
 def test_position_atr_monitor_runs_every_minute_on_dedicated_queue() -> None:

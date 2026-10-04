@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from celery.schedules import crontab
 
+from app.domain.market.constants import MARKET_INDEX_TICKERS, MARKET_INDEX_FALLBACK_TICKERS
+
 
 SMART_REFRESH_PAYLOAD = {
     "mode": "scheduled",
@@ -96,6 +98,29 @@ def get_beat_schedule() -> dict:
                     **SMART_REFRESH_PAYLOAD,
                     "mode": "repair",
                     "scheduled_window": "evening_repair",
+                },
+            ),
+            "options": {"expires": 4 * 60 * 60},
+        },
+        "market-index-volume-recheck": {
+            # Yahoo can revise daily index volume after the 22:30 fetch. Repair
+            # jobs skip bars already considered fresh, so re-fetch them explicitly.
+            "task": "refresh_prices",
+            "schedule": crontab(hour=1, minute=5, day_of_week="2-6"),
+            "args": (
+                None,
+                {
+                    "source": "scheduler",
+                    "scheduled_window": "index_volume_recheck",
+                    "tickers": list(dict.fromkeys([
+                        *MARKET_INDEX_TICKERS,
+                        *(proxy for proxies in MARKET_INDEX_FALLBACK_TICKERS.values() for proxy in proxies),
+                    ])),
+                    "include_market_helpers": False,
+                    "range": "1m",
+                    "incremental": True,
+                    "price_overlap_days": 7,
+                    "price_provider_timeout_seconds": 20,
                 },
             ),
             "options": {"expires": 4 * 60 * 60},

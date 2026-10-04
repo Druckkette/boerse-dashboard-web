@@ -18,6 +18,12 @@ keine neue Ampelphase. Ein bereits formal aktiver Powertrend bleibt anhand der
 bekannten Schlusskurs-Durchschnitte bestehen; die Datenlücke wird angezeigt.
 Volumenlose Tage bestätigen keinen volumenabhängigen Startschuss.
 
+Yahoo kann das Tagesvolumen nach dem ersten Abruf nach Börsenschluss noch
+korrigieren. Deshalb lädt ein eigener Index-Refresh Dienstag bis Samstag um
+01:05 Uhr (Europe/Berlin) die vier Indizes und ihre ETF-Proxys erneut, mit sieben
+Kalendertagen Überlappung. Er läuft auch, wenn Smart Repair die Kurse bereits
+als frisch einstuft, und übernimmt dabei spätere Volumenkorrekturen.
+
 Die Journal-Rekonstruktion verwendet eine für denselben Handelstag gespeicherte
 Variante, sofern sie belegt ist. Fehlt dieser Nachweis, wird die ausgewählte
 heutige Variante auf historische Kurse angewandt und ausdrücklich als solche
