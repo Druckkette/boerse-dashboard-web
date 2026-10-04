@@ -13,6 +13,11 @@ import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { normalizedWeights, settingsChanges } from "./settings-draft";
+import {
+  assessmentCriteria,
+  assessmentCriterionLabel,
+} from "@/features/stocks/assessment-criteria";
+import { AssessmentCriterionNote } from "@/features/stocks/assessment-criterion-note";
 import { qualityLabel } from "@/lib/format";
 import type { AppSettings, AssessmentScoreWeights } from "@/lib/types/api";
 
@@ -83,39 +88,41 @@ const scoreWeightLabels: Record<
   technical: {
     title: "Teil-Scores · Technical",
     fields: {
-      k4_rs_leadership: "K4 RS Leadership",
-      k13_rs_dynamics: "K13 RS Dynamics",
-      rs_rating: "RS Rating",
-      high_position: "Hoch-Position",
-      up_down_volume: "Up/Down-Volumen",
-      cmf: "CMF",
+      k4_rs_leadership: assessmentCriterionLabel("k4_rs_leadership"),
+      k13_rs_dynamics: assessmentCriterionLabel("k13_rs_dynamics"),
+      rs_rating: assessmentCriterionLabel("rs_rating"),
+      high_position: assessmentCriterionLabel("high_position"),
+      up_down_volume: assessmentCriterionLabel("up_down_volume"),
+      cmf: assessmentCriterionLabel("cmf"),
     },
   },
   fundamental: {
     title: "Teil-Scores · Fundamental",
     fields: {
-      fundamental_core: "Fundamental Core",
-      k9_eps_sales_alignment: "K9 EPS/Umsatz",
+      fundamental_core: assessmentCriterionLabel("fundamental_core"),
+      k9_eps_sales_alignment: assessmentCriterionLabel(
+        "k9_eps_sales_alignment",
+      ),
     },
   },
   chart: {
     title: "Teil-Scores · Chart",
     fields: {
-      price_action_core: "Price Action Core",
-      k35_down_week_quality: "K35 Down-Week-Qualität",
-      k38_hh_hl_good_close: "K38 HH/HL Good Close",
+      price_action_core: assessmentCriterionLabel("price_action_core"),
+      k35_down_week_quality: assessmentCriterionLabel("k35_down_week_quality"),
+      k38_hh_hl_good_close: assessmentCriterionLabel("k38_hh_hl_good_close"),
     },
   },
   moving_average: {
     title: "Teil-Scores · Moving Average",
     fields: {
-      price_above_200_sma: "Kurs > 200 SMA",
-      price_above_50_sma: "Kurs > 50 SMA",
-      price_above_21_ema: "Kurs > 21 EMA",
-      price_above_10_sma: "Kurs > 10 SMA",
-      ma_order: "MA-Reihenfolge",
-      persistence: "Persistenz",
-      slope: "Steigung",
+      price_above_200_sma: assessmentCriterionLabel("price_above_200_sma"),
+      price_above_50_sma: assessmentCriterionLabel("price_above_50_sma"),
+      price_above_21_ema: assessmentCriterionLabel("price_above_21_ema"),
+      price_above_10_sma: assessmentCriterionLabel("price_above_10_sma"),
+      ma_order: assessmentCriterionLabel("ma_order"),
+      persistence: assessmentCriterionLabel("persistence"),
+      slope: assessmentCriterionLabel("slope"),
     },
   },
 };
@@ -351,7 +358,7 @@ export function SettingsPanel() {
                     )
                     .join(" · ")}
                 </p>
-                <details>
+                <details id="assessment-weights" className="scroll-mt-28">
                   <summary className="cursor-pointer text-sm font-semibold text-[#0f766e]">
                     Gewichtung bearbeiten
                   </summary>
@@ -906,11 +913,22 @@ function ScoreWeightGroup({
       </summary>
       <div className="grid gap-3 md:grid-cols-2">
         {Object.entries(definition.fields).map(([key, label]) => (
-          <label className="block text-sm" key={key}>
-            <span className="mb-1 block text-[#687386]">{label}</span>
+          <div className="text-sm" key={key}>
+            <label
+              htmlFor={`weight-${group}-${key}`}
+              className="mb-1 block text-[#687386]"
+            >
+              {label}
+            </label>
             <div className="relative">
               <input
                 className="w-full rounded-[8px] border border-[#d8e1ea] bg-white px-3 py-2 text-sm text-[#172033] focus:outline-[#0f766e] pr-8"
+                id={`weight-${group}-${key}`}
+                aria-describedby={
+                  assessmentCriteria[key]?.note
+                    ? `weight-note-${group}-${key}`
+                    : undefined
+                }
                 max={100}
                 min={0}
                 step={0.1}
@@ -922,7 +940,11 @@ function ScoreWeightGroup({
                 %
               </span>
             </div>
-          </label>
+            <AssessmentCriterionNote
+              criterion={key}
+              id={`weight-note-${group}-${key}`}
+            />
+          </div>
         ))}
       </div>
       {!totalIsHundred ? (

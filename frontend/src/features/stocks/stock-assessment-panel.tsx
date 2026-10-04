@@ -1,8 +1,11 @@
 "use client";
 
 import { AlertTriangle, CalendarClock, CheckCircle2, Gauge, TrendingUp, XCircle } from "lucide-react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
+import { assessmentCriterionLabel } from "./assessment-criteria";
+import { AssessmentCriterionNote } from "./assessment-criterion-note";
 import { api } from "@/lib/api/client";
 import type { AssessmentV2Detail, StockAssessment, StockAssessmentCheck, StockAssessmentSignal, Tone } from "@/lib/types/api";
 
@@ -91,7 +94,7 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
           tone={assessment.fundamentals_available ? toneForScore(assessment.scores.fundamental) : "neutral"}
         />
         <ScoreCard label="Moving Average" value={assessment.scores.moving_averages} detail="Position, Ordnung, Persistenz und Richtung" />
-        <ScoreCard label="Chart" value={assessment.scores.chart_behavior} detail="Price Action, K35 und K38" />
+        <ScoreCard label="Chart" value={assessment.scores.chart_behavior} detail="Kurs-/Volumenverhalten, Verlustwochen und Wochen-Aufwärtstrend" />
       </div>
 
       <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-5">
@@ -159,27 +162,6 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
   );
 }
 
-const componentLabels: Record<string, string> = {
-  k4_rs_leadership: "K4 RS Leadership",
-  k13_rs_dynamics: "K13 RS Dynamics",
-  rs_rating: "RS Rating",
-  high_position: "ATH-/52W-High Position",
-  up_down_volume: "Up/Down Volume",
-  cmf: "CMF / Akkumulation",
-  fundamental_core: "Fundamental Core",
-  k9_eps_sales_alignment: "K9 EPS/Sales Alignment",
-  price_action_core: "Price Action Core",
-  k35_down_week_quality: "K35 Down-Week Quality",
-  k38_hh_hl_good_close: "K38 HH/HL + Good Close",
-  price_above_200_sma: "Kurs > 200 SMA",
-  price_above_50_sma: "Kurs > 50 SMA",
-  price_above_21_ema: "Kurs > 21 EMA",
-  price_above_10_sma: "Kurs > 10 SMA",
-  ma_order: "MA Order",
-  persistence: "MA Persistence",
-  slope: "MA Direction"
-};
-
 function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessment; mode: "all" | "overview" | "technical" }) {
   const groups = [
     { title: "Technical", detail: assessment.technical_v2 },
@@ -189,6 +171,7 @@ function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessme
   ].filter((group) => mode !== "technical" || group.title !== "Fundamental");
   return (
     <div className="space-y-3">
+      <div className="text-right"><Link href="/settings#assessment-weights" className="text-xs font-semibold text-[#0f766e]">Gewichtung in Settings bearbeiten →</Link></div>
       {assessment.overall_v2?.status === "limited" ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           Eingeschränkte Gesamtbewertung · verfügbare Gewichtung {Math.round((assessment.overall_v2.available_weight ?? 0) * 100)}%. Im Ranking wird sie nicht wie eine vollständige Bewertung behandelt.
@@ -220,7 +203,8 @@ function ComponentBreakdown({ title, detail }: { title: string; detail?: Assessm
         {components.map(([key, component]) => (
           <div key={key} className="flex items-center justify-between gap-3 rounded-[9px] bg-[#f9fbfd] px-3 py-2 text-sm">
             <div>
-              <div className="font-medium text-[#172033]">{componentLabels[key] ?? key}</div>
+              <div className="font-medium text-[#172033]">{assessmentCriterionLabel(key)}</div>
+              <AssessmentCriterionNote criterion={key} />
               <div className="text-[11px] text-[#687386]">Basis {Math.round((component.base_weight ?? 0) * 1000) / 10}% · effektiv {Math.round((component.effective_weight ?? 0) * 1000) / 10}% · {statusLabel(component.status)}</div>
             </div>
             <span className="shrink-0 font-semibold tabular-nums text-[#172033]">{typeof component.score === "number" ? component.score.toFixed(1) : "–"}</span>
