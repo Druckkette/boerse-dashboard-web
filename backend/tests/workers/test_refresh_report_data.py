@@ -90,3 +90,14 @@ def test_beta_backfill_defers_assessment_until_beta_work_is_drained(monkeypatch)
     assert queued[0].priority == 90
     assert totals["completed"] == 1
     assert finished[0]["status"] == "current"
+
+
+def test_successful_statement_checks_run_before_freshness_expires(monkeypatch):
+    item = {'key': 'statements:CLS', 'ticker': 'CLS', 'data_group': 'statements',
+            'priority': 10, 'attempts': 1, 'payload': {}, 'previous_result': {}}
+    finished = []
+    monkeypatch.setattr(report_task, '_ticker_lock', lambda ticker: nullcontext())
+    monkeypatch.setattr(report_task, 'refresh_report_group', lambda *args: {'complete': True, 'changed': False})
+    monkeypatch.setattr(report_task.refresh_work, 'finish', lambda item, **kwargs: finished.append(kwargs))
+    report_task._run_item(item, 'report-job', {'completed': 0, 'failed': 0, 'waiting_source': 0, 'changed': 0})
+    assert finished[0]['delay'].days == 13

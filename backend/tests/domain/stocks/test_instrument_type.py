@@ -69,3 +69,13 @@ def test_audited_despac_can_override_stale_blank_check_sic():
         sec_forms=["10-K"],
         previous_type="unknown",
     ) == "spac"
+
+
+def test_sec_verified_foreign_adr_has_annual_reporting_requirements():
+    from app.domain.stocks.instrument_type import required_histories
+
+    kind = classify_instrument(ticker='PNDRY', sec_sic='8880', sec_forms=['F-6', 'F-6EF', 'EFFECT'])
+    assert kind == 'foreign_private_issuer'
+    assert required_histories(kind) == ('annual_eps_history', 'annual_revenue_history')
+    assert classify_instrument(sec_sic='8880', sec_forms=['F-6', '10-K', '10-Q']) == 'operating_company'
+    assert classify_instrument(sec_sic='8880') == 'unknown'

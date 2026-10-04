@@ -11,6 +11,7 @@ from app.db.session import engine
 from app.data_sources.provider_usage import capture_provider_usage
 from app.repositories import jobs, refresh_work
 from app.services.report_refresh import refresh_report_group
+from app.services.freshness import MAX_TRACKED_FUNDAMENTAL_LAG_DAYS
 from app.workers.celery_app import celery_app
 
 
@@ -127,7 +128,7 @@ def _run_item(item: dict, job_id: str, totals: dict) -> None:
             complete = value["complete"]
             delay = (timedelta(days=90 if value.get("reason_code") == "spac_no_operating_history" else
                                365 if value.get("reason_code") in {"not_applicable_for_instrument_type", "non_operating_security"} else
-                               7 if item["data_group"] == "beta" else 14)
+                               7 if item["data_group"] == "beta" else MAX_TRACKED_FUNDAMENTAL_LAG_DAYS - 1)
                      if complete else source_retry_delay(item, value))
             if value.get("changed"):
                 totals["changed"] += 1

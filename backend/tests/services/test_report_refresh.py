@@ -140,6 +140,43 @@ def test_missing_statement_history_is_source_wait_not_worker_failure(monkeypatch
     assert "Keine verwertbaren Statements" in result["reason"]
 
 
+def test_partial_provider_failure_keeps_verified_date_and_requests_source(monkeypatch):
+    from app.data_sources.fundamentals_client import FundamentalEnrichment
+
+    previous = FundamentalSnapshotWrite("PNDRY", date(2026, 9, 14), fiscal_period="2026 Q2", metadata_json={})
+    writes, calls = [], []
+    enrichment = FundamentalEnrichment(
+        fiscal_period="2026 Q2", eps_quarter_history=[{"fiscal_period": "2026 Q2", "eps_current_quarter": 1.4}],
+        metadata={"reason_code": "provider_error"})
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals", lambda ticker: previous)
+    monkeypatch.setattr(report_refresh.fundamentals, "get_instrument_profile", lambda ticker: {})
+    monkeypatch.setattr(report_refresh.fundamentals, "_missing_required_history_keys", lambda metadata: [])
+    monkeypatch.setattr(report_refresh.fundamentals, "upsert_fundamentals", lambda write: writes.append(write) or write)
+    monkeypatch.setattr(report_refresh, "get_runtime_config_value", lambda key: "")
+    monkeypatch.setattr(report_refresh, "fetch_fundamental_enrichment", lambda *args, **kwargs: calls.append(kwargs) or enrichment)
+
+    result = report_refresh.refresh_report_group("PNDRY", "statements", {})
+
+    assert calls[0]["refresh_sec"] is True
+    assert result["complete"] is False
+    assert writes[0].as_of == date(2026, 9, 14)
+    assert writes[0].metadata_json["report_refresh"]["status"] == "waiting_source"
+    assert writes[0].metadata_json["report_refresh"]["reason_code"] == "provider_error"
+
+
+def test_cached_complete_history_cannot_make_empty_source_response_current(monkeypatch):
+    from app.data_sources.fundamentals_client import FundamentalEnrichment
+
+    monkeypatch.setattr(report_refresh.fundamentals, "get_latest_fundamentals",
+                        lambda ticker: FundamentalSnapshotWrite(ticker, date(2026, 9, 14), metadata_json={}))
+    monkeypatch.setattr(report_refresh.fundamentals, "get_instrument_profile", lambda ticker: {})
+    monkeypatch.setattr(report_refresh.fundamentals, "_missing_required_history_keys", lambda metadata: [])
+    monkeypatch.setattr(report_refresh, "get_runtime_config_value", lambda key: "")
+    monkeypatch.setattr(report_refresh, "fetch_fundamental_enrichment", lambda *args, **kwargs: FundamentalEnrichment())
+
+    assert report_refresh.refresh_report_group("CLS", "statements", {})["complete"] is False
+
+
 def test_filing_is_a_change_trigger_after_bulk_has_been_updated(monkeypatch):
     monkeypatch.setattr(report_refresh, "bulk_status", lambda: {
         "available": True, "fetched_at": "2026-09-23T09:12:00+00:00",

@@ -123,6 +123,11 @@ def fetch_fundamental_enrichment(
                                                "fallbacks_used": []})
     statement_currency = ((previous_metadata or {}).get("enrichment") or {}).get("statement_currency", "USD")
     has_known_currency = bool(raw) and statement_currency != "unknown"
+    older_sec_report = False
+    needs_verified_fallback = False
+    cached_periods = [str(item.get("fiscal_period") or "")
+                      for key in ("eps_quarter_history", "revenue_quarter_history")
+                      for item in (previous_metadata or {}).get(key) or []]
     if raw and not _needs_fmp_statement_data(raw, instrument_type) and not force_live_sec and not refresh_sec:
         notes.append("Vollständiger lokaler Snapshot")
         record_provider_event("cache_hits")
@@ -133,6 +138,9 @@ def fetch_fundamental_enrichment(
         if "currency=" in sec_note:
             statement_currency = sec_note.rsplit("currency=", 1)[-1].split()[0]
         if sec_raw:
+            older_sec_report = bool(cached_periods and _latest_period_label(sec_raw)
+                                    and _latest_period_label(sec_raw) < max(cached_periods))
+            needs_verified_fallback = refresh_sec and older_sec_report
             raw = merge_quarterly_raw(sec_raw, raw)
             has_known_currency = has_known_currency or any(isinstance(value, pd.Series) for value in sec_raw.values())
             source = "sec_bulk_cache" if "bulk" in sec_note else "sec_companyfacts_live"
@@ -169,9 +177,12 @@ def fetch_fundamental_enrichment(
             reason_code = "unsupported_taxonomy"
         elif not sec_raw:
             reason_code = "waiting_sec_data"
+        if refresh_sec and not sec_raw:
+            needs_verified_fallback = True
     elif not sec_user_agent:
         notes.append("SEC_USER_AGENT fehlt")
         reason_code = "waiting_sec_data"
+        needs_verified_fallback = refresh_sec
     sec_diagnostics = ((raw or {}).get("_sec_diagnostics") or
                        (previous_metadata or {}).get("statement_diagnostics") or
                        ((previous_metadata or {}).get("enrichment") or {}).get("statement_diagnostics") or {})
@@ -183,7 +194,7 @@ def fetch_fundamental_enrichment(
                                               previous_type=instrument_type)
     # A throttled SEC read says nothing about the existence of history. Wait
     # for its cooldown rather than launching additional provider traffic.
-    if _needs_fmp_statement_data(raw, instrument_type) and reason_code != "provider_rate_limited" and allow_fallbacks:
+    if (_needs_fmp_statement_data(raw, instrument_type) or needs_verified_fallback) and reason_code != "provider_rate_limited" and allow_fallbacks:
         record_provider_event("fallback_used")
         fallback.append("yfinance")
         yf_raw, yf_note = fetch_yfinance_statement_history(clean)
@@ -198,16 +209,24 @@ def fetch_fundamental_enrichment(
             has_known_currency = True
         elif yf_raw and not has_known_currency:
             statement_currency = "unknown"
-        raw = merge_quarterly_raw(raw, yf_raw)
+        # A newer fallback must keep its own EPS/share basis; combining older
+        # SEC ordinary-share EPS with ADR EPS can corrupt year-on-year growth.
+        raw = merge_quarterly_raw(yf_raw, raw) if older_sec_report else merge_quarterly_raw(raw, yf_raw)
         if yf_raw:
+            cached_latest = max(cached_periods, default="") if older_sec_report else ""
+            if not cached_latest or _latest_period_label(yf_raw) >= cached_latest:
+                needs_verified_fallback = False
             for key in yf_raw:
-                sources.setdefault(key, "yfinance")
+                if older_sec_report:
+                    sources[key] = "yfinance"
+                else:
+                    sources.setdefault(key, "yfinance")
         elif any(marker in yf_note.lower() for marker in ("429", "rate limit", "ratelimit")):
             reason_code = "provider_rate_limited"
         elif not reason_code:
             reason_code = "waiting_yahoo_data"
 
-    if _needs_fmp_statement_data(raw, instrument_type) and fmp_api_key and reason_code != "provider_rate_limited" and allow_fallbacks:
+    if (_needs_fmp_statement_data(raw, instrument_type) or needs_verified_fallback) and fmp_api_key and reason_code != "provider_rate_limited" and allow_fallbacks:
         record_provider_event("fallback_used")
         fallback.append("fmp")
         fmp_raw, fmp_note = fetch_quarterly_fmp(clean, fmp_api_key, timeout=timeout, minimal=True,
@@ -223,10 +242,16 @@ def fetch_fundamental_enrichment(
             has_known_currency = True
         elif fmp_raw and not has_known_currency:
             statement_currency = "unknown"
-        raw = merge_quarterly_raw(raw, fmp_raw)
+        raw = merge_quarterly_raw(fmp_raw, raw) if older_sec_report else merge_quarterly_raw(raw, fmp_raw)
         if fmp_raw:
+            cached_latest = max(cached_periods, default="") if older_sec_report else ""
+            if not cached_latest or _latest_period_label(fmp_raw) >= cached_latest:
+                needs_verified_fallback = False
             for key in fmp_raw:
-                sources.setdefault(key, "fmp")
+                if older_sec_report:
+                    sources[key] = "fmp"
+                else:
+                    sources.setdefault(key, "fmp")
         else:
             if any(marker in fmp_note for marker in
                    ("HTTP ", "Timeout", "Verbindung", "Ungueltiges JSON", "Zugriff verweigert")):
@@ -236,6 +261,12 @@ def fetch_fundamental_enrichment(
         if "Rate Limited" in fmp_note:
             reason_code = "provider_rate_limited"
 
+    if needs_verified_fallback:
+        reason_code = reason_code or "older_report_data"
+    elif not _needs_fmp_statement_data(raw, instrument_type) and not (
+        force_live_sec and reason_code in {"provider_rate_limited", "provider_error"}
+    ):
+        reason_code = ""
     enrichment = compute_fundamental_enrichment(clean, raw, notes=notes)
     metadata = {
         **enrichment.metadata,
@@ -258,9 +289,7 @@ def fetch_fundamental_enrichment(
         "sec_ciks": sec_diagnostics.get("sec_ciks", []),
         # A failed live check for a newly filed report must remain visible even
         # when the older cached history itself is complete.
-        "reason_code": reason_code if _needs_fmp_statement_data(raw, instrument_type) or (
-            force_live_sec and reason_code in {"provider_rate_limited", "provider_error"}
-        ) else "",
+        "reason_code": reason_code,
     }
     return replace(enrichment, metadata=metadata)
 
@@ -1463,6 +1492,14 @@ def _needs_fmp_statement_data(raw: QuarterlyRaw | None, instrument_type: str = "
 
 def _missing_fmp_fields_for_type(raw: QuarterlyRaw | None, instrument_type: str) -> set[str]:
     missing = _missing_fmp_fields(raw)
+    # A long annual history can be complete but obsolete (notably foreign SEC filers).
+    # It must not suppress a newer Yahoo/FMP fallback indefinitely.
+    for key in ("AnnualDilutedEPS", "AnnualTotalRevenue"):
+        series = (raw or {}).get(key)
+        if isinstance(series, pd.Series) and not series.empty:
+            latest = pd.to_datetime(series.index, errors="coerce").max()
+            if not pd.isna(latest) and (date.today() - latest.date()).days > 550:
+                missing.add(key)
     if instrument_type == "foreign_private_issuer":
         return missing & {"AnnualDilutedEPS", "AnnualTotalRevenue"}
     return missing

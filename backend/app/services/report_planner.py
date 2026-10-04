@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.db.models import EarningsEvent
 from app.db.session import SessionLocal
+from app.services.freshness import _tracked_fundamental_tickers, MAX_TRACKED_FUNDAMENTAL_LAG_DAYS
 from app.repositories import fundamentals, portfolio, universes
 from app.repositories.refresh_work import WorkRequest, enqueue
 from app.domain.stocks.instrument_type import classify_instrument, inapplicable_reason
@@ -13,7 +14,10 @@ from app.data_sources.provider_usage import record_provider_event
 def plan_report_work(*, include_sec13f: bool = True, include_fundamentals: bool = True) -> int:
     now = datetime.now(UTC)
     tickers = list(dict.fromkeys(universes.list_universe_tickers(limit=None)))
-    tracked = {row.ticker for row in portfolio.list_open_positions()}
+    with SessionLocal() as db:
+        tracked = set(_tracked_fundamental_tickers(db))
+    positions = {row.ticker for row in portfolio.list_open_positions()}
+    tracked |= positions
     tickers = sorted(set(tickers) | tracked)
     snapshots = fundamentals.get_latest_fundamentals_for_tickers(tickers)
     profiles = fundamentals.get_instrument_profiles_for_tickers(tickers)
@@ -41,7 +45,8 @@ def plan_report_work(*, include_sec13f: bool = True, include_fundamentals: bool 
             skipped_for_type += 1
             continue
         complete = previous is not None and not fundamentals._missing_required_history_keys(previous.metadata_json)
-        due = datetime.combine(previous.as_of, datetime.min.time(), UTC) + timedelta(days=14) if complete else now
+        # Refresh before date-based freshness expires, leaving one day for retries.
+        due = datetime.combine(previous.as_of, datetime.min.time(), UTC) + timedelta(days=MAX_TRACKED_FUNDAMENTAL_LAG_DAYS - 1) if complete else now
         event = by_ticker.get(ticker)
         payload = {}
         revision = "baseline"
@@ -51,7 +56,7 @@ def plan_report_work(*, include_sec13f: bool = True, include_fundamentals: bool 
             payload = {"event_date": event.event_date.isoformat(),
                        "expected_period": event.fiscal_date_ending.isoformat() if event.fiscal_date_ending else None,
                        "baseline_period": previous.fiscal_period if previous else ""}
-        requests.append(WorkRequest(ticker, "statements", revision, due, 10 if ticker in tracked else 30 if event else 60, payload))
+        requests.append(WorkRequest(ticker, "statements", revision, due, 10 if ticker in positions else 20 if ticker in tracked else 30 if event else 60, payload))
         beta_due = now if previous is None or previous.beta is None else datetime.combine(previous.as_of, datetime.min.time(), UTC) + timedelta(days=7)
         requests.append(WorkRequest(ticker, "beta", "baseline", beta_due, 40 if ticker in tracked else 80))
     if include_sec13f:

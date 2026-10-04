@@ -100,6 +100,10 @@ def classify_instrument(*, ticker: str = "", name: str = "", etf: str = "", next
         return previous_type if previous_type in {"operating_company", "foreign_private_issuer"} else "unknown"
     if "20-F" in forms or "40-F" in forms or ("6-K" in forms and not ({"10-K", "10-Q"} & forms)):
         return "foreign_private_issuer"
+    # Sponsored/unsponsored foreign ADRs may only register the depositary
+    # receipt (F-6), without SEC companyfacts or a US quarterly filing duty.
+    if str(sec_sic).strip() == "8880" and forms & {"F-6", "F-6EF"} and not forms & {"10-K", "10-Q"}:
+        return "foreign_private_issuer"
     if {"10-K", "10-Q"} & forms:
         return "operating_company"
     if previous_type in NON_OPERATING_TYPES | {"spac", "foreign_private_issuer"}:

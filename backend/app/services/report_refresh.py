@@ -236,7 +236,8 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
         statements_only=True,
         previous_metadata={**previous_metadata, "instrument_type": kind},
         force_live_sec=filing_needs_live_sec(payload),
-        refresh_sec=bool(payload.get("filing") or payload.get("diagnostic_only")),
+        # A periodic check must contact the source instead of recycling a complete cache.
+        refresh_sec=True,
         allow_fallbacks=not bool(payload.get("diagnostic_only")),
     )
     histories = {key: getattr(enrichment, key) for key in HISTORIES}
@@ -246,11 +247,9 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
     forms = ([diagnostics["latest_annual_form"]] if diagnostics.get("latest_annual_form") else
              diagnostics.get("forms_seen") or [])
     if actual_kind != "unknown" and profile and (actual_kind != profile_metadata.get("instrument_type") or forms != profile_metadata.get("sec_forms", [])):
-        fundamentals.save_instrument_classification(ticker, actual_kind, source="sec_companyfacts", sec_forms=forms)
+        fundamentals.save_instrument_classification(ticker, actual_kind, source="sec_companyfacts", sec_forms=forms or None)
     if not any(histories.values()):
-        complete = bool(previous and not fundamentals._missing_required_history_keys(previous_metadata)
-                        and enrichment_metadata.get("reason_code") not in {"provider_rate_limited", "provider_error"}
-                        and not (payload.get("filing") and enrichment_metadata.get("reason_code")))
+        complete = False
         return {"complete": complete, "changed": False,
                 "reason_code": history_gap_reason({**previous_metadata, **enrichment_metadata},
                                                   fundamentals._missing_required_history_keys(previous_metadata),
@@ -273,9 +272,10 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
     target = payload.get("expected_period")
     expected_arrived = expected_report_arrived(enrichment, payload)
     complete = (not fundamentals._missing_required_history_keys(values["metadata_json"]) and expected_arrived
-                and enrichment_metadata.get("reason_code") not in {"provider_rate_limited", "provider_error"})
+                and enrichment_metadata.get("reason_code") not in {"provider_rate_limited", "provider_error", "older_report_data"})
     missing = fundamentals._missing_required_history_keys(values["metadata_json"])
-    reason_code = ("provider_rate_limited" if enrichment_metadata.get("reason_code") == "provider_rate_limited" else
+    reason_code = ("older_report_data" if enrichment_metadata.get("reason_code") == "older_report_data" else
+                   "provider_rate_limited" if enrichment_metadata.get("reason_code") == "provider_rate_limited" else
                    "provider_error" if enrichment_metadata.get("reason_code") == "provider_error" else
                    "waiting_sec_data" if not expected_arrived else
                    history_gap_reason(values["metadata_json"], missing, enrichment_metadata.get("reason_code", ""))
@@ -289,6 +289,9 @@ def refresh_report_group(ticker: str, group: str, payload: dict) -> dict:
         "status": "current" if complete else "waiting_source",
         "reason_code": reason_code,
     }
+    if not complete and previous:
+        # Failed/partial attempts are diagnostics, not a new verified data date.
+        values["as_of"] = previous.as_of
     row = fundamentals.upsert_fundamentals(fundamentals.FundamentalSnapshotWrite(**values))
     return {"complete": complete, "changed": previous is None or content_revision(previous) != content_revision(row),
             "fiscal_period": row.fiscal_period, "expected_period": target,

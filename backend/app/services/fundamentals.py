@@ -54,7 +54,7 @@ def refresh_fundamentals_for_ticker(ticker: str, *, include_holders: bool = True
                  diagnostics.get("forms_seen") or [])
         if found_kind != "unknown" and profile and (found_kind != profile_metadata.get("instrument_type") or forms != profile_metadata.get("sec_forms", [])):
             fundamentals_repository.save_instrument_classification(clean, found_kind, source="sec_companyfacts",
-                                                                    sec_forms=forms)
+                                                                    sec_forms=forms or None)
         try:
             calendar_event = earnings_repository.next_earnings_event(clean, include_fmp=False)
         except earnings_repository.EarningsRepositoryUnavailable:
@@ -121,6 +121,25 @@ def merge_snapshot_write(previous, write: FundamentalSnapshotWrite) -> Fundament
             continue
         if values[key] is None or values[key] == "":
             values[key] = getattr(previous, key)
+    # SEC annual filers may return older quarters than Yahoo already supplied.
+    # Keep summaries tied to the newest report, even while adding older history.
+    older_quarter = bool(previous.fiscal_period and write.fiscal_period
+                         and write.fiscal_period < previous.fiscal_period)
+    if older_quarter:
+        for key in ("fiscal_period", "quarterly_eps_growth_pct", "quarterly_revenue_growth_pct",
+                    "quarterly_eps_accelerating", "quarterly_revenue_accelerating",
+                    "trailing_eps", "profit_margin_pct"):
+            values[key] = getattr(previous, key)
+    for history, metrics in (
+        ("annual_eps_history", ("annual_eps_growth_pct",)),
+        ("annual_revenue_history", ("annual_revenue_growth_pct",)),
+        ("roe_history", ("roe_pct",)),
+    ):
+        old = (previous.metadata_json or {}).get(history) or []
+        new = (write.metadata_json or {}).get(history) or []
+        if old and new and str(new[0].get("fiscal_year", "")) < str(old[0].get("fiscal_year", "")):
+            for key in metrics:
+                values[key] = getattr(previous, key)
     fresh_metadata = values["metadata_json"] or {}
     metadata = {**(previous.metadata_json or {}), **fresh_metadata}
     metadata["data_sources"] = {

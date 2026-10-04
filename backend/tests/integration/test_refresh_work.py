@@ -113,3 +113,22 @@ def test_report_writes_lock_one_ticker_without_blocking_others(queue, monkeypatc
             assert not other.scalar(text("SELECT pg_try_advisory_lock(7341502, hashtext('A'))"))
             assert other.scalar(text("SELECT pg_try_advisory_lock(7341502, hashtext('B'))"))
             other.execute(text("SELECT pg_advisory_unlock(7341502, hashtext('B'))"))
+
+
+def test_baseline_brings_current_statements_forward_without_losing_revision(queue):
+    revision = 'revision:2026-09-19:earnings'
+    work.enqueue([request(revision)])
+    item = work.claim()
+    work.finish(item, result={'complete': True}, status='current', delay=timedelta(days=20))
+    work.enqueue([request()])
+    next_item = work.claim()
+    assert next_item is not None
+    assert next_item['revision'] == revision
+
+
+def test_baseline_does_not_interrupt_running_statements(queue):
+    work.enqueue([request('revision:2026-09-19:earnings')])
+    item = work.claim()
+    work.enqueue([request()])
+    assert work.claim() is None
+    assert work.heartbeat(item)

@@ -32,11 +32,15 @@ def enqueue(requests: list[WorkRequest]) -> int:
             ) for key, r in items[offset:offset + 500]])
             new = statement.excluded
             db.execute(statement.on_conflict_do_update(index_elements=["key"], set_={
-                "revision": new.revision, "payload_json": new.payload_json,
+                "revision": case((new.revision == "baseline", RefreshWorkItem.revision), else_=new.revision),
+                "payload_json": new.payload_json,
                 "due_at": new.due_at, "priority": new.priority, "attempts": 0,
                 "result_json": {},
                 "status": case((RefreshWorkItem.status == "running", "running"), else_="queued"),
-            }, where=(new.revision != "baseline") & (new.revision > RefreshWorkItem.revision)))
+            }, where=((new.revision != "baseline") & (new.revision > RefreshWorkItem.revision)) | (
+                (new.revision == "baseline") & (new.data_group == "statements")
+                & (RefreshWorkItem.status == "current") & (new.due_at < RefreshWorkItem.due_at)
+            )))
         db.commit()
     return len(requests)
 

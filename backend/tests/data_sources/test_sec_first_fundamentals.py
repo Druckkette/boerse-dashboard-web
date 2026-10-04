@@ -416,3 +416,80 @@ def test_sec_guard_shared_redis_cooldown(monkeypatch):
                             requester=requester)
     assert len(calls) == 1
     assert redis.counts == 1
+
+
+def test_older_provider_quarter_does_not_replace_newer_summary():
+    previous = FundamentalSnapshotWrite('EC', date(2026, 9, 14), fiscal_period='2026 Q1',
+        quarterly_eps_growth_pct=-7.7, annual_eps_growth_pct=-39.5, trailing_eps=12.0,
+        metadata_json={'annual_eps_history': [{'fiscal_year': '2025', 'growth_pct': -39.5}]})
+    incoming = FundamentalSnapshotWrite('EC', date(2026, 10, 4), fiscal_period='2023 Q4',
+        quarterly_eps_growth_pct=-49.9, annual_eps_growth_pct=-34.3, trailing_eps=2.0,
+        metadata_json={'annual_eps_history': [{'fiscal_year': '2024', 'growth_pct': -34.3}]})
+    merged = merge_snapshot_write(previous, incoming)
+    assert merged.fiscal_period == '2026 Q1'
+    assert merged.quarterly_eps_growth_pct == -7.7
+    assert merged.annual_eps_growth_pct == -39.5
+    assert merged.trailing_eps == 12.0
+    assert merged.metadata_json['annual_eps_history'][0]['fiscal_year'] == '2025'
+
+
+def test_complete_but_obsolete_foreign_annual_history_requires_fallback(monkeypatch):
+    class Today(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 4)
+
+    monkeypatch.setattr(client, 'date', Today)
+    old = pd.Series({pd.Timestamp(f'{year}-12-31'): year - 2020 for year in range(2021, 2025)})
+    raw = {'AnnualDilutedEPS': old, 'AnnualTotalRevenue': old * 100}
+    assert client._missing_fmp_fields_for_type(raw, 'foreign_private_issuer') == {'AnnualDilutedEPS', 'AnnualTotalRevenue'}
+    current = pd.concat([old, pd.Series({pd.Timestamp('2025-12-31'): 5})])
+    assert client._missing_fmp_fields_for_type({'AnnualDilutedEPS': current, 'AnnualTotalRevenue': current * 100}, 'foreign_private_issuer') == set()
+
+
+def test_newer_foreign_fallback_preserves_adr_eps_basis(monkeypatch):
+    latest = _complete_raw()
+    old = {key: value[value.index <= pd.Timestamp('2024-12-31')] / 20 if 'EPS' in key
+           else value[value.index <= pd.Timestamp('2024-12-31')]
+           for key, value in latest.items() if isinstance(value, pd.Series)}
+    old['_sec_diagnostics'] = {'latest_annual_form': '20-F'}
+    monkeypatch.setattr(client, 'record_provider_event', lambda *args: None)
+    monkeypatch.setattr(client, 'bulk_status', lambda: {'fetched_at': pd.Timestamp.now(tz='UTC').isoformat()})
+    monkeypatch.setattr(client, 'fetch_quarterly_sec_companyfacts', lambda *args, **kwargs: (old, 'SEC sec_bulk_cache currency=USD'))
+    monkeypatch.setattr(client, 'fetch_yfinance_statement_history', lambda *args: ({**latest, '_statement_currency': 'USD'}, 'yfinance statements'))
+    result = client.fetch_fundamental_enrichment('EC', sec_user_agent='test contact@example.com', refresh_sec=True,
+        previous_metadata={'instrument_type': 'foreign_private_issuer', 'eps_quarter_history': [{'fiscal_period': '2026 Q1'}]})
+    expected = client.compute_fundamental_enrichment('EC', latest)
+    assert result.metadata['fallbacks_used'] == ['yfinance']
+    assert result.metadata['data_sources']['eps'] == 'yfinance'
+    assert result.annual_eps_growth_pct == expected.annual_eps_growth_pct
+    assert result.fiscal_period == expected.fiscal_period
+    assert result.metadata['reason_code'] == ''
+
+
+def test_old_sec_report_without_newer_fallback_remains_unverified(monkeypatch):
+    raw = _complete_raw()
+    old = {key: value[value.index <= pd.Timestamp('2024-12-31')]
+           for key, value in raw.items() if isinstance(value, pd.Series)}
+    old['_sec_diagnostics'] = {'latest_annual_form': '20-F'}
+    monkeypatch.setattr(client, 'record_provider_event', lambda *args: None)
+    monkeypatch.setattr(client, 'bulk_status', lambda: {'fetched_at': pd.Timestamp.now(tz='UTC').isoformat()})
+    monkeypatch.setattr(client, 'fetch_quarterly_sec_companyfacts', lambda *args, **kwargs: (old, 'SEC sec_bulk_cache currency=USD'))
+    monkeypatch.setattr(client, 'fetch_yfinance_statement_history', lambda *args: (None, 'Yahoo leer'))
+    result = client.fetch_fundamental_enrichment('EC', sec_user_agent='test contact@example.com', refresh_sec=True,
+        previous_metadata={'instrument_type': 'foreign_private_issuer', 'eps_quarter_history': [{'fiscal_period': '2026 Q1'}]})
+    assert result.metadata['reason_code']
+
+
+def test_foreign_adr_sec_error_can_be_resolved_by_verified_annual_fallback(monkeypatch):
+    raw = _complete_raw()
+    annual = {key: value for key, value in raw.items() if key.startswith('Annual')}
+    monkeypatch.setattr(client, 'record_provider_event', lambda *args: None)
+    monkeypatch.setattr(client, 'fetch_quarterly_sec_companyfacts', lambda *args, **kwargs: (None, 'SEC provider_error: 404'))
+    monkeypatch.setattr(client, 'fetch_yfinance_statement_history', lambda *args: ({**annual, '_statement_currency': 'USD'}, 'yfinance statements'))
+    monkeypatch.setattr(client, 'fetch_quarterly_fmp', lambda *args, **kwargs: pytest.fail('Unnecessary paid fallback'))
+    result = client.fetch_fundamental_enrichment('PNDRY', sec_user_agent='test contact@example.com', fmp_api_key='key',
+                                                refresh_sec=True, previous_metadata={'instrument_type': 'foreign_private_issuer'})
+    assert result.metadata['reason_code'] == ''
+    assert result.metadata['fallbacks_used'] == ['yfinance']
+    assert result.annual_eps_growth_pct is not None
