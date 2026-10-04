@@ -164,7 +164,7 @@ def test_diagnostics_exclude_etf_snapshots_and_keep_reached_stop_warning(monkeyp
     db = MagicMock()
     db.scalar.return_value = 2
     db.execute.side_effect = [
-        SimpleNamespace(all=lambda: [(p.ticker, now.date(), now) for p in positions]),
+        SimpleNamespace(all=lambda: [(p.ticker, data_quality.expected_us_market_session(now).date, now) for p in positions]),
         SimpleNamespace(all=lambda: [("ARKK.L", now.date() - timedelta(days=30))]),
     ]
     db.scalars.return_value.all.return_value = [
