@@ -510,17 +510,66 @@ def test_ibd_negated_ftd_does_not_repeat_after_pressure_recovery_to_green() -> N
     assert bool(result.iloc[17]["FTD_Negated"])
 
 
-def test_ibd_book_risk_exit_preserves_unbroken_rally_anchor() -> None:
+@pytest.mark.parametrize("under_pressure", [False, True])
+@pytest.mark.parametrize("risk_exit", ["sma200", "drawdown", "distribution", "structure"])
+def test_ibd_new_correction_ends_completed_cycle_and_restarts_rally_clock(under_pressure, risk_exit) -> None:
+    frame = _uptrend_ready_frame()
+    exit_index = 15 if under_pressure else 14
+    if under_pressure:
+        frame.loc[frame.index[14], "Consec_Close_Below_21"] = 3
+    exit_row = frame.index[exit_index]
+    if risk_exit == "sma200":
+        frame.loc[exit_row, "SMA200"] = 100.0
+    elif risk_exit == "drawdown":
+        frame.loc[exit_row, "High"] = 110.0
+    elif risk_exit == "distribution":
+        frame.loc[exit_row, ["SMA50", "Dist_Count_25"]] = [100.0, 4]
+    else:
+        frame.loc[exit_row, "Market_Structure"] = "down"
+    # Neither the old Rally-Day-1 low nor the FTD low was broken.
+    frame.loc[frame.index[exit_index + 2], ["Pct_Change", "Volume"]] = [1.2, 1_300_000]
+    frame.loc[frame.index[exit_index + 4], ["Pct_Change", "Volume"]] = [1.2, 1_400_000]
+    result = _compute_ampel_frame(frame, logic="ibd")
+    assert result.iloc[exit_index - 1]["Ampel_Phase"] == (
+        "gelb_trend_unter_druck" if under_pressure else "aufwaertstrend"
+    )
+    assert result.iloc[exit_index]["Ampel_Phase"] == "rot"
+    assert pd.isna(result.iloc[exit_index]["Anchor_Date"])
+    assert pd.isna(result.iloc[exit_index]["Floor_Mark"])
+    assert pd.isna(result.iloc[exit_index]["Startschuss_Low"])
+    assert not bool(result.iloc[exit_index]["FTD_Negated"])
+    assert result.iloc[exit_index + 1]["Anchor_Date"] == frame.index[exit_index + 1].strftime("%Y-%m-%d")
+    assert result.iloc[exit_index + 2]["Ampel_Phase"] == "rot"
+    assert result.iloc[exit_index + 4]["Ampel_Phase"] == "gelb_startschuss"
+
+
+def test_ibd_display_does_not_mix_markers_from_completed_and_new_cycles() -> None:
+    from app.domain.market.ampel import _trend_ampel_point
+    from app.services.market import _last_cycle_markers
+
     frame = _uptrend_ready_frame()
     frame.loc[frame.index[14], "SMA200"] = 100.0
     result = _compute_ampel_frame(frame, logic="ibd")
-    assert result.iloc[14]["Ampel_Phase"] == "rot"
-    assert result.iloc[14]["Anchor_Date"] == frame.index[2].strftime("%Y-%m-%d")
-    assert not bool(result.iloc[14]["FTD_Negated"])
-    frame.loc[frame.index[15], "Low"] = 89.0
+    points = [_trend_ampel_point(index, row) for index, row in result.iterrows()]
+    assert points[13].startschuss_low is not None
+    assert _last_cycle_markers(points[:15], points[14]) == (None, None, None)
+    assert _last_cycle_markers(points[:16], points[15]) == (
+        points[15].anchor_date, points[15].floor_mark, None,
+    )
+
+
+def test_ibd_display_keeps_negated_ftd_reference_within_same_rally_attempt() -> None:
+    from app.domain.market.ampel import _trend_ampel_point
+    from app.services.market import _last_cycle_markers
+
+    frame = _book_frame(confirm_green=None)
+    frame.loc[frame.index[8], "Low"] = float(frame.iloc[7]["Low"]) - 0.1
     result = _compute_ampel_frame(frame, logic="ibd")
-    assert not bool(result.iloc[15]["FTD_Negated"])
-    assert result.iloc[15]["Anchor_Date"] != frame.index[2].strftime("%Y-%m-%d")
+    points = [_trend_ampel_point(index, row) for index, row in result.iloc[:9].iterrows()]
+    assert points[-1].ftd_negated
+    assert _last_cycle_markers(points, points[-1]) == (
+        points[-1].anchor_date, points[-1].floor_mark, points[7].startschuss_low,
+    )
 
 
 def test_ibd_new_ftd_reuses_rally_and_clears_negation() -> None:

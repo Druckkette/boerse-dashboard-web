@@ -44,9 +44,13 @@ Aufwärtstrend. Sie ist keine vollständige Nachbildung von IBD Market Pulse.
   Schluss darüber. Vor dem Aufwärtstrend geht es zurück zu Rot mit demselben
   Rally-Anker; nach bestätigtem Aufwärtstrend zunächst zu Trend unter Druck.
   Ein negierter FTD wird bei späterer Erholung nicht erneut als gültig behandelt.
-- Rallyversuch beendet: Tagestief unterschreitet Rally-Day-1-Tief. Die bisherigen
-  Risikoregeln können die Ampel schon vorher auf Rot zurückstufen, erhalten dann
-  aber den intakten Rally-Anker für einen neuen Startschuss.
+- Rallyversuch beendet: Tagestief unterschreitet Rally-Day-1-Tief. Nach einem
+  bestätigten Aufwärtstrend beendet auch eine harte Rückstufung auf Rot den
+  bisherigen Zyklus. Der nächste qualifizierte Ankertag beginnt einen neuen
+  Rallyversuch; die Wartezeit bis Rally Day 4 startet erneut. Eine bloße
+  Druckphase oder ein negierter früher FTD erhält dagegen den intakten Anker.
+  Die IBD-Anzeige verwendet nur die Marken des aktuellen Zyklus und übernimmt
+  kein FTD-Tief aus einer abgeschlossenen Rally. Regelversion: `trend_ampel_v3`.
 
 ## Powertrend als Zusatzstatus
 

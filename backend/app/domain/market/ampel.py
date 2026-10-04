@@ -15,7 +15,7 @@ GREEN_CONFIRMATION_DAYS = 3
 ATR_PERIOD = 21
 REVERSAL_ATR_MULTIPLIER = 1.5
 PIVOT_TOLERANCE_ATR = 0.25
-AMPEL_RULESET_VERSION = "trend_ampel_v2"
+AMPEL_RULESET_VERSION = "trend_ampel_v3"
 
 MarketStructure = Literal["up", "down", "mixed", "unknown"]
 MarketAmpelLogic = Literal["current", "ibd"]
@@ -547,17 +547,6 @@ def _compute_ampel_frame(
         )
         return drawdown_pct <= -10 or below_sma50_with_distribution
 
-    def leave_uptrend(index: int) -> None:
-        nonlocal uptrend_high, uptrend_structure_low, ftd_negated
-        if ibd_logic and anchor_idx is not None and not rally_day_one_low_broken(index):
-            # A book-risk exit is not necessarily a failure of Rally Day 1.
-            ftd_negated = ftd_negated or startschuss_low_broken(index)
-            clear_startschuss_state()
-            uptrend_high = None
-            uptrend_structure_low = None
-        else:
-            clear_state()
-
     def uptrend_confirmed(index: int) -> bool:
         return bool(
             _is_finite(close[index])
@@ -778,7 +767,8 @@ def _compute_ampel_frame(
             if hard_red_reason:
                 phase = "rot"
                 transition_reason = hard_red_reason
-                leave_uptrend(index)
+                # A new correction ends the completed cycle even if its original low holds.
+                clear_state()
             elif ibd_logic and not ftd_negated and startschuss_low_broken(index):
                 ftd_negated = True
                 phase = "gelb_trend_unter_druck"
@@ -801,7 +791,7 @@ def _compute_ampel_frame(
             if hard_red_reason:
                 phase = "rot"
                 transition_reason = hard_red_reason
-                leave_uptrend(index)
+                clear_state()
             else:
                 if ibd_logic and not ftd_negated and startschuss_low_broken(index):
                     ftd_negated = True

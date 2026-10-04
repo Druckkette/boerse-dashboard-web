@@ -2174,6 +2174,19 @@ def _ampel_data_status(value: date, *, ticker: str, price_ticker: str | None) ->
 
 
 def _last_cycle_markers(points: Sequence[TrendAmpelPoint], latest: TrendAmpelPoint) -> tuple[str | None, float | None, float | None]:
+    if latest.logic == "ibd":
+        # An old cycle's FTD must not become the reference for a new rally attempt.
+        if latest.anchor_date is None:
+            return None, None, None
+        startschuss_low = latest.startschuss_low
+        if startschuss_low is None:
+            for point in reversed(points):
+                if point.anchor_date != latest.anchor_date:
+                    break
+                if point.startschuss_low is not None:
+                    startschuss_low = point.startschuss_low
+                    break
+        return latest.anchor_date, latest.floor_mark, startschuss_low
     anchor_date = latest.anchor_date or next((point.anchor_date for point in reversed(points) if point.anchor_date), None)
     floor_mark = latest.floor_mark
     if floor_mark is None:
