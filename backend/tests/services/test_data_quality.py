@@ -121,3 +121,31 @@ def test_critical_split_candidate_creates_warning_issue() -> None:
 
     issue = next(issue for issue in issues if issue.key == "corporate_action_candidates")
     assert issue.tickers == ["TEST"]
+
+
+def test_etf_fundamentals_are_inapplicable_but_prices_and_risk_remain_required() -> None:
+    today = date.today()
+    positions = [_position(ticker="ARKK.L", name="ARKK.L"), _position(ticker="ZPDH.DE", name="ZPDH.DE")]
+    result = assess_position_quality(
+        positions, latest_by_ticker={p.ticker: today for p in positions},
+        fundamentals_by_ticker={"ARKK.L": today - timedelta(days=30)}, today=today,
+    )
+    assert all(item["status"] == "trusted" for item in result.values())
+    result = assess_position_quality(
+        [_position(ticker="ARKK.L", name="ARKK.L", atr_pct=None)],
+        latest_by_ticker={}, fundamentals_by_ticker={}, today=today,
+    )
+    assert result["ARKK.L"]["status"] == "blocked"
+    assert "ATR oder Beta fehlt" in result["ARKK.L"]["detail"]
+    assert "Fundamental-Snapshot fehlt" not in result["ARKK.L"]["detail"]
+
+
+def test_persisted_etf_classification_excludes_unknown_ticker() -> None:
+    today = date.today()
+    result = assess_position_quality(
+        [_position(ticker="FUND", name="Example")], latest_by_ticker={"FUND": today},
+        fundamentals_by_ticker={}, today=today, instrument_types={"FUND": "etf"},
+    )
+    assert result["FUND"]["status"] == "trusted"
+    assert not data_quality._requires_fundamentals(_position(ticker="FUND"), {"FUND": "etf"})
+    assert data_quality._requires_fundamentals(_position(), {})

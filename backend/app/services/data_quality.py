@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import FundamentalSnapshot, Instrument, IsinMapping, PriceBar
 from app.db.session import SessionLocal
+from app.domain.stocks.instrument_type import classify_instrument, inapplicable_reason
 from app.repositories import prices as price_repository
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import DataDiagnosticIssue, DataDiagnosticsResponse, DataQualityEvent, PortfolioPosition
@@ -31,6 +32,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
     latest_by_ticker: dict[str, date] = {}
     fundamentals_by_ticker: dict[str, date] = {}
     fetched_by_ticker: dict[str, datetime | None] = {}
+    instrument_types: dict[str, str] = {}
     missing_yahoo_tickers: list[str] = []
     ticker_mapping_events: list[DataQualityEvent] = []
     isin_mappings_count = 0
@@ -75,6 +77,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
                     if ticker and as_of is not None
                 }
                 instruments = db.scalars(select(Instrument).where(Instrument.ticker.in_(open_tickers))).all()
+                instrument_types = _instrument_types(instruments)
                 mapped = {str(item.ticker).upper(): str(item.yahoo_symbol or "").strip() for item in instruments}
                 missing_yahoo_tickers = [ticker for ticker in open_tickers if not mapped.get(ticker)]
                 ticker_mapping_events = [
@@ -113,7 +116,8 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
     stale_price_tickers = [
         ticker for ticker in open_tickers if latest_by_ticker.get(ticker) and not price_is_current(latest_by_ticker[ticker], fetched_by_ticker.get(ticker), now=now)
     ]
-    missing_fundamentals = [ticker for ticker in open_tickers if ticker not in fundamentals_by_ticker]
+    fundamental_tickers = {position.ticker.upper() for position in positions if _requires_fundamentals(position, instrument_types)}
+    missing_fundamentals = [ticker for ticker in open_tickers if ticker in fundamental_tickers and ticker not in fundamentals_by_ticker]
     missing_risk_metrics = sorted(
         {
             position.ticker
@@ -129,6 +133,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
         fundamentals_by_ticker=fundamentals_by_ticker,
         today=today,
         fetched_by_ticker=fetched_by_ticker,
+        instrument_types=instrument_types,
     )
     events = [*_detect_corporate_action_candidates(open_tickers), *ticker_mapping_events][:25]
 
@@ -150,7 +155,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
     if triggered_stops:
         issues.append(DataDiagnosticIssue(key="stops_already_reached", label="Stopps bereits erreicht", severity="warning", category="portfolio",
             detail="Stop-Kurse sind gepflegt, liegen aber bereits am oder ueber dem aktuellen Kurs. Stop-Abdeckung bedeutet nicht, dass ein Brokerauftrag ausgefuehrt wurde.", tickers=triggered_stops))
-    stale_fundamentals = [ticker for ticker, as_of in fundamentals_by_ticker.items() if as_of < today - timedelta(days=14)]
+    stale_fundamentals = [ticker for ticker, as_of in fundamentals_by_ticker.items() if ticker in fundamental_tickers and as_of < today - timedelta(days=14)]
     if stale_fundamentals:
         issues.append(DataDiagnosticIssue(key="stale_fundamentals", label="Fundamentaldaten veraltet", severity="warning", category="fundamental",
             detail="Fundamental-Snapshots sind aelter als 14 Tage.", tickers=stale_fundamentals))
@@ -196,6 +201,7 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
 
 def get_position_quality_by_ticker() -> dict[str, dict[str, str]]:
     positions = get_portfolio_positions()
+    instrument_types: dict[str, str] = {}
     latest_by_ticker: dict[str, date] = {}
     fundamentals_by_ticker: dict[str, date] = {}
     fetched_by_ticker: dict[str, datetime | None] = {}
@@ -213,6 +219,7 @@ def get_position_quality_by_ticker() -> dict[str, dict[str, str]]:
         with SessionLocal() as db:
             tickers = [position.ticker.upper() for position in positions]
             if tickers:
+                instrument_types = _instrument_types(db.scalars(select(Instrument).where(Instrument.ticker.in_(tickers))).all())
                 rows = db.execute(
                     select(FundamentalSnapshot.ticker, func.max(FundamentalSnapshot.as_of))
                     .where(FundamentalSnapshot.ticker.in_(tickers))
@@ -229,6 +236,7 @@ def get_position_quality_by_ticker() -> dict[str, dict[str, str]]:
         fundamentals_by_ticker=fundamentals_by_ticker,
         today=date.today(),
         fetched_by_ticker=fetched_by_ticker,
+        instrument_types=instrument_types,
     )
 
 
@@ -239,6 +247,7 @@ def assess_position_quality(
     fundamentals_by_ticker: dict[str, date],
     today: date,
     fetched_by_ticker: dict[str, datetime | None] | None = None,
+    instrument_types: dict[str, str] | None = None,
 ) -> dict[str, dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
     now = datetime.now(UTC)
@@ -259,17 +268,40 @@ def assess_position_quality(
             blockers.append(f"P&L von {position.pnl_pct:+.1f}% ist plausibilitätskritisch")
         if position.atr_pct is None or position.beta is None:
             limitations.append("ATR oder Beta fehlt")
-        if ticker not in fundamentals_by_ticker:
-            limitations.append("Fundamental-Snapshot fehlt")
-        elif fundamentals_by_ticker[ticker] < today - timedelta(days=14):
-            limitations.append("Fundamental-Snapshot ist aelter als 14 Tage")
+        requires_fundamentals = _requires_fundamentals(position, instrument_types or {})
+        if requires_fundamentals:
+            if ticker not in fundamentals_by_ticker:
+                limitations.append("Fundamental-Snapshot fehlt")
+            elif fundamentals_by_ticker[ticker] < today - timedelta(days=14):
+                limitations.append("Fundamental-Snapshot ist aelter als 14 Tage")
         status = "blocked" if blockers else "limited" if limitations else "trusted"
         details = [*blockers, *limitations]
         result[ticker] = {
             "status": status,
-            "detail": "; ".join(details) if details else "Kurs-, Risiko- und Fundamentaldaten sind plausibel.",
+            "detail": "; ".join(details) if details else ("Kurs-, Risiko- und Fundamentaldaten sind plausibel." if requires_fundamentals else "Kurs- und Risikodaten sind plausibel; Unternehmensfundamentaldaten sind für diesen Instrumenttyp nicht anwendbar."),
         }
     return result
+
+
+def _instrument_types(instruments: list[Instrument]) -> dict[str, str]:
+    result = {}
+    for instrument in instruments:
+        metadata = instrument.metadata_json or {}
+        listing = metadata.get("nasdaq_listing") or {}
+        result[instrument.ticker.upper()] = classify_instrument(
+            ticker=instrument.ticker, name=instrument.name, asset_class=instrument.asset_class,
+            etf=str(listing.get("etf", "")), nextshares=str(listing.get("nextshares", "")),
+            sec_sic=metadata.get("sec_sic") or "", sec_forms=metadata.get("sec_forms"),
+            previous_type=metadata.get("instrument_type", ""),
+        )
+    return result
+
+
+def _requires_fundamentals(position: PortfolioPosition, instrument_types: dict[str, str]) -> bool:
+    instrument_type = instrument_types.get(position.ticker.upper()) or classify_instrument(
+        ticker=position.ticker, name=position.name,
+    )
+    return not bool(inapplicable_reason(instrument_type))
 
 
 def _position_is_implausible(position: PortfolioPosition) -> bool:
