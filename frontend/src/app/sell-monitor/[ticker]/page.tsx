@@ -375,7 +375,7 @@ function SellMonitorUnavailable({ ticker, detail }: { ticker: string; detail: st
           <h2 className="font-semibold text-[#172033]">Diese Position kann aktuell nicht bewertet werden.</h2>
           <p className="mt-1 text-sm leading-6 text-[#687386]">{detail}</p>
           <p className="mt-2 text-sm leading-6 text-[#687386]">Sobald genügend Kursdaten vorliegen, steht die Evaluation wieder zur Verfügung.</p>
-          <Link className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[#0f766e]" href="/settings#data-quality">Datenqualität öffnen <ArrowRight size={14} /></Link>
+          <Link className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-[#0f766e]" href="/jobs#data-quality">Datenqualität öffnen <ArrowRight size={14} /></Link>
         </div>
       </div>
     </section>
