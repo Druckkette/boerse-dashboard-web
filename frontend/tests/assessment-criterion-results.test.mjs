@@ -30,8 +30,9 @@ test("K4 nested persistence and separation expose all parts without treating mis
 test("fundamental rules use authoritative booleans instead of score threshold", () => {
   const rows = criterionResults("fundamental_core", {}, [
     { category: "fundamental", label: "EPS", passed: true, detail: "Wachstum ausreichend" },
-    { category: "fundamental", label: "Umsatz", passed: false, detail: "Nicht verfügbar" },
+    { category: "fundamental", label: "Umsatz", passed: false, detail: "Nicht verfügbar: keine Umsatz-Quartalshistorie gespeichert" },
     { category: "fundamental", label: "Fundamental-Datenquelle", passed: true, detail: "Cache" },
+    { category: "fundamental", label: "Institutionelle Unterstützung", passed: true, detail: "13F-Kontext" },
   ]);
   assert.deepEqual(rows.map(r => r.outcome), ["passed", "missing"]);
 });
@@ -46,4 +47,9 @@ test("only score relevant active chart signals appear in the score breakdown", (
     { key: "context", label: "Context", category: "positive", detail: "Context", score_relevant: false },
   ]);
   assert.deepEqual(rows.map(r => r.outcome), ["passed", "failed"]);
+});
+
+test("inapplicable ETF fundamentals are not displayed as passed", () => {
+  const rows = criterionResults("fundamental_core", {}, [{ category: "fundamental", label: "Operative Fundamentalkriterien", passed: true, detail: "Fundamentalkriterium für diesen Wertpapiertyp nicht anwendbar." }]);
+  assert.equal(rows[0].outcome, "missing");
 });

@@ -55,7 +55,7 @@ export function criterionResults(key: string, component: Component, checks: Chec
       return row;
     });
   }
-  if (key === "fundamental_core") return checks.filter(c => c.category === "fundamental" && c.label !== "Fundamental-Datenquelle").map(c => binary(c.label, c.detail === "Nicht verfügbar" || c.detail.startsWith("Nicht anwendbar") ? undefined : c.passed, c.detail));
+  if (key === "fundamental_core") return checks.filter(c => c.category === "fundamental" && !["Fundamental-Datenquelle", "Institutionelle Unterstützung"].includes(c.label)).map(c => binary(c.label, c.detail.startsWith("Nicht verfügbar") || c.detail.toLowerCase().includes("nicht anwendbar") ? undefined : c.passed, c.detail));
   if (key === "price_action_core") {
     const keys = Array.isArray(raw.scored_signal_keys) ? raw.scored_signal_keys : [];
     const rows: CriterionResult[] = signals.filter(s => s.score_relevant && keys.includes(s.key || s.label)).map(s => ({ label: s.label, outcome: s.category === "positive" ? "passed" : s.category === "negative" ? "failed" : "neutral", detail: s.detail }));
