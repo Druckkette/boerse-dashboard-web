@@ -243,7 +243,8 @@ def get_app_settings() -> AppSettings:
 
 
 def update_app_settings(payload: SettingsPatch) -> AppSettings:
-    current = get_app_settings().model_dump()
+    saved = get_app_settings()
+    current = saved.model_dump()
     updates = payload.model_dump(exclude_none=True)
     current.update(updates)
     next_settings = _settings_from_values(current)
@@ -251,6 +252,9 @@ def update_app_settings(payload: SettingsPatch) -> AppSettings:
         persisted = settings_repository.write_settings(next_settings.model_dump())
     except SettingsRepositoryUnavailable:
         return next_settings
+    if "sell_rule_setup" in updates and next_settings.sell_rule_setup != saved.sell_rule_setup:
+        from app.repositories.sell_state import invalidate_ranking_snapshot
+        invalidate_ranking_snapshot()
     return _settings_from_values(persisted)
 
 
@@ -849,6 +853,8 @@ def _settings_from_values(values: dict) -> AppSettings:
         (get_runtime_config_value("PUSHOVER_USER_KEY") or runtime.pushover_user_key)
         and (get_runtime_config_value("PUSHOVER_APP_TOKEN") or runtime.pushover_app_token)
     )
+    from app.domain.sell.rules import DEFAULT_SELL_RULE_SETUP
+    merged["sell_rule_setup"] = {**DEFAULT_SELL_RULE_SETUP, **(merged.get("sell_rule_setup") or {})}
     return AppSettings(**merged)
 
 

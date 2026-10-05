@@ -328,6 +328,10 @@ export const api = {
   sellPostMortemNotes: (ticker: string) => getJson<SellPostMortemNote[]>(`/sell/${ticker}/post-mortem`),
   saveSellPostMortemNote: (ticker: string, body: SellPostMortemNoteRequest) =>
     postJson<{ note: SellPostMortemNote; notes: SellPostMortemNote[] }>(`/sell/${ticker}/post-mortem`, body),
+  sellManual: async (ticker: string) => {
+    const payload = await getJson<{ manual: SellManualInput }>(`/sell/${ticker}/manual`);
+    return payload.manual;
+  },
   patchSellManual: async (ticker: string, body: SellManualInput) => {
     const payload = await patchJson<{ manual: SellManualInput }>(`/sell/${ticker}/manual`, body);
     return payload.manual;

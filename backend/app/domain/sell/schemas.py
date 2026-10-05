@@ -22,6 +22,14 @@ class SellManualInput(BaseModel):
     strength_checkboxes: dict[str, bool] = Field(default_factory=dict)
     warning_checkboxes: dict[str, bool] = Field(default_factory=dict)
     sell_setup: dict[str, Any] = Field(default_factory=dict)
+    use_global_sell_setup: bool | None = None
+
+    @field_validator("sell_setup")
+    @classmethod
+    def validate_setup(cls, value: dict[str, Any]) -> dict[str, Any]:
+        from app.domain.sell.rules import validate_sell_setup_payload
+        return validate_sell_setup_payload(value)
+
 
 
 class SellRecommendationState(BaseModel):
@@ -130,6 +138,9 @@ class SellRuleFeature(BaseModel):
     contribution_percent: int = 0
     strategy_key: str = ""
     setup: dict[str, Any] = Field(default_factory=dict)
+    strategy_selected: bool = False
+    recommendation_contribution_percent: int = 0
+    recommendation_effect: str = ""
 
 
 class SellStrategyRecommendation(BaseModel):

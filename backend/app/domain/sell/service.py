@@ -8,7 +8,7 @@ import pandas as pd
 
 from app.data_sources.yfinance_client import FetchedLiveQuote, fetch_live_quotes_batch
 from app.domain.sell.metrics import build_sell_decision_metrics_payload
-from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision, normalize_sell_setup_payload
+from app.domain.sell.rules import compute_sell_health_score, evaluate_sell_decision, normalize_sell_setup_payload, validate_sell_setup_payload, DEFAULT_SELL_RULE_SETUP
 from app.domain.sell.schemas import (
     ManualInputResponse,
     SellDiagnosticsResponse,
@@ -273,9 +273,29 @@ def get_sell_diagnostics_for_position(ticker: str) -> SellDiagnosticsResponse:
 
 def update_manual_sell_inputs(ticker: str, manual: SellManualInput) -> ManualInputResponse:
     clean_ticker = _clean_ticker(ticker)
-    stored = manual.model_copy(update={"ticker": clean_ticker, "sell_setup": normalize_sell_setup_payload(manual.sell_setup)})
+    setup = validate_sell_setup_payload(manual.sell_setup)
+    use_global = manual.use_global_sell_setup if manual.use_global_sell_setup is not None else not bool(setup)
+    stored = manual.model_copy(update={"ticker": clean_ticker, "use_global_sell_setup": use_global, "sell_setup": {} if use_global else setup})
     stored = sell_state_repository.upsert_manual_input(stored)
-    return ManualInputResponse(manual=stored)
+    sell_state_repository.invalidate_ranking_snapshot()
+    return ManualInputResponse(manual=_effective_manual(stored))
+
+
+def get_manual_sell_inputs(ticker: str) -> ManualInputResponse:
+    """Edit rules even when price history is insufficient for an evaluation."""
+    clean_ticker = _clean_ticker(ticker)
+    manual = sell_state_repository.get_manual_input(clean_ticker) or SellManualInput(ticker=clean_ticker)
+    return ManualInputResponse(manual=_effective_manual(manual))
+
+
+def _effective_manual(manual: SellManualInput) -> SellManualInput:
+    from app.services.settings import get_app_settings
+    own_setup = normalize_sell_setup_payload(manual.sell_setup, migrate_legacy=manual.use_global_sell_setup is None)
+    use_global = manual.use_global_sell_setup if manual.use_global_sell_setup is not None else not bool(own_setup)
+    setup = {**DEFAULT_SELL_RULE_SETUP, **get_app_settings().sell_rule_setup}
+    if not use_global:
+        setup.update(own_setup)
+    return manual.model_copy(update={"sell_setup": setup, "use_global_sell_setup": use_global})
 
 
 def create_tranche_log_entry(ticker: str, entry: TrancheLogEntry) -> TrancheLogResponse:
@@ -1083,16 +1103,14 @@ def _resolve_manual(
 ) -> SellManualInput:
     clean_ticker = _clean_ticker(ticker)
     if request_manual is not None:
-        return request_manual.model_copy(
-            update={"ticker": clean_ticker, "sell_setup": normalize_sell_setup_payload(request_manual.sell_setup)}
-        )
+        return _effective_manual(request_manual.model_copy(update={"ticker": clean_ticker}))
     stored_manual = sell_state_repository.get_manual_input(clean_ticker)
     if stored_manual is not None:
-        return stored_manual.model_copy(update={"sell_setup": normalize_sell_setup_payload(stored_manual.sell_setup)})
+        return _effective_manual(stored_manual)
     context = _position_context(clean_ticker)
     defaults = payload.get("manual_defaults") if isinstance(payload, dict) else {}
     auto = payload.get("auto_checkboxes") if isinstance(payload, dict) else {}
-    return SellManualInput(
+    return _effective_manual(SellManualInput(
         ticker=clean_ticker,
         pivot=_round_metric((defaults or {}).get("pivot")),
         low_day_1=_round_metric((defaults or {}).get("low_day_1")),
@@ -1101,7 +1119,7 @@ def _resolve_manual(
         industry_group_status=str(context["industry_group_status"]),
         strength_checkboxes=dict((auto or {}).get("strength_checkboxes") or {}),
         warning_checkboxes=dict((auto or {}).get("warning_checkboxes") or {}),
-    )
+    ))
 
 
 def _health_from_payload(payload: dict[str, Any], manual: SellManualInput) -> SellHealthScore:

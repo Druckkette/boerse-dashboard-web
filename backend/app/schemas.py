@@ -1863,6 +1863,13 @@ class AppSettings(BaseModel):
     data_jobs_enabled: bool
     market_ampel_logic: Literal["current", "ibd"] = "current"
     assessment_score_weights: AssessmentScoreWeights
+    sell_rule_setup: dict = Field(default_factory=dict)
+
+    @field_validator("sell_rule_setup")
+    @classmethod
+    def validate_sell_rule_setup(cls, value: dict) -> dict:
+        from app.domain.sell.rules import validate_sell_setup_payload
+        return validate_sell_setup_payload(value)
 
 
 class SettingsPatch(BaseModel):
@@ -1886,6 +1893,16 @@ class SettingsPatch(BaseModel):
     data_jobs_enabled: bool | None = None
     market_ampel_logic: Literal["current", "ibd"] | None = None
     assessment_score_weights: AssessmentScoreWeights | None = None
+    sell_rule_setup: dict | None = None
+
+    @field_validator("sell_rule_setup")
+    @classmethod
+    def validate_sell_rule_setup(cls, value: dict | None) -> dict | None:
+        if value is None:
+            return None
+        from app.domain.sell.rules import validate_sell_setup_payload
+        return validate_sell_setup_payload(value)
+
 
 
 class RuntimeConfigItem(BaseModel):
