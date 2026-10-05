@@ -94,19 +94,19 @@ export function StockPricePanel({
                 key: "rs",
                 label: "RS vs SPY",
                 color: "#f472b6",
-                formatter: (value) => value.toFixed(2)
+                formatter: (value) => value.toFixed(usesSellRs ? 4 : 2)
               },
               {
                 key: usesSellRs ? "rsSma21" : "rsEma21",
                 label: usesSellRs ? "RS 21-SMA" : "RS 21-EMA",
                 color: "#38bdf8",
-                formatter: (value) => value.toFixed(2)
+                formatter: (value) => value.toFixed(usesSellRs ? 4 : 2)
               },
               {
                 key: usesSellRs ? "rsSma50" : "rsEma50",
                 label: usesSellRs ? "RS 50-SMA" : "RS 50-EMA",
                 color: "#fbbf24",
-                formatter: (value) => value.toFixed(2)
+                formatter: (value) => value.toFixed(usesSellRs ? 4 : 2)
               }
             ]
           : hasBenchmark

@@ -465,9 +465,9 @@ def _fmt_pct(value, digits: int = 1) -> str:
     return "-" if parsed is None else f"{parsed:.{digits}f}%"
 
 
-def _fmt_price(value) -> str:
+def _fmt_price(value, digits: int = 2) -> str:
     parsed = _safe_float(value)
-    return "-" if parsed is None else f"{parsed:.2f}"
+    return "-" if parsed is None else f"{parsed:.{digits}f}"
 
 
 def _fmt_count(value: int, total: int | None = None) -> str:
@@ -1544,7 +1544,7 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
     pct1 = _safe_int(setup.get("rs_tranche_1_pct"), 25)
     pct2 = _safe_int(setup.get("rs_tranche_2_pct"), 25)
     stand = str(metrics.get("rs_as_of") or "")
-    values = f"RS {_fmt_price(rs_line)} · 21-SMA {_fmt_price(rs_ma21)} · 50-SMA {_fmt_price(rs_ma50)}"
+    values = f"RS {_fmt_price(rs_line, 4)} · 21-SMA {_fmt_price(rs_ma21, 4)} · 50-SMA {_fmt_price(rs_ma50, 4)}"
     if stand:
         values += f" · Tagesschluss {stand}"
     return [
