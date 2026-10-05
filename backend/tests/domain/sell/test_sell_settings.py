@@ -199,6 +199,11 @@ def test_rs_metrics_exclude_unfinished_daily_bars():
     metrics = build()
     assert metrics['days_under_rs_ma21'] == 2
     assert metrics['rs_as_of'] == str(index[-2].date())
+    chart_last = metrics['rs_chart_history'][-1]
+    assert chart_last['date'] == metrics['rs_as_of']
+    assert chart_last['rs'] == metrics['rs_line']
+    assert chart_last['rs_ma21'] == metrics['rs_ma21']
+    assert chart_last['rs_ma50'] == metrics['rs_ma50']
     asset.loc[index[-1], 'IsFinal'] = True
     benchmark.loc[index[-1], 'IsFinal'] = False
     assert build()['days_under_rs_ma21'] == 2

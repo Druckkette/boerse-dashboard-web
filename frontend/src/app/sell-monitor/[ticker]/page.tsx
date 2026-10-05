@@ -105,6 +105,7 @@ export default function SellMonitorTickerPage() {
         markers={sellChartMarkers}
         ticker={ticker}
         title="Sell Context"
+        sellRsHistory={metrics.data?.raw_payload.metrics.rs_chart_history ?? []}
       />
 
       <div className="grid gap-3 xl:grid-cols-3">

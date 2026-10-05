@@ -579,6 +579,10 @@ def build_sell_decision_metrics_payload(
         "up_down_volume_ratio_50": up_down_volume_ratio_50,
         "rs_line": _last_float(rs_line),
         "rs_as_of": _last_index_date(rs_line),
+        "rs_chart_history": [
+            {"date": str(date.date()), "rs": _safe_float(value), "rs_ma21": _safe_float(rs_ma21.loc[date]), "rs_ma50": _safe_float(rs_ma50.loc[date])}
+            for date, value in rs_line.items()
+        ],
         "rs_ma21": _last_float(rs_ma21),
         "rs_ma50": _last_float(rs_ma50),
         "weekly_rs_ma10": _last_float(weekly_rs_ma10),

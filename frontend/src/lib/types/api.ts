@@ -1612,6 +1612,13 @@ export type SellHealthScore = {
   reasons: string[];
 };
 
+export type SellRsChartPoint = {
+  date: string;
+  rs: number;
+  rs_ma21?: number | null;
+  rs_ma50?: number | null;
+};
+
 export type SellMetrics = {
   ticker: string;
   as_of: string;
@@ -1634,7 +1641,7 @@ export type SellMetrics = {
     buy_price: number | null;
     buy_date: string;
     currency: string;
-    metrics: Record<string, unknown>;
+    metrics: Record<string, unknown> & { rs_chart_history?: SellRsChartPoint[] };
   };
 };
 

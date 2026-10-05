@@ -6,22 +6,25 @@ import { LineChartCard } from "@/components/ui/line-chart-card";
 import type { ChartLevel, ChartMarker } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
 import { formatNumber, formatPercent } from "@/lib/format";
-import type { PriceBarPoint, PriceRange } from "@/lib/types/api";
+import type { PriceBarPoint, PriceRange, SellRsChartPoint } from "@/lib/types/api";
 
 export function StockPricePanel({
   ticker,
   range = "1y",
   title = "Kursverlauf",
   levels = [],
-  markers = []
+  markers = [],
+  sellRsHistory
 }: {
   ticker: string;
   range?: PriceRange;
   title?: string;
   levels?: ChartLevel[];
   markers?: ChartMarker[];
+  sellRsHistory?: SellRsChartPoint[];
 }) {
   const clean = ticker.toUpperCase();
+  const usesSellRs = sellRsHistory !== undefined;
   const query = useQuery({
     queryKey: ["stock-prices", clean, range],
     queryFn: () => api.stockPrices(clean, range),
@@ -31,22 +34,22 @@ export function StockPricePanel({
     queryKey: ["stock-prices", "SPY", range],
     queryFn: () => api.stockPrices("SPY", range),
     staleTime: 60_000,
-    enabled: clean !== "SPY"
+    enabled: clean !== "SPY" && !usesSellRs
   });
   const rsQuery = useQuery({
     queryKey: ["stock-rs", clean],
     queryFn: () => api.stockRs(clean),
     staleTime: 60_000,
-    enabled: clean !== "SPY"
+    enabled: clean !== "SPY" && !usesSellRs
   });
   const history = query.data;
-  const rsHistory = useMemo(() => rsQuery.data?.item?.rs_history ?? [], [rsQuery.data?.item?.rs_history]);
+  const rsHistory = useMemo(() => sellRsHistory ?? rsQuery.data?.item?.rs_history ?? [], [sellRsHistory, rsQuery.data?.item?.rs_history]);
   const chartPoints = useMemo(
-    () => buildTechnicalOverlayPoints(history?.points ?? [], benchmarkQuery.data?.points ?? [], rsHistory),
-    [benchmarkQuery.data?.points, history?.points, rsHistory]
+    () => buildTechnicalOverlayPoints(history?.points ?? [], benchmarkQuery.data?.points ?? [], rsHistory, usesSellRs),
+    [benchmarkQuery.data?.points, history?.points, rsHistory, usesSellRs]
   );
   const autoMarkers = useMemo(() => buildAutoMarkers(chartPoints), [chartPoints]);
-  const hasBenchmark = clean !== "SPY" && Boolean(benchmarkQuery.data?.points.length);
+  const hasBenchmark = !usesSellRs && clean !== "SPY" && Boolean(benchmarkQuery.data?.points.length);
   const hasRsHistory = clean !== "SPY" && rsHistory.length > 0;
 
   return (
@@ -94,14 +97,14 @@ export function StockPricePanel({
                 formatter: (value) => value.toFixed(2)
               },
               {
-                key: "rsEma21",
-                label: "RS 21-EMA",
+                key: usesSellRs ? "rsSma21" : "rsEma21",
+                label: usesSellRs ? "RS 21-SMA" : "RS 21-EMA",
                 color: "#38bdf8",
                 formatter: (value) => value.toFixed(2)
               },
               {
-                key: "rsEma50",
-                label: "RS 50-EMA",
+                key: usesSellRs ? "rsSma50" : "rsEma50",
+                label: usesSellRs ? "RS 50-SMA" : "RS 50-EMA",
                 color: "#fbbf24",
                 formatter: (value) => value.toFixed(2)
               }
@@ -119,7 +122,7 @@ export function StockPricePanel({
       }
       subTitle={
         hasRsHistory
-          ? "Relative Stärke vs SPY mit eigenem 21-EMA und 50-EMA"
+          ? usesSellRs ? "RS-Verkaufsregeln: bestätigte Tagesschlüsse vs SPY mit 21-SMA und 50-SMA" : "Relative Stärke vs SPY mit eigenem 21-EMA und 50-EMA"
           : hasBenchmark
             ? "Relative Stärke vs SPY, Start = 100"
             : ""
@@ -141,7 +144,8 @@ export function StockPricePanel({
 function buildTechnicalOverlayPoints(
   points: PriceBarPoint[],
   benchmarkPoints: PriceBarPoint[],
-  rsHistory: Array<{ date: string; rs: number; rs_ema21?: number | null; rs_ema50?: number | null }>
+  rsHistory: Array<{ date: string; rs: number; rs_ema21?: number | null; rs_ema50?: number | null; rs_ma21?: number | null; rs_ma50?: number | null }>,
+  usesSellRs: boolean
 ) {
   const closes = points.map((point) => point.close);
   const volumes = points.map((point) => point.volume);
@@ -156,9 +160,11 @@ function buildTechnicalOverlayPoints(
       sma50: sma(closes, index, 50),
       sma200: sma(closes, index, 200),
       volumeSma21: nullableSma(volumes, index, 21),
-      rs: rsPoint?.rs ?? rsVsSpy[index],
+      rs: rsPoint?.rs ?? (usesSellRs ? null : rsVsSpy[index]),
       rsEma21: rsPoint?.rs_ema21 ?? null,
-      rsEma50: rsPoint?.rs_ema50 ?? null
+      rsEma50: rsPoint?.rs_ema50 ?? null,
+      rsSma21: rsPoint?.rs_ma21 ?? null,
+      rsSma50: rsPoint?.rs_ma50 ?? null
     };
   });
 }

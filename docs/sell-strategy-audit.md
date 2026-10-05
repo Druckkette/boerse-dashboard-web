@@ -91,6 +91,8 @@ Die drei Stufen benötigen zwei Linien, nicht drei verschiedene Durchschnitte:
 
 Die dritte geplante Tranche wird als `100 − erste − zweite` berechnet; die ersten beiden dürfen zusammen höchstens 100 % betragen. Intraday-Balken und vor Handelsschluss abgerufene Tagesbalken werden für die RS-Linie ausgeschlossen. Bewertet wird der letzte bestätigte gemeinsame Tagesschluss von Aktie und Benchmark. Eine explizite Stummschaltung bleibt wirksam; Nothalt ist davon weiterhin ausgenommen.
 
+Der RS-Chart im Verkaufsmonitor verwendet dieselbe bestätigte Kursreihe und dieselben 21-/50-SMA wie die Verkaufsberechnung. Er zeigt keine vorläufigen RS-Werte. Die separate RS-Analyse auf der Aktienseite verwendet weiterhin ihre eigenen EMA; diese sind nicht die Auslöser der Buch-Verkaufsstrategie.
+
 Der bisherige zusätzliche Auslöser „tiefer als am Bruchtag“ wurde entfernt: Er entsprach einer anderen WRO-Variante und konnte bereits am zweiten Tag auslösen. Ein langsamer Linienbruch führt jetzt unabhängig von den gerade aktiven frühen Stufen zum kumulativen Ziel von 100 %. Der Baukasten und die Strategie-Einstellungen stehen direkt bei der Auswahl und im Aktienmonitor vor den allgemeinen Regelübersichten.
 
 ## Aktuelle globale Grenzwerte und Zuständigkeit
