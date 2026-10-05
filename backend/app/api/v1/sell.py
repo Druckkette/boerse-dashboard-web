@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException
 
 from app.domain.sell.schemas import (
     ManualInputResponse,
+    SellPreviewRequest,
+    SellPreviewResponse,
     SellEvaluationRequest,
     SellEvaluationResponse,
     SellDiagnosticsResponse,
@@ -20,6 +22,7 @@ from app.domain.sell.service import (
     SellMarketDataUnavailableError,
     SellPositionNotFoundError,
     create_tranche_log_entry,
+    preview_manual_sell_decision,
     evaluate_position_sell_decision,
     get_sell_diagnostics_for_position,
     get_sell_metrics_for_position,
@@ -32,6 +35,14 @@ from app.domain.sell.service import (
 
 
 router = APIRouter()
+
+
+@router.post("/preview", response_model=SellPreviewResponse)
+def preview(payload: SellPreviewRequest) -> SellPreviewResponse:
+    try:
+        return preview_manual_sell_decision(payload)
+    except SellMarketDataUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/positions/ranking", response_model=SellRankingResponse)

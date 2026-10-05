@@ -65,6 +65,25 @@ class SellMetricsRequest(BaseModel):
         return str(value or "").upper().strip()
 
 
+class SellPreviewRequest(BaseModel):
+    ticker: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9.^=_-]+$")
+    buy_date: date
+    buy_price: float = Field(gt=0, allow_inf_nan=False)
+    currency: Literal["USD", "EUR", "GBP", "CHF", "CAD", "JPY", "HKD", "AUD"] = "USD"
+
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def normalize_ticker(cls, value: str) -> str:
+        return str(value or "").strip().upper()
+
+    @field_validator("buy_date")
+    @classmethod
+    def validate_buy_date(cls, value: date) -> date:
+        if value > datetime.now(UTC).date():
+            raise ValueError("Das Einstiegsdatum darf nicht in der Zukunft liegen.")
+        return value
+
+
 class SellMetricsPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -309,3 +328,8 @@ class SnoozeResponse(BaseModel):
 
 def default_snoozed_until(days: int) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
+
+
+class SellPreviewResponse(BaseModel):
+    metrics: SellMetricsApiResponse
+    evaluation: SellEvaluationResponse

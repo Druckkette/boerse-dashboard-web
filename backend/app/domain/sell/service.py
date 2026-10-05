@@ -20,6 +20,8 @@ from app.domain.sell.schemas import (
     SellMetricsApiResponse,
     SellMetricsPayload,
     SellMetricsRequest,
+    SellPreviewRequest,
+    SellPreviewResponse,
     SellPostMortemCheck,
     SellPostMortemNote,
     SellPostMortemNoteRequest,
@@ -69,11 +71,13 @@ class SellInsufficientHistoryError(SellMarketDataUnavailableError):
 def get_sell_metrics_for_position(
     ticker: str,
     request: SellMetricsRequest | None = None,
+    *,
+    manual: SellManualInput | None = None,
 ) -> SellMetricsApiResponse:
     """Return sell metrics for an open position backed by cached market data."""
     clean_ticker = _clean_ticker(ticker)
     payload = _build_metrics_payload(request or _default_metrics_request(clean_ticker))
-    manual = _manual_for_payload(clean_ticker, payload)
+    manual = manual or _manual_for_payload(clean_ticker, payload)
     health = _health_from_payload(payload, manual)
     metrics = _payload_metrics(payload)
 
@@ -93,6 +97,33 @@ def get_sell_metrics_for_position(
         manual_defaults=_json_safe(payload.get("manual_defaults", {})),
         auto_checkboxes=_json_safe(payload.get("auto_checkboxes", {})),
         raw_payload=_metrics_payload_schema(payload),
+    )
+
+
+def preview_manual_sell_decision(request: SellPreviewRequest) -> SellPreviewResponse:
+    metrics_request = SellMetricsRequest(
+        ticker=request.ticker, buy_date=request.buy_date,
+        buy_price=request.buy_price, currency=request.currency, shares=1,
+    )
+    payload = _build_metrics_payload(metrics_request)
+    defaults = payload.get("manual_defaults") or {}
+    auto = payload.get("auto_checkboxes") or {}
+    manual = SellManualInput(
+        ticker=request.ticker,
+        pivot=defaults.get("pivot"), low_day_1=defaults.get("low_day_1"),
+        low_day_0=defaults.get("low_day_0"),
+        strength_checkboxes=auto.get("strength_checkboxes") or {},
+        warning_checkboxes=auto.get("warning_checkboxes") or {},
+    )
+    evaluation = _evaluate_position_sell_decision(
+        request.ticker,
+        SellEvaluationRequest(manual=manual, tranche_log=[],
+                              recommendation_state=SellRecommendationState()),
+        persist_state=False, metrics_request=metrics_request,
+    )
+    return SellPreviewResponse(
+        metrics=get_sell_metrics_for_position(request.ticker, metrics_request, manual=manual),
+        evaluation=evaluation,
     )
 
 

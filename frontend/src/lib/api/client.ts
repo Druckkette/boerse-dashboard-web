@@ -319,6 +319,8 @@ export const api = {
     postJson<PortfolioImportResponse>("/portfolio/imports/positions", body),
   importTradeRepublicTransactions: (body: TradeRepublicTransactionImportRequest) =>
     postJson<TradeRepublicTransactionImportResponse>("/portfolio/imports/tr-transactions", body),
+  sellPreview: (body: { ticker: string; buy_price: number; buy_date: string; currency: string }) =>
+    postJson<{ metrics: SellMetrics; evaluation: SellEvaluation }>("/sell/preview", body),
   sellRanking: () => getJson<SellRankingResponse>("/sell/positions/ranking"),
   sellMetrics: (ticker: string) => getJson<SellMetrics>(`/sell/${ticker}/metrics`),
   sellEvaluation: (ticker: string) => postJson<SellEvaluation>(`/sell/${ticker}/evaluate`),

@@ -129,3 +129,43 @@ def test_manual_inputs_tranches_and_snooze_are_mutable_over_api() -> None:
     assert evaluate_response.status_code == 200
     assert evaluate_response.json()["tranche_log"][0]["reason"] == "API regression tranche"
     assert evaluate_response.json()["manual"]["personality_changed"] is True
+
+
+def test_manual_preview_without_portfolio_is_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", lambda: [])
+    def unexpected_state_access(*args, **kwargs):
+        pytest.fail("Manual preview must not access stored position state")
+    for name in ("get_manual_input", "list_tranche_log", "get_recommendation_state",
+                 "upsert_recommendation_state"):
+        monkeypatch.setattr(sell_service.sell_state_repository, name, unexpected_state_access)
+    response = client.post("/api/v1/sell/preview", json={
+        "ticker": " nvda ", "buy_price": 100, "buy_date": "2025-01-02",
+    })
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["raw_payload"]["buy_price"] == 100
+    assert payload["metrics"]["raw_payload"]["buy_date"] == "2025-01-02"
+    assert payload["evaluation"]["ticker"] == "NVDA"
+    assert payload["evaluation"]["offensive_features"]
+    assert payload["evaluation"]["defensive_features"]
+    assert payload["evaluation"]["tranche_log"] == []
+
+
+@pytest.mark.parametrize("patch", [
+    {"buy_price": 0}, {"buy_price": -1}, {"buy_date": "2999-01-01"},
+    {"buy_date": "invalid"}, {"ticker": " "},
+])
+def test_manual_preview_validates_entry(patch: dict) -> None:
+    response = client.post("/api/v1/sell/preview", json={
+        "ticker": "NVDA", "buy_price": 100, "buy_date": "2025-01-02", **patch,
+    })
+    assert response.status_code == 422
+
+
+def test_manual_preview_reports_missing_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", lambda *a, **kw: [])
+    response = client.post("/api/v1/sell/preview", json={
+        "ticker": "NEW", "buy_price": 100, "buy_date": "2025-01-02",
+    })
+    assert response.status_code == 409
+    assert "Price Cache" in response.json()["detail"]

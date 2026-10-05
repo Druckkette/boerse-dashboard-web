@@ -1627,6 +1627,9 @@ export type SellMetrics = {
     ok: boolean;
     error: string;
     ticker: string;
+    buy_price: number | null;
+    buy_date: string;
+    currency: string;
     metrics: Record<string, unknown>;
   };
 };

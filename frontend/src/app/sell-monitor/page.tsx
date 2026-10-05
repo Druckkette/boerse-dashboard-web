@@ -22,6 +22,8 @@ import { api } from "@/lib/api/client";
 import { formatPercent, qualityLabel } from "@/lib/format";
 import type { PendingStatus, SellRankingRow, Tone } from "@/lib/types/api";
 
+import { ManualSellPreview } from "@/features/sell/manual-sell-preview";
+
 const SORT_KEY = "sell-ranking-sorting-v1";
 const VISIBILITY_KEY = "sell-ranking-columns-v1";
 const toneByStatus: Record<SellRankingRow["status"], Tone> = { Halten: "good", Beobachten: "warning", Verkaufen: "bad" };
@@ -90,6 +92,8 @@ export default function SellMonitorPage() {
         <StatusChip tone={isLoading ? "warning" : "good"}>{isLoading ? "Lädt" : `${rows.length} Positionen`}</StatusChip>
       </div>
     </div>
+
+    <ManualSellPreview />
 
     <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
       <KpiCard item={{ label: "Verkaufen", value: String(sellCount), detail: "nur bei verlässlicher Datenbasis", tone: sellCount ? "bad" : "good" }} />
