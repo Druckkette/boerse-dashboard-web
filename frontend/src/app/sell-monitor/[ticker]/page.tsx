@@ -96,6 +96,8 @@ export default function SellMonitorTickerPage() {
         <KpiCard item={{ label: "ATR14", value: formatNumber(metrics.data?.atr14), detail: "für ATR-basierte Regeln", tone: "neutral" }} />
       </div>
 
+      <SellSetupPanel key={ticker} ticker={ticker} />
+
       <SellStrategyPanel strategy={evaluation.data?.strategy} />
 
       <StockPricePanel
@@ -125,7 +127,6 @@ export default function SellMonitorTickerPage() {
         />
       </div>
 
-      <SellSetupPanel key={ticker} ticker={ticker} />
     </div>
   );
 }
@@ -191,7 +192,7 @@ function SellStrategyPanel({ strategy }: { strategy?: SellStrategyResult }) {
             <div className="mb-2 flex items-start justify-between gap-3">
               <div className="font-medium">{recommendation.label}</div>
               <StatusChip tone={recommendation.active ? "warning" : "neutral"}>
-                {recommendation.active ? `aktiv · ${recommendation.tranche_percent}%` : "inaktiv"}
+                {recommendation.active ? recommendation.id === "rs_line_tranche_3" ? "aktiv · Restverkauf" : `aktiv · ${recommendation.tranche_percent}%` : "inaktiv"}
               </StatusChip>
             </div>
             <div className="grid gap-2 text-sm">

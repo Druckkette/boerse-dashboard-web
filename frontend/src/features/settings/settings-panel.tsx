@@ -484,7 +484,7 @@ export function SettingsPanel() {
         )}
         {tab === "alerts" && (
           <section aria-label="Überwachung & Alerts" className="space-y-4">
-            <div id="sell-strategy"><SettingCard title="Globale Verkaufsstrategie" description="Standard für Aktien ohne eigene Verkaufsregeln. Strategie, Grenzwerte und Baukasten werden gemeinsam über Änderungen speichern gesichert." value="Standard">
+            <div id="sell-strategy"><SettingCard title="Globale Verkaufsstrategie" description="Strategie, Grenzwerte und Baukasten gelten für alle Aktien, die den globalen Standard übernehmen. Hier über Änderungen speichern sichern; eigene Aktienregeln werden separat gespeichert." value="Standard">
               <SellRuleSetupEditor setup={settings.sell_rule_setup} onChange={(next) => update("sell_rule_setup", next)} />
             </SettingCard></div>
             <PositionSellSettings globalDraftDirty={"sell_rule_setup" in changes} onDirtyChange={setStockRulesDirty} />

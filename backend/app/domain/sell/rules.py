@@ -36,7 +36,7 @@ SELL_STRATEGY_LABELS = {
 }
 SELL_STRATEGY_DESCRIPTIONS = {
     "custom": "Nutzt die ausgewählten Kriterien und Tranche-Prozente aus dem globalen Standard oder den eigenen Aktienregeln.",
-    "rs_line": "Teilverkauf in drei Stufen, wenn die Relative-Stärke-Linie ihre 21- und 50-Tage-Linien verliert.",
+    "rs_line": "Drei Stufen auf Tagesschlussbasis: unter 21-SMA, drei Schlüsse in Folge darunter, danach Restverkauf unter 50-SMA.",
     "ema21_risk_averse": "Frühe Tranchen bei erstem Bruch der 21-EMA, schwachem Folgetag und fortgesetztem Bruch.",
     "ema21_offensive": "Geduldiger: erste Tranche erst nach drei Schlüssen unter der 21-EMA.",
     "peak_drawdown": "Sichert Gewinner über Rückgangsstufen vom 20-Tage-Hoch und Trendbrüche.",
@@ -133,6 +133,7 @@ DEFAULT_SELL_RULE_SETUP: dict[str, Any] = {
     "worst_drop_warmup_weeks": 4,
     "rs_tranche_1_pct": 25,
     "rs_tranche_2_pct": 25,
+    # Persist the planned remainder for compatibility; the slow-line exit always targets 100 %.
     "rs_tranche_3_pct": 50,
     "ema21_risk_averse_first_pct": 25,
     "ema21_risk_averse_second_pct": 25,
@@ -330,6 +331,12 @@ def validate_sell_setup_payload(raw_setup: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Eine Tranche muss eine ganze Prozentzahl von 0 bis 100 sein")
             if isinstance(DEFAULT_SELL_RULE_SETUP[key], int) and not isinstance(DEFAULT_SELL_RULE_SETUP[key], bool) and (value != int(value) or (not key.endswith("_pct") and value < 1)):
                 raise ValueError(f"{key} muss eine positive ganze Zahl sein")
+    if setup.get("strategy_key") == "rs_line" or ("strategy_key" not in setup and any(k.startswith("rs_tranche_") for k in setup)):
+        first = setup.get("rs_tranche_1_pct", DEFAULT_SELL_RULE_SETUP["rs_tranche_1_pct"])
+        second = setup.get("rs_tranche_2_pct", DEFAULT_SELL_RULE_SETUP["rs_tranche_2_pct"])
+        if first + second > 100:
+            raise ValueError("Die ersten beiden RS-Tranchen dürfen zusammen höchstens 100 % ergeben")
+        setup["rs_tranche_3_pct"] = 100 - first - second
     return setup
 
 
@@ -742,6 +749,7 @@ def _compute_recommendation_status(
     has_killer: bool,
     as_of_date: str,
     prior_state: dict | None,
+    confirmed_signal: bool = False,
 ) -> tuple[str, dict]:
     today = _normalize_state_date(as_of_date) or _normalize_state_date(pd.Timestamp.now())
     state = dict(prior_state or {})
@@ -777,7 +785,7 @@ def _compute_recommendation_status(
         next_state["consecutive_days"] = prior_streak + 1
     else:
         next_state["consecutive_days"] = 1
-    if sell_now < HYSTERESIS_MIN_CONTRIBUTION or sell_now >= HYSTERESIS_BYPASS_CONTRIBUTION:
+    if confirmed_signal or sell_now < HYSTERESIS_MIN_CONTRIBUTION or sell_now >= HYSTERESIS_BYPASS_CONTRIBUTION:
         return "scharf", next_state
     if next_state["consecutive_days"] >= HYSTERESIS_MIN_CONSECUTIVE_DAYS:
         return "scharf", next_state
@@ -1531,17 +1539,18 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
     rs_ma21 = _metric(metrics, "rs_ma21")
     rs_ma50 = _metric(metrics, "rs_ma50")
     days21 = int(_metric(metrics, "days_under_rs_ma21", 0) or 0)
-    days50 = int(_metric(metrics, "days_under_rs_ma50", 0) or 0)
-    lower_than_break_day = bool(metrics.get("rs_lower_than_break_day"))
     under21 = bool(rs_line is not None and rs_ma21 is not None and rs_line < rs_ma21)
     under50 = bool(rs_line is not None and rs_ma50 is not None and rs_line < rs_ma50)
     pct1 = _safe_int(setup.get("rs_tranche_1_pct"), 25)
     pct2 = _safe_int(setup.get("rs_tranche_2_pct"), 25)
-    pct3 = _safe_int(setup.get("rs_tranche_3_pct"), 50)
+    stand = str(metrics.get("rs_as_of") or "")
+    values = f"RS {_fmt_price(rs_line)} · 21-SMA {_fmt_price(rs_ma21)} · 50-SMA {_fmt_price(rs_ma50)}"
+    if stand:
+        values += f" · Tagesschluss {stand}"
     return [
-        _rec("rs_line_tranche_1", "1. Tranche: RS-Linie unter 21-SMA", active=under21, pct=pct1, detail=f"RS {rs_line or 0:.4f} vs. 21 {_safe_float(rs_ma21, 0) or 0:.4f}", trigger="RS schließt unter 21-SMA", feature_ids=[]),
-        _rec("rs_line_tranche_2", "2. Tranche: RS bestätigt Bruch", active=under21 and (days21 >= 3 or lower_than_break_day), pct=pct2, detail=f"{days21} Tage unter RS-21-SMA; {'tiefer als Bruchtag' if lower_than_break_day else 'Bruchtag nicht unterschritten'}", trigger="3 Tage unter 21-SMA oder tiefer als Bruchtag", feature_ids=[]),
-        _rec("rs_line_tranche_3", "3. Tranche: RS-Linie unter 50-SMA", active=under50 or days50 > 0, pct=pct3, detail=f"{days50} Tage unter RS-50-SMA", trigger="RS schließt unter 50-SMA", feature_ids=[]),
+        _rec("rs_line_tranche_1", "1. Tranche: Tagesschluss unter RS-21-SMA", active=under21, pct=pct1, detail=values, trigger="RS-Linie schließt unter ihrem einfachen 21-Tage-Durchschnitt", feature_ids=[]),
+        _rec("rs_line_tranche_2", "2. Tranche: drei Schlüsse in Folge unter RS-21-SMA", active=under21 and days21 >= 3, pct=pct2, detail=f"{days21} bestätigte Schlüsse in Folge unter RS-21-SMA. Der erste Bruchtag zählt mit.", trigger="Drei aufeinanderfolgende Handelstagsschlüsse unter RS-21-SMA", feature_ids=[]),
+        _rec("rs_line_tranche_3", "3. Tranche: gesamte Restposition unter RS-50-SMA", active=under50, pct=100, detail=f"{values}. Zielverkauf insgesamt 100 %; bereits protokollierte Verkäufe werden abgezogen, auch wenn frühere Stufen übersprungen wurden.", trigger="RS-Linie schließt unter ihrem einfachen 50-Tage-Durchschnitt", feature_ids=[]),
         _emergency_rec(features_by_id),
     ]
 
@@ -1763,6 +1772,7 @@ def evaluate_sell_decision(
         has_killer=bool(killer_signals),
         as_of_date=as_of_date,
         prior_state=recommendation_state,
+        confirmed_signal=strategy_key == "rs_line",
     )
 
     display_label = label

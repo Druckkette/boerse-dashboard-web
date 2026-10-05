@@ -111,6 +111,17 @@ export function SellRuleSetupEditor({ setup, onChange }: {
               </select>
             </label>
 
+            <StrategySpecificSetup
+              selectedStrategy={selectedStrategy}
+              customSteps={customStrategySteps()}
+              setupNumber={setupNumber}
+              setupString={setupString}
+              updateCustomStrategyStep={updateCustomStrategyStep}
+              addCustomStrategyStep={addCustomStrategyStep}
+              removeCustomStrategyStep={removeCustomStrategyStep}
+              updateSellSetup={updateSellSetup}
+            />
+
             <details className="xl:col-span-3 rounded border border-[#e3e8ef] p-3">
               <summary className="cursor-pointer text-sm font-semibold">Grenzwerte für Nothalt, offensive und defensive Kriterien</summary>
               <div className="mt-3 grid gap-4 xl:grid-cols-3">
@@ -188,17 +199,6 @@ export function SellRuleSetupEditor({ setup, onChange }: {
 
               </div>
             </details>
-
-            <StrategySpecificSetup
-              selectedStrategy={selectedStrategy}
-              customSteps={customStrategySteps()}
-              setupNumber={setupNumber}
-              setupString={setupString}
-              updateCustomStrategyStep={updateCustomStrategyStep}
-              addCustomStrategyStep={addCustomStrategyStep}
-              removeCustomStrategyStep={removeCustomStrategyStep}
-              updateSellSetup={updateSellSetup}
-            />
           </div>
   );
 }
@@ -283,7 +283,7 @@ const strategySetupCopy: Record<string, { title: string; detail: string }> = {
   },
   rs_line: {
     title: "RS-Linie auf Tagesbasis",
-    detail: "Tranchen folgen der RS-Linie unter ihren einfachen 21- und 50-Tage-Durchschnitten. Die zweite Tranche folgt nach drei Tagen oder einem tieferen Wert als am Bruchtag. Wochen- und Monatsvarianten sind noch nicht verfügbar."
+    detail: "Es gelten die bestätigten Tagesschlusskurse der RS-Linie relativ zum S&P 500. Drei Stufen nutzen zwei Durchschnittslinien; Intraday-Kurse lösen diese Stufen nicht aus."
   },
   ema21_risk_averse: {
     title: "21-EMA risikoavers",
@@ -388,10 +388,17 @@ function StrategySpecificSetup({
         <RuleSetupGroup title={copy.title}>
           <p className="text-sm leading-6 text-[#687386]">{copy.detail}</p>
           <div className="grid gap-2 sm:grid-cols-3">
-            <SetupNumber label="1. Tranche %" value={setupNumber("rs_tranche_1_pct", 25)} onChange={(value) => updateSellSetup({ rs_tranche_1_pct: value })} />
-            <SetupNumber label="2. Tranche %" value={setupNumber("rs_tranche_2_pct", 25)} onChange={(value) => updateSellSetup({ rs_tranche_2_pct: value })} />
-            <SetupNumber label="3. Tranche %" value={setupNumber("rs_tranche_3_pct", 50)} onChange={(value) => updateSellSetup({ rs_tranche_3_pct: value })} />
+            <div className="space-y-2">
+              <SetupNumber label="1. Tranche %" value={setupNumber("rs_tranche_1_pct", 25)} onChange={(value) => updateSellSetup({ rs_tranche_1_pct: value, rs_tranche_3_pct: Math.max(0, 100 - value - setupNumber("rs_tranche_2_pct", 25)) })} />
+              <p className="text-sm text-[#687386]">Erster Tagesschluss unter dem 21-Tage-SMA der RS-Linie.</p>
+            </div>
+            <div className="space-y-2">
+              <SetupNumber label="2. Tranche %" value={setupNumber("rs_tranche_2_pct", 25)} onChange={(value) => updateSellSetup({ rs_tranche_2_pct: value, rs_tranche_3_pct: Math.max(0, 100 - setupNumber("rs_tranche_1_pct", 25) - value) })} />
+              <p className="text-sm text-[#687386]">Drei Tagesschlüsse in Folge unter dem 21-Tage-SMA. Der erste Bruchtag zählt mit.</p>
+            </div>
+            <ReadOnlySetupTile label="3. Tranche · Restposition" value={`${Math.max(0, 100 - setupNumber("rs_tranche_1_pct", 25) - setupNumber("rs_tranche_2_pct", 25))} % geplant`} detail="Tagesschluss unter dem 50-Tage-SMA der RS-Linie: gesamte verbleibende Position verkaufen, auch wenn frühere Stufen übersprungen wurden." />
           </div>
+          {setupNumber("rs_tranche_1_pct", 25) + setupNumber("rs_tranche_2_pct", 25) > 100 && <p role="alert" className="text-sm text-rose-700">Die ersten beiden RS-Tranchen dürfen zusammen höchstens 100 % ergeben.</p>}
         </RuleSetupGroup>
       </div>
     );
@@ -477,4 +484,3 @@ function ReadOnlySetupTile({ label, value, detail }: { label: string; value: str
     </div>
   );
 }
-

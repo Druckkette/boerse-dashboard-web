@@ -322,14 +322,23 @@ def build_sell_decision_metrics_payload(
     joined = pd.concat([close.rename("asset"), bench_close.rename("benchmark")], axis=1, join="inner").dropna()
     if joined.empty:
         return _error(f"Keine überlappenden Kursdaten für {clean_ticker} und {clean_benchmark}.", clean_ticker, clean_benchmark)
-    rs_line = joined["asset"] / joined["benchmark"]
+    # RS selling uses verified common daily closes; an unfinished intraday bar
+    # must not count as a closing breach or the third consecutive close.
+    final_asset = df.get("IsFinal", pd.Series(True, index=df.index)).fillna(False).astype(bool)
+    final_benchmark = bench.get("IsFinal", pd.Series(True, index=bench.index)).fillna(False).astype(bool)
+    final_mask = final_asset.reindex(joined.index, fill_value=False) & final_benchmark.reindex(joined.index, fill_value=False)
+    joined_rs = joined[final_mask]
+    rs_line = joined_rs["asset"] / joined_rs["benchmark"]
     rs_ma21 = _sma(rs_line, 21)
     rs_ma50 = _sma(rs_line, 50)
     weekly_rs = rs_line.resample("W-FRI").last().dropna()
     weekly_rs_ma10 = _sma(weekly_rs, 10)
     weekly_rs_ma25 = _sma(weekly_rs, 25)
-    days_under_rs_ma21 = _trailing_true_count(rs_line < rs_ma21)
-    days_under_rs_ma50 = _trailing_true_count(rs_line < rs_ma50)
+    confirmation_dates = bench.index[final_benchmark & (bench.index <= joined_rs.index[-1])] if not joined_rs.empty else joined_rs.index
+    # Missing asset closes interrupt confirmation; don't compress a data gap
+    # into three consecutive benchmark sessions.
+    days_under_rs_ma21 = _trailing_true_count((rs_line < rs_ma21).reindex(confirmation_dates, fill_value=False))
+    days_under_rs_ma50 = _trailing_true_count((rs_line < rs_ma50).reindex(confirmation_dates, fill_value=False))
 
     after_buy = df[df.index >= buy_ts]
     high_since_buy = _safe_float(pd.to_numeric(after_buy["High"], errors="coerce").max()) if not after_buy.empty else None
@@ -569,6 +578,7 @@ def build_sell_decision_metrics_payload(
         "distribution_days_25": distribution_days_25,
         "up_down_volume_ratio_50": up_down_volume_ratio_50,
         "rs_line": _last_float(rs_line),
+        "rs_as_of": _last_index_date(rs_line),
         "rs_ma21": _last_float(rs_ma21),
         "rs_ma50": _last_float(rs_ma50),
         "weekly_rs_ma10": _last_float(weekly_rs_ma10),

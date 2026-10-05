@@ -1071,6 +1071,8 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
         bars = prices_repository.list_price_bars(ticker)
     except PriceRepositoryUnavailable:
         return pd.DataFrame()
+    from app.services.market_calendar import completed_us_market_session, daily_bar_is_final
+    completed = completed_us_market_session()
     rows: list[dict[str, Any]] = []
     for bar in bars:
         close = _finite_float(bar.close)
@@ -1080,6 +1082,7 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
         rows.append(
             {
                 "Date": pd.Timestamp(bar.date),
+                "IsFinal": daily_bar_is_final(bar.date, getattr(bar, "fetched_at", None), completed=completed),
                 "Open": open_price,
                 "High": _finite_float(bar.high, max(open_price, close)) or max(open_price, close),
                 "Low": _finite_float(bar.low, min(open_price, close)) or min(open_price, close),
@@ -1344,7 +1347,7 @@ def _strategy_tone(signals: list[SellSignal]) -> str:
 def _strategy_label(strategy_key: str) -> str:
     labels = {
         "custom": "Benutzerdefinierte Verkaufsstrategie",
-        "rs_line": "RS-Linie mit 21/50-Durchschnitt",
+        "rs_line": "RS-Linie täglich mit 21/50-SMA",
         "ema21_risk_averse": "21-EMA-Bruch risikoavers",
         "ema21_offensive": "21-EMA-Bruch offensiv",
         "peak_drawdown": "Starker Rückgang vom 20-Tage-Hoch",
@@ -1375,7 +1378,7 @@ def _strategy_theme(strategy_key: str) -> str:
 def _strategy_description(strategy_key: str) -> str:
     descriptions = {
         "custom": "Nutzt die pro Aktie konfigurierten Merkmale und Tranche-Prozente. Ohne Setup gelten robuste Defaults.",
-        "rs_line": "Teilverkauf in drei Stufen, wenn die Relative-Stärke-Linie ihre 21- und 50-Tage-Linien verliert.",
+        "rs_line": "Drei Stufen auf Tagesschlussbasis: unter 21-SMA, drei Schlüsse in Folge darunter, danach Restverkauf unter 50-SMA.",
         "ema21_risk_averse": "Frühe Tranchen bei erstem Bruch der 21-EMA, schwachem Folgetag und fortgesetztem Bruch.",
         "ema21_offensive": "Geduldiger: erste Tranche erst nach drei Schlüssen unter der 21-EMA.",
         "peak_drawdown": "Sichert Gewinner über Rückgangsstufen vom 20-Tage-Hoch und Trendbrüche.",
