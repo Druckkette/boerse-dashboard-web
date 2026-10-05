@@ -26,6 +26,7 @@ from app.domain.sell.service import (
     evaluate_position_sell_decision,
     get_sell_diagnostics_for_position,
     get_sell_metrics_for_position,
+    get_manual_sell_inputs,
     get_sell_post_mortem_notes,
     get_sell_position_ranking,
     snooze_sell_signal,
@@ -94,6 +95,11 @@ def save_post_mortem_note(
     payload: SellPostMortemNoteRequest,
 ) -> SellPostMortemNoteResponse:
     return upsert_sell_post_mortem_note(ticker, payload)
+
+
+@router.get("/{ticker}/manual", response_model=ManualInputResponse)
+def read_manual(ticker: str) -> ManualInputResponse:
+    return get_manual_sell_inputs(ticker)
 
 
 @router.patch("/{ticker}/manual", response_model=ManualInputResponse)

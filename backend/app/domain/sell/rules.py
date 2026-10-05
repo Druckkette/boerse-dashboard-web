@@ -27,7 +27,7 @@ STRENGTH_DEFENSIVE_STYLE = "Gewinn nach Rückzug sichern"
 
 SELL_STRATEGY_LABELS = {
     "custom": "Benutzerdefinierte Verkaufsstrategie",
-    "rs_line": "RS-Linie mit 21/50-Durchschnitt",
+    "rs_line": "RS-Linie täglich mit 21/50-SMA",
     "ema21_risk_averse": "21-EMA-Bruch risikoavers",
     "ema21_offensive": "21-EMA-Bruch offensiv",
     "peak_drawdown": "Starker Rückgang vom 20-Tage-Hoch",
@@ -35,7 +35,7 @@ SELL_STRATEGY_LABELS = {
     "ma_breaks": "Bruch gleitender Durchschnitte",
 }
 SELL_STRATEGY_DESCRIPTIONS = {
-    "custom": "Nutzt die pro Aktie konfigurierten Merkmale und Tranche-Prozente. Ohne Setup gelten robuste Defaults.",
+    "custom": "Nutzt die ausgewählten Kriterien und Tranche-Prozente aus dem globalen Standard oder den eigenen Aktienregeln.",
     "rs_line": "Teilverkauf in drei Stufen, wenn die Relative-Stärke-Linie ihre 21- und 50-Tage-Linien verliert.",
     "ema21_risk_averse": "Frühe Tranchen bei erstem Bruch der 21-EMA, schwachem Folgetag und fortgesetztem Bruch.",
     "ema21_offensive": "Geduldiger: erste Tranche erst nach drei Schlüssen unter der 21-EMA.",
@@ -275,7 +275,7 @@ def _extract_inputs(metrics_payload: dict) -> tuple[dict, str, float, float]:
     return metrics, ticker, buy_price, shares
 
 
-def normalize_sell_setup_payload(raw_setup: dict[str, Any] | None) -> dict[str, Any]:
+def normalize_sell_setup_payload(raw_setup: dict[str, Any] | None, *, migrate_legacy: bool = True) -> dict[str, Any]:
     if not isinstance(raw_setup, dict):
         return {}
     setup = dict(raw_setup)
@@ -286,10 +286,50 @@ def normalize_sell_setup_payload(raw_setup: dict[str, Any] | None) -> dict[str, 
         setup.get("custom_strategy_steps"),
         PREVIOUS_DEFAULT_CUSTOM_STRATEGY_STEPS,
     )
-    if has_old_default_custom_steps:
+    if migrate_legacy and has_old_default_custom_steps:
         setup["custom_strategy_steps"] = [dict(item) for item in DEFAULT_CUSTOM_STRATEGY_STEPS]
         if str(setup.get("strategy_key") or "custom").strip() == "custom":
             setup["strategy_key"] = "rs_line"
+    return setup
+
+
+def validate_sell_setup_payload(raw_setup: dict[str, Any]) -> dict[str, Any]:
+    setup = normalize_sell_setup_payload(raw_setup, migrate_legacy=False)
+    for key, value in setup.items():
+        if key not in DEFAULT_SELL_RULE_SETUP:
+            raise ValueError(f"Unbekannte Verkaufseinstellung: {key}")
+        if key == "strategy_key":
+            if not isinstance(value, str) or value not in SELL_STRATEGY_LABELS:
+                raise ValueError("Unbekannte Verkaufsstrategie")
+        elif key == "custom_strategy_steps":
+            if not isinstance(value, list) or not 1 <= len(value) <= 50:
+                raise ValueError("Die eigene Strategie braucht 1 bis 50 Kriterien")
+            seen = set()
+            for step in value:
+                if not isinstance(step, dict) or not isinstance(step.get("feature_id"), str) or step.get("feature_id") not in BOOK_REFERENCES:
+                    raise ValueError("Unbekanntes Verkaufskriterium")
+                feature_id = step["feature_id"]
+                if feature_id in seen:
+                    raise ValueError("Jedes Verkaufskriterium darf nur einmal ausgewählt werden")
+                seen.add(feature_id)
+                pct = step.get("tranche_percent")
+                if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not math.isfinite(pct) or not 0 <= pct <= 100 or pct != int(pct):
+                    raise ValueError("Eine Tranche muss eine ganze Prozentzahl von 0 bis 100 sein")
+        elif isinstance(DEFAULT_SELL_RULE_SETUP[key], bool):
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} muss ein Ja/Nein-Wert sein")
+        elif key.endswith("_unit"):
+            if not isinstance(value, str) or value not in {"pct", "atr"}:
+                raise ValueError("Einheit muss % oder ATR sein")
+        else:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{key} muss eine nichtnegative, endliche Zahl sein")
+            if isinstance(DEFAULT_SELL_RULE_SETUP[key], float) and value == 0:
+                raise ValueError(f"{key} muss größer als null sein")
+            if key.endswith("_pct") and (key.startswith("rs_tranche") or "first" in key or "second" in key or "third" in key) and (value > 100 or value != int(value)):
+                raise ValueError("Eine Tranche muss eine ganze Prozentzahl von 0 bis 100 sein")
+            if isinstance(DEFAULT_SELL_RULE_SETUP[key], int) and not isinstance(DEFAULT_SELL_RULE_SETUP[key], bool) and (value != int(value) or (not key.endswith("_pct") and value < 1)):
+                raise ValueError(f"{key} muss eine positive ganze Zahl sein")
     return setup
 
 
@@ -324,11 +364,11 @@ def _resolve_setup(metrics_payload: dict, manual_data: dict | None) -> dict:
     setup["custom_strategy_steps"] = [dict(item) for item in DEFAULT_CUSTOM_STRATEGY_STEPS]
     manual_setup = (manual_data or {}).get("sell_setup") if isinstance(manual_data, dict) else None
     if isinstance(manual_setup, dict):
-        setup.update(normalize_sell_setup_payload(manual_setup))
+        setup.update(normalize_sell_setup_payload(manual_setup, migrate_legacy=(manual_data or {}).get("use_global_sell_setup") is None))
     payload_setup = (metrics_payload or {}).get("lm_setup") if isinstance(metrics_payload, dict) else None
     if isinstance(payload_setup, dict):
         setup.update(normalize_sell_setup_payload(payload_setup))
-    setup = normalize_sell_setup_payload(setup)
+    setup = normalize_sell_setup_payload(setup, migrate_legacy=False)
     strategy_key = str(setup.get("strategy_key") or setup.get("active_strategy") or setup.get("profile") or "rs_line").strip()
     if strategy_key not in SELL_STRATEGY_LABELS:
         strategy_key = "rs_line"
@@ -784,6 +824,8 @@ def _detect_offensive_features(
 ) -> list[RuleFeature]:
     daily = _frame(metrics_payload, "daily_since_buy")
     close = _series(daily, "close")
+    history = _frame(metrics_payload, "daily_history")
+    history_close = _series(history, "close") if not history.empty else close
     high = _series(daily, "high")
     low = _series(daily, "low")
     volume = _series(daily, "volume")
@@ -866,12 +908,17 @@ def _detect_offensive_features(
         },
     ))
 
+    atr_frame = history if not history.empty else daily
+    prev_close = _series(atr_frame, "close").shift(1)
+    true_range = pd.concat([_series(atr_frame, "high") - _series(atr_frame, "low"), (_series(atr_frame, "high") - prev_close).abs(), (_series(atr_frame, "low") - prev_close).abs()], axis=1).max(axis=1)
+    atr_series = true_range.rolling(14, min_periods=14).mean().reindex(close.index)
+
     # 4. MA extension anchors: threshold first, sell feature after anchor close is undercut.
     ma_specs = [
-        ("sma10", "10-SMA", _sma(close, 10), _safe_float(setup.get("ma_extension_sma10_pct"), 10.0) or 10.0, 20),
-        ("ema21", "21-EMA", _ema(close, 21), _safe_float(setup.get("ma_extension_ema21_pct"), 15.0) or 15.0, 25),
-        ("sma50", "50-SMA", _sma(close, 50), _safe_float(setup.get("ma_extension_sma50_pct"), 25.0) or 25.0, 33),
-        ("sma200", "200-SMA", _sma(close, 200), _safe_float(setup.get("ma_extension_sma200_pct"), 70.0) or 70.0, 100),
+        ("sma10", "10-SMA", _sma(history_close, 10).reindex(close.index), _safe_float(setup.get("ma_extension_sma10_pct"), 10.0) or 10.0, 20),
+        ("ema21", "21-EMA", _ema(history_close, 21).reindex(close.index), _safe_float(setup.get("ma_extension_ema21_pct"), 15.0) or 15.0, 25),
+        ("sma50", "50-SMA", _sma(history_close, 50).reindex(close.index), _safe_float(setup.get("ma_extension_sma50_pct"), 25.0) or 25.0, 33),
+        ("sma200", "200-SMA", _sma(history_close, 200).reindex(close.index), _safe_float(setup.get("ma_extension_sma200_pct"), 70.0) or 70.0, 100),
     ]
     for key, label, ma_series, threshold_pct, contribution in ma_specs:
         feature = _ma_extension_feature(
@@ -883,6 +930,8 @@ def _detect_offensive_features(
             current=current,
             as_of=as_of,
             contribution=contribution,
+            unit=str(setup.get("ma_extension_unit") or "pct"),
+            atr_series=atr_series,
         )
         features.append(feature)
 
@@ -1004,21 +1053,26 @@ def _ma_extension_feature(
     current: float | None,
     as_of: str,
     contribution: int,
+    unit: str = "pct",
+    atr_series: pd.Series | None = None,
 ) -> RuleFeature:
+    def format_extension(value):
+        return f"{value:.1f} ATR" if unit == "atr" and value is not None else _fmt_pct(value)
+
     feature_id = f"offensive_ma_extension_{key}"
-    if close.empty or ma_series.empty or current is None:
+    if close.empty or ma_series.empty or current is None or (unit == "atr" and (atr_series is None or atr_series.dropna().empty)):
         return _feature(
             feature_id,
             "offensive",
             f"Abstand zu {label}",
             active=False,
             value="-",
-            threshold=f"{threshold_pct:g}% Abstand",
-            detail="Nicht genügend Kursdaten für diese Durchschnittslinie.",
+            threshold=f"{threshold_pct:g} {'ATR' if unit == 'atr' else '%'} Abstand",
+            detail="Nicht genügend Kursdaten für diese Durchschnittslinie oder die ATR.",
             contribution_percent=contribution,
-            setup={"line": key, "threshold_pct": threshold_pct},
+            setup={"line": key, "threshold_pct": threshold_pct, "unit": unit},
         )
-    extension_pct = (close / ma_series - 1) * 100
+    extension_pct = ((close - ma_series) / atr_series.replace(0, float("nan"))) if unit == "atr" and atr_series is not None else (close / ma_series - 1) * 100
     trigger_mask = extension_pct >= threshold_pct
     if not trigger_mask.fillna(False).any():
         latest_extension = _safe_float(extension_pct.dropna().iloc[-1]) if not extension_pct.dropna().empty else None
@@ -1027,11 +1081,11 @@ def _ma_extension_feature(
             "offensive",
             f"Abstand zu {label}",
             active=False,
-            value=f"aktuell {_fmt_pct(latest_extension)}",
-            threshold=f"{threshold_pct:g}% Abstand",
+            value=f"aktuell {format_extension(latest_extension)}",
+            threshold=f"{threshold_pct:g} {'ATR' if unit == 'atr' else '%'} Abstand",
             detail="Überdehnungsschwelle wurde seit Kauf nicht erreicht.",
             contribution_percent=contribution,
-            setup={"line": key, "threshold_pct": threshold_pct},
+            setup={"line": key, "threshold_pct": threshold_pct, "unit": unit},
         )
     anchor_date = trigger_mask[trigger_mask.fillna(False)].index[-1]
     anchor_close = _safe_float(close.loc[anchor_date])
@@ -1043,15 +1097,15 @@ def _ma_extension_feature(
         f"Abstand zu {label}",
         active=active,
         severity="tranche",
-        value=f"aktuell {_fmt_pct(latest_extension)} · Anker {_fmt_price(anchor_close)}",
-        threshold=f"{threshold_pct:g}% Abstand",
+        value=f"aktuell {format_extension(latest_extension)} · Anker {_fmt_price(anchor_close)}",
+        threshold=f"{threshold_pct:g} {'ATR' if unit == 'atr' else '%'} Abstand",
         detail=(
             f"Schwelle am {pd.Timestamp(anchor_date).strftime('%Y-%m-%d')} erreicht; "
             f"Signal, sobald der damalige Schlusskurs unterschritten wird."
         ),
         signal_date=as_of if active else "",
         contribution_percent=contribution,
-        setup={"line": key, "threshold_pct": threshold_pct},
+        setup={"line": key, "threshold_pct": threshold_pct, "unit": unit},
     )
 
 
@@ -1177,6 +1231,8 @@ def _detect_defensive_features(
     daily = _frame(metrics_payload, "daily_since_buy")
     weekly = _frame(metrics_payload, "weekly_since_buy")
     close = _series(daily, "close")
+    history = _frame(metrics_payload, "daily_history")
+    history_close = _series(history, "close") if not history.empty else close
     low = _series(daily, "low")
     weekly_close = _series(weekly, "close")
     weekly_volume = _series(weekly, "volume")
@@ -1218,10 +1274,10 @@ def _detect_defensive_features(
 
     ma_days = max(1, _safe_int(setup.get("ma_break_reclaim_days"), 3))
     ma_specs = [
-        ("10", "10-SMA", _sma(close, 10), ma_days, 25),
-        ("21", "21-EMA", _ema(close, 21), ma_days, 33),
-        ("50", "50-SMA", _sma(close, 50), ma_days, 50),
-        ("200", "200-SMA", _sma(close, 200), 1, 100),
+        ("10", "10-SMA", _sma(history_close, 10).reindex(close.index), ma_days, 25),
+        ("21", "21-EMA", _ema(history_close, 21).reindex(close.index), ma_days, 33),
+        ("50", "50-SMA", _sma(history_close, 50).reindex(close.index), ma_days, 50),
+        ("200", "200-SMA", _sma(history_close, 200).reindex(close.index), 1, 100),
     ]
     for key, label, ma_series, reclaim_days_for_line, contribution in ma_specs:
         features.append(
@@ -1381,7 +1437,7 @@ def _worst_drop_feature(
     warmup_worst = _safe_float(valid.iloc[:warmup].min())
     later = valid.iloc[warmup:]
     later_worst = _safe_float(later.min()) if not later.empty else None
-    active = bool(warmup_worst is not None and later_worst is not None and later_worst < warmup_worst)
+    active = bool(warmup_worst is not None and later_worst is not None and later_worst < 0 and later_worst < warmup_worst)
     signal_date = ""
     if active:
         try:
@@ -1438,7 +1494,7 @@ def _rec(
         id=rec_id,
         label=label,
         active=bool(active),
-        tranche_percent=int(pct if active else 0),
+        tranche_percent=int(pct),
         detail=detail,
         trigger=trigger,
         feature_ids=feature_ids,
@@ -1483,9 +1539,9 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
     pct2 = _safe_int(setup.get("rs_tranche_2_pct"), 25)
     pct3 = _safe_int(setup.get("rs_tranche_3_pct"), 50)
     return [
-        _rec("rs_line_tranche_1", "1. Tranche: RS-Linie unter 21-EMA", active=under21, pct=pct1, detail=f"RS {rs_line or 0:.4f} vs. 21 {_safe_float(rs_ma21, 0) or 0:.4f}", trigger="RS schließt unter 21-EMA", feature_ids=[]),
-        _rec("rs_line_tranche_2", "2. Tranche: RS bestätigt Bruch", active=under21 and (days21 >= 3 or lower_than_break_day), pct=pct2, detail=f"{days21} Tage unter RS-21-EMA; {'tiefer als Bruchtag' if lower_than_break_day else 'Bruchtag nicht unterschritten'}", trigger="3 Tage unter 21-EMA oder tiefer als Bruchtag", feature_ids=[]),
-        _rec("rs_line_tranche_3", "3. Tranche: RS-Linie unter 50-EMA", active=under50 or days50 > 0, pct=pct3, detail=f"{days50} Tage unter RS-50-EMA", trigger="RS schließt unter 50-EMA", feature_ids=[]),
+        _rec("rs_line_tranche_1", "1. Tranche: RS-Linie unter 21-SMA", active=under21, pct=pct1, detail=f"RS {rs_line or 0:.4f} vs. 21 {_safe_float(rs_ma21, 0) or 0:.4f}", trigger="RS schließt unter 21-SMA", feature_ids=[]),
+        _rec("rs_line_tranche_2", "2. Tranche: RS bestätigt Bruch", active=under21 and (days21 >= 3 or lower_than_break_day), pct=pct2, detail=f"{days21} Tage unter RS-21-SMA; {'tiefer als Bruchtag' if lower_than_break_day else 'Bruchtag nicht unterschritten'}", trigger="3 Tage unter 21-SMA oder tiefer als Bruchtag", feature_ids=[]),
+        _rec("rs_line_tranche_3", "3. Tranche: RS-Linie unter 50-SMA", active=under50 or days50 > 0, pct=pct3, detail=f"{days50} Tage unter RS-50-SMA", trigger="RS schließt unter 50-SMA", feature_ids=[]),
         _emergency_rec(features_by_id),
     ]
 
@@ -1499,9 +1555,9 @@ def _ema21_risk_averse_strategy(setup: dict, metrics: dict, features_by_id: dict
     lower_next = bool(first and days >= 2 and metrics.get("close_lower_than_previous_day"))
     third = bool(first and days >= 3)
     return [
-        _rec("ema21_risk_first", "1/4 beim ersten deutlichen Schluss unter der 21-EMA", active=first, pct=_safe_int(setup.get("ema21_risk_averse_first_pct"), 25), detail=ema_break.detail if ema_break else "", trigger="21-EMA-Bruch", feature_ids=["offensive_ema21_break"]),
-        _rec("ema21_risk_second", "weiteres 1/4 bei tieferem Folgetag", active=lower_next, pct=_safe_int(setup.get("ema21_risk_averse_second_pct"), 25), detail=f"{days} Tage unter 21-EMA", trigger="Folgetag schwächer", feature_ids=["offensive_ema21_break"]),
-        _rec("ema21_risk_third", "weiteres 1/4 am dritten Tag unter der Linie", active=third, pct=_safe_int(setup.get("ema21_risk_averse_third_pct"), 25), detail=f"{days} Tage unter 21-EMA", trigger="Tag 3 weiterhin darunter", feature_ids=["offensive_ema21_break"]),
+        _rec("ema21_risk_first", "1. Tranche beim ersten deutlichen Schluss unter der 21-EMA", active=first, pct=_safe_int(setup.get("ema21_risk_averse_first_pct"), 25), detail=ema_break.detail if ema_break else "", trigger="21-EMA-Bruch", feature_ids=["offensive_ema21_break"]),
+        _rec("ema21_risk_second", "2. Tranche bei tieferem Folgetag", active=lower_next, pct=_safe_int(setup.get("ema21_risk_averse_second_pct"), 25), detail=f"{days} Tage unter 21-EMA", trigger="Folgetag schwächer", feature_ids=["offensive_ema21_break"]),
+        _rec("ema21_risk_third", "3. Tranche am dritten Tag unter der Linie", active=third, pct=_safe_int(setup.get("ema21_risk_averse_third_pct"), 25), detail=f"{days} Tage unter 21-EMA", trigger="Tag 3 weiterhin darunter", feature_ids=["offensive_ema21_break"]),
         _rec("ema21_risk_final", "Restverkauf bei Nothalt oder 50-Tage-Bruch", active=bool((emergency and emergency.active) or (ma50 and ma50.active)), pct=100, detail="Finale Bedingung erreicht.", trigger="Nothalt oder 50-SMA", feature_ids=["emergency_loss_limit", "defensive_ma_break_50"]),
     ]
 
@@ -1513,7 +1569,7 @@ def _ema21_offensive_strategy(setup: dict, metrics: dict, features_by_id: dict[s
     days = int(_metric(metrics, "days_under_ema21", 0) or 0)
     lower_lows = int(_metric(metrics, "lower_lows_count", 0) or _metric(metrics, "lower_low_days", 0) or 0)
     return [
-        _rec("ema21_offensive_first", "1/3 nach drei Tagen unter der 21-EMA", active=bool(ema_break and ema_break.active and days >= 3), pct=_safe_int(setup.get("ema21_offensive_first_pct"), 33), detail=f"{days} Tage unter 21-EMA", trigger="3 bestätigte Schlüsse", feature_ids=["offensive_ema21_break"]),
+        _rec("ema21_offensive_first", "1. Tranche nach drei Tagen unter der 21-EMA", active=bool(ema_break and ema_break.active and days >= 3), pct=_safe_int(setup.get("ema21_offensive_first_pct"), 33), detail=f"{days} Tage unter 21-EMA", trigger="3 bestätigte Schlüsse", feature_ids=["offensive_ema21_break"]),
         _rec("ema21_offensive_followup", "Weitere Tranche bei 50-SMA-Bruch oder drei tieferen Tiefs", active=bool((ma50 and ma50.active) or lower_lows >= 3), pct=33, detail=f"{lower_lows} tiefere Tiefs in Folge", trigger="50-SMA oder tiefere Tiefs", feature_ids=["defensive_ma_break_50"]),
         _rec("ema21_offensive_final", "Finale Tranche beim Nothalt", active=bool(emergency and emergency.active), pct=100, detail="Nothalt erreicht.", trigger="Nothalt", feature_ids=["emergency_loss_limit"]),
     ]
@@ -1547,8 +1603,8 @@ def _peak_drawdown_strategy(setup: dict, features_by_id: dict[str, RuleFeature])
         value=second_value,
     )
     return [
-        _rec("peak_drawdown_first", "1/4 bei erster Rückgangsschwelle vom 20T-Hoch", active=first_active, pct=_safe_int(setup.get("peak_drawdown_first_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(first_unit, first_value), feature_ids=["offensive_peak_drop"]),
-        _rec("peak_drawdown_second", "1/4 bei zweiter Rückgangsschwelle vom 20T-Hoch", active=second_active, pct=_safe_int(setup.get("peak_drawdown_second_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(second_unit, second_value), feature_ids=["offensive_peak_drop"]),
+        _rec("peak_drawdown_first", "1. Tranche bei erster Rückgangsschwelle vom 20T-Hoch", active=first_active, pct=_safe_int(setup.get("peak_drawdown_first_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(first_unit, first_value), feature_ids=["offensive_peak_drop"]),
+        _rec("peak_drawdown_second", "2. Tranche bei zweiter Rückgangsschwelle vom 20T-Hoch", active=second_active, pct=_safe_int(setup.get("peak_drawdown_second_pct"), 25), detail=peak.value if peak else "", trigger=_threshold_label(second_unit, second_value), feature_ids=["offensive_peak_drop"]),
         _rec("peak_drawdown_trend_break", "Weitere Tranche bei 21/50-Linienbruch", active=bool((ma21 and ma21.active) or (ma50 and ma50.active)), pct=25, detail="Trendbruch nach Peak-Rückgang.", trigger="21-EMA oder 50-SMA drei Tage darunter", feature_ids=["defensive_ma_break_21", "defensive_ma_break_50"]),
         _rec("peak_drawdown_final", "Finale Tranche beim Nothalt", active=bool(emergency and emergency.active), pct=100, detail="Nothalt erreicht.", trigger="Nothalt", feature_ids=["emergency_loss_limit"]),
     ]
@@ -1651,7 +1707,7 @@ def evaluate_sell_decision(
             if rec.active and rec.tranche_percent >= 100
         )
     warning_signals = [
-        _signal_from_feature(feature, contribution=feature.contribution_percent, strategy_key=feature.id)
+        _signal_from_feature(feature, contribution=0, strategy_key=feature.id)
         for feature in [*offensive_features, *defensive_features]
         if feature.active and feature.severity == "warning"
     ]
@@ -1662,20 +1718,9 @@ def evaluate_sell_decision(
     ][:12]
 
     target_total = 100 if killer_signals else int(strategy["recommendation_percent"])
-    if not killer_signals and strategy_key == "custom":
-        active_contributing = [feature for feature in all_features if feature.active and feature.contribution_percent > 0]
-        if len(active_contributing) >= 4:
-            target_total = max(target_total, 75)
-        if any(feature.id == "offensive_ma_extension_sma200" and feature.active for feature in active_contributing):
-            target_total = 100
-        if pnl >= 100 and any(feature.id == "offensive_biggest_gain" and feature.active for feature in active_contributing):
-            target_total = 100
-        if market_environment == BEARISH_MARKET_LABEL and target_total < 100 and target_total > 0:
-            target_total = _next_allowed(target_total)
-
     already_sold = _sum_already_sold(ticker, tranche_log)
     sell_now_raw = max(0.0, min(100.0, target_total - already_sold))
-    sell_now = _floor_allowed(sell_now_raw)
+    sell_now = int(math.floor(sell_now_raw))
     recommendation_percent = int(sell_now)
     remaining_after_sale = max(0.0, 100.0 - already_sold - sell_now)
 
@@ -1698,7 +1743,7 @@ def evaluate_sell_decision(
     elif warning_signals:
         explanation = f"Keine Verkaufstranche, aber {len(warning_signals)} aktive Warnmerkmale beobachten."
     else:
-        explanation = "Keine aktiven Verkaufsmerkmale. Position halten."
+        explanation = "Keine aktive Verkaufstranche in der gewählten Strategie. Position halten."
 
     sell_mode_summary = "Keine neue Verkaufstranche"
     sell_style_summary = ""
@@ -1726,6 +1771,23 @@ def evaluate_sell_decision(
     elif pending_status == "snoozed" and recommendation_percent > 0:
         display_label = "STUMM GESCHALTET"
 
+    def feature_output(feature: RuleFeature) -> dict[str, Any]:
+        selected = [rec for rec in recommendations if feature.id in rec.feature_ids and rec.tranche_percent > 0]
+        is_emergency = feature.category == "emergency"
+        contribution = 100 if is_emergency and feature.active else min(100, sum(rec.tranche_percent for rec in selected if rec.active))
+        result = feature.to_dict()
+        result.update(
+            strategy_selected=is_emergency or bool(selected),
+            recommendation_contribution_percent=contribution,
+            recommendation_effect=(
+                "Nothalt: Zielverkauf 100 % unabhängig von der Strategie" if is_emergency and feature.active
+                else f"In der Strategie aktiv: {contribution} % Zielverkauf" if contribution > 0
+                else "Strategiekriterium noch nicht ausgelöst" if is_emergency or selected
+                else "Nur Hinweis: kein Beitrag zur gewählten Verkaufsstrategie"
+            ),
+        )
+        return result
+
     all_signals = [*killer_signals, *tranche_signals, *warning_signals, *watch_signals]
     book_references = {sig.id: sig.book_reference for sig in all_signals if sig.book_reference}
     return {
@@ -1737,9 +1799,9 @@ def evaluate_sell_decision(
         "tranche_signals": [sig.to_dict() for sig in tranche_signals],
         "warning_signals": [sig.to_dict() for sig in warning_signals],
         "watch_signals": [sig.to_dict() for sig in watch_signals],
-        "emergency_features": [feature.to_dict() for feature in emergency_features],
-        "offensive_features": [feature.to_dict() for feature in offensive_features],
-        "defensive_features": [feature.to_dict() for feature in defensive_features],
+        "emergency_features": [feature_output(feature) for feature in emergency_features],
+        "offensive_features": [feature_output(feature) for feature in offensive_features],
+        "defensive_features": [feature_output(feature) for feature in defensive_features],
         "strategy": strategy,
         "stop_price": stop_price,
         "next_tranche_trigger_price": next_tranche_trigger,

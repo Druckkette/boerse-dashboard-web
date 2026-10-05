@@ -1534,6 +1534,7 @@ export type SellManualInput = {
   strength_checkboxes: Record<string, boolean>;
   warning_checkboxes: Record<string, boolean>;
   sell_setup: Record<string, unknown>;
+  use_global_sell_setup?: boolean | null;
 };
 
 export type SellRecommendationState = {
@@ -1581,6 +1582,9 @@ export type SellRuleFeature = {
   contribution_percent: number;
   strategy_key: string;
   setup: Record<string, unknown>;
+  strategy_selected?: boolean;
+  recommendation_contribution_percent?: number;
+  recommendation_effect?: string;
 };
 
 export type SellStrategyRecommendation = {
@@ -1789,6 +1793,7 @@ export type AppSettings = {
   data_jobs_enabled: boolean;
   market_ampel_logic: "current" | "ibd";
   assessment_score_weights: AssessmentScoreWeights;
+  sell_rule_setup: Record<string, unknown>;
 };
 
 export type AssessmentScoreWeights = {

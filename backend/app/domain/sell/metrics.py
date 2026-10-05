@@ -659,6 +659,7 @@ def build_sell_decision_metrics_payload(
     )
 
     ohlc_frames = {
+        "daily_history": daily_full,
         "daily_since_buy": daily_since_buy,
         "weekly_since_buy": weekly_since_buy,
         "benchmark_daily": bench_daily,

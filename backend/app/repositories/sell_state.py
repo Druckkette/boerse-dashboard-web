@@ -58,6 +58,7 @@ def upsert_manual_input(manual: SellManualInput) -> SellManualInput:
             row.industry_group_status = stored.industry_group_status
             row.checkboxes_json = {
                 "personality_changed": stored.personality_changed,
+                "use_global_sell_setup": stored.use_global_sell_setup,
                 "strength_checkboxes": stored.strength_checkboxes,
                 "warning_checkboxes": stored.warning_checkboxes,
             }
@@ -211,6 +212,17 @@ def upsert_ranking_snapshot(
         return len(normalized)
 
 
+def invalidate_ranking_snapshot() -> None:
+    """Drop generated recommendations after a rule change; retain manual inputs and trades."""
+    _MEMORY_RANKING_SNAPSHOT.clear()
+    try:
+        with SessionLocal() as db:
+            db.execute(delete(SellRankingSnapshotModel))
+            db.commit()
+    except SQLAlchemyError:
+        pass
+
+
 def list_post_mortem_notes(ticker: str) -> list[SellPostMortemNote]:
     clean = _clean_ticker(ticker)
     try:
@@ -287,6 +299,7 @@ def _manual_from_model(row: SellManualInputModel) -> SellManualInput:
         strength_checkboxes=dict(checkboxes.get("strength_checkboxes") or {}),
         warning_checkboxes=dict(checkboxes.get("warning_checkboxes") or {}),
         sell_setup=dict(row.setup_json or {}),
+        use_global_sell_setup=checkboxes.get("use_global_sell_setup"),
     )
 
 

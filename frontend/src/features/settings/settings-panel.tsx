@@ -18,6 +18,8 @@ import {
   assessmentCriterionLabel,
 } from "@/features/stocks/assessment-criteria";
 import { AssessmentCriterionNote } from "@/features/stocks/assessment-criterion-note";
+import { SellRuleSetupEditor } from "@/features/sell/sell-rule-setup-editor";
+import { PositionSellSettings } from "@/features/sell/sell-setup-panel";
 import { qualityLabel } from "@/lib/format";
 import type { AppSettings, AssessmentScoreWeights } from "@/lib/types/api";
 
@@ -70,6 +72,7 @@ const fallbackSettings: AppSettings = {
   data_jobs_enabled: true,
   market_ampel_logic: "current",
   assessment_score_weights: defaultAssessmentScoreWeights,
+  sell_rule_setup: {},
 };
 
 const scoreWeightLabels: Record<
@@ -159,7 +162,14 @@ export function SettingsPanel() {
     staleTime: 15_000,
   });
   const [local, setLocal] = useState<AppSettings | null>(null);
+  const [stockRulesDirty, setStockRulesDirty] = useState(false);
   const [tab, setTab] = useState("investment");
+  useEffect(() => {
+    const routeHash = () => { if (window.location.hash === "#sell-strategy") setTab("alerts"); };
+    routeHash();
+    window.addEventListener("hashchange", routeHash);
+    return () => window.removeEventListener("hashchange", routeHash);
+  }, []);
   const changes = data && local ? settingsChanges(data, local) : {};
   const changeCount = Object.keys(changes).length;
   const dirty = changeCount > 0;
@@ -173,6 +183,10 @@ export function SettingsPanel() {
       queryClient.invalidateQueries({ queryKey: ["market-overview"] });
       queryClient.invalidateQueries({ queryKey: ["home-dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-manual"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-evaluation"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
       setLocal(null);
     },
   });
@@ -286,6 +300,7 @@ export function SettingsPanel() {
             key={id}
             type="button"
             aria-pressed={tab === id}
+            disabled={stockRulesDirty && id !== "alerts"}
             onClick={() => setTab(id)}
             className={`shrink-0 rounded-[8px] px-4 py-2 text-sm font-medium ${tab === id ? "bg-[#e8f4f2] text-[#0f766e]" : "text-[#687386] hover:bg-[#f6f8fb]"}`}
           >
@@ -469,6 +484,10 @@ export function SettingsPanel() {
         )}
         {tab === "alerts" && (
           <section aria-label="Überwachung & Alerts" className="space-y-4">
+            <div id="sell-strategy"><SettingCard title="Globale Verkaufsstrategie" description="Standard für Aktien ohne eigene Verkaufsregeln. Strategie, Grenzwerte und Baukasten werden gemeinsam über Änderungen speichern gesichert." value="Standard">
+              <SellRuleSetupEditor setup={settings.sell_rule_setup} onChange={(next) => update("sell_rule_setup", next)} />
+            </SettingCard></div>
+            <PositionSellSettings globalDraftDirty={"sell_rule_setup" in changes} onDirtyChange={setStockRulesDirty} />
             {" "}
             <SettingCard
               description="Überwacht offene Positionen auf Kurs-, MA- und Bewertungsänderungen."
@@ -838,7 +857,9 @@ export function SettingsPanel() {
               ? "Wird gespeichert…"
               : dirty
                 ? `${changeCount} Änderungen`
-                : mutation.isSuccess
+                : stockRulesDirty
+                  ? "Aktienregeln ungespeichert · oben speichern oder verwerfen"
+                  : mutation.isSuccess
                   ? "✓ Gespeichert"
                   : "Keine ungespeicherten Änderungen"}
           </span>
