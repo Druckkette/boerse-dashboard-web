@@ -1034,6 +1034,7 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
             f"mindestens {MINIMUM_SELL_PRICE_BARS} werden für den Verkaufsmonitor benötigt."
         )
 
+    from app.services.market_calendar import completed_common_market_session
     payload = build_sell_decision_metrics_payload(
         ticker=request.ticker,
         buy_date=request.buy_date,
@@ -1044,6 +1045,7 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
         benchmark_ticker=request.benchmark_ticker,
         currency=request.currency,
         pivot_date=request.pivot_date,
+        rs_completed_through=completed_common_market_session(request.ticker, request.benchmark_ticker).date,
     )
     if not payload.get("ok"):
         raise SellMarketDataUnavailableError(str(payload.get("error") or "Keine auswertbaren Kursdaten für die Verkaufsentscheidung."))
@@ -1073,8 +1075,8 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
         bars = prices_repository.list_price_bars(ticker)
     except PriceRepositoryUnavailable:
         return pd.DataFrame()
-    from app.services.market_calendar import completed_us_market_session, daily_bar_is_final
-    completed = completed_us_market_session()
+    from app.services.market_calendar import completed_ticker_market_session, daily_bar_is_final
+    completed = completed_ticker_market_session(ticker)
     rows: list[dict[str, Any]] = []
     for bar in bars:
         close = _finite_float(bar.close)
@@ -1084,7 +1086,7 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
         rows.append(
             {
                 "Date": pd.Timestamp(bar.date),
-                "IsFinal": daily_bar_is_final(bar.date, getattr(bar, "fetched_at", None), completed=completed),
+                "IsFinal": daily_bar_is_final(bar.date, getattr(bar, "fetched_at", None), completed=completed, ticker=ticker),
                 "Open": open_price,
                 "High": _finite_float(bar.high, float("nan")),
                 "Low": _finite_float(bar.low, float("nan")),

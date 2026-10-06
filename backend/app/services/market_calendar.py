@@ -82,6 +82,68 @@ def previous_us_market_session_date(session_date: date) -> date:
     return fallback
 
 
+# Yahoo exchange suffixes used by the cache. Unsuffixed US shares/ADRs and SPY
+# use NYSE sessions; foreign listings use their own closing times and holidays.
+_TICKER_CALENDARS = {"L": "XLON", "DE": "XETR", "F": "XFRA", "HK": "XHKG", "PA": "XPAR", "AS": "XAMS", "MI": "XMIL", "T": "XTKS", "TO": "XTSE", "AX": "XASX", "SW": "XSWX", "VI": "XWBO", "BR": "XBRU", "MC": "XMAD"}
+
+
+def ticker_market_calendar_name(ticker: str) -> str:
+    suffix = str(ticker or "").upper().rsplit(".", 1)[-1]
+    return _TICKER_CALENDARS.get(suffix, "XNYS")
+
+
+def _ticker_calendar(ticker: str):
+    name = ticker_market_calendar_name(ticker)
+    if name == "XNYS":
+        return _xnys_calendar()
+    with _calendar_lock:
+        return _load_exchange_calendar(name)
+
+
+@lru_cache(maxsize=16)
+def _load_exchange_calendar(name: str):
+    return xcals.get_calendar(name)
+
+
+def common_market_sessions(ticker: str, benchmark: str, start: date, end: date) -> pd.DatetimeIndex:
+    left = _ticker_calendar(ticker).sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))
+    right = _ticker_calendar(benchmark).sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))
+    return left.intersection(right)
+
+
+def completed_ticker_market_session(ticker: str, now: datetime | None = None) -> ExpectedMarketSession:
+    if ticker_market_calendar_name(ticker) == "XNYS":
+        return completed_us_market_session() if now is None else completed_us_market_session(now)
+    return completed_common_market_session(ticker, ticker, now)
+
+
+def completed_common_market_session(ticker: str, benchmark: str, now: datetime | None = None) -> ExpectedMarketSession:
+    if ticker_market_calendar_name(ticker) == ticker_market_calendar_name(benchmark) == "XNYS":
+        return completed_us_market_session() if now is None else completed_us_market_session(now)
+    current = _as_utc(now or datetime.now(UTC))
+    left, right = _ticker_calendar(ticker), _ticker_calendar(benchmark)
+    sessions = common_market_sessions(ticker, benchmark, (current - timedelta(days=14)).date(), current.date())
+    for session in reversed(sessions):
+        close_at = max(_as_utc(left.session_close(session).to_pydatetime()), _as_utc(right.session_close(session).to_pydatetime()))
+        if close_at <= current:
+            open_at = max(_as_utc(left.session_open(session).to_pydatetime()), _as_utc(right.session_open(session).to_pydatetime()))
+            return ExpectedMarketSession(date=session.date(), phase="closed", open_at=open_at, close_at=close_at)
+    raise ValueError(f"Keine gemeinsame abgeschlossene Börsensitzung für {ticker}/{benchmark}")
+
+
+def last_ticker_market_session_of_week(day: date, ticker: str) -> date:
+    monday = day - timedelta(days=day.weekday())
+    sessions = _ticker_calendar(ticker).sessions_in_range(pd.Timestamp(monday), pd.Timestamp(monday + timedelta(days=4)))
+    return sessions[-1].date() if len(sessions) else monday + timedelta(days=4)
+
+
+def previous_ticker_market_session_date(ticker: str, day: date) -> date:
+    if ticker_market_calendar_name(ticker) == "XNYS":
+        return previous_us_market_session_date(day)
+    sessions = _ticker_calendar(ticker).sessions_in_range(pd.Timestamp(day - timedelta(days=14)), pd.Timestamp(day - timedelta(days=1)))
+    return sessions[-1].date()
+
+
 def last_us_market_session_of_week(day: date) -> date:
     monday = day - timedelta(days=day.weekday())
     sessions = _xnys_calendar().sessions_in_range(pd.Timestamp(monday), pd.Timestamp(monday + timedelta(days=4)))
@@ -103,8 +165,8 @@ def price_is_current(bar_date: date | None, fetched_at: datetime | None, *, now:
     return required_time is not None and _as_utc(fetched_at) >= required_time
 
 
-def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: datetime | None = None, completed: ExpectedMarketSession | None = None) -> bool:
-    completed = completed or completed_us_market_session(now)
+def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: datetime | None = None, completed: ExpectedMarketSession | None = None, ticker: str = "") -> bool:
+    completed = completed or completed_ticker_market_session(ticker, now)
     if bar_date > completed.date:
         return False
     if fetched_at is None:
@@ -112,7 +174,7 @@ def daily_bar_is_final(bar_date: date, fetched_at: datetime | None, *, now: date
         return bar_date < completed.date
     if _as_utc(fetched_at).date() > bar_date:
         return True
-    calendar = _xnys_calendar()
+    calendar = _ticker_calendar(ticker)
     session = pd.Timestamp(bar_date)
     if not calendar.is_session(session):
         return False

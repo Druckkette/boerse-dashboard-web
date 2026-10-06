@@ -38,6 +38,8 @@ FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "sell"
 @pytest.fixture(autouse=True)
 def reset_sell_state(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_sell_engine_state()
+    from app.services.market_calendar import ExpectedMarketSession
+    monkeypatch.setattr("app.services.market_calendar.completed_common_market_session", lambda *args: ExpectedMarketSession(date=date(2026, 6, 5), phase="closed"))
     monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", fixture_positions)
     monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", fixture_price_bars)
 

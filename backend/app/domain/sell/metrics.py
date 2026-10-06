@@ -235,6 +235,7 @@ def build_sell_decision_metrics_payload(
     pnl_abs_eur=None,
     fx_rate_to_eur=None,
     pivot_date=None,
+    rs_completed_through=None,
 ) -> dict[str, Any]:
     """Build all reusable sell-decision metrics from OHLC inputs.
 
@@ -300,8 +301,8 @@ def build_sell_decision_metrics_payload(
 
     weekly = df.resample("W-FRI").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna(subset=["Close"])
     if "IsFinal" in price_frame:
-        from app.services.market_calendar import last_us_market_session_of_week
-        weekly = weekly[[last_us_market_session_of_week(day.date()) <= df.index[-1].date() for day in weekly.index]]
+        from app.services.market_calendar import last_ticker_market_session_of_week
+        weekly = weekly[[last_ticker_market_session_of_week(day.date(), clean_ticker) <= df.index[-1].date() for day in weekly.index]]
     weekly_close = pd.to_numeric(weekly["Close"], errors="coerce") if not weekly.empty else pd.Series(dtype=float)
     weekly_sma10 = _sma(weekly_close, 10)
     weekly_ema21 = _ema(weekly_close, 21)
@@ -343,12 +344,19 @@ def build_sell_decision_metrics_payload(
     rs_ma21 = _sma(rs_line, 21)
     rs_ma50 = _sma(rs_line, 50)
     rs_emas = {period: _ema(rs_line, period) for period in (21, 34, 50)}
-    latest_benchmark_dates = df.index.union(bench.index[final_benchmark])[-50:]
-    rs_data_complete = bool(len(latest_benchmark_dates) == 50 and len(rs_line) >= 50 and df.index[-1] == latest_benchmark_dates[-1] and latest_benchmark_dates.isin(rs_line.index).all())
+    from app.services.market_calendar import common_market_sessions
+    final_benchmark_dates = bench.index[final_benchmark]
+    expected_end = pd.Timestamp(rs_completed_through) if rs_completed_through is not None else max(df.index[-1], final_benchmark_dates[-1]) if len(final_benchmark_dates) else df.index[-1]
+    expected_start = max(df.index[0], bench.index[0])
+    # Only sessions on which BOTH exchanges trade are RS confirmation dates.
+    # A London bank holiday or a US holiday is not a missing German/London bar.
+    expected_rs_dates = common_market_sessions(clean_ticker, clean_benchmark, expected_start.date(), expected_end.date()) if expected_start <= expected_end else pd.DatetimeIndex([])
+    latest_benchmark_dates = expected_rs_dates[-50:]
+    rs_data_complete = bool(len(latest_benchmark_dates) == 50 and len(rs_line) >= 50 and _last_index_date(rs_line) == str(latest_benchmark_dates[-1].date()) and latest_benchmark_dates.isin(rs_line.index).all())
     weekly_rs = rs_line.resample("W-FRI").last().dropna()
     weekly_rs_ma10 = _sma(weekly_rs, 10)
     weekly_rs_ma25 = _sma(weekly_rs, 25)
-    confirmation_dates = bench.index[final_benchmark & (bench.index <= joined_rs.index[-1])] if not joined_rs.empty else joined_rs.index
+    confirmation_dates = expected_rs_dates[expected_rs_dates <= joined_rs.index[-1]] if not joined_rs.empty else joined_rs.index
     # Missing asset closes interrupt confirmation; don't compress a data gap
     # into three consecutive benchmark sessions.
     days_under_rs_ma21 = _trailing_true_count((rs_line < rs_ma21).reindex(confirmation_dates, fill_value=False))
@@ -683,7 +691,7 @@ def build_sell_decision_metrics_payload(
         if not daily_since_buy.empty else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     )
     if "IsFinal" in price_frame:
-        weekly_since_buy = weekly_since_buy[[last_us_market_session_of_week(day.date()) <= df.index[-1].date() for day in weekly_since_buy.index]]
+        weekly_since_buy = weekly_since_buy[[last_ticker_market_session_of_week(day.date(), clean_ticker) <= df.index[-1].date() for day in weekly_since_buy.index]]
     bench_daily = _lowercase_ohlc(bench)
     bench_weekly = (
         bench_daily.resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
