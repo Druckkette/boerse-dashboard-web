@@ -82,6 +82,12 @@ def previous_us_market_session_date(session_date: date) -> date:
     return fallback
 
 
+def last_us_market_session_of_week(day: date) -> date:
+    monday = day - timedelta(days=day.weekday())
+    sessions = _xnys_calendar().sessions_in_range(pd.Timestamp(monday), pd.Timestamp(monday + timedelta(days=4)))
+    return sessions[-1].date() if len(sessions) else monday + timedelta(days=4)
+
+
 def completed_us_market_session(now: datetime | None = None) -> ExpectedMarketSession:
     current = expected_us_market_session(now)
     if current.phase != "intraday":

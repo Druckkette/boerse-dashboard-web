@@ -8,7 +8,7 @@ The engine deliberately separates feature detection from strategy decisions:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
 import math
@@ -28,6 +28,7 @@ STRENGTH_DEFENSIVE_STYLE = "Gewinn nach Rückzug sichern"
 SELL_STRATEGY_LABELS = {
     "custom": "Benutzerdefinierte Verkaufsstrategie",
     "rs_line": "RS-Linie täglich mit 21/50-SMA",
+    "rs_line_ema": "RS-Linie EMA",
     "ema21_risk_averse": "21-EMA-Bruch risikoavers",
     "ema21_offensive": "21-EMA-Bruch offensiv",
     "peak_drawdown": "Starker Rückgang vom 20-Tage-Hoch",
@@ -36,6 +37,7 @@ SELL_STRATEGY_LABELS = {
 }
 SELL_STRATEGY_DESCRIPTIONS = {
     "custom": "Nutzt die ausgewählten Kriterien und Tranche-Prozente aus dem globalen Standard oder den eigenen Aktienregeln.",
+    "rs_line_ema": "WRO #73 täglich: Quick unter RS-21-EMA, Quicksand unter RS-34-EMA, Restverkauf unter RS-50-EMA. Verkaufsziele schließen den flexiblen Anteil ein.",
     "rs_line": "Drei Stufen auf Tagesschlussbasis: unter 21-SMA, drei Schlüsse in Folge darunter, danach Restverkauf unter 50-SMA.",
     "ema21_risk_averse": "Frühe Tranchen bei erstem Bruch der 21-EMA, schwachem Folgetag und fortgesetztem Bruch.",
     "ema21_offensive": "Geduldiger: erste Tranche erst nach drei Schlüssen unter der 21-EMA.",
@@ -131,6 +133,9 @@ DEFAULT_SELL_RULE_SETUP: dict[str, Any] = {
     "loss_weeks_require_rising_volume": False,
     "worst_drop_warmup_days": 20,
     "worst_drop_warmup_weeks": 4,
+    "rs_ema_core_pct": 60,
+    "rs_ema_first_pct": 20,
+    "rs_ema_second_pct": 20,
     "rs_tranche_1_pct": 25,
     "rs_tranche_2_pct": 25,
     # Persist the planned remainder for compatibility; the slow-line exit always targets 100 %.
@@ -197,6 +202,7 @@ class RuleFeature:
     id: str
     category: Literal["emergency", "offensive", "defensive"]
     label: str
+    available: bool = True
     active: bool = False
     severity: Literal["inactive", "watch", "warning", "tranche", "killer"] = "inactive"
     value: str = ""
@@ -327,7 +333,7 @@ def validate_sell_setup_payload(raw_setup: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(f"{key} muss eine nichtnegative, endliche Zahl sein")
             if isinstance(DEFAULT_SELL_RULE_SETUP[key], float) and value == 0:
                 raise ValueError(f"{key} muss größer als null sein")
-            if key.endswith("_pct") and (key.startswith("rs_tranche") or "first" in key or "second" in key or "third" in key) and (value > 100 or value != int(value)):
+            if key.endswith("_pct") and (key.startswith(("rs_tranche", "rs_ema")) or "first" in key or "second" in key or "third" in key) and (value > 100 or value != int(value)):
                 raise ValueError("Eine Tranche muss eine ganze Prozentzahl von 0 bis 100 sein")
             if isinstance(DEFAULT_SELL_RULE_SETUP[key], int) and not isinstance(DEFAULT_SELL_RULE_SETUP[key], bool) and (value != int(value) or (not key.endswith("_pct") and value < 1)):
                 raise ValueError(f"{key} muss eine positive ganze Zahl sein")
@@ -337,6 +343,12 @@ def validate_sell_setup_payload(raw_setup: dict[str, Any]) -> dict[str, Any]:
         if first + second > 100:
             raise ValueError("Die ersten beiden RS-Tranchen dürfen zusammen höchstens 100 % ergeben")
         setup["rs_tranche_3_pct"] = 100 - first - second
+    if setup.get("strategy_key") == "rs_line_ema" or any(k.startswith("rs_ema_") for k in setup):
+        core = setup.get("rs_ema_core_pct", DEFAULT_SELL_RULE_SETUP["rs_ema_core_pct"])
+        first = setup.get("rs_ema_first_pct", DEFAULT_SELL_RULE_SETUP["rs_ema_first_pct"])
+        second = setup.get("rs_ema_second_pct", DEFAULT_SELL_RULE_SETUP["rs_ema_second_pct"])
+        if core <= 0 or first + second > core:
+            raise ValueError("Die Kernposition muss größer als null sein; ihre ersten beiden Tranchen dürfen sie zusammen nicht überschreiten")
     return setup
 
 
@@ -539,7 +551,7 @@ def _signal_from_recommendation(recommendation: StrategyRecommendation, features
         id=recommendation.id,
         label=recommendation.label,
         contribution_percent=int(recommendation.tranche_percent),
-        book_reference=BOOK_REFERENCES.get(feature.id if feature else recommendation.id, ""),
+        book_reference=BOOK_REFERENCES.get(feature.id if feature else recommendation.id, "") or ("Buchprojekt · WRO #73 · Quick/Quicksand/Grateful Dead" if recommendation.id.startswith("rs_ema_") else ""),
         signal_date=feature.signal_date if feature else "",
         event_note=recommendation.detail or recommendation.trigger,
         sell_mode=_sell_mode_for_category(feature.category if feature else "offensive"),
@@ -577,7 +589,7 @@ def _next_allowed(value: int) -> int:
     return 100
 
 
-def _sum_already_sold(ticker: str, tranche_log: list[dict] | None) -> float:
+def _sum_already_sold(ticker: str, tranche_log: list[dict] | None, buy_date: str = "") -> float:
     clean_ticker = str(ticker or "").upper().strip()
     total = 0.0
     for entry in tranche_log or []:
@@ -585,6 +597,11 @@ def _sum_already_sold(ticker: str, tranche_log: list[dict] | None) -> float:
             continue
         entry_ticker = str(entry.get("ticker") or clean_ticker).upper().strip()
         if clean_ticker and entry_ticker and entry_ticker != clean_ticker:
+            continue
+        # Earlier completed holdings of the same ticker do not count toward
+        # the current position. Undated legacy entries remain compatible.
+        entry_date = _normalize_state_date(entry.get("date"))
+        if buy_date and entry_date and entry_date < _normalize_state_date(buy_date):
             continue
         pct = _safe_float(entry.get("tranche_percent"), _safe_float(entry.get("pct"), 0.0)) or 0.0
         if pct > 0:
@@ -612,8 +629,8 @@ def _build_stop_price(setup: dict, buy_price: float, atr: float | None) -> float
     value = _safe_float(setup.get("emergency_stop_value"), 7.0) or 7.0
     if buy_price <= 0:
         return None
-    if unit == "atr" and atr and atr > 0:
-        return max(0.0, buy_price - atr * value)
+    if unit == "atr":
+        return max(0.0, buy_price - atr * value) if atr and atr > 0 else None
     return buy_price * (1 - value / 100)
 
 
@@ -691,15 +708,18 @@ def compute_sell_health_score(metrics_payload: dict, manual_data: dict | None = 
         reasons.append("Drawdown 8-12%")
 
     rs_line = _metric(metrics, "rs_line")
-    rs_ma21 = _metric(metrics, "rs_ma21")
-    rs_ma50 = _metric(metrics, "rs_ma50")
+    rs_setup = _resolve_setup(metrics_payload or {}, manual_data)
+    uses_rs_ema = rs_setup.get("strategy_key") == "rs_line_ema"
+    rs_ma21 = _metric(metrics, "rs_ema21" if uses_rs_ema else "rs_ma21")
+    rs_ma50 = _metric(metrics, "rs_ema50" if uses_rs_ema else "rs_ma50")
+    rs_middle = _metric(metrics, "rs_ema34") if uses_rs_ema else None
     days_under_rs21 = int(_metric(metrics, "days_under_rs_ma21", 0) or 0)
     if rs_line is not None and rs_ma21 is not None and rs_ma50 is not None:
-        if rs_line >= rs_ma21 and rs_line >= rs_ma50 and days_under_rs21 == 0:
+        if rs_line >= rs_ma21 and rs_line >= rs_ma50 and (rs_middle is None or rs_line >= rs_middle) and (uses_rs_ema or days_under_rs21 == 0):
             rs_trend = "hoch"
             score += 10
             reasons.append("RS hoch")
-        elif rs_line < rs_ma21 or rs_line < rs_ma50 or days_under_rs21 >= 3:
+        elif rs_line < rs_ma21 or rs_line < rs_ma50 or (rs_middle is not None and rs_line < rs_middle) or (not uses_rs_ema and days_under_rs21 >= 3):
             rs_trend = "runter"
             score -= 12
             reasons.append("RS runter/unter MAs")
@@ -782,7 +802,9 @@ def _compute_recommendation_status(
     if prior_date == today:
         next_state["consecutive_days"] = max(1, prior_streak)
     elif prior_pct == sell_now and prior_date:
-        next_state["consecutive_days"] = prior_streak + 1
+        from app.services.market_calendar import previous_us_market_session_date
+        previous_session = previous_us_market_session_date(pd.Timestamp(today).date()).isoformat()
+        next_state["consecutive_days"] = prior_streak + 1 if prior_date == previous_session else 1
     else:
         next_state["consecutive_days"] = 1
     if confirmed_signal or sell_now < HYSTERESIS_MIN_CONTRIBUTION or sell_now >= HYSTERESIS_BYPASS_CONTRIBUTION:
@@ -837,7 +859,7 @@ def _detect_offensive_features(
     high = _series(daily, "high")
     low = _series(daily, "low")
     volume = _series(daily, "volume")
-    current = _metric(metrics, "current_price")
+    current = _metric(metrics, "signal_close", _metric(metrics, "current_price"))
     atr = _metric(metrics, "atr14")
     as_of = str(metrics_payload.get("as_of") or metrics.get("as_of_date") or _last_date(daily))
     features: list[RuleFeature] = []
@@ -946,8 +968,8 @@ def _detect_offensive_features(
     # Shared candle/volume derived series.
     day_range = (high - low).replace(0, pd.NA)
     close_range = ((close - low) / day_range).clip(lower=0, upper=1)
-    pct_change = close.pct_change(fill_method=None) * 100
-    volume_sma50 = volume.rolling(50, min_periods=10).mean()
+    pct_change = history_close.pct_change(fill_method=None).reindex(close.index) * 100
+    volume_sma50 = _series(history if not history.empty else daily, "volume").rolling(50, min_periods=50).mean().reindex(close.index)
 
     # 5. Many lower-third closes.
     low_window = max(1, _safe_int(setup.get("low_closes_window"), 10))
@@ -971,7 +993,7 @@ def _detect_offensive_features(
     sharp_unit = str(setup.get("sharp_drop_unit") or "pct")
     sharp_value = _safe_float(setup.get("sharp_drop_value"), 6.0) or 6.0
     reclaim_days = max(1, _safe_int(setup.get("sharp_drop_reclaim_days"), 4))
-    sharp = _sharp_drop_without_reclaim(daily, pct_change, atr, sharp_unit, sharp_value, reclaim_days)
+    sharp = _sharp_drop_without_reclaim(daily, pct_change, atr, sharp_unit, sharp_value, reclaim_days, atr_series=atr_series)
     features.append(_feature(
         "offensive_sharp_drop_no_reclaim",
         "offensive",
@@ -1007,7 +1029,7 @@ def _detect_offensive_features(
     ))
 
     # 8. Biggest price increase with volume.
-    biggest = _biggest_gain_feature(daily, pct_change, volume, volume_sma50, atr, setup, as_of)
+    biggest = _biggest_gain_feature(daily, pct_change, volume, volume_sma50, atr, setup, as_of, history=history, atr_series=atr_series)
     features.append(biggest)
 
     # 9. Stall days.
@@ -1095,7 +1117,9 @@ def _ma_extension_feature(
             contribution_percent=contribution,
             setup={"line": key, "threshold_pct": threshold_pct, "unit": unit},
         )
-    anchor_date = trigger_mask[trigger_mask.fillna(False)].index[-1]
+    # Keep the strongest overextended close as anchor. A declining candle
+    # must not erase the breach merely because it is still overextended.
+    anchor_date = close[trigger_mask.fillna(False)].idxmax()
     anchor_close = _safe_float(close.loc[anchor_date])
     latest_extension = _safe_float(extension_pct.dropna().iloc[-1]) if not extension_pct.dropna().empty else None
     active = bool(anchor_close is not None and current < anchor_close and close.index[-1] > anchor_date)
@@ -1124,6 +1148,8 @@ def _sharp_drop_without_reclaim(
     unit: str,
     value: float,
     reclaim_days: int,
+    *,
+    atr_series: pd.Series | None = None,
 ) -> dict[str, Any]:
     if daily.empty or pct_change.empty:
         return {"active": False, "value": "-", "detail": "Nicht genügend Kursdaten.", "signal_date": ""}
@@ -1132,19 +1158,22 @@ def _sharp_drop_without_reclaim(
     result = {"active": False, "value": "kein unreclaimter Einbruch", "detail": "Kein scharfer Einbruch ohne Reclaim.", "signal_date": ""}
     for idx, pct in pct_change.dropna().items():
         drop_abs = abs(_safe_float(pct, 0.0) or 0.0)
+        event_atr = _safe_float(atr_series.get(idx)) if atr_series is not None else atr
         price_abs = None
-        if unit == "atr" and atr and atr > 0:
-            previous_close = _safe_float(close.shift(1).loc[idx])
+        if unit == "atr" and event_atr and event_atr > 0:
             current_close = _safe_float(close.loc[idx])
+            previous_close = current_close / (1 + float(pct) / 100) if current_close is not None and float(pct) > -100 else None
             if previous_close is not None and current_close is not None:
                 price_abs = previous_close - current_close
-        crossed = _threshold_crossed(distance_pct=drop_abs, distance_abs=price_abs, atr=atr, unit=unit, value=value)
+        crossed = _threshold_crossed(distance_pct=drop_abs, distance_abs=price_abs, atr=event_atr, unit=unit, value=value)
         if pct >= 0 or not crossed:
             continue
         pos = daily.index.get_loc(idx)
         if not isinstance(pos, int):
             continue
         if pos + reclaim_days >= len(daily):
+            if result["active"]:
+                continue
             result = {
                 "active": False,
                 "value": f"{drop_abs:.1f}% Einbruch läuft noch",
@@ -1173,6 +1202,9 @@ def _biggest_gain_feature(
     atr: float | None,
     setup: dict,
     as_of: str,
+    *,
+    history: pd.DataFrame | None = None,
+    atr_series: pd.Series | None = None,
 ) -> RuleFeature:
     unit = str(setup.get("biggest_gain_unit") or "pct")
     value = _safe_float(setup.get("biggest_gain_value"), 10.0) or 10.0
@@ -1195,20 +1227,23 @@ def _biggest_gain_feature(
     active_date = ""
     active_pct = None
     active_detail = ""
+    comparison = _series(history, "close").pct_change(fill_method=None) * 100 if history is not None and not history.empty else pct_change
+    comparison_volume = _series(history, "volume") if history is not None and not history.empty else volume
     for idx, pct in recent_pct.items():
-        previous_pct = pct_change[pct_change.index < idx].tail(lookback)
+        event_atr = _safe_float(atr_series.get(idx)) if atr_series is not None else atr
+        previous_pct = comparison[comparison.index < idx].tail(lookback)
         previous_max = _safe_float(previous_pct.max(), 0.0) or 0.0
-        prev_vol = _safe_float(volume.shift(1).loc[idx])
+        prev_vol = _safe_float(comparison_volume.shift(1).loc[idx])
         vol = _safe_float(volume.loc[idx])
         avg_vol = _safe_float(volume_sma50.loc[idx])
         higher_volume = bool(vol is not None and ((prev_vol is not None and vol > prev_vol) or (avg_vol is not None and vol > avg_vol)))
         day_abs = None
-        if unit == "atr" and atr and atr > 0:
-            previous_close = _safe_float(close.shift(1).loc[idx])
+        if unit == "atr" and event_atr and event_atr > 0:
             current_close = _safe_float(close.loc[idx])
+            previous_close = current_close / (1 + float(pct) / 100) if current_close is not None and float(pct) > -100 else None
             if previous_close is not None and current_close is not None:
                 day_abs = current_close - previous_close
-        crossed = _threshold_crossed(distance_pct=float(pct), distance_abs=day_abs, atr=atr, unit=unit, value=value)
+        crossed = _threshold_crossed(distance_pct=float(pct), distance_abs=day_abs, atr=event_atr, unit=unit, value=value)
         multiplier_hit = previous_max > 0 and float(pct) >= previous_max * multiplier
         if pct > 0 and higher_volume and (crossed or multiplier_hit):
             active_date = pd.Timestamp(idx).strftime("%Y-%m-%d")
@@ -1244,7 +1279,7 @@ def _detect_defensive_features(
     low = _series(daily, "low")
     weekly_close = _series(weekly, "close")
     weekly_volume = _series(weekly, "volume")
-    current = _metric(metrics, "current_price")
+    current = _metric(metrics, "signal_close", _metric(metrics, "current_price"))
     as_of = str(metrics_payload.get("as_of") or metrics.get("as_of_date") or _last_date(daily))
     features: list[RuleFeature] = []
 
@@ -1322,7 +1357,7 @@ def _detect_defensive_features(
         setup={"weeks": loss_weeks, "require_rising_volume": require_volume},
     ))
 
-    pct_change = close.pct_change(fill_method=None) * 100
+    pct_change = history_close.pct_change(fill_method=None).reindex(close.index) * 100
     daily_worst = _worst_drop_feature(
         feature_id="defensive_worst_daily_drop",
         label="Größter Tageseinbruch seit Kauf",
@@ -1346,13 +1381,16 @@ def _detect_defensive_features(
 def _breach_reclaim_status(close: pd.Series, low: pd.Series, threshold: float | None, reclaim_days: int) -> dict[str, Any]:
     if threshold is None or close.empty or low.empty:
         return {"active": False, "value": "-", "detail": "Kein Referenztief gespeichert.", "signal_date": ""}
-    breaches = low < threshold
-    if not breaches.fillna(False).any():
-        return {"active": False, "value": f"Referenztief {_fmt_price(threshold)} hält", "detail": "Nicht unterschritten.", "signal_date": ""}
-    breach_idx = breaches[breaches.fillna(False)].index[-1]
+    breach_idx = None
+    for idx in close.index:
+        if breach_idx is not None and close.loc[idx] > threshold:
+            breach_idx = None
+        elif breach_idx is None and low.loc[idx] < threshold:
+            breach_idx = idx
+    if breach_idx is None:
+        return {"active": False, "value": f"Referenztief {_fmt_price(threshold)} hält/zurückerobert", "detail": "Kein offener Bruch des Referenztiefs.", "signal_date": ""}
     pos = close.index.get_loc(breach_idx)
-    if not isinstance(pos, int):
-        return {"active": False, "value": "-", "detail": "Breach-Index nicht auswertbar.", "signal_date": ""}
+
     future = close.iloc[pos + 1 : pos + reclaim_days + 1]
     reclaimed = bool((future > threshold).fillna(False).any())
     days_since = len(close.iloc[pos + 1 :])
@@ -1473,6 +1511,8 @@ def _strategy_recommendations(
     features_by_id: dict[str, RuleFeature],
     metrics: dict,
 ) -> list[StrategyRecommendation]:
+    if strategy_key == "rs_line_ema":
+        return _rs_ema_strategy(setup, metrics, features_by_id)
     if strategy_key == "rs_line":
         return _rs_strategy(setup, metrics, features_by_id)
     if strategy_key == "ema21_risk_averse":
@@ -1539,8 +1579,8 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
     rs_ma21 = _metric(metrics, "rs_ma21")
     rs_ma50 = _metric(metrics, "rs_ma50")
     days21 = int(_metric(metrics, "days_under_rs_ma21", 0) or 0)
-    under21 = bool(rs_line is not None and rs_ma21 is not None and rs_line < rs_ma21)
-    under50 = bool(rs_line is not None and rs_ma50 is not None and rs_line < rs_ma50)
+    under21 = bool(metrics.get("rs_data_complete", True) and rs_line is not None and rs_ma21 is not None and rs_line < rs_ma21)
+    under50 = bool(metrics.get("rs_data_complete", True) and rs_line is not None and rs_ma50 is not None and rs_line < rs_ma50)
     pct1 = _safe_int(setup.get("rs_tranche_1_pct"), 25)
     pct2 = _safe_int(setup.get("rs_tranche_2_pct"), 25)
     stand = str(metrics.get("rs_as_of") or "")
@@ -1553,6 +1593,26 @@ def _rs_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeatu
         _rec("rs_line_tranche_3", "3. Tranche: gesamte Restposition unter RS-50-SMA", active=under50, pct=100, detail=f"{values}. Zielverkauf insgesamt 100 %; bereits protokollierte Verkäufe werden abgezogen, auch wenn frühere Stufen übersprungen wurden.", trigger="RS-Linie schließt unter ihrem einfachen 50-Tage-Durchschnitt", feature_ids=[]),
         _emergency_rec(features_by_id),
     ]
+
+
+def _rs_ema_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeature]) -> list[StrategyRecommendation]:
+    rs = _metric(metrics, "rs_line")
+    core = _safe_int(setup.get("rs_ema_core_pct"), 60)
+    first = _safe_int(setup.get("rs_ema_first_pct"), 20)
+    second = _safe_int(setup.get("rs_ema_second_pct"), 20)
+    targets = [100 - core + first, 100 - core + first + second, 100]
+    recs = []
+    for period, name, target in zip((21, 34, 50), ("Quick", "Quicksand", "Grateful Dead"), targets):
+        line = _metric(metrics, f"rs_ema{period}")
+        available = metrics.get("rs_data_complete", True) and rs is not None and line is not None
+        active = bool(available and rs < line)
+        detail = (
+            f"RS {_fmt_price(rs, 4)} · RS-{period}-EMA {_fmt_price(line, 4)} · Tagesschluss {metrics.get('rs_as_of') or '-'}; "
+            f"Zielverkauf insgesamt {target} % der Ausgangsposition, einschließlich flexiblem Anteil. Bereits protokollierte Verkäufe werden abgezogen."
+            if available else "Keine vollständige, bestätigte RS-Datenbasis. Diese Stufe kann derzeit nicht zuverlässig bewertet werden."
+        )
+        recs.append(_rec(f"rs_ema_{period}", f"{name}: {'gesamte Restposition' if period == 50 else f'Zielverkauf {target} %'}", active=active, pct=target, detail=detail, trigger=f"Bestätigter Tagesschluss der RS-Linie unter ihrem {period}-Tage-EMA", feature_ids=[]))
+    return [*recs, _emergency_rec(features_by_id)]
 
 
 def _ema21_risk_averse_strategy(setup: dict, metrics: dict, features_by_id: dict[str, RuleFeature]) -> list[StrategyRecommendation]:
@@ -1656,11 +1716,12 @@ def _emergency_rec(features_by_id: dict[str, RuleFeature]) -> StrategyRecommenda
 
 def _build_strategy_result(strategy_key: str, recommendations: list[StrategyRecommendation]) -> dict[str, Any]:
     active_recs = [rec for rec in recommendations if rec.active and rec.tranche_percent > 0]
-    recommendation_percent = (
-        100
-        if any(rec.tranche_percent >= 100 for rec in active_recs)
-        else min(100, sum(rec.tranche_percent for rec in active_recs))
-    )
+    if strategy_key == "rs_line_ema":
+        recommendation_percent = max((rec.tranche_percent for rec in active_recs), default=0)
+    elif any(rec.tranche_percent >= 100 for rec in active_recs):
+        recommendation_percent = 100
+    else:
+        recommendation_percent = min(100, sum(rec.tranche_percent for rec in active_recs))
     return {
         "strategy_key": strategy_key,
         "label": SELL_STRATEGY_LABELS.get(strategy_key, SELL_STRATEGY_LABELS["custom"]),
@@ -1668,6 +1729,38 @@ def _build_strategy_result(strategy_key: str, recommendations: list[StrategyReco
         "recommendation_percent": int(recommendation_percent),
         "recommendations": [rec.to_dict() for rec in recommendations],
     }
+
+
+def _apply_feature_availability(features: list[RuleFeature], payload: dict, setup: dict, metrics: dict, manual_data: dict) -> list[RuleFeature]:
+    if "ohlc_frames" not in payload:
+        return features  # Compatibility for callers providing precomputed metrics.
+    daily = _frame(payload, "daily_since_buy")
+    history = _frame(payload, "daily_history")
+    volume_features = {"offensive_biggest_gain", "offensive_stall_days"}
+    candle_features = {"offensive_low_closes", "offensive_sharp_drop_no_reclaim", "offensive_stall_days", "offensive_peak_drop", "offensive_buy_price_reached", "defensive_buy_day_low"}
+    result = []
+    for feature in features:
+        available = True
+        if feature.category != "emergency":
+            available = not daily.empty
+        if feature.id in volume_features:
+            available = available and len(history) >= 50 and _series(history, "volume").tail(50).notna().all()
+        if feature.id in candle_features:
+            available = available and _series(daily, "high").notna().all() and _series(daily, "low").notna().all()
+        if feature.id.startswith("defensive_ma_break_") or feature.id.startswith("offensive_ma_extension_"):
+            suffix = feature.id.rsplit("_", 1)[-1]
+            period = int(suffix.removeprefix("sma").removeprefix("ema"))
+            available = available and len(history) >= period
+        if (feature.id.startswith("defensive_") and "weekly" in feature.id) or feature.id == "defensive_loss_weeks":
+            available = available and len(_frame(payload, "weekly_since_buy")) >= 2
+        if feature.id == "defensive_buy_day_low":
+            available = available and _safe_float(_manual_value(manual_data, payload, "low_day_1")) is not None
+        unit_keys = {"emergency_loss_limit": "emergency_stop_unit", "offensive_profit_target": "profit_target_unit", "offensive_ema21_break": "ema21_break_unit", "offensive_peak_drop": "peak_drop_unit", "offensive_sharp_drop_no_reclaim": "sharp_drop_unit", "offensive_biggest_gain": "biggest_gain_unit"}
+        unit_key = "ma_extension_unit" if feature.id.startswith("offensive_ma_extension_") else unit_keys.get(feature.id)
+        if unit_key and setup.get(unit_key) == "atr":
+            available = available and _metric(metrics, "atr14") is not None and _metric(metrics, "atr14") > 0
+        result.append(feature if available else replace(feature, active=False, available=False, detail="Nicht prüfbar: benötigte bestätigte Kurs-, Kerzen-, Volumen- oder Referenzdaten fehlen.", signal_date=""))
+    return result
 
 
 def evaluate_sell_decision(
@@ -1691,7 +1784,10 @@ def evaluate_sell_decision(
     emergency_features = _detect_emergency_features(metrics_payload or {}, manual_data, setup, metrics, buy_price)
     offensive_features = _detect_offensive_features(metrics_payload or {}, setup, metrics, buy_price)
     defensive_features = _detect_defensive_features(metrics_payload or {}, manual_data, setup, metrics)
-    all_features = [*emergency_features, *offensive_features, *defensive_features]
+    all_features = _apply_feature_availability([*emergency_features, *offensive_features, *defensive_features], metrics_payload or {}, setup, metrics, manual_data)
+    emergency_features = [f for f in all_features if f.category == "emergency"]
+    offensive_features = [f for f in all_features if f.category == "offensive"]
+    defensive_features = [f for f in all_features if f.category == "defensive"]
     features_by_id = {feature.id: feature for feature in all_features}
 
     recommendations = _strategy_recommendations(strategy_key, setup, features_by_id, metrics)
@@ -1715,6 +1811,9 @@ def evaluate_sell_decision(
             for rec in recommendations
             if rec.active and rec.tranche_percent >= 100
         )
+    if strategy_key == "rs_line_ema":
+        # Ranking and notifications should lead with the effective highest target.
+        tranche_signals.sort(key=lambda signal: signal.contribution_percent, reverse=True)
     warning_signals = [
         _signal_from_feature(feature, contribution=0, strategy_key=feature.id)
         for feature in [*offensive_features, *defensive_features]
@@ -1727,7 +1826,7 @@ def evaluate_sell_decision(
     ][:12]
 
     target_total = 100 if killer_signals else int(strategy["recommendation_percent"])
-    already_sold = _sum_already_sold(ticker, tranche_log)
+    already_sold = _sum_already_sold(ticker, tranche_log, str(metrics_payload.get("buy_date") or ""))
     sell_now_raw = max(0.0, min(100.0, target_total - already_sold))
     sell_now = int(math.floor(sell_now_raw))
     recommendation_percent = int(sell_now)
@@ -1742,7 +1841,13 @@ def evaluate_sell_decision(
 
     stop_price = _build_stop_price(setup, buy_price, _metric(metrics, "atr14"))
     next_tranche_trigger, full_exit = _build_trigger_prices(metrics, setup, stop_price)
-    add_again_condition = "Erst wieder aufstocken, wenn die verletzte Linie zurückerobert wurde und die Verkaufsmerkmale inaktiv sind."
+    if strategy_key in {"rs_line", "rs_line_ema"}:
+        next_tranche_trigger, full_exit = None, None
+    add_again_condition = (
+        "Aufstocken erst erneut prüfen, wenn die RS-Linie auf bestätigter Tagesschlussbasis wieder über den verletzten EMA-Linien liegt. Dies löst keinen automatischen Kauf aus."
+        if strategy_key == "rs_line_ema" else
+        "Erst wieder aufstocken, wenn die verletzte Linie zurückerobert wurde und die Verkaufsmerkmale inaktiv sind."
+    )
 
     if killer_signals:
         explanation = f"{killer_signals[0].label}: Nothalt aktiv, kompletter Verkauf erforderlich."
@@ -1754,6 +1859,11 @@ def evaluate_sell_decision(
     else:
         explanation = "Keine aktive Verkaufstranche in der gewählten Strategie. Position halten."
 
+    unavailable_selected = [f for f in all_features if not f.available and (f.category == "emergency" or any(f.id in rec.feature_ids for rec in recommendations))]
+    if unavailable_selected:
+        explanation += f" {len(unavailable_selected)} ausgewählte Kriterien sind wegen fehlender Daten nicht prüfbar."
+    if strategy_key in {"rs_line", "rs_line_ema"} and not metrics.get("rs_data_complete", True):
+        explanation += " Die bestätigte RS-Datenbasis ist unvollständig; RS-Stufen derzeit nicht zuverlässig prüfbar."
     sell_mode_summary = "Keine neue Verkaufstranche"
     sell_style_summary = ""
     if recommendation_percent > 0:
@@ -1772,7 +1882,7 @@ def evaluate_sell_decision(
         has_killer=bool(killer_signals),
         as_of_date=as_of_date,
         prior_state=recommendation_state,
-        confirmed_signal=strategy_key == "rs_line",
+        confirmed_signal=strategy_key in {"rs_line", "rs_line_ema"},
     )
 
     display_label = label
@@ -1790,7 +1900,8 @@ def evaluate_sell_decision(
             strategy_selected=is_emergency or bool(selected),
             recommendation_contribution_percent=contribution,
             recommendation_effect=(
-                "Nothalt: Zielverkauf 100 % unabhängig von der Strategie" if is_emergency and feature.active
+                "Nicht prüfbar: fehlende Daten, kein zuverlässiger Kriterienstatus" if not feature.available
+                else "Nothalt: Zielverkauf 100 % unabhängig von der Strategie" if is_emergency and feature.active
                 else f"In der Strategie aktiv: {contribution} % Zielverkauf" if contribution > 0
                 else "Strategiekriterium noch nicht ausgelöst" if is_emergency or selected
                 else "Nur Hinweis: kein Beitrag zur gewählten Verkaufsstrategie"

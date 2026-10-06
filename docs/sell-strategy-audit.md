@@ -1,6 +1,6 @@
 # Verkaufsstrategien: Prüfung gegen Kapitel 6 und Buchprojekt
 
-Stand: 5. Oktober 2026. Geprüfte Ausgangsversion: `fa04e0c` auf GitHub/main.
+Stand: 6. Oktober 2026. Aktuelle Ergänzung geprüft gegen `5e4de9d` auf GitHub/main; ursprünglicher Settings-Abgleich gegen `fa04e0c`.
 
 Die Settings-Überarbeitung hat keine zuvor global editierbaren Einstellungen entfernt: die bisherigen 13 Felder sind weiterhin vorhanden; vier Risikofelder kamen hinzu. Datenqualität, Systemstatus und 13F-Verwaltung stehen unter Jobs. Strategieauswahl, Grenzwerte und Baukasten waren zuvor ausschließlich pro Aktie im Verkaufsmonitor verfügbar. Diese Änderung ergänzt sie als globalen Standard und als Aktienanpassung in Settings → Überwachung & Alerts.
 
@@ -14,7 +14,7 @@ Die Quellen beschreiben unterschiedliche Varianten. Die spätere WRO-Variante er
 
 ## Auswahl und Vererbung
 
-Sieben Optionen sind verfügbar: RS-Linie täglich mit 21/50-SMA, Benutzerdefiniert, 21-EMA risikoavers, 21-EMA offensiv, Peak-Rückgang, Kauftag-Tief und MA-Brüche. Der Baukasten bietet alle **23 vom bestehenden Motor erkannten Kriterien**, einschließlich der zuvor nicht auswählbaren Häufung tiefer Schlusskurse, scharfem Einbruch ohne Rückeroberung, Verlusttagen und Rückfall auf den Kaufpreis. Das sind nicht sämtliche Regeln aus dem Buch.
+Acht Optionen sind verfügbar: RS-Linie EMA (WRO #73 täglich), RS-Linie täglich mit 21/50-SMA, Benutzerdefiniert, 21-EMA risikoavers, 21-EMA offensiv, Peak-Rückgang, Kauftag-Tief und MA-Brüche. Der Baukasten bietet alle **23 vom bestehenden Motor erkannten Kriterien**, einschließlich der zuvor nicht auswählbaren Häufung tiefer Schlusskurse, scharfem Einbruch ohne Rückeroberung, Verlusttagen und Rückfall auf den Kaufpreis. Das sind nicht sämtliche Regeln aus dem Buch.
 
 Der globale Standard enthält Strategie, Grenzwerte und Baukasten. Aktien ohne eigene Konfiguration übernehmen ihn laufend. Bereits gespeicherte individuelle Konfigurationen bleiben eigene Regeln. Bei deaktivierter Option „Globale Verkaufsstrategie übernehmen“ wird das aktuell wirksame Setup zur anpassbaren Aktienkonfiguration. Beim erneuten Aktivieren und Speichern wird die eigene Konfiguration entfernt und wieder der globale Standard verwendet. Globale und Aktienregeln haben jeweils ausdrücklich beschriftete Speicheraktionen.
 
@@ -50,7 +50,9 @@ Der globale Standard enthält Strategie, Grenzwerte und Baukasten. Aktien ohne e
 
 ## Ergänzungen aus Buchprojekt
 
-**WRO #73 – UPDATED Quick, QuickSand & Grateful Dead HOLDING Rules** beschreibt drei EMA-Linien auf der RS-Linie: täglich 21/34/50, wöchentlich 8/13/21 und experimentell monatlich 5/8/13. Diese neuere Variante ist **nicht umgesetzt oder auswählbar**. Das aktuelle RS-Preset mit zwei täglichen SMA-Linien darf nicht als WRO-73-Preset bezeichnet werden. Auch die Trennung zwischen einer zu haltenden Kernposition und einem flexiblen Positionsanteil ist nicht umgesetzt.
+**WRO #73 – UPDATED Quick, QuickSand & Grateful Dead HOLDING Rules** ist als zusätzliche Strategie **RS-Linie EMA** umgesetzt. Quelle: `WRO 66-78.txt` im Buchprojekt, Abschnitt WRO #73; Tagesparameter bei 12:11–12:59, Schlusskurs-/Kernpositionslogik bei 18:11–27:21 und alternative Aufteilungen bei 38:13–41:59. Auf Tagesbasis nutzt Quick den **21-EMA**, Quicksand den **34-EMA**, Grateful Dead den **50-EMA** der RS-Linie (Aktienkurs/SPY, beide bestätigte Schlusskurse). Berührung allein löst nicht aus. Die drei Ziele werden unabhängig geprüft; das höchste aktive Ziel gilt auch bei übersprungenen Stufen. Es gibt keine zusätzliche Drei-Tage-Wartefrist.
+
+Das Quellenbeispiel mit 25 % maximaler Depotposition und 15 % Kernposition wird als **60 % Kernposition der Ausgangsposition** abgebildet. Drei Kerntranchen von jeweils 20 % und ein flexibler Anteil von 40 % ergeben kumulative Verkaufsziele **60/80/100 %**. Bereits protokollierte Verkäufe werden abgezogen. Kernposition und erste zwei Kerntranchen sind global und pro Aktie anpassbar; Kernposition 100 % erlaubt eine reine Aufteilung ohne flexiblen Anteil. Die dritte Kerntranche ist der verbleibende Kernanteil; unter 50-EMA wird immer die gesamte Restposition verkauft. Andere offensive/defensive Kriterien bleiben Hinweise, sofern diese Strategie ausgewählt ist; Verkäufe des flexiblen Anteils können protokolliert werden. Es gibt keinen automatischen Wiederkauf oder Brokerauftrag. Die Prozentrechnung bezieht sich auf die Ausgangsposition, nicht auf wechselnde Depotwerte. Nach Aufstockungen müssen die Positions-/Tranchendaten entsprechend gepflegt werden. Wochen-/Monatsvarianten werden auf Nutzerwunsch nicht angeboten. Die bestehende SMA-Strategie und gespeicherte globale/Aktienauswahl bleiben erhalten.
 
 **WRO #49 – 3-Day Rule** verlangt in der Verkaufsrichtung nach dem ersten Schluss unter der 21-EMA weitere Kerzen vollständig unter der Linie, einschließlich ihrer Hochs und schwacher Schlusskurse. Das aktuelle EMA-Preset zählt Schlusskurse und einige Folgebedingungen; es ist keine vollständige Umsetzung dieser WRO-Regel.
 
@@ -128,7 +130,6 @@ Dies ist eine Machbarkeitsbewertung, keine Behauptung bereits integrierter Regel
 | Ergänzung | Eindeutige technische Abbildung / benötigte Daten |
 | --- | --- |
 | WRO #49: vollständige 3-Tage-Verkaufsregel | Schlusskurs und anschließend gesamte Tageskerzen einschließlich Hoch unter der 21-EMA; Reihenfolge und Unterbrechungen aus OHLC bestimmen. Als eigenes Kriterium/Preset, nicht als heimliche Änderung der vorhandenen EMA-Regel. |
-| WRO #73 auf Tagesbasis | Drei EMA der RS-Linie (21/34/50) mit getrennten Halte-/Verkaufsstufen. Berechenbar aus denselben bestätigten Kursreihen; eigenständige Alternative zur Buch-SMA-Strategie. |
 | Buch: gescheiterter Ausbruch auf Schlusskursbasis | Datum des tatsächlichen Ausbruchs und Tief von Tag 1/Tag 0 festhalten; sequenziell Drittel und Nothalt. Ausbruchstag ausdrücklich wählen, nicht automatisch mit beliebigem Kaufdatum gleichsetzen. |
 | Buch: Gewinnsicherungsfolge | Explizit gepflegter offizieller Pivot, Gewinnzone 20–25 %, Brüche 10-SMA/21-EMA/50-SMA; bereits ausgeführte Schritte pro Position speichern. Alternative: halber Verkauf am Gewinnziel, Rest beim Rückfall auf Einstand. |
 | Größter Volumentag / Earnings-Ausnahme | Volumenmaximum in festgelegtem Fenster und bestätigte historische Earnings-Termine. Ohne Earnings-Daten die Ausnahme als nicht prüfbar kennzeichnen. |
@@ -138,3 +139,24 @@ Dies ist eine Machbarkeitsbewertung, keine Behauptung bereits integrierter Regel
 | Verlustwochen mit Konsolidierungs-Ausnahme | Wochen-OHLC, Range, Rückgang und Volumen über drei abgeschlossene Wochen; Ausnahme mit expliziten einstellbaren Schwellen definieren. |
 
 Eine Split-Rallye braucht verifizierte Split-Termine und konsistent bereinigte Kurse. Vorhandene Split-Kandidaten sind dafür nicht ausreichend. Die fünfstufige Intraday-Ausbruchsregel braucht echte Intraday-Daten: aus Tageshoch/-tief lässt sich die Reihenfolge der Verletzungen nicht zuverlässig rekonstruieren. Diese beiden Regeln sind deshalb mit dem aktuellen Datenbestand nicht sofort verlässlich integrierbar.
+
+
+## Programmprüfung vom 6. Oktober 2026
+
+Geprüft wurden die **23 tatsächlich angeschlossenen Detektoren** (13 offensiv, 9 defensiv, 1 Nothalt), ihre Auswahl im Baukasten, alle acht Presets und der Weg von Cache-Daten über Metriken und Strategie bis API/UI. Für jeden der 23 Detektoren existiert jetzt ein positiver und ein negativer Fall sowie eine Auswahl-/Signalweiterleitungsprüfung. Zusätzlich decken Regressionen die folgenden tatsächlich gefundenen Fehler ab:
+
+- Unfertige Tageskerzen zählten als bestätigte Schlüsse/Kerzen; tägliche Kriterien verwenden jetzt bestätigte Tagesbars. Aktueller Kurs, P&L und universeller Nothalt bleiben intraday möglich.
+- Noch laufende Wochen konnten als fertige Verlustwochen zählen. Wochenkriterien verwenden abgeschlossene Börsenwochen; Feiertagswochen wie Karfreitag sind berücksichtigt.
+- Wiederholte Tiefs unter dem Kauftag-Tief starteten die Reclaim-Frist immer neu. Nun beginnt sie beim ersten offenen Bruch; ein tatsächlicher Reclaim beendet die Episode.
+- Ein neuer Einbruch im noch offenen Reclaim-Fenster konnte einen älteren bestätigten unreclaimten Einbruch verdecken.
+- Eine fallende, noch überdehnte Kerze ersetzte den Überdehnungsanker und verhinderte das Signal. Nun bleibt der höchste überdehnte Schlusskurs Referenz.
+- Volumenmittel und Vergleiche konnten erst am Kaufdatum anfangen; sie verwenden jetzt auch die Historie davor. Historische ATR-Ereignisse werden gegen ihre damalige ATR beurteilt, nicht eine später geänderte aktuelle ATR.
+- Fehlende Volumen-/Hoch-/Tief-Werte wurden mit erfundenen Werten (u. a. einer Million Volumen) aufgefüllt. Sie bleiben fehlend, und betroffene Kriterien erscheinen als **nicht prüfbar**. Echtes Nullvolumen bleibt null.
+- Nicht auswertbare Datenpakete konnten ohne Fehlermeldung bis zur Halteempfehlung weitergereicht werden; die API meldet jetzt einen Datenfehler statt einer Entscheidung.
+- Nicht synchronisierte oder lückenhafte gemeinsame RS-Daten konnten weiter ein Verkaufsziel auslösen. Der gemeinsame letzte Stand und die letzten 50 vorhandenen Sitzungstermine müssen vollständig sein; bei fehlenden Daten gibt es einen ausdrücklichen Hinweis.
+- Eine Restposition von 0 % wurde im API durch einen falschen Fallback als 100 % geliefert.
+- Protokollierte Verkäufe einer früheren Position desselben Tickers wurden für eine neue Position mitgezählt. Datierte Verkäufe vor dem aktuellen Kaufdatum werden jetzt ausgeschlossen; undatierte Alteinträge bleiben kompatibel.
+- Zwei weit auseinanderliegende Bewertungsdaten konnten als zwei aufeinanderfolgende Bestätigungstage gelten; nun zählen nur benachbarte Börsensitzungen.
+- Bei fehlender ATR konnte ein ATR-Nothalt als Prozent-Stoppreis angezeigt werden; nun bleibt der Preis nicht verfügbar. RS-Schwellen werden ebenfalls nicht mehr als gewöhnliche Kurs-MA-Stoppreise ausgegeben.
+
+Die EMA-Strategie, ihre Bewertung und ihr Chart verwenden dieselbe RS-Zeitreihe und dieselben EMA-Werte. Auch das RS-Trendfeld berücksichtigt bei dieser Strategie die EMA-Linien. Zusammentreffende EMA-Stufen werden als kumulative Ziele dargestellt und nicht doppelt addiert. Dies ist eine Programm-/Datenprüfung, keine Behauptung, dass bereits jede diskretionäre Buchregel automatisiert ist oder sich Markt-/Anbieterdaten fehlerfrei vorhersagen lassen.

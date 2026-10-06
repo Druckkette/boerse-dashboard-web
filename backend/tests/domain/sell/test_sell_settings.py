@@ -128,7 +128,8 @@ def test_atr_extension_uses_atr_instead_of_percent():
     assert atr_feature.active is True
     assert 'ATR' in atr_feature.value
     assert atr_feature.setup['unit'] == 'atr'
-    assert rules._ma_extension_feature(**kwargs).active is False
+    assert rules._ma_extension_feature(**kwargs).active is True
+    assert rules._ma_extension_feature(**kwargs, unit="atr", atr_series=pd.Series([10, 10, 10], index=index)).active is False
     missing = rules._ma_extension_feature(**kwargs, unit='atr', atr_series=pd.Series([float('nan')] * 3, index=index))
     assert missing.active is False
 

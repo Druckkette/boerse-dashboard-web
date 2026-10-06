@@ -1570,6 +1570,7 @@ export type SellSignal = {
 };
 
 export type SellRuleFeature = {
+  available?: boolean;
   id: string;
   category: "emergency" | "offensive" | "defensive";
   label: string;
@@ -1613,6 +1614,9 @@ export type SellHealthScore = {
 };
 
 export type SellRsChartPoint = {
+  rs_ema21?: number | null;
+  rs_ema34?: number | null;
+  rs_ema50?: number | null;
   date: string;
   rs: number;
   rs_ma21?: number | null;

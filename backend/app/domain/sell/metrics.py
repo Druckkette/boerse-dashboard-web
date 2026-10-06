@@ -48,7 +48,7 @@ def _safe_float(value, default=None):
         out = float(value)
     except (TypeError, ValueError):
         return default
-    if np.isnan(out):
+    if not np.isfinite(out):
         return default
     return out
 
@@ -77,7 +77,7 @@ def _clean_ohlc_frame(frame: pd.DataFrame | None) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     if "Close" in df.columns:
-        df = df.dropna(subset=["Close"])
+        df = df[df["Close"].notna() & np.isfinite(df["Close"]) & (df["Close"] > 0)]
     return df[~df.index.duplicated(keep="last")]
 
 
@@ -275,6 +275,14 @@ def build_sell_decision_metrics_payload(
     if "Close" not in bench.columns:
         return _error(f"Benchmark-Daten für {clean_benchmark} enthalten keinen Schlusskurs.", clean_ticker, clean_benchmark)
 
+    live_price = _last_float(df["Close"])
+    live_as_of = _last_index_date(df)
+    # Every candle/close rule requires a completed bar. The emergency stop and
+    # position P&L still use the latest cached price, including intraday prices.
+    if "IsFinal" in df:
+        df = df[df["IsFinal"].fillna(False).astype(bool)]
+    if df.empty:
+        return _error(f"Keine bestätigten Tagesschlusskurse für {clean_ticker} verfügbar.", clean_ticker, clean_benchmark)
     close = pd.to_numeric(df["Close"], errors="coerce")
     high = pd.to_numeric(df["High"], errors="coerce")
     low = pd.to_numeric(df["Low"], errors="coerce")
@@ -291,6 +299,9 @@ def build_sell_decision_metrics_payload(
     vol_sma50 = _sma(volume, 50)
 
     weekly = df.resample("W-FRI").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna(subset=["Close"])
+    if "IsFinal" in price_frame:
+        from app.services.market_calendar import last_us_market_session_of_week
+        weekly = weekly[[last_us_market_session_of_week(day.date()) <= df.index[-1].date() for day in weekly.index]]
     weekly_close = pd.to_numeric(weekly["Close"], errors="coerce") if not weekly.empty else pd.Series(dtype=float)
     weekly_sma10 = _sma(weekly_close, 10)
     weekly_ema21 = _ema(weekly_close, 21)
@@ -331,6 +342,9 @@ def build_sell_decision_metrics_payload(
     rs_line = joined_rs["asset"] / joined_rs["benchmark"]
     rs_ma21 = _sma(rs_line, 21)
     rs_ma50 = _sma(rs_line, 50)
+    rs_emas = {period: _ema(rs_line, period) for period in (21, 34, 50)}
+    latest_benchmark_dates = df.index.union(bench.index[final_benchmark])[-50:]
+    rs_data_complete = bool(len(latest_benchmark_dates) == 50 and len(rs_line) >= 50 and df.index[-1] == latest_benchmark_dates[-1] and latest_benchmark_dates.isin(rs_line.index).all())
     weekly_rs = rs_line.resample("W-FRI").last().dropna()
     weekly_rs_ma10 = _sma(weekly_rs, 10)
     weekly_rs_ma25 = _sma(weekly_rs, 25)
@@ -343,8 +357,6 @@ def build_sell_decision_metrics_payload(
     after_buy = df[df.index >= buy_ts]
     high_since_buy = _safe_float(pd.to_numeric(after_buy["High"], errors="coerce").max()) if not after_buy.empty else None
     drawdown_from_high_since_buy_pct = ((current_price / high_since_buy) - 1) * 100 if high_since_buy and high_since_buy > 0 else None
-    pnl_pct = ((current_price / entry_price) - 1) * 100
-    pnl_abs = (current_price - entry_price) * float(share_count or 0.0)
 
     under_ema21_days = _trailing_true_count(close < ema21)
     under_sma50_days = _trailing_true_count(close < sma50)
@@ -559,9 +571,13 @@ def build_sell_decision_metrics_payload(
     }
 
     metrics = {
-        "current_price": current_price,
-        "pnl_pct": pnl_pct,
-        "pnl_abs": pnl_abs,
+        "current_price": live_price,
+        "signal_close": current_price,
+        "live_as_of": live_as_of,
+        "rs_data_complete": rs_data_complete,
+        **{f"rs_ema{period}": _last_float(series) for period, series in rs_emas.items()},
+        "pnl_pct": (live_price / entry_price - 1) * 100,
+        "pnl_abs": (live_price - entry_price) * float(share_count or 0.0),
         "pnl_abs_currency": str(currency or "USD").upper(),
         "pnl_abs_eur": _safe_float(pnl_abs_eur),
         "fx_rate_to_eur": _safe_float(fx_rate_to_eur),
@@ -580,7 +596,7 @@ def build_sell_decision_metrics_payload(
         "rs_line": _last_float(rs_line),
         "rs_as_of": _last_index_date(rs_line),
         "rs_chart_history": [
-            {"date": str(date.date()), "rs": _safe_float(value), "rs_ma21": _safe_float(rs_ma21.loc[date]), "rs_ma50": _safe_float(rs_ma50.loc[date])}
+            {"date": str(date.date()), "rs": _safe_float(value), "rs_ma21": _safe_float(rs_ma21.loc[date]), "rs_ma50": _safe_float(rs_ma50.loc[date]), **{f"rs_ema{period}": _safe_float(series.loc[date]) for period, series in rs_emas.items()}}
             for date, value in rs_line.items()
         ],
         "rs_ma21": _last_float(rs_ma21),
@@ -666,6 +682,8 @@ def build_sell_decision_metrics_payload(
         daily_since_buy.resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()
         if not daily_since_buy.empty else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     )
+    if "IsFinal" in price_frame:
+        weekly_since_buy = weekly_since_buy[[last_us_market_session_of_week(day.date()) <= df.index[-1].date() for day in weekly_since_buy.index]]
     bench_daily = _lowercase_ohlc(bench)
     bench_weekly = (
         bench_daily.resample("W-FRI").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna()

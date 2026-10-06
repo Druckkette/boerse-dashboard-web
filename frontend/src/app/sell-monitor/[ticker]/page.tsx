@@ -106,6 +106,7 @@ export default function SellMonitorTickerPage() {
         ticker={ticker}
         title="Sell Context"
         sellRsHistory={metrics.data?.raw_payload.metrics.rs_chart_history ?? []}
+        sellRsStrategy={evaluation.data?.strategy.strategy_key}
       />
 
       <div className="grid gap-3 xl:grid-cols-3">
@@ -193,7 +194,7 @@ function SellStrategyPanel({ strategy }: { strategy?: SellStrategyResult }) {
             <div className="mb-2 flex items-start justify-between gap-3">
               <div className="font-medium">{recommendation.label}</div>
               <StatusChip tone={recommendation.active ? "warning" : "neutral"}>
-                {recommendation.active ? recommendation.id === "rs_line_tranche_3" ? "aktiv · Restverkauf" : `aktiv · ${recommendation.tranche_percent}%` : "inaktiv"}
+                {recommendation.active ? ["rs_line_tranche_3", "rs_ema_50"].includes(recommendation.id) ? "aktiv · Restverkauf" : `${strategy?.strategy_key === "rs_line_ema" ? "aktiv · Ziel" : "aktiv ·"} ${recommendation.tranche_percent}%` : "inaktiv"}
               </StatusChip>
             </div>
             <div className="grid gap-2 text-sm">
@@ -259,7 +260,7 @@ function SellFeatureCard({ feature }: { feature: SellRuleFeature }) {
           <div className="font-medium">{feature.label}</div>
           <div className="mt-1 text-xs text-[#687386]">{feature.threshold}</div>
         </div>
-        <StatusChip tone={tone}>{feature.active ? "aktiv" : "inaktiv"}</StatusChip>
+        <StatusChip tone={tone}>{feature.available === false ? "nicht prüfbar" : feature.active ? "aktiv" : "inaktiv"}</StatusChip>
       </div>
       <div className="text-sm text-[#172033]">{feature.value || "-"}</div>
       <div className="mt-2 text-xs leading-5 text-[#687386]">{feature.detail}</div>

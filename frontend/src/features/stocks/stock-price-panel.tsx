@@ -14,7 +14,8 @@ export function StockPricePanel({
   title = "Kursverlauf",
   levels = [],
   markers = [],
-  sellRsHistory
+  sellRsHistory,
+  sellRsStrategy
 }: {
   ticker: string;
   range?: PriceRange;
@@ -22,9 +23,11 @@ export function StockPricePanel({
   levels?: ChartLevel[];
   markers?: ChartMarker[];
   sellRsHistory?: SellRsChartPoint[];
+  sellRsStrategy?: string;
 }) {
   const clean = ticker.toUpperCase();
   const usesSellRs = sellRsHistory !== undefined;
+  const usesSellEma = usesSellRs && sellRsStrategy === "rs_line_ema";
   const query = useQuery({
     queryKey: ["stock-prices", clean, range],
     queryFn: () => api.stockPrices(clean, range),
@@ -97,14 +100,15 @@ export function StockPricePanel({
                 formatter: (value) => value.toFixed(usesSellRs ? 4 : 2)
               },
               {
-                key: usesSellRs ? "rsSma21" : "rsEma21",
-                label: usesSellRs ? "RS 21-SMA" : "RS 21-EMA",
+                key: usesSellRs && !usesSellEma ? "rsSma21" : "rsEma21",
+                label: usesSellRs && !usesSellEma ? "RS 21-SMA" : "RS 21-EMA",
                 color: "#38bdf8",
                 formatter: (value) => value.toFixed(usesSellRs ? 4 : 2)
               },
+              ...(usesSellEma ? [{ key: "rsEma34", label: "RS 34-EMA", color: "#fb923c", formatter: (value: number) => value.toFixed(4) }] : []),
               {
-                key: usesSellRs ? "rsSma50" : "rsEma50",
-                label: usesSellRs ? "RS 50-SMA" : "RS 50-EMA",
+                key: usesSellRs && !usesSellEma ? "rsSma50" : "rsEma50",
+                label: usesSellRs && !usesSellEma ? "RS 50-SMA" : "RS 50-EMA",
                 color: "#fbbf24",
                 formatter: (value) => value.toFixed(usesSellRs ? 4 : 2)
               }
@@ -122,7 +126,7 @@ export function StockPricePanel({
       }
       subTitle={
         hasRsHistory
-          ? usesSellRs ? "RS-Verkaufsregeln: bestätigte Tagesschlüsse vs SPY mit 21-SMA und 50-SMA" : "Relative Stärke vs SPY mit eigenem 21-EMA und 50-EMA"
+          ? usesSellEma ? "RS-Linie EMA · WRO #73: bestätigte Tagesschlüsse vs SPY mit 21-, 34- und 50-EMA" : usesSellRs ? "RS-Verkaufsregeln: bestätigte Tagesschlüsse vs SPY mit 21-SMA und 50-SMA" : "Relative Stärke vs SPY mit eigenem 21-EMA und 50-EMA"
           : hasBenchmark
             ? "Relative Stärke vs SPY, Start = 100"
             : ""
@@ -144,7 +148,7 @@ export function StockPricePanel({
 function buildTechnicalOverlayPoints(
   points: PriceBarPoint[],
   benchmarkPoints: PriceBarPoint[],
-  rsHistory: Array<{ date: string; rs: number; rs_ema21?: number | null; rs_ema50?: number | null; rs_ma21?: number | null; rs_ma50?: number | null }>,
+  rsHistory: Array<{ date: string; rs: number; rs_ema21?: number | null; rs_ema34?: number | null; rs_ema50?: number | null; rs_ma21?: number | null; rs_ma50?: number | null }>,
   usesSellRs: boolean
 ) {
   const closes = points.map((point) => point.close);
@@ -162,6 +166,7 @@ function buildTechnicalOverlayPoints(
       volumeSma21: nullableSma(volumes, index, 21),
       rs: rsPoint?.rs ?? (usesSellRs ? null : rsVsSpy[index]),
       rsEma21: rsPoint?.rs_ema21 ?? null,
+      rsEma34: rsPoint?.rs_ema34 ?? null,
       rsEma50: rsPoint?.rs_ema50 ?? null,
       rsSma21: rsPoint?.rs_ma21 ?? null,
       rsSma50: rsPoint?.rs_ma50 ?? null

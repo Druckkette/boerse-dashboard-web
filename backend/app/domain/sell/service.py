@@ -911,7 +911,7 @@ def _evaluate_position_sell_decision(
         recommendation_percent=int(raw.get("recommendation_percent") or 0),
         target_total_sold_percent=int(raw.get("target_total_sold_percent") or 0),
         already_sold_percent=float(raw.get("already_sold_percent") or 0.0),
-        remaining_after_sale_percent=float(raw.get("remaining_after_sale_percent") or 100.0),
+        remaining_after_sale_percent=float(raw.get("remaining_after_sale_percent", 100.0)),
         pending_status=raw.get("pending_status", "halten"),
         explanation_short=str(raw.get("explanation_short") or ""),
         stop_price=_round_metric(raw.get("stop_price")),
@@ -1045,6 +1045,8 @@ def _build_metrics_payload(request: SellMetricsRequest) -> dict[str, Any]:
         currency=request.currency,
         pivot_date=request.pivot_date,
     )
+    if not payload.get("ok"):
+        raise SellMarketDataUnavailableError(str(payload.get("error") or "Keine auswertbaren Kursdaten für die Verkaufsentscheidung."))
     if isinstance(payload.get("metrics"), dict):
         payload["metrics"]["price_data_source"] = "database"
         payload["metrics"]["benchmark_data_source"] = "database"
@@ -1076,7 +1078,7 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for bar in bars:
         close = _finite_float(bar.close)
-        if close is None:
+        if close is None or close <= 0:
             continue
         open_price = _finite_float(bar.open, close) or close
         rows.append(
@@ -1084,10 +1086,10 @@ def _price_frame_from_cache(ticker: str) -> pd.DataFrame:
                 "Date": pd.Timestamp(bar.date),
                 "IsFinal": daily_bar_is_final(bar.date, getattr(bar, "fetched_at", None), completed=completed),
                 "Open": open_price,
-                "High": _finite_float(bar.high, max(open_price, close)) or max(open_price, close),
-                "Low": _finite_float(bar.low, min(open_price, close)) or min(open_price, close),
+                "High": _finite_float(bar.high, float("nan")),
+                "Low": _finite_float(bar.low, float("nan")),
                 "Close": close,
-                "Volume": _finite_float(bar.volume, 1_000_000.0) or 1_000_000.0,
+                "Volume": _finite_float(bar.volume, float("nan")),
             }
         )
     if not rows:
