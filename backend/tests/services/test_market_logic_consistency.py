@@ -22,6 +22,10 @@ def market_inputs(monkeypatch):
                  volume=1_500_000 if i == len(closes)-1 else 1_000_000)
             for i, (day, close) in enumerate(zip(dates, closes))]
     state = {"logic": "current"}
+    # This fixture exercises a settings switch, not wall-clock freshness.
+    session = SimpleNamespace(date=dates[-1].date(), phase="closed")
+    monkeypatch.setattr(home, "completed_us_market_session", lambda: session)
+    monkeypatch.setattr(home, "expected_us_market_session", lambda: session)
     snapshot = MarketSnapshot(date=dates[-1].date(), ampel_phase="rot", warning_count=0,
                               breadth_mode="wachsam", volatility_regime="Risk On / ruhig", metrics_json={})
     rows = [MarketOhlcvPoint(ticker="^GSPC", **bar) for bar in bars]
