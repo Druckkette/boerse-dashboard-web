@@ -770,6 +770,7 @@ def _compute_recommendation_status(
     as_of_date: str,
     prior_state: dict | None,
     confirmed_signal: bool = False,
+    ticker: str = "",
 ) -> tuple[str, dict]:
     today = _normalize_state_date(as_of_date) or _normalize_state_date(pd.Timestamp.now())
     state = dict(prior_state or {})
@@ -802,8 +803,8 @@ def _compute_recommendation_status(
     if prior_date == today:
         next_state["consecutive_days"] = max(1, prior_streak)
     elif prior_pct == sell_now and prior_date:
-        from app.services.market_calendar import previous_us_market_session_date
-        previous_session = previous_us_market_session_date(pd.Timestamp(today).date()).isoformat()
+        from app.services.market_calendar import previous_ticker_market_session_date
+        previous_session = previous_ticker_market_session_date(ticker, pd.Timestamp(today).date()).isoformat()
         next_state["consecutive_days"] = prior_streak + 1 if prior_date == previous_session else 1
     else:
         next_state["consecutive_days"] = 1
@@ -1883,6 +1884,7 @@ def evaluate_sell_decision(
         as_of_date=as_of_date,
         prior_state=recommendation_state,
         confirmed_signal=strategy_key in {"rs_line", "rs_line_ema"},
+        ticker=ticker,
     )
 
     display_label = label

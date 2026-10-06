@@ -351,3 +351,49 @@ def test_ema_signals_lead_with_effective_highest_target_for_ranking():
     assert result['tranche_signals'][0]['contribution_percent'] == 100
     assert 'WRO #73' in result['tranche_signals'][0]['book_reference']
     assert 'EMA-Linien' in result['add_again_condition']
+
+
+@pytest.mark.parametrize('ticker', ['ARKK.L', 'ZPDH.DE'])
+def test_foreign_exchange_holidays_are_not_rs_data_gaps(ticker):
+    from app.services.market_calendar import _ticker_calendar, _xnys_calendar
+    dates = _ticker_calendar(ticker).sessions_in_range('2026-05-01', '2026-10-05')
+    benchmark_dates = _xnys_calendar().sessions_in_range('2026-05-01', '2026-10-05')
+    asset = pd.DataFrame({'Open': 100., 'High': 101., 'Low': 99., 'Close': 100., 'Volume': 1000., 'IsFinal': True}, index=dates)
+    benchmark = pd.DataFrame({'Open': 100., 'High': 101., 'Low': 99., 'Close': 100., 'Volume': 1000., 'IsFinal': True}, index=benchmark_dates)
+    kwargs = dict(ticker=ticker, buy_date='2026-06-01', buy_price=80., shares=10., price_frame=asset, benchmark_frame=benchmark, rs_completed_through='2026-10-05')
+    data = build_sell_decision_metrics_payload(**kwargs)
+    assert data['metrics']['rs_data_complete'] is True
+    # Sep 7 is a US holiday; Aug 31 is a London holiday. Sep 8 is a real shared session.
+    asset = asset.drop(pd.Timestamp('2026-09-08'))
+    data = build_sell_decision_metrics_payload(**{**kwargs, 'price_frame': asset})
+    assert data['metrics']['rs_data_complete'] is False
+
+
+def test_common_rs_date_waits_for_both_market_closes_and_respects_uk_holidays():
+    from app.services.market_calendar import completed_common_market_session, completed_ticker_market_session
+    assert completed_common_market_session('ARKK.L', 'SPY', datetime(2026, 8, 31, 22, tzinfo=UTC)).date == date(2026, 8, 28)
+    now = datetime(2026, 11, 27, 17, tzinfo=UTC)
+    assert completed_ticker_market_session('ARKK.L', now).date == date(2026, 11, 27)
+    assert completed_common_market_session('ARKK.L', 'SPY', now).date == date(2026, 11, 25)
+    assert completed_common_market_session('ARKK.L', 'SPY', datetime(2026, 11, 27, 19, tzinfo=UTC)).date == date(2026, 11, 27)
+
+
+@pytest.mark.parametrize('ticker,fetch_hour,fetch_minute', [('ARKK.L', 15, 45), ('ZPDH.DE', 15, 45), ('2318.HK', 8, 10)])
+def test_foreign_final_bars_use_their_own_exchange_close(ticker, fetch_hour, fetch_minute):
+    from app.services.market_calendar import daily_bar_is_final
+    fetched = datetime(2026, 10, 6, fetch_hour, fetch_minute, tzinfo=UTC)
+    now = datetime(2026, 10, 6, 21, tzinfo=UTC)
+    assert daily_bar_is_final(date(2026, 10, 6), fetched, ticker=ticker, now=now) is True
+    assert daily_bar_is_final(date(2026, 10, 6), fetched, ticker='SPY', now=now) is False
+
+
+def test_missing_latest_completed_common_session_is_not_hidden_as_old_rs():
+    asset = frame([100.] * 100)
+    data = build_sell_decision_metrics_payload(ticker='TEST', buy_date=asset.index[-10], buy_price=80., shares=10., price_frame=asset, benchmark_frame=asset, rs_completed_through=asset.index[-1] + pd.Timedelta(days=4))
+    assert data['metrics']['rs_data_complete'] is False
+
+
+def test_london_hysteresis_uses_london_sessions_not_us_sessions():
+    status, state = rules._compute_recommendation_status(sell_now=50, has_killer=False, as_of_date='2026-09-01', ticker='ARKK.L', prior_state={'last_seen_date': '2026-08-28', 'last_pct': 50, 'consecutive_days': 1})
+    assert status == 'scharf'
+    assert state['consecutive_days'] == 2
