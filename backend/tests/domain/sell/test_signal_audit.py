@@ -342,3 +342,12 @@ def test_no_completed_price_data_is_an_error_not_a_hold_recommendation(monkeypat
     monkeypatch.setattr(service, '_sell_frame_in_currency', lambda source, *a: source)
     with pytest.raises(service.SellMarketDataUnavailableError, match='bestätigten Tagesschlusskurse'):
         service._build_metrics_payload(SellMetricsRequest(ticker='TEST', buy_date=date(2026, 1, 5), buy_price=80, shares=10))
+
+
+def test_ema_signals_lead_with_effective_highest_target_for_ranking():
+    data = {'ticker': 'TEST', 'buy_price': 80, 'metrics': {'rs_line': .95, 'rs_ema21': 1., 'rs_ema34': 1., 'rs_ema50': 1.}}
+    result = evaluate(data)
+    assert result['tranche_signals'][0]['id'] == 'rs_ema_50'
+    assert result['tranche_signals'][0]['contribution_percent'] == 100
+    assert 'WRO #73' in result['tranche_signals'][0]['book_reference']
+    assert 'EMA-Linien' in result['add_again_condition']

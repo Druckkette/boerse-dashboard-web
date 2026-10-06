@@ -1811,6 +1811,9 @@ def evaluate_sell_decision(
             for rec in recommendations
             if rec.active and rec.tranche_percent >= 100
         )
+    if strategy_key == "rs_line_ema":
+        # Ranking and notifications should lead with the effective highest target.
+        tranche_signals.sort(key=lambda signal: signal.contribution_percent, reverse=True)
     warning_signals = [
         _signal_from_feature(feature, contribution=0, strategy_key=feature.id)
         for feature in [*offensive_features, *defensive_features]
@@ -1840,7 +1843,11 @@ def evaluate_sell_decision(
     next_tranche_trigger, full_exit = _build_trigger_prices(metrics, setup, stop_price)
     if strategy_key in {"rs_line", "rs_line_ema"}:
         next_tranche_trigger, full_exit = None, None
-    add_again_condition = "Erst wieder aufstocken, wenn die verletzte Linie zurückerobert wurde und die Verkaufsmerkmale inaktiv sind."
+    add_again_condition = (
+        "Aufstocken erst erneut prüfen, wenn die RS-Linie auf bestätigter Tagesschlussbasis wieder über den verletzten EMA-Linien liegt. Dies löst keinen automatischen Kauf aus."
+        if strategy_key == "rs_line_ema" else
+        "Erst wieder aufstocken, wenn die verletzte Linie zurückerobert wurde und die Verkaufsmerkmale inaktiv sind."
+    )
 
     if killer_signals:
         explanation = f"{killer_signals[0].label}: Nothalt aktiv, kompletter Verkauf erforderlich."
