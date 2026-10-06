@@ -154,3 +154,68 @@ def test_long_ma_uses_history_before_purchase():
 def test_worst_drop_requires_an_actual_loss(last_change, active):
     feature = rules._worst_drop_feature(feature_id='defensive_worst_daily_drop', label='Verlust', changes=pd.Series([0.2, 0.3, last_change]), warmup=2, as_of='2026-10-02', period_label='Tage')
     assert feature.active is active
+
+
+@pytest.mark.parametrize('days, lower, expected', [(1, False, 25), (2, True, 25), (3, False, 50)])
+def test_rs_second_stage_requires_three_closes(days, lower, expected):
+    payload = {'ticker': 'TEST', 'as_of': '2026-10-02', 'buy_price': 100, 'metrics': {'current_price': 110, 'pnl_pct': 10, 'rs_line': 1.1, 'rs_ma21': 1.2, 'rs_ma50': 1.0, 'days_under_rs_ma21': days, 'rs_lower_than_break_day': lower}}
+    result = rules.evaluate_sell_decision(payload, {'use_global_sell_setup': True, 'sell_setup': {'strategy_key': 'rs_line'}})
+    assert result['target_total_sold_percent'] == expected
+    assert result['pending_status'] == 'scharf'
+
+
+@pytest.mark.parametrize('already_sold, remaining', [(0, 100), (25, 75), (50, 50), (70, 30)])
+def test_rs_slow_line_sells_entire_remaining_position_even_above_fast_line(already_sold, remaining):
+    payload = {'ticker': 'TEST', 'as_of': '2026-10-02', 'buy_price': 100, 'metrics': {'current_price': 110, 'pnl_pct': 10, 'rs_line': 1.1, 'rs_ma21': 1.0, 'rs_ma50': 1.2, 'days_under_rs_ma21': 0}}
+    result = rules.evaluate_sell_decision(payload, {'use_global_sell_setup': True, 'sell_setup': {'strategy_key': 'rs_line'}}, [{'ticker': 'TEST', 'pct': already_sold}])
+    assert result['target_total_sold_percent'] == 100
+    assert result['sell_now_percent'] == remaining
+    assert result['remaining_after_sale_percent'] == 0
+    assert result['pending_status'] == 'scharf'
+
+
+def test_rs_confirmation_keeps_explicit_snooze():
+    status, _ = rules._compute_recommendation_status(sell_now=50, has_killer=False, as_of_date='2026-10-02', prior_state={'snoozed_until': '2026-10-10', 'snoozed_pct': 50}, confirmed_signal=True)
+    assert status == 'snoozed'
+
+
+def test_rs_third_allocation_is_the_remaining_share():
+    response = client.patch('/api/v1/settings', json={'sell_rule_setup': {'strategy_key': 'rs_line', 'rs_tranche_1_pct': 20, 'rs_tranche_2_pct': 30, 'rs_tranche_3_pct': 70}})
+    assert response.status_code == 200
+    assert response.json()['sell_rule_setup']['rs_tranche_3_pct'] == 50
+    assert client.patch('/api/v1/settings', json={'sell_rule_setup': {'strategy_key': 'rs_line', 'rs_tranche_1_pct': 60, 'rs_tranche_2_pct': 60}}).status_code == 422
+    assert rules.validate_sell_setup_payload({}) == {}
+
+
+def test_rs_metrics_exclude_unfinished_daily_bars():
+    from app.domain.sell.metrics import build_sell_decision_metrics_payload
+    index = pd.date_range('2026-01-01', periods=60, freq='B')
+    close = [100.0] * 57 + [95.0, 94.0, 93.0]
+    asset = pd.DataFrame({'Open': close, 'High': [c + 1 for c in close], 'Low': [c - 1 for c in close], 'Close': close, 'Volume': 1000, 'IsFinal': True}, index=index)
+    benchmark = pd.DataFrame({'Close': 100.0, 'IsFinal': True}, index=index)
+    asset.loc[index[-1], 'IsFinal'] = False
+    def build():
+        return build_sell_decision_metrics_payload(ticker='TEST', buy_date=index[-10], buy_price=90, shares=10, price_frame=asset, benchmark_frame=benchmark)['metrics']
+    metrics = build()
+    assert metrics['days_under_rs_ma21'] == 2
+    assert metrics['rs_as_of'] == str(index[-2].date())
+    chart_last = metrics['rs_chart_history'][-1]
+    assert chart_last['date'] == metrics['rs_as_of']
+    assert chart_last['rs'] == metrics['rs_line']
+    assert chart_last['rs_ma21'] == metrics['rs_ma21']
+    assert chart_last['rs_ma50'] == metrics['rs_ma50']
+    asset.loc[index[-1], 'IsFinal'] = True
+    benchmark.loc[index[-1], 'IsFinal'] = False
+    assert build()['days_under_rs_ma21'] == 2
+    benchmark.loc[index[-1], 'IsFinal'] = True
+    assert build()['days_under_rs_ma21'] == 3
+
+
+def test_missing_asset_close_interrupts_rs_confirmation():
+    from app.domain.sell.metrics import build_sell_decision_metrics_payload
+    index = pd.date_range('2026-01-01', periods=60, freq='B')
+    close = [100.0] * 56 + [95.0, 94.0, 93.0, 92.0]
+    asset = pd.DataFrame({'Open': close, 'High': close, 'Low': close, 'Close': close, 'Volume': 1000, 'IsFinal': True}, index=index).drop(index[-3])
+    benchmark = pd.DataFrame({'Close': 100.0, 'IsFinal': True}, index=index)
+    metrics = build_sell_decision_metrics_payload(ticker='TEST', buy_date=index[-10], buy_price=90, shares=10, price_frame=asset, benchmark_frame=benchmark)['metrics']
+    assert metrics['days_under_rs_ma21'] == 2

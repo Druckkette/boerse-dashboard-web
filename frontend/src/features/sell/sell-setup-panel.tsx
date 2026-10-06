@@ -42,7 +42,7 @@ export function SellSetupPanel({ ticker, onDirtyChange }: { ticker: string; onDi
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 className="text-base font-semibold">Verkaufsregeln · {ticker}</h2>
-        <p className="mt-1 text-sm text-[#687386]">{useGlobal ? "Verwendet die gespeicherte globale Strategie und ihre Grenzwerte." : "Eigene Strategie und Grenzwerte für diese Aktie. Bestehende Anpassungen bleiben erhalten."}</p>
+        <p className="mt-1 text-sm text-[#687386]">{useGlobal ? "Verwendet die in Settings gespeicherte globale Strategie und alle globalen Grenzwerte." : "Änderungen an Strategie und Grenzwerten hier gelten nur für diese Aktie. Der globale Standard bleibt unverändert."}</p>
       </div>
       <div className="flex gap-2">
         <button type="button" disabled={!dirty || save.isPending} className="rounded border border-[#d8e1ea] px-3 py-2 text-sm disabled:opacity-50" onClick={() => { setDraft(null); save.reset(); }}>Verwerfen</button>

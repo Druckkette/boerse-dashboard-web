@@ -42,7 +42,7 @@ Der globale Standard enthält Strategie, Grenzwerte und Baukasten. Aktien ohne e
 | 6.3.3 | Untere Trendlinie gebrochen | Fehlt. |
 | 6.3.4 | Verlustwochen | Custom-Anzahl, optional steigendes Volumen. Ausnahme für gesunde Drei-Wochen-Konsolidierung nicht vollständig umgesetzt. |
 | 6.3.5 | Größter Tages-/Wochenverlust | Custom-Kriterien vorhanden; Bezug seit Kauf statt Beginn des gesamten Aufwärtstrends, mit Mindesthistorie. |
-| 6.4.1 | RS-Linie | Nur Tagesbasis: 21/50 **SMA**; Tranchen standardmäßig 25/25/50, editierbar. Zweite Tranche nach drei Tagen **oder** tiefer als am Bruchtag. Buchbeispiel 20/30/50 einstellbar. Wechsel auf 10/25 Wochen ab 20 % Gewinn und 12/24 Monate ab 80 % Gewinn fehlt. |
+| 6.4.1 | RS-Linie | Nur Tagesbasis: 21/50 **SMA**; Erste zwei Anteile standardmäßig 25/25 %, editierbar; dritte Stufe verkauft den Rest (geplant 50 %). Zweite Tranche nach genau drei bestätigten Schlüssen in Folge unter 21-SMA; Bruchtag zählt mit. Dritte Stufe verkauft die gesamte Restposition, auch ohne vorherige Teilverkäufe. Buchbeispiel 20/30/50 einstellbar. Wochen-/Monatswechsel aus dem Buch nicht umgesetzt; auf ausdrücklichen Nutzerwunsch bleibt die Auswahl auf Tagesbasis. |
 | 6.4.2 | Gewinnsicherungsfolge ab Pivot | Kein vollständiges Preset. Gewinnschwelle, Überdehnung, Linienbruch und Kaufpreis-Rückfall kombinierbar, aber ohne korrekte Pivot-/Zeitfolge und wiederholte Gewinnmitnahmen. |
 | 6.4.3 | Gescheiterter Ausbruch | Preset Kauftag-Tief verkauft 50 % nach Rückeroberungsfrist, Vortagstief warnt. Die Buchfolge mit sofortigen Dritteln und die fünfstufige Intraday-/Schlusskursfolge samt Gap-Ausnahmen fehlen. |
 | 6.4.4 | ATR-Regeln | Einheiten für Nothalt, Gewinn, EMA-Bruch, Peak, scharfen Einbruch, größten Anstieg und MA-Überdehnung vorhanden. Kein eigenständiges vollständiges ATR-Preset. |
@@ -54,7 +54,7 @@ Der globale Standard enthält Strategie, Grenzwerte und Baukasten. Aktien ohne e
 
 **WRO #49 – 3-Day Rule** verlangt in der Verkaufsrichtung nach dem ersten Schluss unter der 21-EMA weitere Kerzen vollständig unter der Linie, einschließlich ihrer Hochs und schwacher Schlusskurse. Das aktuelle EMA-Preset zählt Schlusskurse und einige Folgebedingungen; es ist keine vollständige Umsetzung dieser WRO-Regel.
 
-Weitere WRO-Passagen zu Climax, Marktlage und diskretionärem Verkaufen liefern Kontext. Sie ergeben ohne präzise Regeldefinition keine zusätzlich implementierte Strategie. Eine echte Umsetzung der fehlenden Varianten benötigt eigene Presets, Zeitraumwahl, Zustandsfolge und passende Tests.
+Weitere WRO-Passagen zu Climax, Marktlage und diskretionärem Verkaufen liefern Kontext. Sie ergeben ohne präzise Regeldefinition keine zusätzlich implementierte Strategie. Eine echte Umsetzung der fehlenden Varianten benötigt eigene Presets, Zustandsfolgen und passende Tests. Wochen- und Monatsvarianten sind auf Nutzerwunsch nicht Teil der nächsten Erweiterung.
 
 ## Wirkung auf die Verkaufsempfehlung
 
@@ -64,7 +64,7 @@ Weitere WRO-Passagen zu Climax, Marktlage und diskretionärem Verkaufen liefern 
 4. Vorschläge werden in ganzen Prozenten ausgegeben. Die bisherige Abrundung auf wenige feste Prozentstufen wurde entfernt: eine konfigurierte 20-%-Tranche wird nicht mehr zu 0 %.
 5. Jedes Kriterium zeigt, ob es ausgewählt ist und wie seine Strategieempfehlung wirkt. Mehrere Kriterien können dieselbe Preset-Empfehlung erklären; die angezeigten Beiträge sind deshalb bei Presets nicht blind zu summieren. Maßgeblich ist die Liste der Strategie-Tranchen.
 6. Der Zustands-/Gesundheitswert „Halten/Beobachten/Verkaufen“ ist eine separate Bewertung und setzt selbst keine Verkaufsprozente. Die Oberfläche bezeichnet ihn ausdrücklich als „Zustand“.
-7. Die bestehende Bestätigung bleibt: Vorschläge von 33 % bis unter 75 % benötigen in der Regel zwei aufeinanderfolgende Handelstage. Kleinere oder mindestens 75-%-Vorschläge sind sofort scharf. Nothalt umgeht Bestätigung und Snooze. Snooze unterdrückt die Freigabeanzeige, nicht die zugrunde liegende Prozentberechnung.
+7. Die bestehende Bestätigung bleibt: Vorschläge von 33 % bis unter 75 % benötigen außerhalb der RS-Strategie in der Regel zwei aufeinanderfolgende Handelstage. Die RS-Stufen sind bereits durch Tagesschlüsse bestätigt und benötigen keine zusätzliche Bestätigung. Kleinere oder mindestens 75-%-Vorschläge sind sofort scharf. Nothalt umgeht Bestätigung und Snooze. Snooze unterdrückt die Freigabeanzeige, nicht die zugrunde liegende Prozentberechnung.
 8. Es wird kein Brokerauftrag ausgelöst. Strategie-Tranchen sind kumulative Ziele; ein Custom-Baukasten ist keine frei programmierbare zeitliche Ereignisfolge.
 
 ## In dieser Änderung behoben
@@ -79,3 +79,62 @@ Weitere WRO-Passagen zu Climax, Marktlage und diskretionärem Verkaufen liefern 
 - Lange Durchschnitte verwendeten nur Kurse seit Kauf. Jetzt wird die vorhandene Vorgeschichte zum Aufwärmen genutzt, sodass z. B. 200-SMA nicht erst nach 200 gehaltenen Tagen verfügbar ist.
 
 Die fehlenden Buch-/WRO-Strategien bleiben als konkrete Lücken dokumentiert. Diese Änderung behauptet keine vollständige Buchtreue und ersetzt bestehende individuelle Setups nicht durch neu interpretierte Regeln.
+
+
+## Präzisierung der RS-Tagesstrategie
+
+Die drei Stufen benötigen zwei Linien, nicht drei verschiedene Durchschnitte:
+
+1. Bestätigter Tagesschluss der RS-Linie unter ihrem 21-Tage-SMA: erster eingestellter Anteil (aktuell 25 %).
+2. Drei bestätigte Tagesschlüsse in Folge unter dem 21-Tage-SMA, einschließlich des ersten Bruchtags: zweiter eingestellter Anteil (aktuell 25 %). Das Ziel beträgt zusammen 50 %; protokollierte Verkäufe werden abgezogen.
+3. Bestätigter Tagesschluss unter dem 50-Tage-SMA: gesamte Restposition. Geplant sind nach den ersten beiden Stufen aktuell 50 %. Bei einem direkten Bruch der langsamen Linie ohne vorherige Teilverkäufe sind es 100 %.
+
+Die dritte geplante Tranche wird als `100 − erste − zweite` berechnet; die ersten beiden dürfen zusammen höchstens 100 % betragen. Intraday-Balken und vor Handelsschluss abgerufene Tagesbalken werden für die RS-Linie ausgeschlossen. Bewertet wird der letzte bestätigte gemeinsame Tagesschluss von Aktie und Benchmark. Eine explizite Stummschaltung bleibt wirksam; Nothalt ist davon weiterhin ausgenommen.
+
+Der RS-Chart im Verkaufsmonitor verwendet dieselbe bestätigte Kursreihe und dieselben 21-/50-SMA wie die Verkaufsberechnung. Er zeigt keine vorläufigen RS-Werte. Die separate RS-Analyse auf der Aktienseite verwendet weiterhin ihre eigenen EMA; diese sind nicht die Auslöser der Buch-Verkaufsstrategie.
+
+Der bisherige zusätzliche Auslöser „tiefer als am Bruchtag“ wurde entfernt: Er entsprach einer anderen WRO-Variante und konnte bereits am zweiten Tag auslösen. Ein langsamer Linienbruch führt jetzt unabhängig von den gerade aktiven frühen Stufen zum kumulativen Ziel von 100 %. Der Baukasten und die Strategie-Einstellungen stehen direkt bei der Auswahl und im Aktienmonitor vor den allgemeinen Regelübersichten.
+
+## Aktuelle globale Grenzwerte und Zuständigkeit
+
+Am 5. Oktober 2026 direkt am NAS geprüft. Diese Werte gelten für Aktien mit aktivierter globaler Übernahme. Sie stehen in Settings → Überwachung & Alerts → Globale Verkaufsstrategie → Grenzwerte. Bei eigenen Aktienregeln werden Änderungen im Aktieneditor nur für diese Aktie gespeichert. Beim Anlegen einer neuen Anpassung wird das aktuell wirksame komplette Setup kopiert. Ältere, nur teilweise gespeicherte Konfigurationen ergänzen nicht gespeicherte Werte aus dem globalen Standard; der erste neue Speichervorgang sichert das vollständig angezeigte Setup.
+
+| Einstellung | Globaler Wert |
+| --- | --- |
+| Strategie / RS-Anteile | RS täglich, 25 % / 25 % / Rest (geplant 50 %) |
+| Nothalt | 7 % Verlust vom Einstand |
+| Gewinnschwelle | 20 % über Einstand |
+| Deutlicher 21-EMA-Bruch | 2 % Abstand unter der Linie |
+| Rückgang vom 20-Tage-Hoch | 8 % |
+| Überdehnung 10-SMA / 21-EMA / 50-SMA / 200-SMA | 10 % / 15 % / 25 % / 70 % |
+| Tiefe Schlusskurse | mindestens 4 im unteren Drittel in 10 Tagen |
+| Scharfer Einbruch | 6 %; Rückeroberungsfrist 4 Tage |
+| Verlusttage | Fenster 10 Tage; Verlusttage müssen Gewinntage überwiegen |
+| Außergewöhnlicher Anstieg | 10 % oder 1,5-faches bisheriges Maximum im 20-Tage-Fenster, mit Volumenbedingung |
+| Stau-Tage | mindestens 3 in 10 Tagen, maximal 1 % Kursfortschritt, Volumenfaktor 1,3 |
+| Kauftags- und MA-Rückeroberung | jeweils 3 Tage; 200-SMA bleibt unmittelbar |
+| Verlustwochen | 3; steigendes Volumen nicht verpflichtend |
+| Größter Tages-/Wochenverlust | Vergleichshistorie 20 Tage / 4 Wochen |
+| EMA risikoavers / offensiv | 25/25/25 % frühe Tranchen / offensiv erste 33 % |
+| Peak-Preset | 8 % / 15 % Rückgang, jeweils 25-%-Tranche |
+| Custom-Standard | Nothalt; weitere Regeln ausdrücklich auswählen |
+
+Die Schwellen legen fest, wann ein Kriterium aktiv wird. Eine Verkaufstranche entsteht nur, wenn dieses Kriterium in der gewählten Strategie verwendet wird. Beim globalen RS-Standard erzeugt daher etwa das Erreichen von 20 % Gewinn allein keinen Verkauf.
+
+## Technisch sinnvolle nächste Ergänzungen
+
+Dies ist eine Machbarkeitsbewertung, keine Behauptung bereits integrierter Regeln. Trendkanal- und frei gezeichnete Trendlinien werden entsprechend der Nutzervorgabe ausgeschlossen. Eine automatische Regression wäre eine eigene Regel und kein gleichwertiger Ersatz für die im Buch eingezeichnete Linie.
+
+| Ergänzung | Eindeutige technische Abbildung / benötigte Daten |
+| --- | --- |
+| WRO #49: vollständige 3-Tage-Verkaufsregel | Schlusskurs und anschließend gesamte Tageskerzen einschließlich Hoch unter der 21-EMA; Reihenfolge und Unterbrechungen aus OHLC bestimmen. Als eigenes Kriterium/Preset, nicht als heimliche Änderung der vorhandenen EMA-Regel. |
+| WRO #73 auf Tagesbasis | Drei EMA der RS-Linie (21/34/50) mit getrennten Halte-/Verkaufsstufen. Berechenbar aus denselben bestätigten Kursreihen; eigenständige Alternative zur Buch-SMA-Strategie. |
+| Buch: gescheiterter Ausbruch auf Schlusskursbasis | Datum des tatsächlichen Ausbruchs und Tief von Tag 1/Tag 0 festhalten; sequenziell Drittel und Nothalt. Ausbruchstag ausdrücklich wählen, nicht automatisch mit beliebigem Kaufdatum gleichsetzen. |
+| Buch: Gewinnsicherungsfolge | Explizit gepflegter offizieller Pivot, Gewinnzone 20–25 %, Brüche 10-SMA/21-EMA/50-SMA; bereits ausgeführte Schritte pro Position speichern. Alternative: halber Verkauf am Gewinnziel, Rest beim Rückfall auf Einstand. |
+| Größter Volumentag / Earnings-Ausnahme | Volumenmaximum in festgelegtem Fenster und bestätigte historische Earnings-Termine. Ohne Earnings-Daten die Ausnahme als nicht prüfbar kennzeichnen. |
+| Rückfall nach Überdehnung unter das Ankertief | OHLC-Ankerdatum beim Überschreiten speichern; Rückfall unter das damalige Kerzentief statt Schlusskurs. Bestehende Regel als eigene Variante erhalten. |
+| Downside Reversal und Erschöpfungslücke | Konkrete Kombination aus Hoch, Eröffnungs-Gap, Schlussposition in der Kerze, Volumen und vorausgehendem Anstieg. Ältere Entwürfe existieren in `strategies.py`, sind im aktuellen Motor aber nicht angeschlossen. Ein Erschöpfungs-Gap kann nur als regelbasierter Kandidat erkannt werden, nicht sicher als endgültiger Gipfel. |
+| Schwache Industry Group | Numerische Branchen-RS, Rang oder definierter Rückgang über ein Fenster. Daten und Gruppenzuordnung müssen vorhanden sein; ein manuelles „Schwach“ oder bloß fehlende Daten dürfen nicht unbemerkt als berechnetes Signal gelten. |
+| Verlustwochen mit Konsolidierungs-Ausnahme | Wochen-OHLC, Range, Rückgang und Volumen über drei abgeschlossene Wochen; Ausnahme mit expliziten einstellbaren Schwellen definieren. |
+
+Eine Split-Rallye braucht verifizierte Split-Termine und konsistent bereinigte Kurse. Vorhandene Split-Kandidaten sind dafür nicht ausreichend. Die fünfstufige Intraday-Ausbruchsregel braucht echte Intraday-Daten: aus Tageshoch/-tief lässt sich die Reihenfolge der Verletzungen nicht zuverlässig rekonstruieren. Diese beiden Regeln sind deshalb mit dem aktuellen Datenbestand nicht sofort verlässlich integrierbar.
