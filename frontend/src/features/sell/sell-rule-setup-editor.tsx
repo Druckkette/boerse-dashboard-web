@@ -2,6 +2,7 @@ import { Minus, Plus } from "lucide-react";
 import type { ReactNode } from "react";
 
 const STRATEGY_OPTIONS = [
+  { value: "rs_line_ema", label: "RS-Linie EMA" },
   { value: "rs_line", label: "RS-Linie täglich · 21/50-SMA" },
   { value: "custom", label: "Benutzerdefiniert" },
   { value: "ema21_risk_averse", label: "21-EMA risikoavers" },
@@ -281,6 +282,10 @@ const strategySetupCopy: Record<string, { title: string; detail: string }> = {
     title: "Benutzerdefinierte Strategie",
     detail: "Nur die hier ausgewählten Merkmale erzeugen Strategieempfehlungen. Andere aktive Merkmale bleiben als Status sichtbar, lösen aber keine Custom-Tranche aus."
   },
+  rs_line_ema: {
+    title: "RS-Linie EMA · WRO #73 täglich",
+    detail: "Bestätigte Tagesschlüsse der RS-Linie vs. SPY. Quick, Quicksand und Grateful Dead nutzen 21-, 34- und 50-Tage-EMAs. Prozentwerte beziehen sich auf die Ausgangsposition; Verkäufe werden angerechnet. Eine Erholung erlaubt eine neue Prüfung zum Aufstocken, löst aber keinen Kauf aus."
+  },
   rs_line: {
     title: "RS-Linie auf Tagesbasis",
     detail: "Es gelten die bestätigten Tagesschlusskurse der RS-Linie relativ zum S&P 500. Drei Stufen nutzen zwei Durchschnittslinien; Intraday-Kurse lösen diese Stufen nicht aus."
@@ -377,6 +382,33 @@ function StrategySpecificSetup({
             <Plus size={15} />
             Merkmal hinzufügen
           </button>
+        </RuleSetupGroup>
+      </div>
+    );
+  }
+
+  if (selectedStrategy === "rs_line_ema") {
+    const core = setupNumber("rs_ema_core_pct", 60);
+    const first = setupNumber("rs_ema_first_pct", 20);
+    const second = setupNumber("rs_ema_second_pct", 20);
+    return (
+      <div className="xl:col-span-3">
+        <RuleSetupGroup title={copy.title}>
+          <p className="text-sm leading-6 text-[#687386]">{copy.detail}</p>
+          <SetupNumber label="Kernposition %" value={core} onChange={(value) => updateSellSetup({ rs_ema_core_pct: value })} />
+          <p className="text-sm text-[#687386]">Flexibler Anteil: {100 - core} %. WRO-Beispiel: 15 % Kernposition bei 25 % Maximalposition entspricht 60 % Kernposition und 40 % flexiblem Anteil. Die Kernposition wird standardmäßig in drei Teile à 20 % der Ausgangsposition aufgeteilt.</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="space-y-2">
+              <SetupNumber label="Quick · Kerntranche %" value={first} onChange={(value) => updateSellSetup({ rs_ema_first_pct: value })} />
+              <p className="text-sm text-[#687386]">Tagesschluss unter RS-21-EMA: Zielverkauf insgesamt {100 - core + first} %. Dabei wird auch ein noch vorhandener flexibler Anteil abgebaut.</p>
+            </div>
+            <div className="space-y-2">
+              <SetupNumber label="Quicksand · Kerntranche %" value={second} onChange={(value) => updateSellSetup({ rs_ema_second_pct: value })} />
+              <p className="text-sm text-[#687386]">Tagesschluss unter RS-34-EMA: Zielverkauf insgesamt {100 - core + first + second} %, auch wenn Quick übersprungen wurde.</p>
+            </div>
+            <ReadOnlySetupTile label="Grateful Dead · Restposition" value={`${Math.max(0, core - first - second)} % geplant`} detail="Tagesschluss unter RS-50-EMA: gesamte verbleibende Position verkaufen. Treffen mehrere Stufen zusammen, gilt das höchste Verkaufsziel; die Ziele werden nicht addiert." />
+          </div>
+          {(core <= 0 || core > 100 || first + second > core) && <p role="alert" className="text-sm text-rose-700">Die Kernposition muss zwischen 1 und 100 % liegen. Ihre ersten beiden Tranchen dürfen zusammen die Kernposition nicht überschreiten.</p>}
         </RuleSetupGroup>
       </div>
     );

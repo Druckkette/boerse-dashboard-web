@@ -126,6 +126,7 @@ class SellSignal(BaseModel):
 
 
 class SellRuleFeature(BaseModel):
+    available: bool = True
     id: str
     category: Literal["emergency", "offensive", "defensive"]
     label: str
