@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BriefcaseBusiness, ChevronDown, CircleAlert, Clock3, Layers3, LineChart, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { HomeDashboard as HomeData, Tone } from "@/lib/types/api";
@@ -79,6 +80,8 @@ function AttentionList({ data }: { data: HomeData }) {
 
 function PortfolioOverview({ data }: { data: HomeData }) {
   const buys = useQuery({ queryKey: ["portfolio-buy-strength", 3], queryFn: () => api.portfolioBuyStrength({ weeks: 3 }), staleTime: 60_000, enabled: data.portfolio.positions_count > 0 });
+  const snapshot = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot, refetchInterval: 60_000 });
+  const dailyChange = snapshot.data?.kpis.find((item) => item.label === "Gewinn/Verlust zum Vortagsschluss");
   const p = data.portfolio;
   return <Panel icon={BriefcaseBusiness} title="Mein Depot" action={<TextLink href="/portfolio#positionen">Portfolio öffnen</TextLink>}>
     <dl className="grid grid-cols-3 gap-3">
@@ -86,7 +89,9 @@ function PortfolioOverview({ data }: { data: HomeData }) {
       <DepotMetric label="Stop-Abdeckung" value={p.stop_coverage_total ? `${number((p.stop_coverage_count || 0) / p.stop_coverage_total * 100)} %` : "–"} />
       <DepotMetric label="Zu prüfen" value={String(data.review_positions_count)} tone={data.review_positions_count ? "warning" : "neutral"} />
     </dl>
-    <p className="mt-3 text-xs leading-5 text-[#687386]">{portfolioDayDetail(p)}</p>
+    <div className="mt-4">
+      {dailyChange ? <KpiCard item={dailyChange} /> : <Empty text={snapshot.isLoading ? "Gewinn/Verlust zum Vortagsschluss wird geladen …" : "Gewinn/Verlust zum Vortagsschluss derzeit nicht verfügbar."} />}
+    </div>
     <div className="mt-5 border-t border-[#e3e8ef] pt-4"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-xs font-semibold text-[#475569]">Stärke nach Kauf · letzte 3 Wochen</h3><TextLink href="/portfolio/buy-strength">Alle Käufe</TextLink></div>
       {buys.isLoading ? <Empty text="Kaufentwicklung wird geladen …" /> : buys.isError ? <Empty text="Kaufentwicklung derzeit nicht verfügbar." /> : !buys.data?.items.length ? <Empty text="Keine frischen Käufe im aktuellen Fenster." /> : <div className="space-y-2">{buys.data.items.slice(0, 4).map((item) => <Link key={item.ticker} href={`/portfolio/buy-strength/${encodeURIComponent(item.ticker)}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#f7f9fb] px-3 py-2.5 text-xs"><span><b className="text-[#172033]">{item.ticker}</b><span className="ml-2 text-[#687386]">{item.age_days} Tage · {signedPercent(item.pnl_pct, 1)}</span></span><StatusChip tone={item.status === "stark" ? "good" : item.status === "risk" ? "bad" : item.status === "watch" ? "warning" : "neutral"}>{item.status_label}</StatusChip></Link>)}</div>}
     </div>
@@ -105,12 +110,6 @@ function Opportunities({ data }: { data: HomeData }) {
 function Groups({ data }: { data: HomeData }) {
   if (!data.industry_groups.length) return <Empty text="Noch keine Branchen-Rangliste verfügbar." />;
   return <><div className="divide-y divide-[#e8edf2]">{data.industry_groups.map((row) => <Link key={row.code} href={`/industry-groups/${row.code}`} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 text-xs"><span className="min-w-0"><span className="mr-2 text-[#94a3b8]">{row.rank || "–"}</span><b className="font-medium text-[#172033]">{row.name}</b><span className="ml-2 text-[#687386]">RS {number(row.rs_score)}</span></span><span className={`shrink-0 tabular-nums ${row.rank_change_20d == null || row.rank_change_20d === 0 ? "text-[#94a3b8]" : row.rank_change_20d > 0 ? "text-[#138a57]" : "text-[#c2413b]"}`}>{row.rank_change_20d == null ? "–" : row.rank_change_20d === 0 ? "=" : `${row.rank_change_20d > 0 ? "↑" : "↓"} ${Math.abs(row.rank_change_20d)}`}</span></Link>)}</div><p className="mt-3 text-[11px] text-[#94a3b8]">Stand {shortDate(data.industry_groups_as_of)} · Rangänderung über 20 gespeicherte Stände</p></>;
-}
-function portfolioDayDetail(p: HomeData["portfolio"]) {
-  if (p.daily_price_change_status === "mixed_currency") return "Tagesveränderung bei mehreren Depotwährungen nicht zusammengefasst.";
-  if (p.daily_price_change_status === "partial") return `Kursvergleich für ${p.comparable_positions || 0} von ${p.positions_count} Positionen verfügbar.`;
-  if (p.daily_price_change_pct == null) return "Tagesveränderung noch nicht verfügbar.";
-  return `${signedPercent(p.daily_price_change_pct)} Kursveränderung zum Vortag · ${shortDate(p.daily_price_change_as_of)} · ohne Wechselkurse und Transaktionen`;
 }
 function HomeLoading() {
   return <div className="space-y-5" aria-busy="true" aria-label="Startseite wird geladen"><div className="h-52 animate-pulse rounded-2xl bg-[#e9eef3]" /><div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">{[1, 2].map((item) => <div className="h-72 animate-pulse rounded-2xl bg-[#e9eef3]" key={item} />)}</div></div>;
