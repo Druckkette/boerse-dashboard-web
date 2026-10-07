@@ -1008,6 +1008,11 @@ class PortfolioPosition(BaseModel):
     position_loss_risk: float | None = None
     position_loss_risk_pct: float | None = None
     status: Literal["ok", "watch", "risk", "sell"]
+    daily_pnl_abs: float | None = None
+    daily_pnl_pct: float | None = None
+    previous_close: float | None = None
+    previous_close_date: str | None = None
+    price_as_of: str | None = None
     pnl_abs: float = 0
     currency: str = "EUR"
     buy_date: str | None = None

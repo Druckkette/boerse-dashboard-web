@@ -10,7 +10,7 @@ import { PositionTable } from "@/features/portfolio/position-table";
 import { api } from "@/lib/api/client";
 
 export default function PortfolioPage() {
-  const { data } = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot });
+  const { data } = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot, refetchInterval: 60_000 });
   const afterHoursMutation = useMutation({ mutationFn: api.portfolioAfterHours });
   const afterHoursByTicker = new Map(
     afterHoursMutation.data?.positions.map((position) => [position.ticker, position]) ?? []

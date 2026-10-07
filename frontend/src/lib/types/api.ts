@@ -513,6 +513,11 @@ export type PortfolioPosition = {
   position_loss_risk?: number | null;
   position_loss_risk_pct?: number | null;
   status: "ok" | "watch" | "risk" | "sell";
+  daily_pnl_abs?: number | null;
+  daily_pnl_pct?: number | null;
+  previous_close?: number | null;
+  previous_close_date?: string | null;
+  price_as_of?: string | null;
   pnl_abs: number;
   currency: string;
   buy_date?: string | null;

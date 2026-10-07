@@ -63,6 +63,7 @@ export function PositionTable({
     } satisfies ColumnDef<PortfolioPosition>] : []),
     { accessorKey: "pnl_pct", header: "P&L %", cell: ({ getValue }) => <SignedValue value={Number(getValue())} suffix="%" /> },
     { accessorKey: "pnl_abs", header: "P&L", cell: ({ row, getValue }) => <SignedValue value={Number(getValue())} suffix={` ${row.original.currency}`} digits={0} /> },
+    { accessorKey: "daily_pnl_abs", header: "G/V Vortag", cell: ({ row }) => <DailyChangeCell position={row.original} /> },
     { accessorKey: "weight_pct", header: "Gewicht", cell: ({ getValue }) => formatPercent(Number(getValue()), 1, false) },
     { accessorKey: "atr_pct", header: "ATR", cell: ({ getValue }) => typeof getValue() === "number" ? formatPercent(Number(getValue()), 1, false) : "–" },
     { accessorKey: "beta_balancer_score", header: "Beta-Balancer", cell: ({ getValue }) => formatNumber(getValue() as number | null) },
@@ -159,6 +160,7 @@ function MobilePositionCard({ position, quote }: { position: PortfolioPosition; 
     <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
       <MobileMetric label="Wert" value={formatMoney(position.market_value, position.currency, 0)} />
       <MobileMetric label="P&L" value={formatPercent(position.pnl_pct)} tone={position.pnl_pct >= 0 ? "good" : "bad"} />
+      <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2"><div className="text-[10px] uppercase text-[#687386]">G/V zum Vortagsschluss</div><DailyChangeCell position={position} /></div>
       <MobileMetric label="Kurs" value={formatMoney(position.current_price, position.currency)} />
       <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2">
         <div className="text-[10px] uppercase text-[#687386]">Stopp USD bearbeiten</div>
@@ -183,6 +185,14 @@ function AfterHoursCell({ quote }: { quote?: PortfolioAfterHoursPosition }) {
   if (!quote.available || typeof quote.after_hours_price !== "number") return <span className="text-[#8b95a5]">Nicht verfügbar</span>;
   const value = quote.after_hours_change_pct ?? 0;
   return <div className={value >= 0 ? "text-[#138a57]" : "text-[#c2413b]"}><div className="font-medium">{formatMoney(quote.after_hours_price, quote.currency)}</div><div className="text-xs">{formatPercent(value, 2)}</div></div>;
+}
+
+function DailyChangeCell({ position }: { position: PortfolioPosition }) {
+  if (typeof position.daily_pnl_abs !== "number" || typeof position.daily_pnl_pct !== "number") return <span className="text-[#8b95a5]">Nicht verfügbar</span>;
+  return <div title={`Aktueller Kursstand: ${position.price_as_of}; Schlusskurs-Referenz: ${position.previous_close_date}`}>
+    <SignedValue value={position.daily_pnl_abs} suffix={` ${position.currency}`} digits={2} />
+    <div className="text-xs"><SignedValue value={position.daily_pnl_pct} suffix="%" digits={2} /></div>
+  </div>;
 }
 
 function SignedValue({ value, suffix, digits = 1 }: { value: number; suffix: string; digits?: number }) {
