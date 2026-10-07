@@ -180,6 +180,7 @@ def get_portfolio_positions(
         beta_balancer_score = _beta_balancer_score(beta=beta, atr_pct=atr_pct, market_atr_pct=market_atr_pct)
         risk_contribution = _risk_contribution(weight_pct=weight_pct, beta_balancer_score=beta_balancer_score)
         position_loss_risk = _position_loss_risk(row)
+        daily_change = _position_daily_change(row, price_series.get(row.ticker, []))
         positions.append(
             PortfolioPosition(
                 ticker=row.ticker,
@@ -202,6 +203,7 @@ def get_portfolio_positions(
                 ),
                 status=_status_for_position(pnl_pct, atr_pct),
                 pnl_abs=pnl_abs,
+                **daily_change,
                 currency=row.currency,
                 buy_date=row.buy_date.isoformat() if row.buy_date else None,
                 pivot_tag=row.pivot_tag.isoformat() if row.pivot_tag else None,
@@ -213,6 +215,48 @@ def get_portfolio_positions(
             )
         )
     return positions
+
+
+def _position_daily_change(row, points) -> dict:
+    """Compare the cached current quote with the preceding exchange session.
+
+    Use the same currency conversion as the displayed current position price.
+    Cash, trades and historical FX moves are not part of this price comparison.
+    """
+    from app.services.market_calendar import completed_ticker_market_session, daily_bar_is_final, previous_ticker_market_session_date
+    if row.current_price_source != "price_cache" or not points:
+        return {}
+    points = sorted(points, key=lambda point: point.date)
+    latest = points[-1]
+    now = datetime.now(UTC)
+    if latest.date < completed_ticker_market_session(row.ticker, now).date or latest.date > now.date():
+        return {}
+    reference_date = previous_ticker_market_session_date(row.ticker, latest.date)
+    previous = next((point for point in reversed(points) if point.date == reference_date), None)
+    if previous is None or not daily_bar_is_final(previous.date, previous.fetched_at, ticker=row.ticker, now=now):
+        return {}
+    latest_close, previous_close = _finite_float(latest.close), _finite_float(previous.close)
+    if latest_close is None or previous_close is None or min(latest_close, previous_close, row.current_price) <= 0:
+        return {}
+    reference_price = row.current_price * previous_close / latest_close
+    return dict(previous_close=reference_price, previous_close_date=reference_date.isoformat(), price_as_of=latest.date.isoformat(),
+                daily_pnl_abs=(row.current_price - reference_price) * row.shares,
+                daily_pnl_pct=(latest_close / previous_close - 1) * 100)
+
+
+def _portfolio_daily_change_kpi(positions: list[PortfolioPosition], currency: str) -> KpiCard:
+    covered = [position for position in positions if position.daily_pnl_abs is not None]
+    same_currency = len({position.currency for position in positions}) == 1
+    if len(covered) != len(positions) or not positions or not same_currency:
+        detail = f"Vergleichsdaten: {len(covered)}/{len(positions)} Positionen" if same_currency else "Unterschiedliche Positionswährungen"
+        return KpiCard(label="Gewinn/Verlust zum Vortagsschluss", value="n/a", detail=detail, tone="warning")
+    change = sum(position.daily_pnl_abs for position in covered)
+    baseline = sum(position.previous_close * position.shares for position in covered)
+    percent = change / baseline * 100 if baseline > 0 else 0
+    dates = sorted({position.price_as_of for position in covered})
+    date_label = dates[0] if len(dates) == 1 else f"{dates[0]}–{dates[-1]}"
+    return KpiCard(label="Gewinn/Verlust zum Vortagsschluss", value=f"{change:+,.2f} {covered[0].currency}",
+                   detail=f"{percent:+.2f}% · offene Positionen · Kursstand {date_label}", tone="good" if change >= 0 else "bad")
 
 
 def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
@@ -267,6 +311,7 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
             detail=f"{total_pnl_pct:+.1f}% ggü. Einstand",
             tone="good" if total_pnl_abs >= 0 else "bad",
         ),
+        _portfolio_daily_change_kpi(positions, display_currency),
         KpiCard(label="Cashquote", value=f"{cash / total * 100:.1f}%" if total else "0.0%", detail=f"{cash:,.0f} {display_currency}", tone="neutral"),
         KpiCard(
             label="Portfolio ATR",
