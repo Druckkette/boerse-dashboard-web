@@ -73,14 +73,14 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
   }, [clean, queryClient, refreshJob]);
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-5 shadow-[0_5px_18px_rgba(15,23,42,0.045)]">
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Database className="size-5 text-[#8ea4c8]" />
-            <h2 className="text-lg font-semibold">Fundamental-Cache</h2>
+            <Database className="size-5 text-[#0f766e]" />
+            <h2 className="text-lg font-semibold">Fundamentale Kennzahlen</h2>
           </div>
-          <p className="mt-1 text-sm text-[#a0a7b4]">
+          <p className="mt-1 text-sm text-[#687386]">
             {item
               ? `Stand ${item.as_of || "unbekannt"} · ${item.source || "Quelle unbekannt"}`
               : "Noch kein gespeicherter Fundamentals-Datensatz."}
@@ -90,7 +90,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
           <StatusChip tone={item ? "good" : "warning"}>{item ? "gespeichert" : "leer"}</StatusChip>
           <StatusChip tone={toneForScore(scorePreview)}>{Math.round(scorePreview)}/100</StatusChip>
           <button
-            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-[#d7e8e4] bg-[#f3faf8] px-3 text-sm font-medium text-[#0f766e] transition hover:bg-[#e6f5f2] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={refreshMutation.isPending || refreshRunning}
             onClick={() => refreshMutation.mutate()}
             type="button"
@@ -202,7 +202,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
             )}
           </div>
 
-          <div className="flex items-center gap-2 border-t border-[#242a33] pt-4 text-sm text-[#a0a7b4]">
+          <div className="flex items-center gap-2 border-t border-[#e3e8ef] pt-4 text-sm text-[#687386]">
             <CalendarClock className="size-4" />
             <span>Automatische Aktualisierung läuft über Smart-Refresh um 16:00 und 22:30 Uhr sowie über diesen gezielten Worker-Job.</span>
           </div>
@@ -214,9 +214,9 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
 
 function EmptyFundamentals({ ticker }: { ticker: string }) {
   return (
-    <div className="rounded border border-dashed border-[#343b47] bg-[#111419] p-5">
+    <div className="rounded border border-dashed border-[#cbd5e1] bg-[#f9fbfd] p-5">
       <h3 className="text-sm font-semibold">{ticker}: keine Fundamentals gespeichert</h3>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#a0a7b4]">
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#687386]">
         Starte den Fundamental-Refresh. Der Worker lädt yfinance/FMP/SEC-Daten und schreibt den Snapshot in den Cache;
         die Bewertung liest danach nur noch diese vorbereiteten Daten.
       </p>
@@ -240,10 +240,10 @@ function MetricTile({
   tone?: Tone;
 }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-3">
-      <div className="text-xs uppercase text-[#7f8794]">{label}</div>
+    <div className="rounded border border-[#e3e8ef] bg-[#f9fbfd] p-3">
+      <div className="text-xs uppercase text-[#687386]">{label}</div>
       <div className={`mt-2 text-lg font-semibold ${toneText(tone)}`}>{value}</div>
-      <div className="mt-1 min-h-5 text-xs leading-5 text-[#a0a7b4]">{detail}</div>
+      <div className="mt-1 min-h-5 text-xs leading-5 text-[#687386]">{detail}</div>
     </div>
   );
 }
@@ -260,13 +260,13 @@ function RuleTile({
   tone: Tone;
 }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+    <div className="min-w-0 rounded-xl border border-[#e3e8ef] bg-[#f9fbfd] p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">{label}</h3>
-          <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">{detail}</p>
+          <p className="mt-2 text-sm leading-6 text-[#687386]">{detail}</p>
         </div>
-        <StatusChip tone={tone}>{value}</StatusChip>
+        <div className="shrink-0 whitespace-nowrap"><StatusChip tone={tone}>{value}</StatusChip></div>
       </div>
     </div>
   );
@@ -288,18 +288,18 @@ function HistoryPanel({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+    <div className="min-w-0 rounded-xl border border-[#e3e8ef] bg-[#f9fbfd] p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <span className="text-[#8ea4c8]">{icon}</span>
+            <span className="text-[#0f766e]">{icon}</span>
             <h3>{title}</h3>
           </div>
-          <p className="mt-2 text-xs leading-5 text-[#7f8794]">{description}</p>
+          <p className="mt-2 text-xs leading-5 text-[#687386]">{description}</p>
         </div>
-        <StatusChip tone={tone}>{chip}</StatusChip>
+        <div className="shrink-0 whitespace-nowrap"><StatusChip tone={tone}>{chip}</StatusChip></div>
       </div>
-      <div className="mt-4 overflow-x-auto">{children}</div>
+      <div className="mt-4">{children}</div>
     </div>
   );
 }
@@ -394,7 +394,7 @@ function AnnualRevenueTable({ history }: { history: StockFundamentalsAnnualReven
 
 function EmptyHistoryTable({ message }: { message: string }) {
   return (
-    <div className="rounded border border-dashed border-[#343b47] bg-[#0d1117] px-3 py-4 text-sm leading-6 text-[#a0a7b4]">
+    <div className="rounded border border-dashed border-[#cbd5e1] bg-[#f9fbfd] px-3 py-4 text-sm leading-6 text-[#687386]">
       {message} Der Worker lädt mehr Historie; bei jungen Aktien, Spin-offs oder fehlenden Provider-Daten kann der
       Vorjahresvergleich trotzdem fehlen.
     </div>
@@ -403,11 +403,19 @@ function EmptyHistoryTable({ message }: { message: string }) {
 
 function HistoryTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
   return (
-    <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+    <>
+    <div className="space-y-3 sm:hidden">
+      {rows.map((row, rowIndex) => <div key={rowIndex} className="rounded-xl border border-[#e3e8ef] bg-white p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-[#172033]">{row[0]}</strong><span className={`rounded-md bg-[#f6f8fb] px-2 py-1 text-xs ${cellClass(row[row.length - 1], row.length - 1, row.length)}`}>{row[row.length - 1]}</span></div>
+        <dl className="grid grid-cols-3 gap-2">{row.slice(1, -1).map((cell, index) => <div key={index}><dt className="text-[10px] text-[#687386]">{columns[index + 1]}</dt><dd className={`mt-1 break-words text-sm tabular-nums ${cellClass(cell, index + 1, row.length)}`}>{cell}</dd></div>)}</dl>
+      </div>)}
+    </div>
+    <div className="hidden overflow-x-auto rounded-xl border border-[#e3e8ef] bg-white sm:block">
+    <table className="w-full border-separate border-spacing-0 text-left text-sm tabular-nums">
       <thead>
         <tr>
           {columns.map((column) => (
-            <th key={column} className="border-b border-[#2d333d] px-3 py-2 text-xs font-medium uppercase text-[#7f8794]">
+            <th key={column} className="whitespace-nowrap border-b border-[#e3e8ef] bg-[#f0f4f8] px-3 py-3 text-[10px] font-semibold uppercase tracking-wide text-[#687386]">
               {column}
             </th>
           ))}
@@ -415,9 +423,9 @@ function HistoryTable({ columns, rows }: { columns: string[]; rows: string[][] }
       </thead>
       <tbody>
         {rows.map((row, rowIndex) => (
-          <tr key={rowIndex} className="border-b border-[#242a33]">
+          <tr key={rowIndex} className="border-b border-[#e3e8ef]">
             {row.map((cell, cellIndex) => (
-              <td key={`${rowIndex}-${cellIndex}`} className={`px-3 py-3 ${cellClass(cell, cellIndex, row.length)}`}>
+              <td key={`${rowIndex}-${cellIndex}`} className={`whitespace-nowrap border-b border-[#edf0f5] px-3 py-4 ${cellIndex === 3 ? "bg-[#f6f8fb] text-base font-semibold" : ""} ${cellClass(cell, cellIndex, row.length)}`}>
                 {cell}
               </td>
             ))}
@@ -425,22 +433,24 @@ function HistoryTable({ columns, rows }: { columns: string[]; rows: string[][] }
         ))}
       </tbody>
     </table>
+    </div>
+    </>
   );
 }
 
 function cellClass(cell: string, index: number, length: number) {
   if (index === length - 1) {
-    if (cell === "bestanden") return "font-medium text-emerald-200";
-    if (cell === "unter 20%") return "font-medium text-amber-200";
-    if (cell === "Turnaround") return "font-medium text-sky-200";
-    if (cell === "Vorjahr fehlt") return "font-medium text-[#a0a7b4]";
-    if (cell === "weiter negativ" || cell === "Gewinn zu Verlust") return "font-medium text-rose-200";
-    if (cell === "Vorjahr <= 0" || cell === "Vorjahr 0") return "font-medium text-amber-200";
-    return "text-[#7f8794]";
+    if (cell === "bestanden") return "font-medium text-emerald-700";
+    if (cell === "unter 20%") return "font-medium text-amber-800";
+    if (cell === "Turnaround") return "font-medium text-sky-700";
+    if (cell === "Vorjahr fehlt") return "font-medium text-[#687386]";
+    if (cell === "weiter negativ" || cell === "Gewinn zu Verlust") return "font-medium text-rose-700";
+    if (cell === "Vorjahr <= 0" || cell === "Vorjahr 0") return "font-medium text-amber-800";
+    return "text-[#687386]";
   }
-  if (cell.startsWith("+") && index === length - 2) return "font-medium text-emerald-200";
-  if (cell.startsWith("-") && index === length - 2) return "font-medium text-rose-200";
-  return index === 0 ? "font-medium text-[#e8ecf3]" : "text-[#c3c9d4]";
+  if (cell.startsWith("+") && index === length - 2) return "font-medium text-emerald-700";
+  if (cell.startsWith("-") && index === length - 2) return "font-medium text-rose-700";
+  return index === 0 ? "font-medium text-[#172033]" : "text-[#4b5565]";
 }
 
 function previewFundamentalScore(item: StockFundamentalsItem | null) {

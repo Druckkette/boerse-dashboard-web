@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { StatusChip } from "@/components/ui/status-chip";
 import { assessmentCriterionLabel } from "./assessment-criteria";
 import { criterionResults } from "./assessment-criterion-results";
+import { MetricDetail } from "./metric-detail";
 import { AssessmentCriterionNote } from "./assessment-criterion-note";
 import { api } from "@/lib/api/client";
 import type { AssessmentV2Detail, StockAssessment, StockAssessmentCheck, StockAssessmentSignal, Tone } from "@/lib/types/api";
@@ -203,13 +204,16 @@ function ComponentBreakdown({ title, detail, assessment }: { title: string; deta
       <p className="mb-3 text-xs text-[#687386]">Basis = konfigurierte Gewichtung in dieser Bewertung. Effektiv = Anteil nach Umverteilung fehlender Bestandteile. Abgestufte Kriterien gelten hier ab 70/100 als erfüllt; die Score-Berechnung bleibt unverändert.</p>
       <div className="space-y-1.5">
         {components.map(([key, component]) => (
-          <div key={key} className="flex items-center justify-between gap-3 rounded-[9px] bg-[#f9fbfd] px-3 py-2 text-sm">
+          <div key={key} className="rounded-xl border border-[#e3e8ef] bg-[#f9fbfd] p-3 text-sm">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="min-w-0 font-semibold text-[#172033]">{assessmentCriterionLabel(key)}</div>
+              <span className="shrink-0 rounded-md bg-white px-2 py-1 font-semibold tabular-nums text-[#172033]">{typeof component.score === "number" ? component.score.toFixed(1) : "–"}<span className="ml-1 text-[10px] font-normal text-[#687386]">/100</span></span>
+            </div>
             <div>
-              <div className="font-medium text-[#172033]">{assessmentCriterionLabel(key)}</div>
               <AssessmentCriterionNote criterion={key} results={criterionResults(key, component, assessment.checks, assessment.chart_signals)} />
               <div className="text-[11px] text-[#687386]">Basis {Math.round((component.base_weight ?? 0) * 1000) / 10}% · effektiv {Math.round((component.effective_weight ?? 0) * 1000) / 10}% · {statusLabel(component.status)}</div>
             </div>
-            <span className="shrink-0 font-semibold tabular-nums text-[#172033]">{typeof component.score === "number" ? component.score.toFixed(1) : "–"}</span>
+
           </div>
         ))}
       </div>
@@ -225,11 +229,14 @@ function K9Detail({ detail }: { detail: AssessmentV2Detail }) {
   return (
     <div className="mt-3 rounded-[9px] border border-[#e3e8ef] p-3 text-xs text-[#4b5565]">
       {quarters.map((quarter) => (
-        <div key={String(quarter.period)} className="mb-1 last:mb-0">
-          <strong>{String(quarter.period)}</strong> · EPS {signedPercent(quarter.eps_growth_yoy_pct)} · Sales {signedPercent(quarter.revenue_growth_yoy_pct)} · Divergenz {signedPp(quarter.divergence_pp)}
+        <div key={String(quarter.period)} className="mb-3 border-b border-[#e3e8ef] pb-3 last:mb-0 last:border-0 last:pb-0">
+          <div className="mb-2 font-semibold text-[#172033]">{String(quarter.period)}</div>
+          <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[["EPS YoY", signedPercent(quarter.eps_growth_yoy_pct)], ["Umsatz YoY", signedPercent(quarter.revenue_growth_yoy_pct)], ["Divergenz", signedPp(quarter.divergence_pp)]].map(([label, value]) => <div key={label} className="rounded-lg bg-[#f6f8fb] p-2"><dt className="text-[11px] text-[#687386]">{label}</dt><dd className="mt-1 font-semibold tabular-nums text-[#172033]">{value}</dd></div>)}
+          </dl>
         </div>
       ))}
-      {raw?.research_trigger ? <div className="mt-2 font-semibold text-amber-800">⚠ Research Trigger</div> : null}
+      {raw?.research_trigger ? <div className="mt-2 font-semibold text-amber-800">⚠ Recherchehinweis</div> : null}
     </div>
   );
 }
@@ -249,8 +256,9 @@ function SetupCard({ setup }: { setup?: Record<string, unknown> }) {
   return (
     <div className="rounded-[14px] border border-[#e3e8ef] bg-white p-4">
       <h3 className="mb-2 text-base font-semibold text-[#172033]">Setup / Kontext</h3>
-      <div className="text-sm text-[#4b5565]">{setup?.overextended ? "⚠ Überdehnt" : "Keine MA-Überdehnung"} · Test 21 EMA: {yesNo(setup?.test_21_ema)} · Test 50 SMA: {yesNo(setup?.test_50_sma)} · Natural Reaction: {yesNo(setup?.natural_reaction)}</div>
-      <div className="mt-2 text-xs text-[#687386]">{Object.entries(distances).map(([label, item]) => `${label} ${signedPercent(item.distance_pct)} (Limit ±${item.threshold_pct ?? "–"}%)`).join(" · ")}</div>
+      <p className="mb-3 text-sm font-medium text-[#4b5565]">{setup?.overextended ? "⚠ Überdehnt" : "Keine MA-Überdehnung"}</p>
+      <dl className="grid gap-2 sm:grid-cols-3">{[["Test 21 EMA", yesNo(setup?.test_21_ema)], ["Test 50 SMA", yesNo(setup?.test_50_sma)], ["Natural Reaction", yesNo(setup?.natural_reaction)]].map(([label, value]) => <div key={label} className="rounded-lg bg-[#f6f8fb] p-3"><dt className="text-xs text-[#687386]">{label}</dt><dd className="mt-1 text-sm font-semibold text-[#172033]">{value}</dd></div>)}</dl>
+      <dl className="mt-3 grid grid-cols-2 gap-2">{Object.entries(distances).map(([label, item]) => <div key={label} className="rounded-lg border border-[#e3e8ef] p-3"><dt className="text-xs text-[#687386]">Abstand {label}</dt><dd className="mt-1 font-semibold tabular-nums text-[#172033]">{signedPercent(item.distance_pct)}</dd><dd className="mt-1 text-[11px] text-[#687386]">Limit ±{item.threshold_pct ?? "–"}%</dd></div>)}</dl>
     </div>
   );
 }
@@ -346,13 +354,15 @@ function ReasonList({
       ) : (
         <div className="space-y-1.5">
           {items.map((item) => (
-            <div key={item} className="flex gap-2 rounded-[10px] border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2 text-sm">
+            <div key={item} className={`flex gap-3 rounded-xl border p-4 text-sm ${tone === "good" ? "border-[#cfe7dc] bg-[#f4faf7]" : "border-[#efdba8] bg-[#fffbf0]"}`}>
               {tone === "good" ? (
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[#138a57]" />
               ) : (
                 <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#b7791f]" />
               )}
-              <span className="leading-5 text-[#172033]">{item}</span>
+              <div className="min-w-0 flex-1">
+                {item.includes(": ") ? <><p className="mb-2 font-semibold leading-6 text-[#172033]">{item.slice(0, item.indexOf(": "))}</p><MetricDetail text={item.slice(item.indexOf(": ") + 2)} /></> : <MetricDetail text={item} />}
+              </div>
             </div>
           ))}
         </div>
@@ -379,9 +389,7 @@ function CheckGroup({ title, checks }: { title: string; checks: StockAssessmentC
               )}
               <div>
                 <div className={check.passed ? "font-medium text-[#138a57]" : "font-medium text-[#c2413b]"}>{check.label}</div>
-                <div className="text-xs leading-5 text-[#687386]">
-                  {check.detail}
-                </div>
+                <div className="mt-2"><MetricDetail text={check.detail} /></div>
               </div>
             </div>
           ))}
