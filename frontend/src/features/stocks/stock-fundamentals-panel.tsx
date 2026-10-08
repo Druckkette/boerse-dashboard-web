@@ -829,5 +829,5 @@ function toneText(tone: Tone) {
   if (tone === "good") return "text-emerald-100";
   if (tone === "warning") return "text-amber-100";
   if (tone === "bad") return "text-rose-100";
-  return "text-[#f3f6fb]";
+  return "text-[#172033]";
 }
