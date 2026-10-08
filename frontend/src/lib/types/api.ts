@@ -1435,7 +1435,7 @@ export type StockAssessmentCompare = {
   as_of: string;
   source: "database" | "partial" | "missing";
   requested_tickers: string[];
-  missing_tickers: string[];
+  missing_tickers?: string[];
   rows: StockAssessmentCompareItem[];
 };
 

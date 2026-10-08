@@ -17,6 +17,30 @@ test("beta home and navigation contain only the six public destinations", async 
   }
 });
 
+test("stock comparison renders projected beta rows and missing-data warnings without private requests", async ({ page }) => {
+  const errors: string[] = [];
+  const calls: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("request", request => { if (request.url().includes("/api/v1/")) calls.push(new URL(request.url()).pathname); });
+  await page.goto("/stocks");
+  const response = page.waitForResponse(response => response.url().includes("/stocks/assessment/compare?"));
+  await page.getByRole("button", { name: /^Aktienvergleich/ }).click();
+  const reply = await response;
+  expect(reply.status()).toBe(200);
+  expect(await reply.json()).not.toHaveProperty("missing_tickers");
+  const panel = page.locator("section").filter({ has: page.getByRole("button", { name: /^Aktienvergleich/ }) });
+  await expect(panel.locator("table").first().locator("tbody tr")).toHaveCount(5);
+  await expect(panel).toContainText("Kursdaten fehlen oder sind zu kurz für: GOOGL.");
+  for (const name of ["Technisch", "Fundamental", "Gleitende Durchschnitte", "Chartverhalten", "Gesamtscore"]) {
+    await panel.getByRole("button", { name, exact: true }).click();
+    await expect(panel.locator("table").first().locator("tbody tr")).toHaveCount(5);
+  }
+  await panel.getByRole("button", { name: "Aktualisieren", exact: true }).click();
+  await expect(panel.locator("table").first().locator("tbody tr")).toHaveCount(5);
+  expect(calls).not.toContain("/api/v1/workspace");
+  expect(errors).toEqual([]);
+});
+
 test("fresh stock stays unchanged until manual update; score reloads even on another tab", async ({ page }) => {
   let posts = 0;
   page.on("request", request => { if (request.method() === "POST" && request.url().endsWith("/refresh")) posts++; });
