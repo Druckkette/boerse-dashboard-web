@@ -54,7 +54,7 @@ export function HomeDashboard() {
   </div>;
 }
 
-function MarketOverview({ data }: { data: HomeData }) {
+export function MarketOverview({ data }: { data: Pick<HomeData, "market"> }) {
   return <Panel icon={LineChart} title="Marktlage" detail={`${data.market.logic === "ibd" ? "IBD" : "Buchlogik"} · Phasen aus abgeschlossenen Tageskerzen`} action={<StatusChip tone={marketTone(data.market.phase)}>{data.market.phase_label || "Marktstand fehlt"}</StatusChip>}>
     <div className="grid gap-3 md:grid-cols-3">{data.market.indices.map((index) => <IndexCard key={index.ticker} index={index} />)}</div>
     <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-[#e3e8ef] pt-3 text-xs text-[#687386]">
@@ -100,14 +100,14 @@ function PortfolioOverview({ data }: { data: HomeData }) {
 function DepotMetric({ label, value, tone }: { label: string; value: string; tone?: Tone }) {
   return <div><dt className="text-[11px] text-[#687386]">{label}</dt><dd className={`mt-1 text-xl font-semibold tabular-nums ${tone === "warning" ? "text-[#b7791f]" : "text-[#172033]"}`}>{value}</dd></div>;
 }
-function Opportunities({ data }: { data: HomeData }) {
+export function Opportunities({ data }: { data: Pick<HomeData, "opportunities"> }) {
   if (!data.opportunities.length) return <Empty text="Die Tagesauswahl ist noch nicht verfügbar." />;
   return <div className="divide-y divide-[#e8edf2]">{data.opportunities.map((row) => <Link key={row.ticker} href={`/stocks/${encodeURIComponent(row.ticker)}`} className="group flex gap-3 py-3 first:pt-0">
     <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-[#e8f4f2] text-xs font-semibold text-[#0f766e]">{row.rank}</span>
     <div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><b className="text-sm text-[#172033] group-hover:text-[#0f766e]">{row.ticker}</b><span className="ml-2 text-xs text-[#687386]">{row.name}</span></div><span className="shrink-0 text-sm font-semibold tabular-nums text-[#0f766e]">{number(row.daily_opportunity_score, 1)}<span className="ml-1 text-[10px] font-normal text-[#687386]">Score</span></span></div><p className="mt-1 text-xs text-[#687386]">Qualität {number(row.quality_score)} · RS {number(row.rs_rating)}</p><p className="mt-1.5 text-xs leading-5 text-[#475569]">{row.reasons.find((reason) => !/^(Gesamtscore|Technischer Score|RS \d)/.test(reason)) || "Hohe Qualität und relative Stärke im gespeicherten Ranking."}</p></div>
   </Link>)}</div>;
 }
-function Groups({ data }: { data: HomeData }) {
+export function Groups({ data }: { data: Pick<HomeData, "industry_groups" | "industry_groups_as_of"> }) {
   if (!data.industry_groups.length) return <Empty text="Noch keine Branchen-Rangliste verfügbar." />;
   return <><div className="divide-y divide-[#e8edf2]">{data.industry_groups.map((row) => <Link key={row.code} href={`/industry-groups/${row.code}`} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 text-xs"><span className="min-w-0"><span className="mr-2 text-[#94a3b8]">{row.rank || "–"}</span><b className="font-medium text-[#172033]">{row.name}</b><span className="ml-2 text-[#687386]">RS {number(row.rs_score)}</span></span><span className={`shrink-0 tabular-nums ${row.rank_change_20d == null || row.rank_change_20d === 0 ? "text-[#94a3b8]" : row.rank_change_20d > 0 ? "text-[#138a57]" : "text-[#c2413b]"}`}>{row.rank_change_20d == null ? "–" : row.rank_change_20d === 0 ? "=" : `${row.rank_change_20d > 0 ? "↑" : "↓"} ${Math.abs(row.rank_change_20d)}`}</span></Link>)}</div><p className="mt-3 text-[11px] text-[#94a3b8]">Stand {shortDate(data.industry_groups_as_of)} · Rangänderung über 20 gespeicherte Stände</p></>;
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
+
 import { assessmentDisplayText } from "./assessment-display-text";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -19,6 +21,7 @@ import type {
 } from "@/lib/types/api";
 
 export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
+  const beta = useBetaMode();
   const clean = ticker.toUpperCase();
   const queryClient = useQueryClient();
   const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
@@ -34,7 +37,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
   const refreshJobQuery = useQuery({
     queryKey: ["job", refreshJobId],
     queryFn: () => api.job(refreshJobId ?? ""),
-    enabled: Boolean(refreshJobId),
+    enabled: !beta && Boolean(refreshJobId),
     refetchInterval: (pollQuery) => {
       const job = pollQuery.state.data as Job | undefined;
       return job && isTerminalJob(job) ? false : 1500;
@@ -46,7 +49,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
 
   const refreshMutation = useMutation({
     mutationFn: () =>
-      api.startJob({
+      (beta ? Promise.reject(new Error("In der Beta nicht verfügbar")) : api.startJob({
         type: "refresh_fundamentals",
         payload: {
           tickers: [clean],
@@ -54,7 +57,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
           incremental: false,
           source: "stock_detail"
         }
-      }),
+      })),
     onSuccess: (job) => {
       setRefreshJobId(job.job_id);
       handledRefreshJobId.current = null;
@@ -90,7 +93,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={item ? "good" : "warning"}>{item ? "gespeichert" : "leer"}</StatusChip>
           <StatusChip tone={toneForScore(scorePreview)}>{Math.round(scorePreview)}/100</StatusChip>
-          <button
+          {!beta && (<button
             className="inline-flex h-9 items-center justify-center gap-2 rounded border border-[#d7e8e4] bg-[#f3faf8] px-3 text-sm font-medium text-[#0f766e] transition hover:bg-[#e6f5f2] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={refreshMutation.isPending || refreshRunning}
             onClick={() => refreshMutation.mutate()}
@@ -98,7 +101,7 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
           >
             <RefreshCw className={`size-4 ${refreshMutation.isPending || refreshRunning ? "animate-spin" : ""}`} />
             {refreshMutation.isPending ? "Job startet" : refreshRunning ? "Job läuft" : "Fundamentals aktualisieren"}
-          </button>
+          </button>)}
         </div>
       </div>
 

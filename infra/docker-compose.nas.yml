@@ -53,7 +53,7 @@ services:
       NAS_CONTROL_ENABLED: ${NAS_CONTROL_ENABLED:-1}
       NAS_DOCKER_SOCKET: /var/run/docker.sock
       NAS_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-infra}
-      NAS_RESTART_SERVICES: worker,report-worker,interactive-worker,monitor,scheduler,frontend,backend
+      NAS_RESTART_SERVICES: worker,report-worker,interactive-worker,monitor,scheduler,frontend,frontend-beta,backend
     ports:
       - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -172,11 +172,12 @@ services:
         condition: service_healthy
 
   frontend:
-    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-frontend:${IMAGE_TAG:-latest}
+    image: &frontend_image ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file:
       - .env.nas
     environment:
+      APP_BETA_MODE: "0"
       API_INTERNAL_BASE_URL: http://backend:8000
       NEXT_PUBLIC_API_BASE_URL: /api/v1
       APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
@@ -184,6 +185,28 @@ services:
       - backend_runtime:/app/runtime:ro
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend-beta:
+    image: *frontend_image
+    profiles: ["beta"]
+    restart: unless-stopped
+    # Deliberately no env_file, runtime volume, Docker socket or personal credentials.
+    environment:
+      API_INTERNAL_BASE_URL: http://backend:8000
+      APP_BETA_MODE: "1"
+      BETA_ACCESS_MODE: ${BETA_ACCESS_MODE:-password}
+      BETA_PUBLIC_ORIGIN: ${BETA_PUBLIC_ORIGIN:-}
+      BETA_PUBLIC_ENABLED: ${BETA_PUBLIC_ENABLED:-0}
+      BETA_AUTH_PASSWORD: ${BETA_AUTH_PASSWORD:-}
+      BETA_PROXY_SECRET: ${BETA_PROXY_SECRET:-}
+      NODE_OPTIONS: --max-old-space-size=192
+      NEXT_TELEMETRY_DISABLED: "1"
+    mem_limit: ${BETA_MEMORY_LIMIT:-384m}
+    ports:
+      - "${BETA_BIND:-127.0.0.1}:${BETA_PORT:-3001}:3000"
     depends_on:
       backend:
         condition: service_healthy

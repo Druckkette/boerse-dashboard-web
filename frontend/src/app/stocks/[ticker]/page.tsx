@@ -1,7 +1,10 @@
+import { connection } from "next/server";
+import { isBetaMode } from "@/lib/beta/policy";
 import { ReportExportButton } from "@/features/stocks/report-export-button";
 import { StockDetailTabs } from "@/features/stocks/stock-detail-tabs";
 
 export default async function StockDetailPage({ params }: { params: Promise<{ ticker: string }> }) {
+  await connection();
   const { ticker } = await params;
   const clean = ticker.toUpperCase();
   return (
@@ -12,7 +15,7 @@ export default async function StockDetailPage({ params }: { params: Promise<{ ti
           <span className="text-xs font-medium uppercase tracking-[0.1em] text-[#687386]">Aktienanalyse</span>
         </div>
         <div className="shrink-0">
-          <ReportExportButton ticker={clean} />
+          {!isBetaMode() && <ReportExportButton ticker={clean} />}
         </div>
       </div>
       <StockDetailTabs ticker={clean} />

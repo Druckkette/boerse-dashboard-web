@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.v1 import health, home, industry_groups, insights, jobs, market, portfolio, sell, settings, setup, stocks, trade_journal, workspace
+from app.api.v1 import beta, health, home, industry_groups, insights, jobs, market, portfolio, sell, settings, setup, stocks, trade_journal, workspace
 
 
 api_router = APIRouter()
+api_router.include_router(beta.router, prefix="/beta", tags=["beta"])
 api_router.include_router(health.router, tags=["system"])
 api_router.include_router(market.router, prefix="/market", tags=["market"])
 api_router.include_router(home.router, prefix="/home", tags=["home"])

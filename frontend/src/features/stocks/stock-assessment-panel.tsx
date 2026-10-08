@@ -1,4 +1,5 @@
 "use client";
+import { useBetaMode } from "@/components/beta-mode-provider";
 
 import { AlertTriangle, CalendarClock, CheckCircle2, Gauge, TrendingUp, XCircle } from "lucide-react";
 import Link from "next/link";
@@ -178,6 +179,7 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
 }
 
 function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessment; mode: "all" | "overview" | "technical" }) {
+  const beta = useBetaMode();
   const groups = [
     { title: "Technical", detail: assessment.technical_v2 },
     { title: "Fundamental", detail: assessment.fundamental_v2 },
@@ -186,7 +188,7 @@ function AssessmentV2Breakdown({ assessment, mode }: { assessment: StockAssessme
   ].filter((group) => mode !== "technical" || group.title !== "Fundamental");
   return (
     <div className="space-y-3">
-      <div className="text-right"><Link href="/settings#assessment-weights" className="text-xs font-semibold text-[#0f766e]">Gewichtung in Settings bearbeiten →</Link></div>
+      <div className="text-right">{!beta && <Link href="/settings#assessment-weights" className="text-xs font-semibold text-[#0f766e]">Gewichtung in Settings bearbeiten →</Link>}</div>
       {assessment.overall_v2?.status === "limited" ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           Eingeschränkte Gesamtbewertung · verfügbare Gewichtung {Math.round((assessment.overall_v2.available_weight ?? 0) * 100)}%. Im Ranking wird sie nicht wie eine vollständige Bewertung behandelt.

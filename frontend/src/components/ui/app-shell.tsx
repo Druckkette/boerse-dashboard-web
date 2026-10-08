@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { useBetaMode } from "@/components/beta-mode-provider";
 import {
   BriefcaseBusiness,
   ChartCandlestick,
@@ -32,6 +33,7 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
+const betaNavItems = [...navItems.slice(0, 5), { href: "/sell-check", label: "Aktie frei prüfen", icon: ChartCandlestick }];
 const hiddenPageLabels = [
   { href: "/setup", label: "Setup" },
   { href: "/jobs", label: "Jobs" },
@@ -59,9 +61,12 @@ function isActive(pathname: string, href: string, exact = false) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const beta = useBetaMode();
   const pathname = usePathname();
-  const currentPageLabel = pageLabel(pathname);
-  const currentPageDescription = pageDescription(pathname);
+  const currentPageLabel = pathname === "/sell-check" ? "Aktie frei prüfen" : pageLabel(pathname);
+  const currentPageDescription = beta && pathname === "/" ? "Marktlage, führende Branchen und aktuelle Aktienbewertungen."
+    : pathname === "/sell-check" ? "Verkaufssignale mit deinem frei gewählten Einstieg prüfen."
+    : pageDescription(pathname);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[268px_1fr]">
@@ -72,11 +77,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-[#172033]">Börse ohne Bauchgefühl</div>
-            <div className="mt-0.5 text-[11px] font-medium text-[#687386]">Regelbasiert. Ruhig. Verständlich.</div>
+            <div className="mt-0.5 text-[11px] font-medium text-[#687386]">{beta ? "Beta · Markt- und Aktienanalyse" : "Regelbasiert. Ruhig. Verständlich."}</div>
           </div>
         </div>
         <nav className="flex gap-1.5 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
-          {navItems.map((item) => {
+          {(beta ? betaNavItems : navItems).map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href, item.exact);
             return (

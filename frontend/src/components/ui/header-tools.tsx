@@ -1,5 +1,6 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Database, Search, XCircle } from "lucide-react";
 import Link from "next/link";
@@ -9,10 +10,11 @@ import { api } from "@/lib/api/client";
 import { qualityLabel } from "@/lib/format";
 
 export function HeaderTools() {
+  const beta = useBetaMode();
   return (
     <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto">
       <GlobalStockSearch />
-      <DataQualityLink />
+      {!beta && <DataQualityLink />}
     </div>
   );
 }

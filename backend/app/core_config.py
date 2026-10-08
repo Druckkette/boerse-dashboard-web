@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     api_rate_limit_requests: int = 120
     api_rate_limit_window_seconds: int = 60
     api_access_log_enabled: bool = False
+    beta_proxy_secret: str = ""
+    beta_refresh_max_active: int = Field(default=1, ge=1, le=5)
+    beta_refresh_cooldown_seconds: int = Field(default=300, ge=60, le=86400)
+    beta_auto_cooldown_seconds: int = Field(default=21600, ge=300, le=86400)
+    beta_status_ttl_seconds: int = Field(default=7200, ge=300, le=86400)
+    beta_refresh_requests_per_minute: int = Field(default=12, ge=1, le=60)
+    beta_preview_requests_per_minute: int = Field(default=10, ge=1, le=60)
+    beta_preview_max_active: int = Field(default=1, ge=1, le=2)
+    beta_read_max_active: int = Field(default=2, ge=1, le=4)
+    beta_read_requests_per_minute: int = Field(default=240, ge=10, le=1000)
+    beta_pause_when_private_busy: bool = True
     daily_quality_weight: float = Field(default=0.65, ge=0, le=1)
     daily_min_quality: int = Field(default=70, ge=0, le=100)
     daily_min_rs: int = Field(default=80, ge=1, le=99)

@@ -6,14 +6,15 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { Tone } from "@/lib/types/api";
 import { labelForSource, toneForSource } from "./data-status";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 export function VolatilityPanel() {
+  const refetchInterval = useMarketRefetchInterval();
   const query = useQuery({
     queryKey: ["market-volatility"],
     queryFn: api.marketVolatility,
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   const volatility = query.data;
   const chartPoints =

@@ -73,10 +73,11 @@ def get_sell_metrics_for_position(
     request: SellMetricsRequest | None = None,
     *,
     manual: SellManualInput | None = None,
+    _payload: dict | None = None,
 ) -> SellMetricsApiResponse:
     """Return sell metrics for an open position backed by cached market data."""
     clean_ticker = _clean_ticker(ticker)
-    payload = _build_metrics_payload(request or _default_metrics_request(clean_ticker))
+    payload = _payload if _payload is not None else _build_metrics_payload(request or _default_metrics_request(clean_ticker))
     manual = manual or _manual_for_payload(clean_ticker, payload)
     health = _health_from_payload(payload, manual)
     metrics = _payload_metrics(payload)
@@ -119,10 +120,10 @@ def preview_manual_sell_decision(request: SellPreviewRequest) -> SellPreviewResp
         request.ticker,
         SellEvaluationRequest(manual=manual, tranche_log=[],
                               recommendation_state=SellRecommendationState()),
-        persist_state=False, metrics_request=metrics_request,
+        persist_state=False, metrics_request=metrics_request, _payload=payload,
     )
     return SellPreviewResponse(
-        metrics=get_sell_metrics_for_position(request.ticker, metrics_request, manual=manual),
+        metrics=get_sell_metrics_for_position(request.ticker, metrics_request, manual=manual, _payload=payload),
         evaluation=evaluation,
     )
 
@@ -878,9 +879,10 @@ def _evaluate_position_sell_decision(
     *,
     persist_state: bool,
     metrics_request: SellMetricsRequest | None = None,
+    _payload: dict | None = None,
 ) -> SellEvaluationResponse:
     clean_ticker = _clean_ticker(ticker)
-    payload = _build_metrics_payload(metrics_request or _default_metrics_request(clean_ticker))
+    payload = _payload if _payload is not None else _build_metrics_payload(metrics_request or _default_metrics_request(clean_ticker))
     manual = _resolve_manual(clean_ticker, payload, request.manual if request else None)
     tranche_log = (
         request.tranche_log

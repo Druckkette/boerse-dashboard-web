@@ -89,8 +89,10 @@ def list_jobs(limit: int = 50) -> list[Job]:
     return _with_db(lambda db: _list_jobs_db(db, limit), fallback=lambda: _list_jobs_memory(limit))
 
 
-def list_active_jobs() -> list[Job]:
-    reconcile_stale_jobs()
+def list_active_jobs(*, reconcile_stale: bool = True) -> list[Job]:
+    # Restricted callers may inspect capacity without modifying unrelated job states.
+    if reconcile_stale:
+        reconcile_stale_jobs()
     return _with_db(_list_active_jobs_db, fallback=_list_active_jobs_memory)
 
 

@@ -13,20 +13,34 @@ if [ ! -f "${ENV_FILE}" ]; then
   exit 1
 fi
 
+# COMPOSE_PROFILES in --env-file is honored by Compose. Preserve an already
+# running beta even if its profile was not exported in this shell.
+BETA_ACTIVE=""
+if [ -n "$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running -q frontend-beta)" ]; then
+  BETA_ACTIVE=beta
+fi
+compose() {
+  if [ "${BETA_ACTIVE}" = beta ]; then
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile beta "$@"
+  else
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+  fi
+}
+
 echo "== Pulling GHCR images =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" pull
+compose pull
 
 echo "== Running database migrations =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile migrate run --rm migrate
+compose --profile migrate run --rm migrate
 
 echo "== Projecting stored TR executions into the trade journal =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile migrate run --rm migrate python -m app.services.backfill_trade_journal
+compose --profile migrate run --rm migrate python -m app.services.backfill_trade_journal
 
 echo "== Reconstructing historical journal stock and market contexts =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile migrate run --rm migrate python -m app.services.trade_journal_backfill
+compose --profile migrate run --rm migrate python -m app.services.trade_journal_backfill
 
 echo "== Starting updated services =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
+compose up -d
 
 if [ "${PRUNE_OLD_IMAGES:-0}" = "1" ]; then
   echo "== Pruning dangling/unused images only =="
@@ -36,4 +50,4 @@ else
 fi
 
 echo "== Current service status =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
+compose ps

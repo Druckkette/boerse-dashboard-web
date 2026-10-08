@@ -1,0 +1,199 @@
+[
+  {
+    "method": "GET",
+    "path": "beta/home",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "market/overview",
+    "query": [
+      "ticker"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "market/ampel",
+    "query": [
+      "ticker",
+      "days"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "market/breadth",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "market/breadth-overview",
+    "query": [
+      "limit",
+      "ticker"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "market/deep-analysis",
+    "query": [
+      "limit",
+      "ticker"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "market/volatility",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "market/diagnostics",
+    "query": [
+      "ticker"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "market/sectors",
+    "query": [
+      "mode",
+      "periods"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/top-daily",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "stocks/search",
+    "query": [
+      "q",
+      "limit"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/screening",
+    "query": [
+      "min_score",
+      "min_rs",
+      "min_fundamental",
+      "max_warnings",
+      "complete_only",
+      "search",
+      "sort",
+      "page",
+      "required"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/ratings/rs",
+    "query": [
+      "limit"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/institutional/13f",
+    "query": [
+      "limit"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/assessment/ranking",
+    "query": [
+      "limit"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/assessment/compare",
+    "query": [
+      "tickers",
+      "limit"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "industry-groups/rs/rankings",
+    "query": [
+      "sector",
+      "industry_family",
+      "include_small"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/{ticker}/prices",
+    "query": [
+      "range"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "stocks/{ticker}/rs",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "stocks/{ticker}/assessment",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "stocks/{ticker}/changes",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "stocks/{ticker}/fundamentals",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "stocks/{ticker}/institutional/13f",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "industry-groups/rs/{group}",
+    "query": [],
+    "exclude": [
+      "industry-groups/rs/diagnostics"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "industry-groups/rs/{group}/members",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "industry-groups/stock-context/{ticker}",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "beta/stocks/{ticker}/freshness",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "beta/stock-refresh/{job}/status",
+    "query": []
+  },
+  {
+    "method": "POST",
+    "path": "beta/stocks/{ticker}/refresh",
+    "query": []
+  },
+  {
+    "method": "POST",
+    "path": "beta/sell/preview",
+    "query": []
+  }
+]

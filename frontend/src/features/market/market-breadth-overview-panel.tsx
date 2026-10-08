@@ -7,14 +7,15 @@ import { api } from "@/lib/api/client";
 import { formatPercent } from "@/lib/format";
 import type { MarketBreadthSignal, Tone } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 export function MarketBreadthOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
+  const refetchInterval = useMarketRefetchInterval();
   const query = useQuery({
     queryKey: ["market-breadth-overview", ticker],
     queryFn: () => api.marketBreadthOverview(260, ticker),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   if (query.isLoading) return <section className="rounded-[12px] border border-[#e3e8ef] bg-white p-4 text-sm text-[#687386]">Marktbreite lädt...</section>;
   if (query.error || !query.data) return <section className="rounded-[12px] border border-[#f0b9b5] bg-[#fff0ef] p-4 text-sm font-medium text-[#c2413b]">Marktbreite ist aktuell nicht erreichbar.</section>;

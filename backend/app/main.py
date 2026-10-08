@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core_config import get_settings
+from app.middleware.beta_access import BetaAccessMiddleware
 from app.middleware.rate_limit import InMemoryRateLimitMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
             max_requests=settings.api_rate_limit_requests,
             window_seconds=settings.api_rate_limit_window_seconds,
         )
+    app.add_middleware(BetaAccessMiddleware)
     app.add_middleware(
         RequestContextMiddleware,
         access_log_enabled=settings.api_access_log_enabled,
