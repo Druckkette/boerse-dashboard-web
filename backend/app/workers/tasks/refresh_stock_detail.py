@@ -85,6 +85,14 @@ def refresh_stock_detail(self, job_id: str | None = None, payload: dict | None =
             )
             return result
 
+        if payload.get("refresh_assessment") is True:
+            from app.services.stock_screening import screen_universe
+            raise_if_cancelled(job.job_id)
+            assessment = screen_universe(source_job_id=job.job_id, only_tickers=tickers)
+            result["assessment"] = assessment
+            if not assessment.get("ok") or not assessment.get("records_written") or assessment.get("partial"):
+                job_repository.mark_failed(job.job_id, error_message="Aktienbewertung konnte nicht gespeichert werden.", result=result)
+                return result
         message = "Aktien-Detaildaten aktualisiert."
         if result["partial"]:
             message = f"Aktien-Detaildaten teilweise aktualisiert; {result['failure_count']} Ticker unvollständig."

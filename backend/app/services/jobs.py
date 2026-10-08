@@ -107,12 +107,46 @@ def get_job(job_id: str) -> Job | None:
 
 
 def start_job(payload: JobCreateRequest) -> Job:
+    if str(payload.type) != "refresh_stock_detail":
+        return _start_job(payload)
+    tickers = _stock_detail_tickers(payload.payload)
+    if len(tickers) != 1:
+        raise JobConflictError("Ein interaktiver Aktienrefresh benötigt genau einen Ticker.")
+    from redis import Redis
+    from redis.exceptions import RedisError
+    from app.core_config import get_settings
+    client = Redis.from_url(get_settings().redis_url, socket_connect_timeout=1, socket_timeout=2)
+    lock = client.lock(f"stock-detail:admission:{tickers[0]}", timeout=120, blocking_timeout=3)
+    try:
+        acquired = lock.acquire()
+    except RedisError as exc:
+        if payload.requested_by != "beta":
+            # Preserve private enqueue/error behavior when Redis is unavailable.
+            return _start_job(payload)
+        raise JobConflictError("Aktienrefresh derzeit nicht verfügbar. Bitte später erneut versuchen.") from exc
+    if not acquired:
+        raise JobConflictError("Diese Aktie wird bereits aktualisiert.")
+    try:
+        for active in job_repository.list_active_jobs(reconcile_stale=payload.requested_by != "beta"):
+            if active.job_type == "refresh_stock_detail" and _stock_detail_tickers(active.payload) == tickers:
+                return active
+        return _start_job(payload)
+    finally:
+        try:
+            if lock.owned():
+                lock.release()
+        except RedisError:
+            # A successful dispatch must never be repeated because mutex release failed.
+            pass
+
+
+def _start_job(payload: JobCreateRequest) -> Job:
     job_type = str(payload.type)
     if job_type == "refresh_stock_detail" and len(_stock_detail_tickers(payload.payload)) != 1:
         raise JobConflictError("Ein interaktiver Aktienrefresh benötigt genau einen Ticker.")
     active_heavy_jobs = [
         job
-        for job in job_repository.list_active_jobs()
+        for job in job_repository.list_active_jobs(reconcile_stale=payload.requested_by != "beta")
         if str(job.job_type) not in LIGHTWEIGHT_JOB_QUEUES
     ]
     if job_type in {"smart_refresh_market_data", "refresh_stock_assessments"}:
@@ -130,6 +164,7 @@ def start_job(payload: JobCreateRequest) -> Job:
             queue=LIGHTWEIGHT_JOB_QUEUES.get(job_type, "default"),
             ignore_result=True,
             expires=job_repository.queued_expiry_seconds(job_type),
+            **({"priority": 9} if payload.requested_by == "beta" else {}),
         )
     except (CeleryError, KombuError, OSError, RuntimeError) as exc:
         failed = job_repository.mark_failed(

@@ -11,14 +11,15 @@ import type {
   Tone
 } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }) {
+  const refetchInterval = useMarketRefetchInterval();
   const query = useQuery({
     queryKey: ["market-diagnostics", ticker],
     queryFn: () => api.marketDiagnostics(ticker),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   const data = query.data;
 

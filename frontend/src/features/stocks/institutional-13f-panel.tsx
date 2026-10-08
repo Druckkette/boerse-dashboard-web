@@ -1,5 +1,7 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
+
 import { Building2, Loader2, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +10,7 @@ import { api } from "@/lib/api/client";
 import type { Institutional13FTrendItem, Job, Tone } from "@/lib/types/api";
 
 export function Institutional13FPanel({ ticker }: { ticker: string }) {
+  const beta = useBetaMode();
   const clean = ticker.toUpperCase();
   const queryClient = useQueryClient();
   const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
@@ -20,7 +23,7 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
   const refreshJobQuery = useQuery({
     queryKey: ["job", refreshJobId],
     queryFn: () => api.job(refreshJobId ?? ""),
-    enabled: Boolean(refreshJobId),
+    enabled: !beta && Boolean(refreshJobId),
     refetchInterval: (pollQuery) => {
       const job = pollQuery.state.data as Job | undefined;
       return job && isTerminalJob(job) ? false : 1500;
@@ -28,7 +31,7 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
   });
   const refreshMutation = useMutation({
     mutationFn: () =>
-      api.startJob({
+      (beta ? Promise.reject(new Error("In der Beta nicht verfügbar")) : api.startJob({
         type: "refresh_sec13f",
         payload: {
           mode: "stock_detail",
@@ -37,7 +40,7 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
           limit_universe: 1,
           dataset_count: 2
         }
-      }),
+      })),
     onSuccess: (job) => {
       setRefreshJobId(job.job_id);
       handledRefreshJobId.current = null;
@@ -71,7 +74,7 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={item ? toneForTrend(item.trend) : "warning"}>{item ? trendLabel(item.trend) : "Keine Daten"}</StatusChip>
-          <button
+          {!beta && (<button
             className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={refreshMutation.isPending || refreshRunning}
             type="button"
@@ -79,7 +82,7 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
           >
             {refreshMutation.isPending || refreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             {refreshRunning ? "13F läuft" : "13F für Aktie laden"}
-          </button>
+          </button>)}
         </div>
       </div>
 

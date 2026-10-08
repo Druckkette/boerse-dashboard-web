@@ -18,24 +18,25 @@ import type {
 } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
 import { MarketCategorySection } from "./market-category-section";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 export function MarketRiskSectionsPanel({
   ticker = "^GSPC"
 }: {
   ticker?: string;
 }) {
+  const refetchInterval = useMarketRefetchInterval();
   const ampelQuery = useQuery({
     queryKey: ["market-risk-sections-ampel", ticker],
     queryFn: () => api.marketAmpel(ticker, 90),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   const diagnosticsQuery = useQuery({
     queryKey: ["market-risk-sections-diagnostics", ticker],
     queryFn: () => api.marketDiagnostics(ticker),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
 
   if (ampelQuery.isLoading || diagnosticsQuery.isLoading) {
@@ -98,17 +99,18 @@ export function MarketRiskSectionsPanel({
 }
 
 export function MarketSentimentPositioningPanel({ ticker = "^GSPC" }: { ticker?: string }) {
+  const refetchInterval = useMarketRefetchInterval();
   const volatilityQuery = useQuery({
     queryKey: ["market-sentiment-volatility"],
     queryFn: api.marketVolatility,
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   const overviewQuery = useQuery({
     queryKey: ["market-sentiment-overview", ticker],
     queryFn: () => api.marketOverview(ticker),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   const volatility = volatilityQuery.data;
   const marginDebt = overviewQuery.data?.kpis.find((item) => item.label === "Margin Debt");

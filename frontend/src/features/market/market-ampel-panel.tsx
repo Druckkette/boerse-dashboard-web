@@ -10,7 +10,7 @@ import { api } from "@/lib/api/client";
 import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelDistanceTile, MarketAmpelLight, MarketAmpelWarningCheck, Tone } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
 import { PowerTrendBadge, PowerTrendCard } from "./powertrend-card";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 const defaultIndexes = [
   { ticker: "^GSPC", label: "S&P500" },
@@ -31,12 +31,13 @@ export function MarketAmpelPanel({
   onTickerChange?: (ticker: MarketIndexTicker) => void;
   ticker?: MarketIndexTicker;
 }) {
+  const refetchInterval = useMarketRefetchInterval();
   const [days, setDays] = useState<(typeof dayOptions)[number]>(90);
   const query = useQuery({
     queryKey: ["market-ampel", ticker, days],
     queryFn: () => api.marketAmpel(ticker, days),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
 
   if (query.isLoading || (query.data && query.data.ticker !== ticker)) {

@@ -1,5 +1,7 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Square, X } from "lucide-react";
 import Link from "next/link";
@@ -15,6 +17,7 @@ const scoreLabels = { overall_score: "Gesamtscore", technical_score: "Technical"
 type ScoreKey = keyof typeof scoreLabels;
 
 export function StockAssessmentRankingPanel() {
+  const beta = useBetaMode();
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -34,23 +37,23 @@ export function StockAssessmentRankingPanel() {
   });
   required.forEach((label) => params.append("required", label));
   const queryString = params.toString();
-  const query = useQuery({ queryKey: ["stock-screening", queryString], queryFn: () => api.stockScreening(queryString), enabled: open, staleTime: 60_000, refetchInterval: open ? 60_000 : false });
+  const query = useQuery({ queryKey: ["stock-screening", queryString], queryFn: () => api.stockScreening(queryString), enabled: open, staleTime: 60_000, refetchInterval: open && !beta ? 60_000 : false });
   const exportList = useMutation({ mutationFn: () => api.exportStockScreening(queryString) });
-  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, enabled: open, refetchInterval: open ? 10_000 : false });
-  const reportWork = useQuery({ queryKey: ["report-work"], queryFn: api.reportWork, enabled: open, refetchInterval: open ? 15_000 : false });
+  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, enabled: open && !beta, refetchInterval: open ? 10_000 : false });
+  const reportWork = useQuery({ queryKey: ["report-work"], queryFn: api.reportWork, enabled: open && !beta, refetchInterval: open ? 15_000 : false });
   const discovered = jobs.data?.find((value) => ["refresh_stock_assessments", "smart_refresh_market_data"].includes(value.job_type) && !terminal.has(value.status));
   const selectedId = discovered?.job_id ?? jobId;
   const job = useQuery({
-    queryKey: ["job-progress", selectedId], queryFn: () => api.jobProgress(selectedId!), enabled: open && Boolean(selectedId),
+    queryKey: ["job-progress", selectedId], queryFn: () => api.jobProgress(selectedId!), enabled: open && !beta && Boolean(selectedId),
     refetchInterval: (state) => state.state.data && terminal.has(state.state.data.status) ? false : 5000
   });
   const running = Boolean(selectedId && (!job.data || !terminal.has(job.data.status)));
   const start = useMutation({
-    mutationFn: () => api.startJob({ type: "refresh_stock_assessments", payload: { source: "stock_screening" } }),
+    mutationFn: () => beta ? Promise.reject(new Error("In der Beta nicht verfügbar")) : api.startJob({ type: "refresh_stock_assessments", payload: { source: "stock_screening" } }),
     onSuccess: (created) => { setJobId(created.job_id); void client.invalidateQueries({ queryKey: ["jobs"] }); }
   });
   const cancel = useMutation({
-    mutationFn: () => api.cancelJob(selectedId!),
+    mutationFn: () => beta ? Promise.reject(new Error("In der Beta nicht verfügbar")) : api.cancelJob(selectedId!),
     onSuccess: () => client.invalidateQueries({ queryKey: ["job-progress", selectedId] })
   });
   const jobStatus = job.data?.status;
@@ -78,14 +81,14 @@ export function StockAssessmentRankingPanel() {
       summary={<StatusChip tone={running ? "warning" : "neutral"}>{running ? "Bewertung läuft" : summary?.records_written != null ? summary.records_written + " Aktien bewertet" : "Nicht geladen"}</StatusChip>}>
       <div className="space-y-4 p-4 text-[#172033]">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h3 className="text-base font-semibold">Bestenliste deines Aktienuniversums</h3>
+          <div><h3 className="text-base font-semibold">Bestenliste des Aktienuniversums</h3>
             <p className="mt-1 text-sm text-[#687386]">{summary?.universe_count != null ? summary.records_written + " von " + summary.universe_count + " Aktien bewertet" : "Noch keine vollständige Universumsbewertung"}
               {summary?.generated_at ? " · Universumsprüfung " + new Date(summary.generated_at).toLocaleString("de-DE") : ""}</p>
             {summary?.universe_count != null && <p className="mt-1 text-xs text-[#687386]">{summary.missing_count ?? 0} ohne ausreichende Kurse · {summary.stale_count ?? 0} mit altem Kursstand · {summary.error_count ?? 0} Bewertungsfehler</p>}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="inline-flex items-center gap-2 rounded-lg bg-[#0f766e] px-3 py-2 text-sm font-medium text-white! disabled:opacity-50" disabled={running || start.isPending} onClick={() => start.mutate()}><RefreshCw size={16} className={running || start.isPending ? "animate-spin" : ""} />Universum bewerten</button>
-            <button type="button" className={control + " inline-flex items-center gap-2"} disabled={!totalCount || exportList.isPending} onClick={() => exportList.mutate()}><Download size={16} />{exportList.isPending ? "Export läuft" : "Bestenliste exportieren"}</button>
+            {!beta && <button type="button" className="inline-flex items-center gap-2 rounded-lg bg-[#0f766e] px-3 py-2 text-sm font-medium text-white! disabled:opacity-50" disabled={running || start.isPending} onClick={() => start.mutate()}><RefreshCw size={16} className={running || start.isPending ? "animate-spin" : ""} />Universum bewerten</button>}
+            {!beta && <button type="button" className={control + " inline-flex items-center gap-2"} disabled={!totalCount || exportList.isPending} onClick={() => exportList.mutate()}><Download size={16} />{exportList.isPending ? "Export läuft" : "Bestenliste exportieren"}</button>}
           </div>
         </div>
         {selectedId && <div className="rounded-lg border border-[#e3e8ef] bg-[#f6f8fb] p-3" aria-live="polite">

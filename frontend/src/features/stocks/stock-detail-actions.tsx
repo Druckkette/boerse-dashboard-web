@@ -1,5 +1,7 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
+import { BetaStockDetailActions } from "./beta-stock-detail-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +15,10 @@ const portfolioSnapshotKey = ["portfolio-snapshot"];
 const portfolioPositionsKey = ["portfolio-positions"];
 
 export function StockDetailActions({ ticker }: { ticker: string }) {
+  const beta = useBetaMode();
+  return beta ? <BetaStockDetailActions key={ticker} ticker={ticker} /> : <PrivateStockDetailActions ticker={ticker} />;
+}
+function PrivateStockDetailActions({ ticker }: { ticker: string }) {
   const clean = normalizeTicker(ticker);
   const queryClient = useQueryClient();
   const [positionSaved, setPositionSaved] = useState(false);
@@ -131,6 +137,7 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
           include_rs: true,
           include_13f: options?.include13f ?? false,
           incremental: true,
+          refresh_assessment: true,
           source: "stock_detail"
         }
       }),

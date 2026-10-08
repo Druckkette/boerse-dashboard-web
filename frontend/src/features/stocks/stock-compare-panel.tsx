@@ -1,5 +1,7 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
+
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Plus, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
@@ -22,6 +24,7 @@ const categories = [
 type CompareCategory = (typeof categories)[number];
 
 export function StockComparePanel() {
+  const beta = useBetaMode();
   const [open, setOpen] = useState(false);
   const [tickers, setTickers] = useState<string[]>(defaultTickers);
   const [manualInput, setManualInput] = useState("");
@@ -29,7 +32,7 @@ export function StockComparePanel() {
   const workspaceQuery = useQuery<WorkspaceState>({
     queryKey: ["workspace"],
     queryFn: api.workspace,
-    enabled: open,
+    enabled: open && !beta,
     staleTime: 30_000
   });
   const compareQuery = useQuery({

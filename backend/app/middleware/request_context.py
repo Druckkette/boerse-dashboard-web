@@ -49,6 +49,8 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         *,
         exc_info: bool = False,
     ) -> None:
+        if request.headers.get("x-beta-proxy-key") is not None or request.url.path.startswith("/api/v1/beta/"):
+            return  # No beta IP addresses, paths, form inputs or usage profiles in access logs.
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         payload = {
             "event": "http_request",

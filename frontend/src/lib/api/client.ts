@@ -1,3 +1,4 @@
+import { withApiSlot } from "@/lib/beta/request-limiter";
 import type {
   AppSettings,
   Breadth,
@@ -87,12 +88,16 @@ import type {
   HomeDashboard
 } from "@/lib/types/api";
 
-const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+export type BetaRefresh = { job_id?: string; capability?: string; ticker: string; status: string; progress?: number; finished: boolean; fresh?: boolean; joined?: boolean; error?: string | null };
 
-function getApiBaseUrl() {
-  if (configuredApiBaseUrl) return configuredApiBaseUrl;
-  return "/api/v1";
-}
+export type BetaSellPreview = {
+  metrics: Pick<SellMetrics, "ticker" | "as_of" | "current_price" | "pnl_pct"> & {
+    raw_payload: Pick<SellMetrics["raw_payload"], "ticker" | "buy_date" | "buy_price" | "currency">;
+  };
+  evaluation: Pick<SellEvaluation, "display_label" | "explanation_short" | "emergency_features" | "offensive_features" | "defensive_features">;
+};
+
+function getApiBaseUrl() { return "/api/v1"; }
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await safeFetch(path, {
@@ -140,7 +145,11 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function safeFetch(path: string, init: RequestInit): Promise<Response> {
+function safeFetch(path: string, init: RequestInit): Promise<Response> {
+  return withApiSlot(() => performFetch(path, init));
+}
+
+async function performFetch(path: string, init: RequestInit): Promise<Response> {
   const url = `${getApiBaseUrl()}${path}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -183,6 +192,16 @@ async function errorMessage(response: Response) {
 
 export const api = {
   home: () => getJson<HomeDashboard>("/home"),
+  betaHome: () => getJson<Pick<HomeDashboard, "market" | "opportunities" | "industry_groups" | "industry_groups_as_of" | "generated_at">>("/beta/home"),
+  betaFreshness: (ticker: string) => getJson<{ ticker: string; fresh: boolean; refresh_needed?: boolean; as_of: string }>(`/beta/stocks/${encodeURIComponent(ticker)}/freshness`),
+  betaRefresh: (ticker: string, mode: "auto" | "manual") => postJson<BetaRefresh>(`/beta/stocks/${encodeURIComponent(ticker)}/refresh`, { mode }),
+  betaRefreshStatus: async (job: BetaRefresh): Promise<BetaRefresh> => {
+    const response = await safeFetch(`/beta/stock-refresh/${encodeURIComponent(job.job_id!)}/status`, { headers: { "x-beta-capability": job.capability || "" }, cache: "no-store" });
+    if (!response.ok) throw new Error(await errorMessage(response));
+    return response.json();
+  },
+  betaSellPreview: (body: { ticker: string; buy_price: number; buy_date: string; currency: string }) =>
+    postJson<BetaSellPreview>("/beta/sell/preview", body),
   marketOverview: (ticker = "^GSPC") =>
     getJson<MarketOverview>(`/market/overview?ticker=${encodeURIComponent(ticker)}`),
   marketAmpel: (ticker = "SPY", days = 90) =>

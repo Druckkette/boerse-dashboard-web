@@ -1,5 +1,7 @@
 "use client";
 
+import { useBetaMode } from "@/components/beta-mode-provider";
+
 import {
   ColumnDef,
   flexRender,
@@ -18,6 +20,7 @@ import { api } from "@/lib/api/client";
 import type { RsRatingItem, RsRatingRanking } from "@/lib/types/api";
 
 export function RsRankingPanel() {
+  const beta = useBetaMode();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -35,10 +38,10 @@ export function RsRankingPanel() {
   const hasRanking = Boolean(ranking && ranking.source !== "missing");
   const startMutation = useMutation({
     mutationFn: () =>
-      api.startJob({
+      (beta ? Promise.reject(new Error("In der Beta nicht verfügbar")) : api.startJob({
         type: "refresh_relative_strength",
         payload: { mode: "manual", lookback_days: 430 }
-      }),
+      })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
   });
 
@@ -142,7 +145,7 @@ export function RsRankingPanel() {
             <RefreshCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
             Aktualisieren
           </button>
-          <button
+          {!beta && (<button
             className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={startMutation.isPending}
             type="button"
@@ -150,7 +153,7 @@ export function RsRankingPanel() {
           >
             <Play size={15} />
             {startMutation.isPending ? "Startet" : "RS Job"}
-          </button>
+          </button>)}
         </div>
       </div>
 

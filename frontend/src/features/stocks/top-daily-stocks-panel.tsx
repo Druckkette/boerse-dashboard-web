@@ -1,4 +1,5 @@
 "use client";
+import { useBetaMode } from "@/components/beta-mode-provider";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -16,7 +17,8 @@ function rankChange(row: TopDailyStockItem) {
 }
 
 export function TopDailyStocksPanel() {
-  const query = useQuery({ queryKey: ["top-daily-stocks"], queryFn: api.topDailyStocks, staleTime: 60_000, refetchInterval: 60_000 });
+  const beta = useBetaMode();
+  const query = useQuery({ queryKey: ["top-daily-stocks"], queryFn: api.topDailyStocks, staleTime: 60_000, refetchInterval: beta ? false : 60_000 });
   const data = query.data;
   return (
     <section id="top-daily" className="rounded-2xl border border-[#dce5ed] bg-white p-5 shadow-sm" aria-label="Top 3 Aktien des Tages">

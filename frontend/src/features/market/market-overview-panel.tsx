@@ -5,14 +5,15 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { labelForStatus, toneForStatus } from "./data-status";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
+  const refetchInterval = useMarketRefetchInterval();
   const { data, isLoading, error } = useQuery({
     queryKey: ["market-overview", ticker],
     queryFn: () => api.marketOverview(ticker),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
 
   if (isLoading) return <div className="rounded border border-[#2d333d] p-4">Market lädt...</div>;

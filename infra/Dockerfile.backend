@@ -11,6 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend /app
+COPY frontend/src/lib/beta/api-policy.json /app/app/beta_api_policy.json
 RUN pip install --upgrade pip \
     && pip install "." \
     && chmod +x /app/docker-entrypoint.sh

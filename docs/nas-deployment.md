@@ -2,6 +2,8 @@
 
 This deployment target runs the same backend image for API, worker, report worker, scheduler and migrations.
 
+For the optional restricted second frontend, see [Beta deployment on Synology](nas-beta.md).
+
 ## GHCR Login
 
 Create a GitHub personal access token with `read:packages`. On the NAS:
@@ -397,7 +399,8 @@ API_ACCESS_LOG_ENABLED=1
 - Keep 13F jobs freshness-gated. Smart Refresh starts them only when missing/stale; the monthly
   schedule remains a backup because the SEC artefacts are large.
 - Price refreshes must stay incremental; full backfills belong in a planned maintenance window.
-- Redis is capped with `REDIS_MAXMEMORY` and `allkeys-lru`.
+- Redis is capped with `REDIS_MAXMEMORY` and `noeviction`. Broker entries and beta locks must not
+  be evicted. At capacity, beta admission fails closed; inspect memory before increasing limits.
 - API endpoints should return prepared snapshots from Postgres/cache, not live Pandas recomputes.
 - Worker logs and backend cache use separate volumes and can be pruned independently of Postgres.
 - The SEC Company Facts bulk ZIP lives in the shared `backend_cache` volume at

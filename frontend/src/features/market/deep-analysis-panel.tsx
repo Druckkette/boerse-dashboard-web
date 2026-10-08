@@ -7,14 +7,15 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { MarketDeepAnalysis, MarketDeepAnalysisCheck, MarketDeepAnalysisMetric, Tone } from "@/lib/types/api";
 import { labelForSource, labelForStatus, toneForSource, toneForStatus } from "./data-status";
-import { MARKET_REFETCH_INTERVAL_MS } from "./query-timing";
+import { useMarketRefetchInterval } from "./query-timing";
 
 export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
+  const refetchInterval = useMarketRefetchInterval();
   const query = useQuery({
     queryKey: ["market-deep-analysis", ticker],
     queryFn: () => api.marketDeepAnalysis(260, ticker),
     staleTime: 60_000,
-    refetchInterval: MARKET_REFETCH_INTERVAL_MS
+    refetchInterval: refetchInterval
   });
   const data = query.data;
 
