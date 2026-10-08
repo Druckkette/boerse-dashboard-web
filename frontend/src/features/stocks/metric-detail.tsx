@@ -1,3 +1,4 @@
+import { assessmentDisplayText } from "./assessment-display-text";
 import { splitMetricDetail } from "./metric-detail-data";
 
 /** Preserve provider text while giving each reporting period its own visual column. */
@@ -10,6 +11,6 @@ export function MetricDetail({ text }: { text: string }) {
         <dd className="mt-1 text-base font-semibold tabular-nums text-[#172033]">{period.value}</dd>
       </div>)}
     </dl>}
-    {notes.length > 0 && <ul className="space-y-1">{notes.map((note, index) => <li key={index} className="break-words">{note}</li>)}</ul>}
+    {notes.length > 0 && <ul className="space-y-1">{notes.map((note, index) => <li key={index} className="break-words">{assessmentDisplayText(note)}</li>)}</ul>}
   </div>;
 }

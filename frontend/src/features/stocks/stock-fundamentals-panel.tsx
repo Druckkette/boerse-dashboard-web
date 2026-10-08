@@ -1,5 +1,6 @@
 "use client";
 
+import { assessmentDisplayText } from "./assessment-display-text";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { BarChart3, CalendarClock, Database, RefreshCw, TrendingUp } from "lucide-react";
@@ -297,7 +298,7 @@ function HistoryPanel({
           </div>
           <p className="mt-2 text-xs leading-5 text-[#687386]">{description}</p>
         </div>
-        <div className="shrink-0 whitespace-nowrap"><StatusChip tone={tone}>{chip}</StatusChip></div>
+        <div className="shrink-0 whitespace-nowrap"><StatusChip tone={tone}>{assessmentDisplayText(chip)}</StatusChip></div>
       </div>
       <div className="mt-4">{children}</div>
     </div>
@@ -406,8 +407,8 @@ function HistoryTable({ columns, rows }: { columns: string[]; rows: string[][] }
     <>
     <div className="space-y-3 sm:hidden">
       {rows.map((row, rowIndex) => <div key={rowIndex} className="rounded-xl border border-[#e3e8ef] bg-white p-3">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-[#172033]">{row[0]}</strong><span className={`rounded-md bg-[#f6f8fb] px-2 py-1 text-xs ${cellClass(row[row.length - 1], row.length - 1, row.length)}`}>{row[row.length - 1]}</span></div>
-        <dl className="grid grid-cols-3 gap-2">{row.slice(1, -1).map((cell, index) => <div key={index}><dt className="text-[10px] text-[#687386]">{columns[index + 1]}</dt><dd className={`mt-1 break-words text-sm tabular-nums ${cellClass(cell, index + 1, row.length)}`}>{cell}</dd></div>)}</dl>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><strong className="text-sm text-[#172033]">{row[0]}</strong><span className={`rounded-md bg-[#f6f8fb] px-2 py-1 text-xs ${cellClass(row[row.length - 1], row.length - 1, row.length)}`}>{assessmentDisplayText(row[row.length - 1])}</span></div>
+        <dl className="grid grid-cols-3 gap-2">{row.slice(1, -1).map((cell, index) => <div key={index}><dt className="text-[10px] text-[#687386]">{columns[index + 1]}</dt><dd className={`mt-1 break-words text-sm tabular-nums ${cellClass(cell, index + 1, row.length)}`}>{assessmentDisplayText(cell)}</dd></div>)}</dl>
       </div>)}
     </div>
     <div className="hidden overflow-x-auto rounded-xl border border-[#e3e8ef] bg-white sm:block">
@@ -426,7 +427,7 @@ function HistoryTable({ columns, rows }: { columns: string[]; rows: string[][] }
           <tr key={rowIndex} className="border-b border-[#e3e8ef]">
             {row.map((cell, cellIndex) => (
               <td key={`${rowIndex}-${cellIndex}`} className={`whitespace-nowrap border-b border-[#edf0f5] px-3 py-4 ${cellIndex === 3 ? "bg-[#f6f8fb] text-base font-semibold" : ""} ${cellClass(cell, cellIndex, row.length)}`}>
-                {cell}
+                {assessmentDisplayText(cell)}
               </td>
             ))}
           </tr>
@@ -519,7 +520,7 @@ function epsHistorySummary(history: StockFundamentalsEpsQuarter[]) {
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
   if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
-  return `${passed}/3 >=20%`;
+  return `${passed} von 3: mindestens 20 %`;
 }
 
 function visibleAnnualEpsHistory(history: StockFundamentalsAnnualEps[]) {
@@ -572,7 +573,7 @@ function annualEpsHistorySummary(history: StockFundamentalsAnnualEps[]) {
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
   if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
-  return `${passed}/3 >=20%`;
+  return `${passed} von 3: mindestens 20 %`;
 }
 
 function visibleRevenueHistory(history: StockFundamentalsRevenueQuarter[]) {
@@ -625,7 +626,7 @@ function revenueHistorySummary(history: StockFundamentalsRevenueQuarter[]) {
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
   if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
-  return `${passed}/3 >=20%`;
+  return `${passed} von 3: mindestens 20 %`;
 }
 
 function visibleAnnualRevenueHistory(history: StockFundamentalsAnnualRevenue[]) {
@@ -687,7 +688,7 @@ function annualRevenueHistorySummary(history: StockFundamentalsAnnualRevenue[]) 
   const valid = values.filter((value) => value !== null);
   const passed = valid.filter((value) => value >= 20).length;
   if (valid.length < 3) return `${valid.length}/3 YoY berechenbar`;
-  return `${passed}/3 >=20%`;
+  return `${passed} von 3: mindestens 20 %`;
 }
 
 function computeEpsGrowth(item: StockFundamentalsEpsQuarter) {
