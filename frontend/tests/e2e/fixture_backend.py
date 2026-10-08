@@ -50,6 +50,17 @@ def assessment(ticker):
     result.technical_v2["score"] = 91 if ticker in scores else 30
     return result
 stocks_api.get_stock_assessment = assessment
+def comparison(*, tickers, limit=12):
+    from app.schemas import StockAssessmentCompareResponse
+    requested = stocks._parse_compare_tickers(tickers, limit=limit)
+    rows = [stocks._to_compare_item(compute_stock_assessment(ticker, fixture_price_bars(ticker)),
+                                   name=ticker, rs_context={}) for ticker in requested]
+    # Include an incomplete row to exercise the warning after beta projection
+    # removes missing_tickers, just as the live NAS response does.
+    rows[-1] = rows[-1].model_copy(update={"source": "missing", "data_status": "missing"})
+    return StockAssessmentCompareResponse(as_of="2026-10-07", source="partial",
+                                         requested_tickers=requested, missing_tickers=[requested[-1]], rows=rows)
+stocks_api.get_stock_assessment_compare = comparison
 stocks_api.get_stock_assessment_ranking = lambda **kw: __import__('app.schemas', fromlist=['StockAssessmentRankingResponse']).StockAssessmentRankingResponse(as_of="2026-10-07", source="missing", rows=[])
 stocks_api.search_stocks = lambda q, **kw: StockSearchResponse(query=q, rows=[{"ticker": "NVDA", "name": "NVIDIA", "exchange": "NASDAQ"}])
 stocks_api.get_stock_fundamentals = lambda ticker: StockFundamentalsResponse(ticker=ticker, source="missing", item=None, as_of="2026-10-07")

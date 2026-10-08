@@ -42,6 +42,11 @@ export function StockComparePanel() {
     staleTime: 60_000
   });
   const rows = useMemo(() => sortRows(compareQuery.data?.rows ?? [], category), [compareQuery.data?.rows, category]);
+  // Beta responses omit diagnostic ticker lists. Derive missing selections only
+  // from the public comparison rows, without requesting private diagnostics.
+  const missingTickers = compareQuery.data?.missing_tickers ?? (compareQuery.data
+    ? tickers.filter((ticker) => !rows.some((row) => row.ticker === ticker && row.source !== "missing"))
+    : []);
   const suggestions = (workspaceQuery.data?.watchlist ?? []).filter((ticker) => !tickers.includes(ticker)).slice(0, 10);
 
   function addTickers(values: string[]) {
@@ -165,9 +170,9 @@ export function StockComparePanel() {
         </div>
       )}
 
-      {compareQuery.data?.missing_tickers.length ? (
+      {missingTickers.length ? (
         <div className="border-b border-[#2d333d] px-5 py-3 text-sm text-amber-100">
-          Kursdaten fehlen oder sind zu kurz für: {compareQuery.data.missing_tickers.join(", ")}.
+          Kursdaten fehlen oder sind zu kurz für: {missingTickers.join(", ")}.
         </div>
       ) : null}
 
