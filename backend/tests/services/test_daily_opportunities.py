@@ -171,3 +171,16 @@ def test_unfinished_candle_suppresses_home_comparison(monkeypatch):
     row = ranked([item(score=42)], {"GOOD": {"overall_score": 60, "technical_score": 80, "rs_rating": 90, "signals_json": []}})[0]
     assert row["details_json"]["overall_score_delta"] is None
     assert row["details_json"]["comparison_available"] is False
+
+
+def test_small_unreported_decline_cannot_overrule_relevant_rs_improvement():
+    change = daily._relevant_home_change(history_row(score=82, rs=95), history_row(score=83, rs=85))
+    assert change["details"] == ["RS 85 → 95"]
+    assert change["summary"] == "Bewertung verbessert"
+    assert change["tone"] == "good"
+
+
+def test_relevant_improvement_and_decline_have_a_mixed_description():
+    change = daily._relevant_home_change(history_row(score=74, rs=95), history_row(score=82, rs=85))
+    assert change["summary"] == "Uneinheitliche Veränderungen"
+    assert change["tone"] == "warning"
