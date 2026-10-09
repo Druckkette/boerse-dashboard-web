@@ -17,6 +17,7 @@ export function IndexCard({ index }: { index: HomeData["market"]["indices"][numb
     <p className="mt-2 text-[11px] leading-5 text-[#687386]">{index.as_of ? `Schlusskurs ${shortDate(index.as_of)}` : "Schlusskurs fehlt"} · zum Vortag</p>
     {!current && <p className="mt-1 text-xs text-[#b7791f]">{index.phase_status === "stale" ? `Ampelstand ${shortDate(index.phase_as_of)} · veraltet` : index.phase_status === "partial" ? "Ampel: unvollständige Kursdaten" : "Ampel noch nicht verfügbar"}</p>}
     {current && index.powertrend?.enabled && index.powertrend.state !== "off" && <p className="mt-2 text-[11px] leading-4 text-[#687386]">{powerTrendDescription(index.powertrend)}</p>}
+    {current && index.previous_phase && index.previous_phase !== index.phase && <p className="mt-2 text-xs font-medium text-[#475569]">{index.previous_phase_label} → {index.phase_label} · {shortDate(index.phase_as_of || index.as_of)}</p>}
     {index.status === "partial" && <p className="mt-1 text-xs text-[#b7791f]">Vorheriger Schlusskurs fehlt</p>}
     {index.status === "stale" && <p className="mt-1 text-xs text-[#b7791f]">Kursstand veraltet</p>}
   </Link>;

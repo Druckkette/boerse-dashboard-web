@@ -47,6 +47,8 @@ class KpiCard(BaseModel):
 
 
 class MarketTrendAmpel(BaseModel):
+    previous_phase: str | None = None
+    previous_phase_as_of: str | None = None
     logic: Literal["current", "ibd"] = "current"
     ruleset_version: str = "legacy"
     ftd_negated: bool = False

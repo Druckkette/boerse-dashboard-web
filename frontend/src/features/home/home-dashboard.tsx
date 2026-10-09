@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { BriefcaseBusiness, ChevronDown, CircleAlert, Clock3, Layers3, LineChart, TrendingUp } from "lucide-react";
+import { BriefcaseBusiness, Clock3, Layers3, LineChart, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -10,6 +10,7 @@ import { api } from "@/lib/api/client";
 import type { HomeDashboard as HomeData, Tone } from "@/lib/types/api";
 import { IndexCard } from "./home-index-card";
 import { HomeSystemStatus, HomeWatchlist } from "./home-personal";
+import { HomeChanges, HomeEarnings, PortfolioAlerts } from "./home-sections";
 import { Empty, marketTone, number, Panel, shortDate, signedPercent, TextLink } from "./home-ui";
 
 export function HomeDashboard() {
@@ -37,11 +38,10 @@ export function HomeDashboard() {
 
     <MarketOverview data={data} />
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-      <Panel id="aufgaben" icon={CircleAlert} title="Aufgaben & Veränderungen" detail="Verkaufssignale, Datenprobleme und Earnings zuerst. Jede Aktie erscheint einmal." action={<span className="rounded-full bg-[#edf3f6] px-2.5 py-1 text-xs font-semibold text-[#475569]">{data.priorities_total} Hinweise</span>}>
-        <AttentionList data={data} />
-      </Panel>
       <PortfolioOverview data={data} />
+      <HomeEarnings calendar={data.earnings} />
     </div>
+    <HomeChanges changes={data.changes} failed={data.errors.includes("changes")} />
     <Panel icon={TrendingUp} title="Recherche" detail="Die Tagesauswahl und führende Branchen als Einstieg in die Aktienanalyse.">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div><div className="mb-3 flex items-center justify-between"><h3 className="text-xs font-semibold uppercase tracking-wider text-[#687386]">Top Aktien</h3><TextLink href="/stocks#top-daily">Tagesauswahl</TextLink></div><Opportunities data={data} /></div>
@@ -65,19 +65,6 @@ export function MarketOverview({ data }: { data: Pick<HomeData, "market"> }) {
   </Panel>;
 }
 
-function AttentionList({ data }: { data: HomeData }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!data.priorities.length) return <Empty text={data.errors.includes("sell") ? "Der Verkaufsmonitor konnte nicht geladen werden. Bitte dort den aktuellen Stand prüfen." : "Keine gespeicherten Prüfpunkte oder relevanten Veränderungen."} />;
-  const visible = expanded ? data.priorities : data.priorities.slice(0, 5);
-  return <><div className="divide-y divide-[#e8edf2]">{visible.map((item) => <Link key={item.ticker} href={item.href} className="group grid gap-2 py-3 first:pt-0 sm:grid-cols-[110px_minmax(0,1fr)] sm:gap-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0f766e]">
-    <div><b className="text-sm text-[#172033] group-hover:text-[#0f766e]">{item.ticker}</b><p className="mt-1 text-[11px] leading-4 text-[#687386]">{item.category}</p></div>
-    <div><StatusChip tone={item.tone}>{item.label}</StatusChip><p className="mt-1.5 text-sm leading-5 text-[#687386]">{item.detail}</p></div>
-  </Link>)}</div>
-    {data.priorities.length > 5 && <button className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#0f766e]" type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Weniger anzeigen" : `Weitere ${data.priorities.length - 5} Hinweise`}<ChevronDown size={14} className={expanded ? "rotate-180" : ""} /></button>}
-    {expanded && data.priorities_total > data.priorities.length && <p className="mt-2 text-xs text-[#687386]">{data.priorities.length} von {data.priorities_total} Hinweisen angezeigt. <TextLink href="/sell-monitor">Verkaufsmonitor öffnen</TextLink></p>}
-  </>;
-}
-
 function PortfolioOverview({ data }: { data: HomeData }) {
   const buys = useQuery({ queryKey: ["portfolio-buy-strength", 3], queryFn: () => api.portfolioBuyStrength({ weeks: 3 }), staleTime: 60_000, enabled: data.portfolio.positions_count > 0 });
   const snapshot = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot, refetchInterval: 60_000 });
@@ -92,9 +79,11 @@ function PortfolioOverview({ data }: { data: HomeData }) {
     <div className="mt-4">
       {dailyChange ? <KpiCard item={dailyChange} /> : <Empty text={snapshot.isLoading ? "Gewinn/Verlust zum Vortagsschluss wird geladen …" : "Gewinn/Verlust zum Vortagsschluss derzeit nicht verfügbar."} />}
     </div>
-    <div className="mt-5 border-t border-[#e3e8ef] pt-4"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-xs font-semibold text-[#475569]">Stärke nach Kauf · letzte 3 Wochen</h3><TextLink href="/portfolio/buy-strength">Alle Käufe</TextLink></div>
+    <PortfolioAlerts alerts={data.portfolio_alerts || []} failed={data.errors.includes("sell")} />
+    {!!snapshot.data?.positions.some(position => position.weight_pct > 25) && <div className="mt-4 rounded-xl bg-[#fff8eb] p-3 text-xs text-[#475569]"><h3 className="font-semibold">Positionsrisiko · Gewichtung über 25 %</h3><div className="mt-2 flex flex-wrap gap-3">{snapshot.data.positions.filter(position => position.weight_pct > 25).map(position => <TextLink key={position.ticker} href={`/sell-monitor/${encodeURIComponent(position.ticker)}`}>{position.ticker} · {number(position.weight_pct, 1)} %</TextLink>)}</div></div>}
+    <details className="mt-5 border-t border-[#e3e8ef] pt-4"><summary className="cursor-pointer text-xs font-semibold text-[#475569]">Stärke nach Kauf · letzte 3 Wochen</summary><div className="my-3"><TextLink href="/portfolio/buy-strength">Alle Käufe</TextLink></div>
       {buys.isLoading ? <Empty text="Kaufentwicklung wird geladen …" /> : buys.isError ? <Empty text="Kaufentwicklung derzeit nicht verfügbar." /> : !buys.data?.items.length ? <Empty text="Keine frischen Käufe im aktuellen Fenster." /> : <div className="space-y-2">{buys.data.items.slice(0, 4).map((item) => <Link key={item.ticker} href={`/portfolio/buy-strength/${encodeURIComponent(item.ticker)}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#f7f9fb] px-3 py-2.5 text-xs"><span><b className="text-[#172033]">{item.ticker}</b><span className="ml-2 text-[#687386]">{item.age_days} Tage · {signedPercent(item.pnl_pct, 1)}</span></span><StatusChip tone={item.status === "stark" ? "good" : item.status === "risk" ? "bad" : item.status === "watch" ? "warning" : "neutral"}>{item.status_label}</StatusChip></Link>)}</div>}
-    </div>
+    </details>
   </Panel>;
 }
 function DepotMetric({ label, value, tone }: { label: string; value: string; tone?: Tone }) {

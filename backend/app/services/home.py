@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from app.domain.market.ampel import AMPEL_RULESET_VERSION
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY
@@ -96,6 +97,9 @@ def _market_summary() -> dict[str, Any]:
                 else "partial" if not trend.price_data_complete else "available"
             ),
             "phase_reason": trend.phase_reason if trend else None,
+            "previous_phase": getattr(trend, "previous_phase", None),
+            "previous_phase_label": _phase_label(getattr(trend, "previous_phase", None)),
+            "previous_phase_as_of": getattr(trend, "previous_phase_as_of", None),
             "powertrend": {
                 "enabled": logic == "ibd",
                 "state": trend.powertrend_state,
@@ -190,7 +194,7 @@ def _portfolio_summary() -> dict[str, Any]:
         "daily_price_change_status": daily_status,
         "comparable_positions": len(pairs),
         "tickers": [row.ticker for row in rows],
-        "positions": sorted(positions, key=lambda item: item["pnl_pct"])[:5],
+        "positions": sorted(positions, key=lambda item: item["pnl_pct"]),
     }
 
 
@@ -202,101 +206,97 @@ def _sell_sort_key(row: dict[str, Any]) -> tuple[int, int, int]:
     )
 
 
-def _priority_rows(
-    sell_rows: list[dict[str, Any]], earnings: dict[str, date],
-    opportunity_rows: list[dict[str, Any]], watchlist: set[str],
-) -> tuple[list[dict[str, Any]], int]:
-    priorities: dict[str, dict[str, Any]] = {}
-    review_tickers: set[str] = set()
+def _portfolio_alerts(sell_rows: list[dict[str, Any]], portfolio: dict[str, Any]) -> list[dict[str, Any]]:
+    """Present stored decisions; never promote pending/unreliable signals to sells."""
+    completed = completed_us_market_session().date.isoformat()
+    alerts = []
+    covered = set()
     for row in sell_rows:
-        if row.get("status") == "Halten" and row.get("data_quality_status") == "trusted":
-            continue
         ticker = str(row.get("ticker") or "").upper()
         if not ticker:
             continue
-        review_tickers.add(ticker)
-        blocked = row.get("data_quality_status") != "trusted"
-        priorities[ticker] = {
-            "ticker": ticker,
-            "category": "Datenqualität / Depot" if blocked else "Depot / Verkaufssignal",
-            "label": "Daten prüfen" if row.get("data_quality_status") == "blocked" else row.get("status", "Beobachten"),
-            "detail": row.get("data_quality_detail") if blocked else row.get("primary_signal") or row.get("reason") or "Im Verkaufsmonitor prüfen.",
-            "href": f"/sell-monitor/{ticker}",
-            "tone": "bad" if row.get("status") == "Verkaufen" or row.get("data_quality_status") == "blocked" else "warning",
-            "priority": 0 if row.get("status") == "Verkaufen" else 1 if blocked else 2,
-        }
-    for raw_ticker, earnings_date in earnings.items():
-        ticker = str(raw_ticker).upper()
-        days_until = (earnings_date - date.today()).days
-        if not 0 <= days_until <= 7:
+        covered.add(ticker)
+        seen = str(row.get("last_seen_date") or "")
+        generated = row.get("generated_at")
+        try:
+            generated_time = datetime.fromisoformat(str(generated).replace("Z", "+00:00")) if generated else None
+            if generated_time and generated_time.tzinfo is None:
+                generated_time = generated_time.replace(tzinfo=UTC)
+            generated_current = bool(generated_time and generated_time.date().isoformat() >= completed and generated_time <= datetime.now(UTC))
+        except ValueError:
+            generated_current = False
+        stale = not seen or seen < completed or seen > expected_us_market_session().date.isoformat() or not generated_current
+        unreliable = row.get("data_quality_status") != "trusted"
+        pending = row.get("pending_status")
+        action = row.get("status") == "Verkaufen" and pending == "scharf" and (row.get("recommendation_pct") or 0) > 0
+        if stale or unreliable:
+            category, label, tone = "data", "Daten prüfen", "warning"
+            reason = row.get("data_quality_detail") or "Bewertung nicht ausreichend verlässlich."
+            if stale:
+                reason = "Verkaufsmonitor nicht aktuell oder Bewertungszeitpunkt fehlt. " + (row.get("data_quality_detail") or "")
+        elif action:
+            category, label, tone = "action", "Verkaufen", "bad"
+            reason = row.get("primary_signal") or row.get("reason") or "Bestätigtes Verkaufssignal."
+        elif row.get("status") != "Halten" or pending in {"in_bestaetigung", "snoozed"}:
+            category, label, tone = "observe", "Beobachten", "warning"
+            reason = row.get("primary_signal") or row.get("reason") or "Signal im Verkaufsmonitor prüfen."
+            if pending == "in_bestaetigung":
+                reason = "Bestätigung ausstehend · " + reason
+            elif pending == "snoozed":
+                reason = "Signal zurückgestellt bis " + (row.get("snoozed_until") or "unbekannt") + " · " + reason
+        else:
             continue
-        detail = "Earnings heute" if days_until == 0 else f"Earnings in {days_until} Tagen"
-        existing = priorities.get(ticker)
-        if existing:
-            existing["category"] = f"{existing['category']} · Earnings"
-            existing["detail"] = f"{existing['detail']} · {detail}"
-            continue
-        priorities[ticker] = {
-            "ticker": ticker, "category": "Depot / Earnings", "label": "Earnings bald", "detail": detail,
-            "href": f"/stocks/{ticker}", "tone": "warning", "priority": 3,
-        }
-    for row in opportunity_rows:
-        ticker = str(row.get("ticker") or "").upper()
-        changes = list(row.get("positive_changes") or [])
-        if not ticker or not changes or ticker in priorities:
-            continue
-        priorities[ticker] = {
-            "ticker": ticker,
-            "category": "Watchlist / Veränderung" if ticker in watchlist else "Top Aktien / Veränderung",
-            "label": "Setup verbessert", "detail": " · ".join(changes[:2]),
-            "href": f"/stocks/{ticker}", "tone": "good", "priority": 4,
-        }
-    result = sorted(priorities.values(), key=lambda row: (row["priority"], row["ticker"]))
-    for row in result:
-        row.pop("priority", None)
-    return result, len(review_tickers)
+        alerts.append({
+            "id": f"sell:{ticker}", "ticker": ticker, "name": row.get("name") or ticker,
+            "category": category, "label": label, "tone": tone, "detail": reason.strip(),
+            "signal": row.get("primary_signal") or row.get("reason") or "Kein auswertbares Signal",
+            "recommendation_pct": row.get("recommendation_pct") if category == "action" else None,
+            "pending_status": pending, "data_quality_status": row.get("data_quality_status"),
+            "last_seen_date": seen or None, "generated_at": generated,
+            "freshness": "stale" if stale else "current", "href": f"/sell-monitor/{ticker}",
+        })
+    for ticker in sorted(set(portfolio.get("tickers", [])) - covered):
+        alerts.append({"id": f"missing:{ticker}", "ticker": ticker, "category": "data",
+                       "label": "Daten prüfen", "tone": "warning", "detail": "Keine gespeicherte Verkaufsbewertung vorhanden.",
+                       "href": f"/sell-monitor/{ticker}", "freshness": "missing"})
+    for position in portfolio.get("positions", []):
+        if not position.get("has_stop"):
+            ticker = position["ticker"]
+            alerts.append({"id": f"stop:{ticker}", "ticker": ticker, "category": "observe",
+                           "label": "Stop fehlt", "tone": "warning", "detail": "Für diese Position ist kein Stop hinterlegt.",
+                           "href": f"/sell-monitor/{ticker}"})
+    return sorted(alerts, key=lambda row: ({"action": 0, "observe": 1, "data": 2}[row["category"]], -(row.get("recommendation_pct") or 0), row["ticker"], row["id"]))
 
 
-def _change_details(row: dict[str, Any]) -> list[str]:
-    details: list[str] = []
-    for field, label, digits in (
-        ("overall_score_delta", "Gesamtscore", 0),
-        ("technical_score_delta", "Technik", 1),
-        ("rs_rating_delta", "RS", 0),
-    ):
-        value = row.get(field)
-        if isinstance(value, (int, float)) and value:
-            details.append(f"{label} {value:+.{digits}f}")
-    details.extend(change for change in row.get("positive_changes", []) if str(change).startswith("Neu:") and change not in details)
-    return details[:3]
+def _earnings_calendar(portfolio: dict[str, Any], watchlist: set[str], assessment_names: dict[str, str] | None = None) -> dict[str, Any]:
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+    depot = set(portfolio.get("tickers", []))
+    names = {**(assessment_names or {}), **{row["ticker"]: row["name"] for row in portfolio.get("positions", [])}}
+    rows = earnings_repository.upcoming_earnings_events(sorted(depot | watchlist), start_date=today, end_date=today + timedelta(days=29))
+    for row in rows:
+        row["name"] = names.get(row["ticker"], row["ticker"])
+        row["scopes"] = [scope for scope, members in (("portfolio", depot), ("watchlist", watchlist)) if row["ticker"] in members]
+        row["days_until"] = (date.fromisoformat(row["date"]) - today).days
+        row["href"] = f"/stocks/{row['ticker']}"
+    return {"today": today.isoformat(), "rows": rows, "status": "available",
+            "missing_portfolio_count": len(depot - {row["ticker"] for row in rows})}
 
 
 def _home_changes(*, portfolio_tickers: set[str], watchlist: set[str]) -> list[dict[str, Any]]:
-    source = daily_opportunities.get_home_changes(priority_tickers=sorted(portfolio_tickers | watchlist), limit=12)
-    if not source.get("previous_as_of"):
-        return []
-    rows: list[dict[str, Any]] = []
+    source = daily_opportunities.get_home_changes(priority_tickers=sorted(portfolio_tickers | watchlist))
+    rows = []
     for row in source.get("rows", []):
-        ticker = str(row.get("ticker") or "").upper()
-        details = _change_details(row)
-        if not ticker or not details:
-            continue
+        ticker = row["ticker"]
         scopes = [scope for scope, contains in (
-            ("portfolio", ticker in portfolio_tickers),
-            ("watchlist", ticker in watchlist),
-            ("top_stocks", row.get("rank") is not None and row.get("rank") <= 3),
+            ("portfolio", ticker in portfolio_tickers), ("watchlist", ticker in watchlist),
+            ("top_stocks", row.get("rank") is not None and row["rank"] <= 3),
         ) if contains]
-        if not scopes:
-            continue
-        rows.append({
-            "ticker": ticker, "scopes": scopes,
-            "kind": "signal" if any(detail.startswith("Neu:") for detail in details) else "score",
-            "summary": " · ".join(details[:2]), "details": details,
-            "as_of": source.get("as_of"), "previous_as_of": source.get("previous_as_of"),
-            "href": f"/stocks/{ticker}",
-        })
-    scope_priority = {"portfolio": 0, "watchlist": 1, "top_stocks": 2}
-    return sorted(rows, key=lambda row: (min(scope_priority[scope] for scope in row["scopes"]), row["ticker"]))[:8]
+        if scopes:
+            if row.get("new_candidate") and "watchlist" in scopes:
+                row = {**row, "summary": "Neue Watchlist-Chance"}
+            rows.append({**row, "scopes": scopes, "as_of": source.get("as_of"),
+                         "previous_as_of": source.get("previous_as_of"), "href": f"/stocks/{ticker}"})
+    return sorted(rows, key=lambda row: (0 if "portfolio" in row["scopes"] else 1 if "watchlist" in row["scopes"] else 2, row["ticker"]))
 
 
 def _watchlist_rows(tickers: list[str], assessments: list[Any], *, failed: bool) -> list[dict[str, Any]]:
@@ -312,27 +312,6 @@ def _watchlist_rows(tickers: list[str], assessments: list[Any], *, failed: bool)
                 "as_of": snapshot.as_of.isoformat(), "data_status": "available",
             })
     return rows
-
-
-def _merge_attention_rows(priorities: list[dict[str, Any]], changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep risk/earnings first and show each ticker's changes in the same row."""
-    rows = {row["ticker"]: dict(row) for row in priorities}
-    for change in changes:
-        ticker = change["ticker"]
-        if ticker in rows:
-            row = rows[ticker]
-            details = list(dict.fromkeys([
-                *str(row.get("detail") or "").split(" · "),
-                *change.get("details", []),
-            ]))
-            row["detail"] = " · ".join(part for part in details if part)
-        else:
-            scopes = {"portfolio": "Depot", "watchlist": "Watchlist", "top_stocks": "Recherche"}
-            rows[ticker] = {
-                "ticker": ticker, "category": " / ".join(scopes[scope] for scope in change["scopes"]),
-                "label": "Verändert", "detail": change["summary"], "href": change["href"], "tone": "neutral",
-            }
-    return list(rows.values())
 
 
 def get_home_dashboard() -> dict[str, Any]:
@@ -353,7 +332,7 @@ def get_home_dashboard() -> dict[str, Any]:
     sell_rows = [row for row in sell_rows if str(row.get("ticker") or "").strip().upper() in open_tickers]
     sell_rows.sort(key=_sell_sort_key)
     all_watchlist = [str(item).upper() for item in getattr(workspace, "watchlist", []) if str(item).strip()]
-    shown_watchlist = all_watchlist[:8]
+    shown_watchlist = all_watchlist
     assessments = _read("watchlist_assessments", lambda: stock_assessments.list_all_snapshots(shown_watchlist), errors, [])
     group_as_of, groups = _read(
         "industry_groups",
@@ -365,17 +344,18 @@ def get_home_dashboard() -> dict[str, Any]:
     opportunity_rows = list(opportunities.get("rows", []))[:3]
     portfolio_tickers = {str(ticker).upper() for ticker in portfolio.get("tickers", [])}
     watchlist_set = set(all_watchlist)
-    earnings = _read("earnings", lambda: earnings_repository.next_earnings_dates(sorted(portfolio_tickers)), errors, {})
-    priorities, review_positions_count = _priority_rows(sell_rows, earnings, opportunity_rows, watchlist_set)
+    earnings = _read("earnings", lambda: _earnings_calendar(portfolio, watchlist_set, {row.ticker: row.name for row in assessments}), errors, {"rows": [], "status": "error"})
+    alerts = _portfolio_alerts(sell_rows, portfolio)
+    review_positions_count = len({row["ticker"] for row in alerts})
     changes = _read("changes", lambda: _home_changes(portfolio_tickers=portfolio_tickers, watchlist=watchlist_set), errors, [])
-    priorities = _merge_attention_rows(priorities, changes)
     return {
-        "generated_at": datetime.now(UTC).isoformat(), "as_of": market.get("as_of"),
+        "schema_version": 2, "generated_at": datetime.now(UTC).isoformat(), "as_of": market.get("as_of"),
         "data_quality": quality, "errors": errors, "market": market,
-        "priorities": priorities[:20], "priorities_total": len(priorities),
+        "portfolio_alerts": alerts, "earnings": earnings,
+        "priorities": alerts, "priorities_total": len(alerts),
         "review_positions_count": review_positions_count,
         "opportunities": opportunity_rows, "changes": changes, "portfolio": portfolio,
-        "sell_rows": sell_rows[:12], "industry_groups": groups,
+        "sell_rows": sell_rows, "industry_groups": groups,
         "industry_groups_as_of": group_as_of.isoformat() if group_as_of else None,
         "watchlist": _watchlist_rows(shown_watchlist, assessments, failed="watchlist_assessments" in errors),
         "watchlist_total": len(all_watchlist),

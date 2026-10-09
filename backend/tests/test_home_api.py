@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -181,59 +181,70 @@ def test_home_cannot_promote_an_old_or_incomplete_index_phase(home_market_source
     assert "2 von 3" in summary["summary"]
 
 
-def test_attention_merges_changes_into_risk_rows_without_losing_priority():
-    from app.services.home import _merge_attention_rows
-    rows = _merge_attention_rows([
-        {"ticker": "APP", "label": "Verkaufen", "tone": "bad", "detail": "Kurs unter 21-EMA · RS -4"},
-    ], [
-        {"ticker": "APP", "details": ["RS -4", "Gesamtscore -6"]},
-        {"ticker": "AAPL", "scopes": ["watchlist"], "summary": "RS -3", "href": "/stocks/AAPL"},
-    ])
-    assert [row["ticker"] for row in rows] == ["APP", "AAPL"]
-    assert rows[0]["label"] == "Verkaufen" and rows[0]["tone"] == "bad"
-    assert rows[0]["detail"] == "Kurs unter 21-EMA · RS -4 · Gesamtscore -6"
-    assert rows[1]["tone"] == "neutral"
-
-
-def test_home_changes_are_one_row_per_ticker_and_keep_comparison_dates(monkeypatch) -> None:
+@pytest.fixture
+def alert_clock(monkeypatch):
     from app.services import home
+    monkeypatch.setattr(home, "completed_us_market_session", lambda: SimpleNamespace(date=date(2026, 9, 28)))
+    monkeypatch.setattr(home, "expected_us_market_session", lambda: SimpleNamespace(date=date(2026, 9, 28)))
+    return home
 
+
+def sell_row(**overrides):
+    return {"ticker": "APP", "name": "AppLovin", "status": "Verkaufen", "pending_status": "scharf",
+            "data_quality_status": "trusted", "recommendation_pct": 50, "primary_signal": "Kurs unter 21 EMA",
+            "last_seen_date": "2026-09-28", "generated_at": "2026-09-28T21:30:00Z", **overrides}
+
+
+def test_confirmed_sell_has_priority_and_tranche(alert_clock):
+    rows = alert_clock._portfolio_alerts([
+        sell_row(ticker="WAIT", pending_status="in_bestaetigung"), sell_row(),
+        sell_row(ticker="BLOCK", data_quality_status="blocked", data_quality_detail="Kursdaten fehlen"),
+    ], {"tickers": ["APP", "WAIT", "BLOCK"], "positions": []})
+    assert [row["category"] for row in rows] == ["action", "observe", "data"]
+    assert rows[0]["recommendation_pct"] == 50
+    assert rows[1]["recommendation_pct"] is None
+    assert "Bestätigung ausstehend" in rows[1]["detail"]
+    assert rows[2]["label"] == "Daten prüfen"
+    assert rows[2]["signal"] == "Kurs unter 21 EMA"
+
+
+@pytest.mark.parametrize("override", [
+    {"last_seen_date": "2026-09-25"}, {"last_seen_date": ""}, {"generated_at": None},
+    {"generated_at": "2026-09-25T21:00:00Z"}, {"generated_at": "invalid"},
+    {"data_quality_status": "limited"},
+])
+def test_unreliable_or_old_sell_never_shows_action(alert_clock, override):
+    row = alert_clock._portfolio_alerts([sell_row(**override)], {"tickers": ["APP"], "positions": []})[0]
+    assert row["category"] == "data"
+    assert row["recommendation_pct"] is None
+    assert row["last_seen_date"] == override.get("last_seen_date", "2026-09-28") or row["last_seen_date"] is None
+
+
+def test_snoozed_sell_remains_observation(alert_clock):
+    row = alert_clock._portfolio_alerts([sell_row(pending_status="snoozed", snoozed_until="2026-09-30")], {"tickers": ["APP"]})[0]
+    assert row["category"] == "observe"
+    assert "zurückgestellt bis 2026-09-30" in row["detail"]
+
+
+def test_missing_monitor_and_missing_stop_are_independent(alert_clock):
+    rows = alert_clock._portfolio_alerts([], {"tickers": ["APP"], "positions": [{"ticker": "APP", "has_stop": False}]})
+    assert len(rows) == 2
+    assert {row["label"] for row in rows} == {"Daten prüfen", "Stop fehlt"}
+    assert all(row["href"] == "/sell-monitor/APP" for row in rows)
+
+
+def test_home_changes_keep_scopes_and_actual_comparison_dates(monkeypatch):
+    from app.services import home
     monkeypatch.setattr(home.daily_opportunities, "get_home_changes", lambda **_: {
-        "as_of": "2026-09-28", "previous_as_of": "2026-09-25",
-        "rows": [{
-            "ticker": "APP", "rank": 1, "overall_score_delta": 6,
-            "technical_score_delta": 2.5, "rs_rating_delta": 4,
-            "positive_changes": ["Gesamtscore +6", "Technischer Score +2.5", "RS 93 → 97"],
+        "as_of": "2026-09-28", "previous_as_of": "2026-09-25", "rows": [{
+            "ticker": "APP", "rank": 1, "kind": "score", "summary": "Stärke verloren",
+            "details": ["Score 82 → 74", "RS 91 → 84"], "tone": "warning",
         }],
     })
-
     rows = home._home_changes(portfolio_tickers={"APP"}, watchlist={"APP"})
-
-    assert len(rows) == 1
-    assert rows[0]["ticker"] == "APP"
     assert rows[0]["scopes"] == ["portfolio", "watchlist", "top_stocks"]
-    assert rows[0]["details"] == ["Gesamtscore +6", "Technik +2.5", "RS +4"]
+    assert rows[0]["details"] == ["Score 82 → 74", "RS 91 → 84"]
     assert rows[0]["previous_as_of"] == "2026-09-25"
-
-
-def test_priorities_count_unique_review_positions_and_merge_earnings() -> None:
-    from app.services import home
-
-    priorities, review_count = home._priority_rows(
-        [{
-            "ticker": "APP", "status": "Verkaufen", "data_quality_status": "trusted",
-            "primary_signal": "Kurs unter 21 EMA", "recommendation_pct": 100,
-        }, {
-            "ticker": "SPCX", "status": "Halten", "data_quality_status": "blocked",
-            "data_quality_detail": "Zu wenig Kursdaten", "recommendation_pct": 0,
-        }],
-        {"APP": date.today()}, [], set(),
-    )
-
-    assert review_count == 2
-    assert len(priorities) == 2
-    assert priorities[0]["ticker"] == "APP"
-    assert "Earnings heute" in priorities[0]["detail"]
 
 
 def test_watchlist_keeps_tickers_without_assessment() -> None:
@@ -260,7 +271,7 @@ def test_home_service_reads_only_persisted_helpers(monkeypatch, open_tickers) ->
     ], None, ""))
     monkeypatch.setattr(home.stock_assessments, "list_all_snapshots", lambda *_: [])
     monkeypatch.setattr(home.industry_group_repository, "list_home_rankings", lambda **_: (None, []))
-    monkeypatch.setattr(home.earnings_repository, "next_earnings_dates", lambda *_: {})
+    monkeypatch.setattr(home.earnings_repository, "upcoming_earnings_events", lambda *_, **__: [])
     monkeypatch.setattr(home.daily_opportunities, "get_home_changes", lambda **_: {"rows": [], "as_of": None, "previous_as_of": None})
 
     payload = home.get_home_dashboard()
@@ -321,3 +332,43 @@ def test_home_keeps_index_powertrend_independent_of_market_phase(home_market_sou
     assert index["powertrend"]["start_date"] == "2026-08-19"
     assert index["powertrend"]["pressure_since"] == sp500.powertrend_pressure_since
     assert index["powertrend"]["enabled"]
+
+
+def test_home_keeps_calendar_changes_and_alerts_separate_and_loads_all_watchlist(monkeypatch, alert_clock):
+    home = alert_clock
+    tickers = [f"T{i}" for i in range(12)]
+    monkeypatch.setattr(home, "get_workspace_state", lambda: SimpleNamespace(watchlist=tickers))
+    monkeypatch.setattr(home, "_market_summary", lambda: {"indices": []})
+    monkeypatch.setattr(home, "get_data_quality_summary", lambda: None)
+    monkeypatch.setattr(home, "_portfolio_summary", lambda: {"positions_count": 1, "positions": [{"ticker": "APP", "name": "AppLovin", "has_stop": True}], "tickers": ["APP"]})
+    monkeypatch.setattr(home.sell_state_repository, "list_ranking_snapshot", lambda: ([SimpleNamespace(model_dump=lambda **_: sell_row())], None, ""))
+    monkeypatch.setattr(home.daily_opportunities, "get_top_daily", lambda: {"rows": []})
+    monkeypatch.setattr(home.daily_opportunities, "get_home_changes", lambda **_: {"rows": [{"ticker": "APP", "details": ["Score 80 → 74"], "rank": None}], "as_of": "2026-09-28", "previous_as_of": "2026-09-25"})
+    monkeypatch.setattr(home.industry_group_repository, "list_home_rankings", lambda **_: (None, []))
+    requested = []
+    monkeypatch.setattr(home.stock_assessments, "list_all_snapshots", lambda values: requested.extend(values) or [])
+    today = datetime.now(__import__("zoneinfo").ZoneInfo("Europe/Berlin")).date().isoformat()
+    monkeypatch.setattr(home.earnings_repository, "upcoming_earnings_events", lambda *_, **__: [{"ticker": "APP", "date": today, "time": "amc", "source": "fmp"}])
+    payload = home.get_home_dashboard()
+    assert requested == tickers
+    assert len(payload["watchlist"]) == 12
+    assert payload["portfolio_alerts"][0]["ticker"] == payload["earnings"]["rows"][0]["ticker"] == payload["changes"][0]["ticker"] == "APP"
+    assert "Earnings" not in payload["portfolio_alerts"][0]["detail"]
+    assert payload["earnings"]["rows"][0]["time"] == "amc"
+    assert payload["earnings"]["rows"][0]["scopes"] == ["portfolio"]
+    assert payload["schema_version"] == 2
+
+
+def test_new_watchlist_candidate_has_explicit_chance_label(monkeypatch):
+    from app.services import home
+    monkeypatch.setattr(home.daily_opportunities, "get_home_changes", lambda **_: {"rows": [{"ticker": "WATCH", "rank": None, "new_candidate": True, "summary": "Bewertung verbessert", "details": ["Tagesauswahl-Kriterien erstmals erfüllt"]}]})
+    assert home._home_changes(portfolio_tickers=set(), watchlist={"WATCH"})[0]["summary"] == "Neue Watchlist-Chance"
+
+
+@pytest.mark.parametrize("previous_date,complete,expected", [("2026-09-25", True, "gruen"), ("2026-09-24", True, None), ("2026-09-25", False, None)])
+def test_home_phase_change_uses_complete_adjacent_shared_calculation(monkeypatch, previous_date, complete, expected):
+    from app.services import market
+    monkeypatch.setattr(market, "_cached_trend_ampel_points", lambda *a, **k: [SimpleNamespace(date=previous_date, phase="gruen", price_data_complete=complete), SimpleNamespace(date="2026-09-28", phase="gelb_rally_unter_druck", price_data_complete=True)])
+    monkeypatch.setattr(market, "_trend_ampel_metrics", lambda point, **k: {"ticker": "^GSPC", "as_of": point.date, "phase": point.phase, "phase_label": "Rally unter Druck"})
+    trend = market._market_trend_ampel_for_ticker("^GSPC", lookback_days=550, logic="ibd")
+    assert trend.previous_phase == expected

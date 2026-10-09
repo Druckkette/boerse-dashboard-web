@@ -1505,6 +1505,7 @@ export type Sec13FMappingUpdate = {
 };
 
 export type SellRankingRow = {
+  generated_at?: string | null;
   ticker: string;
   name: string;
   pnl_pct: number;
@@ -1989,6 +1990,19 @@ export type WorkspacePatch = {
   recent_tickers?: string[];
 };
 
+export type HomePortfolioAlert = {
+  id: string; ticker: string; name?: string; category: "action" | "observe" | "data";
+  label: string; tone: Tone; detail: string; signal?: string; href: string;
+  recommendation_pct?: number | null; pending_status?: string | null;
+  data_quality_status?: string | null; last_seen_date?: string | null;
+  generated_at?: string | null; freshness?: "current" | "stale" | "missing";
+};
+export type HomeEarningsCalendar = {
+  today?: string; status: "available" | "error"; missing_portfolio_count?: number;
+  rows: Array<{ ticker: string; name: string; date: string; time: string; source: string;
+    fetched_at?: string | null; date_conflict?: boolean; days_until: number;
+    scopes: Array<"portfolio" | "watchlist">; href: string }>;
+};
 export type HomeDashboard = {
   generated_at: string;
   as_of?: string | null;
@@ -2022,9 +2036,14 @@ export type HomeDashboard = {
       phase_as_of?: string | null;
       phase_status?: "available" | "stale" | "partial" | "missing";
       phase_reason?: string | null;
+      previous_phase?: string | null;
+      previous_phase_label?: string | null;
+      previous_phase_as_of?: string | null;
       powertrend?: Pick<MarketAmpelPowerTrend, "enabled" | "state" | "formal_active" | "start_date" | "pressure_since"> | null;
     }>;
   };
+  portfolio_alerts?: HomePortfolioAlert[];
+  earnings?: HomeEarningsCalendar;
   priorities: Array<{ ticker: string; category: string; label: string; detail: string; href: string; tone: Tone }>;
   priorities_total: number;
   review_positions_count: number;
@@ -2033,6 +2052,9 @@ export type HomeDashboard = {
     ticker: string;
     scopes: Array<"portfolio" | "watchlist" | "top_stocks">;
     kind: "score" | "signal";
+    name?: string;
+    tone?: Tone;
+    new_candidate?: boolean;
     summary: string;
     details: string[];
     as_of?: string | null;

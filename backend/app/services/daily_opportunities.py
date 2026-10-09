@@ -13,14 +13,15 @@ from collections import defaultdict
 from datetime import date, timedelta
 from math import isfinite
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core_config import get_settings
 from app.db.models import DailyStockOpportunity, Instrument, PriceBar
 from app.db.session import SessionLocal
-from app.repositories import stock_assessments
-from app.services.market_calendar import expected_us_market_session, price_is_current
+from app.repositories import stock_assessments, portfolio
+from app.services.workspace import get_workspace_state
+from app.services.market_calendar import expected_us_market_session, price_is_current, previous_us_market_session_date, daily_bar_is_final, completed_us_market_session
 
 
 COMPONENT_WEIGHTS = {
@@ -171,6 +172,24 @@ def calculate_daily_rows(
                 "components": {key: round(value, 1) for key, value in components.items()},
                 "previous_rank": old.get("rank") if old else None,
             }
+        # Comparison metadata also belongs to weak tracked stocks. Never turn
+        # an unavailable assessment or unfinished candle into a lost signal.
+        comparison_valid = bool(old and fresh and daily_bar_is_final(day, current_bar[2])
+                                and (item.get("overall_status") or "available") == "available"
+                                and old.get("comparison_available", True))
+        details.update({
+            "history_version": 2, "name": item.get("name") or ticker,
+            "comparison_available": fresh and bool(current_bar and daily_bar_is_final(day, current_bar[2]))
+                                    and (item.get("overall_status") or "available") == "available",
+            "previous_overall_score": old.get("overall_score") if comparison_valid else None,
+            "previous_rs_rating": old.get("rs_rating") if comparison_valid else None,
+            "overall_score_delta": score - old["overall_score"] if comparison_valid else None,
+            "rs_rating_delta": rs - old["rs_rating"] if comparison_valid and rs is not None and old.get("rs_rating") is not None else None,
+            "new_signals": sorted(set(now_signals) - old_signals) if comparison_valid else [],
+            "lost_signals": sorted(old_signals - set(now_signals)) if comparison_valid else [],
+            "candidate_qualified": qualified,
+            "previous_candidate_qualified": old.get("candidate_qualified") if comparison_valid else None,
+        })
         rows.append({
             "as_of": day, "ticker": ticker, "overall_score": int(score),
             "technical_score": technical, "fundamental_score": _number(item.get("fundamental_score")) or 0,
@@ -188,21 +207,30 @@ def calculate_daily_rows(
 
 
 def refresh_top_daily(writes=None) -> dict:
-    """Persist candidates and a 20-point quality buffer, not the full universe."""
+    """Persist research candidates and all tracked stocks in the same daily history."""
     day = expected_us_market_session().date
     source = writes if writes is not None else stock_assessments.list_all_snapshots()
     settings = get_settings()
-    items = [row.item_json for row in source if row.as_of == day
-             and (row.item_json.get("overall_status") or "available") == "available"
-             and row.overall_score >= max(0, settings.daily_min_quality - 20)]
-    candidate_tickers = [item["ticker"] for item in items if item.get("overall_score", 0) >= settings.daily_min_quality]
+    tracked = set(get_workspace_state().watchlist) | {row.ticker for row in portfolio.list_open_positions()}
+    # Partial screening writes must not erase already assessed tracked stocks.
+    by_ticker = {row.ticker: row for row in source}
+    missing_tracked = sorted(tracked - set(by_ticker))
+    if writes is not None and missing_tracked:
+        for row in stock_assessments.list_all_snapshots(missing_tracked):
+            by_ticker.setdefault(row.ticker, row)
+    items = [row.item_json for row in by_ticker.values() if row.as_of == day
+             and (row.ticker in tracked or ((row.item_json.get("overall_status") or "available") == "available"
+                  and row.overall_score >= max(0, settings.daily_min_quality - 20)))]
+    candidate_tickers = [item["ticker"] for item in items if item.get("overall_score", 0) >= settings.daily_min_quality or item["ticker"] in tracked]
     with SessionLocal() as db:
-        prior_day = db.scalar(select(func.max(DailyStockOpportunity.as_of)).where(DailyStockOpportunity.as_of < day))
+        prior_day = previous_us_market_session_date(day)
         previous = {}
         if prior_day:
             previous = {row.ticker: {
                 "overall_score": row.overall_score, "technical_score": row.technical_score,
                 "rs_rating": row.rs_rating, "rank": row.rank, "signals_json": row.signals_json,
+                "comparison_available": (row.details_json or {}).get("comparison_available", bool(row.details_json)),
+                "candidate_qualified": (row.details_json or {}).get("candidate_qualified"),
             } for row in db.scalars(select(DailyStockOpportunity).where(DailyStockOpportunity.as_of == prior_day))}
         bars: dict[str, list[tuple]] = defaultdict(list)
         if candidate_tickers:
@@ -259,57 +287,54 @@ def get_top_daily() -> dict:
                     for row in rows]}
 
 
-def get_home_changes(*, priority_tickers: list[str], limit: int = 8) -> dict:
-    """Read persisted opportunity deltas once per ticker for the home dashboard.
+HOME_CHANGE_THRESHOLD = 5
 
-    The daily-opportunity table retains its own previous-session comparison.  It
-    is therefore the only source used here for score and signal deltas; current
-    assessment and sell snapshots do not contain a prior version.
-    """
-    clean_priority = {ticker.strip().upper() for ticker in priority_tickers if ticker.strip()}
+
+def _relevant_home_change(row, old) -> dict | None:
+    """Compare actual consecutive session rows, including pre-v2 saved history."""
+    current = row.details_json or {}
+    previous = old.details_json or {} if old else {}
+    if old is None or not current.get("comparison_available", bool(current)) or not previous.get("comparison_available", bool(previous)):
+        return None
+    details = []
+    for field, label, threshold in (("overall_score", "Score", 75), ("rs_rating", "RS", 80)):
+        before, after = getattr(old, field), getattr(row, field)
+        if before is not None and after is not None and (abs(after - before) >= HOME_CHANGE_THRESHOLD or (before < threshold) != (after < threshold)):
+            details.append(f"{label} {before:g} → {after:g}")
+    gained = sorted(set(row.signals_json or []) - set(old.signals_json or []))
+    lost = sorted(set(old.signals_json or []) - set(row.signals_json or []))
+    details.extend(f"Neu: {signal}" for signal in gained)
+    details.extend(f"Entfallen: {signal}" for signal in lost)
+    new_candidate = current.get("candidate_qualified") is True and previous.get("candidate_qualified") is False
+    lost_candidate = current.get("candidate_qualified") is False and previous.get("candidate_qualified") is True
+    if new_candidate:
+        details.insert(0, "Tagesauswahl-Kriterien erstmals erfüllt")
+    if lost_candidate:
+        details.insert(0, "Tagesauswahl-Kriterien nicht mehr erfüllt")
+    if not details:
+        return None
+    negative = lost_candidate or bool(lost) or row.overall_score < old.overall_score or (row.rs_rating is not None and old.rs_rating is not None and row.rs_rating < old.rs_rating)
+    return {"ticker": row.ticker, "rank": row.rank, "name": current.get("name") or row.ticker,
+            "kind": "signal" if gained or lost or new_candidate or lost_candidate else "score",
+            "summary": "Stärke verloren" if negative else "Bewertung verbessert",
+            "details": details, "tone": "warning" if negative else "good", "new_candidate": new_candidate}
+
+
+def get_home_changes(*, priority_tickers: list[str], limit: int | None = None) -> dict:
+    """Batched persisted comparison; no universe scan or positive-only truncation."""
+    clean = sorted({ticker.strip().upper() for ticker in priority_tickers if ticker.strip()})
     with SessionLocal() as db:
-        day = db.scalar(select(func.max(DailyStockOpportunity.as_of)))
+        day = db.scalar(select(func.max(DailyStockOpportunity.as_of)).where(DailyStockOpportunity.as_of <= completed_us_market_session().date))
         if day is None:
             return {"as_of": None, "previous_as_of": None, "rows": []}
-        previous_day = db.scalar(
-            select(func.max(DailyStockOpportunity.as_of)).where(DailyStockOpportunity.as_of < day)
-        )
-        rows = db.scalars(
-            select(DailyStockOpportunity)
-            .where(DailyStockOpportunity.as_of == day)
-            .order_by(
-                DailyStockOpportunity.rank.asc().nulls_last(),
-                DailyStockOpportunity.daily_opportunity_score.desc().nulls_last(),
-                DailyStockOpportunity.ticker.asc(),
-            )
-            .limit(400)
-        ).all()
-
-    changed = []
-    for row in rows:
-        details = row.details_json or {}
-        positive = list(details.get("positive_changes") or [])
-        if not positive:
-            continue
-        ticker = row.ticker.upper()
-        if ticker not in clean_priority and (row.rank is None or row.rank > 3):
-            continue
-        changed.append({
-            "ticker": ticker,
-            "rank": row.rank,
-            "name": details.get("name") or ticker,
-            "overall_score_delta": details.get("overall_score_delta"),
-            "technical_score_delta": details.get("technical_score_delta"),
-            "rs_rating_delta": details.get("rs_rating_delta"),
-            "positive_changes": positive,
-        })
-    changed.sort(key=lambda row: (
-        0 if row["ticker"] in clean_priority else 1,
-        row["rank"] if row["rank"] is not None else 9999,
-        row["ticker"],
-    ))
-    return {
-        "as_of": day.isoformat(),
-        "previous_as_of": previous_day.isoformat() if previous_day else None,
-        "rows": changed[:max(1, min(20, int(limit)))],
-    }
+        previous_day = previous_us_market_session_date(day)
+        rows = db.scalars(select(DailyStockOpportunity).where(
+            DailyStockOpportunity.as_of == day,
+            or_(DailyStockOpportunity.ticker.in_(clean), DailyStockOpportunity.rank <= 3),
+        ).order_by(DailyStockOpportunity.ticker)).all()
+        old = {row.ticker: row for row in db.scalars(select(DailyStockOpportunity).where(
+            DailyStockOpportunity.as_of == previous_day, DailyStockOpportunity.ticker.in_([row.ticker for row in rows]),
+        ))} if rows else {}
+        changed = [change for row in rows if (change := _relevant_home_change(row, old.get(row.ticker))) is not None]
+    return {"as_of": day.isoformat(), "previous_as_of": previous_day.isoformat(),
+            "rows": changed if limit is None else changed[:max(1, int(limit))]}

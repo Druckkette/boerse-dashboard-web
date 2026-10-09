@@ -1,3 +1,4 @@
+import pytest
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -125,3 +126,48 @@ def test_api_uses_only_saved_rows_and_supports_fewer_than_three(monkeypatch):
     response = TestClient(app).get("/api/v1/stocks/top-daily")
     assert response.status_code == 200
     assert response.json()["rows"] == []
+
+
+def history_row(score=80, rs=85, signals=None, available=True, qualified=False, **kw):
+    from types import SimpleNamespace
+    return SimpleNamespace(ticker="GOOD", rank=None, overall_score=score, rs_rating=rs, signals_json=signals or [],
+                           details_json={"comparison_available": available, "candidate_qualified": qualified}, **kw)
+
+
+def test_negative_changes_include_weak_unranked_tracked_values():
+    old = history_row(score=60, rs=76, signals=["Kurs über 50-SMA"])
+    now = history_row(score=42, rs=62)
+    change = daily._relevant_home_change(now, old)
+    assert change["summary"] == "Stärke verloren"
+    assert change["details"] == ["Score 60 → 42", "RS 76 → 62", "Entfallen: Kurs über 50-SMA"]
+
+
+def test_five_point_threshold_and_threshold_crossings():
+    assert daily._relevant_home_change(history_row(score=83, rs=88), history_row(score=82, rs=87)) is None
+    assert daily._relevant_home_change(history_row(score=75), history_row(score=74))["details"] == ["Score 74 → 75"]
+    assert daily._relevant_home_change(history_row(rs=80), history_row(rs=79))["details"] == ["RS 79 → 80"]
+
+
+@pytest.mark.parametrize("old,now", [(None, history_row()), (history_row(), history_row(available=False)), (history_row(available=False), history_row())])
+def test_missing_history_or_unreliable_data_cannot_create_changes(old, now):
+    assert daily._relevant_home_change(now, old) is None
+
+
+def test_new_watchlist_candidate_uses_existing_selection_criteria():
+    change = daily._relevant_home_change(history_row(qualified=True), history_row(qualified=False))
+    assert change["new_candidate"] is True
+    assert change["details"] == ["Tagesauswahl-Kriterien erstmals erfüllt"]
+
+
+def test_unqualified_rows_keep_comparisons_without_getting_rank():
+    row = ranked([item(score=42)], {"GOOD": {"overall_score": 60, "technical_score": 80, "rs_rating": 90, "signals_json": []}})[0]
+    assert row["rank"] is None
+    assert row["details_json"]["overall_score_delta"] == -18
+    assert row["details_json"]["previous_overall_score"] == 60
+
+
+def test_unfinished_candle_suppresses_home_comparison(monkeypatch):
+    monkeypatch.setattr(daily, "daily_bar_is_final", lambda *a: False)
+    row = ranked([item(score=42)], {"GOOD": {"overall_score": 60, "technical_score": 80, "rs_rating": 90, "signals_json": []}})[0]
+    assert row["details_json"]["overall_score_delta"] is None
+    assert row["details_json"]["comparison_available"] is False

@@ -8,7 +8,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/format";
 import type { HomeDashboard, WorkspaceState } from "@/lib/types/api";
-import { Empty, Panel, TextLink } from "./home-ui";
+import { Empty, Panel, shortDate, TextLink } from "./home-ui";
 
 export function HomeWatchlist({ data }: { data: HomeDashboard }) {
   const queryClient = useQueryClient();
@@ -46,7 +46,7 @@ export function HomeWatchlist({ data }: { data: HomeDashboard }) {
     {!tickers.length ? <Empty text="Noch keine Watchlist gespeichert. Füge eine Aktie über ihren Ticker hinzu." /> : <div className="grid gap-x-5 gap-y-2 md:grid-cols-2 xl:grid-cols-4">{shown.map((ticker) => {
       const row = data.watchlist.find((item) => item.ticker === ticker);
       return <div key={ticker} className="flex items-center gap-1 rounded-lg border border-[#e3e8ef] bg-[#fbfcfd]">
-        <Link href={`/stocks/${encodeURIComponent(ticker)}`} className="min-w-0 flex-1 px-3 py-2.5"><b className="text-sm text-[#172033]">{ticker}</b><p className="mt-1 truncate text-[11px] text-[#687386]">{row?.data_status === "available" ? `Score ${row.overall_score} · ${row.top_warning || "Keine Warnung"}` : row?.data_status === "error" ? "Bewertung derzeit nicht verfügbar" : row ? "Noch nicht bewertet" : "Bewertung öffnen"}</p></Link>
+        <Link href={`/stocks/${encodeURIComponent(ticker)}`} className="min-w-0 flex-1 px-3 py-2.5"><b className="text-sm text-[#172033]">{ticker}</b><p className="mt-1 truncate text-[11px] text-[#687386]">{row?.data_status === "available" ? `Score ${row.overall_score} · RS ${row.rs_rating ?? "–"} · ${row.top_warning || "Keine Warnung"}` : row?.data_status === "error" ? "Bewertung derzeit nicht verfügbar" : row ? "Noch nicht bewertet" : "Bewertung öffnen"}</p>{row?.data_status === "available" && <p className="mt-1 text-[10px] text-[#687386]">Stand {shortDate(row.as_of)}{row.overall_status === "limited" ? " · eingeschränkt" : row.as_of && data.market.session?.last_completed_as_of && row.as_of < data.market.session.last_completed_as_of ? " · veraltet" : ""}</p>}</Link>
         <button aria-label={`${ticker} aus Watchlist entfernen`} disabled={pending || !canEdit} className="mr-1 rounded-md p-2 text-[#94a3b8] hover:bg-[#fbeeee] hover:text-[#c2413b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0f766e] disabled:opacity-40" type="button" onClick={() => remove.mutate(ticker)}><Trash2 size={14} /></button>
       </div>;
     })}</div>}

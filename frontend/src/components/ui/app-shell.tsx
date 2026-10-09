@@ -41,7 +41,7 @@ const hiddenPageLabels = [
 ];
 
 const pageDescriptions: Record<string, string> = {
-  "/": "Index-Ampeln, Aufgaben, Depot und Recherche an einem Ort.",
+  "/": "Marktlage, Depot, Earnings und Recherche an einem Ort.",
   "/market": "Marktampel, Marktbreite und Frühwarnzeichen in einer ruhigen Übersicht.",
   "/sectors": "Sektorrotation und relative Stärke nach Tages- oder Wochenansicht.",
   "/industry-groups": "Industry-Group-RS, Rangdynamik und die stärksten Aktien innerhalb jeder Gruppe.",

@@ -11,7 +11,8 @@ from pathlib import Path
 from time import monotonic
 
 from app.domain.stocks import assessment
-from app.repositories import jobs, stock_assessments, universes
+from app.repositories import jobs, stock_assessments, universes, portfolio
+from app.services.workspace import get_workspace_state
 from app.repositories.stock_assessments import StockAssessmentSnapshotWrite
 from app.services.market_calendar import expected_us_market_session
 from app.services.stocks import _assessment_score_weights, _load_assessment_inputs, _to_ranking_item
@@ -40,6 +41,8 @@ def input_fingerprint(inputs: dict, *, engine_version: str, today: date) -> str:
 
 def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None = None) -> dict:
     tickers = list(dict.fromkeys(only_tickers if only_tickers is not None else universes.list_universe_tickers(limit=None)))
+    if only_tickers is None:
+        tickers = list(dict.fromkeys([*tickers, *get_workspace_state().watchlist, *(row.ticker for row in portfolio.list_open_positions())]))
     if not tickers:
         raise ValueError("Das Aktienuniversum ist leer. Bitte zuerst das Aktienuniversum laden.")
     cached_rows = stock_assessments.list_all_snapshots(tickers) if only_tickers is not None else stock_assessments.list_all_snapshots()
