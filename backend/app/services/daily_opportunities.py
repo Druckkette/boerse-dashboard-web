@@ -297,10 +297,12 @@ def _relevant_home_change(row, old) -> dict | None:
     if old is None or not current.get("comparison_available", bool(current)) or not previous.get("comparison_available", bool(previous)):
         return None
     details = []
+    relevant_deltas = []
     for field, label, threshold in (("overall_score", "Score", 75), ("rs_rating", "RS", 80)):
         before, after = getattr(old, field), getattr(row, field)
         if before is not None and after is not None and (abs(after - before) >= HOME_CHANGE_THRESHOLD or (before < threshold) != (after < threshold)):
             details.append(f"{label} {before:g} → {after:g}")
+            relevant_deltas.append(after - before)
     gained = sorted(set(row.signals_json or []) - set(old.signals_json or []))
     lost = sorted(set(old.signals_json or []) - set(row.signals_json or []))
     details.extend(f"Neu: {signal}" for signal in gained)
@@ -313,10 +315,11 @@ def _relevant_home_change(row, old) -> dict | None:
         details.insert(0, "Tagesauswahl-Kriterien nicht mehr erfüllt")
     if not details:
         return None
-    negative = lost_candidate or bool(lost) or row.overall_score < old.overall_score or (row.rs_rating is not None and old.rs_rating is not None and row.rs_rating < old.rs_rating)
+    negative = lost_candidate or bool(lost) or any(delta < 0 for delta in relevant_deltas)
+    positive = new_candidate or bool(gained) or any(delta > 0 for delta in relevant_deltas)
     return {"ticker": row.ticker, "rank": row.rank, "name": current.get("name") or row.ticker,
             "kind": "signal" if gained or lost or new_candidate or lost_candidate else "score",
-            "summary": "Stärke verloren" if negative else "Bewertung verbessert",
+            "summary": "Uneinheitliche Veränderungen" if negative and positive else "Stärke verloren" if negative else "Bewertung verbessert",
             "details": details, "tone": "warning" if negative else "good", "new_candidate": new_candidate}
 
 
