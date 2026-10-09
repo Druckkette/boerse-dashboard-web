@@ -258,6 +258,10 @@ function CompactMarketAmpel({
         </div>
 
         {data.powertrend.enabled ? <PowerTrendCard powertrend={data.powertrend} /> : null}
+        {data.cycle.ftd_intraday_undercut && !data.cycle.ftd_negated ? (
+          <p className="mt-2 text-xs text-[#b45309]">FTD-Tief intraday unterschritten; Schlusskurs hält die Marke. Keine dauerhafte FTD-Negation.</p>
+        ) : null}
+        {data.cycle.startschuss_date ? <p className="mt-2 text-xs">FTD-Datum: {data.cycle.startschuss_date} · Bestätigung: {data.cycle.ftd_negated ? "negiert (historisches Signal)" : "gültig"}</p> : null}
         {data.cycle.ftd_negated ? (
           <p className="mt-2 rounded-lg border border-[#fed7aa] bg-[#fffbeb] px-3 py-2 text-xs font-medium text-[#b45309]">
             Startschuss/FTD negiert. Der Rallyversuch bleibt aktiv, solange das Rally-Day-1-Tief hält.

@@ -1,5 +1,5 @@
 export type Tone = "good" | "neutral" | "warning" | "bad";
-export type MarketPhase = "rot" | "gelb_startschuss" | "gruen" | "aufwaertstrend" | "gelb_trend_unter_druck" | "neutral";
+export type MarketPhase = "rot" | "gelb_startschuss" | "gruen" | "aufwaertstrend" | "gelb_trend_unter_druck" | "gelb_rally_unter_druck" | "neutral";
 
 export type KpiCard = {
   label: string;
@@ -12,6 +12,8 @@ export type MarketTrendAmpel = {
   logic?: "current" | "ibd";
   ruleset_version?: string;
   ftd_negated?: boolean;
+  ftd_intraday_undercut?: boolean;
+  startschuss_date?: string | null;
   price_data_complete?: boolean;
   powertrend_state?: "off" | "on" | "under_pressure";
   powertrend_start_date?: string | null;
@@ -57,7 +59,7 @@ export type MarketAmpelHero = {
 };
 
 export type MarketAmpelLight = {
-  key: "rot" | "gelb_startschuss" | "gruen" | "aufwaertstrend" | "gelb_trend_unter_druck";
+  key: "rot" | "gelb_startschuss" | "gruen" | "aufwaertstrend" | "gelb_trend_unter_druck" | "gelb_rally_unter_druck";
   label: string;
   active: boolean;
   rule: string;
@@ -86,6 +88,8 @@ export type MarketAmpelCycle = {
   startschuss_distance_pct?: number | null;
   startschuss_bonus?: boolean | null;
   ftd_negated: boolean;
+  ftd_intraday_undercut?: boolean;
+  startschuss_date?: string | null;
   ma_order?: boolean | null;
   market_structure: "up" | "down" | "mixed" | "unknown";
   uptrend_high?: number | null;

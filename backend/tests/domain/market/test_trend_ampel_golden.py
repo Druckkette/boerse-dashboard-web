@@ -725,3 +725,31 @@ def _bar(
         close=close,
         volume=volume,
     )
+
+
+def test_ibd_real_ohlcv_negation_and_replacement_ftd():
+    import pandas as pd
+
+    closes = [100.] * 250 + [96., 92., 90., 92., 92.3, 92.6, 94., 92.5, 95.]
+    dates = pd.bdate_range(end="2026-10-02", periods=len(closes))
+    bars = [TrendAmpelBar(date=day.date(), open=closes[max(0, i - 1)],
+        high=max(close, closes[max(0, i - 1)]) + .5,
+        low=min(close, closes[max(0, i - 1)]) - .5, close=close,
+        volume=1_500_000 if i == 256 else 1_600_000 if i == 258 else 1_000_000)
+        for i, (day, close) in enumerate(zip(dates, closes))]
+    first = compute_trend_ampel(bars[:257], logic="ibd")[-1]
+    assert first.phase == "gelb_startschuss"
+    assert first.startschuss_low == 92.1
+    # Intraday undercut with a close still above the FTD low.
+    intraday = compute_trend_ampel(bars[:258], logic="ibd")[-1]
+    assert intraday.ftd_intraday_undercut and not intraday.ftd_negated
+    bars[257] = replace(bars[257], close=92., low=91.8)
+    points = compute_trend_ampel(bars, logic="ibd")
+    negated, replacement = points[-2:]
+    assert negated.phase == "gelb_rally_unter_druck" and negated.ftd_negated
+    assert negated.startschuss_date == first.startschuss_date
+    assert replacement.phase == "gelb_startschuss" and not replacement.ftd_negated
+    assert replacement.anchor_date == first.anchor_date
+    assert replacement.floor_mark == first.floor_mark
+    assert replacement.startschuss_date == dates[-1].strftime("%Y-%m-%d")
+    assert replacement.startschuss_low == bars[-1].low

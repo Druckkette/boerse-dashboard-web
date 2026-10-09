@@ -154,7 +154,7 @@ def _build_market_overview_response(
     if trend_ampel is None and clean_ticker == MARKET_TREND_BENCHMARK:
         trend_ampel = _trend_ampel_from_metrics(metrics)
         snapshot_logic = trend_ampel.logic if trend_ampel else metrics.get("market_ampel_logic", "current")
-        if snapshot_logic != logic:
+        if snapshot_logic != logic or (logic == "ibd" and (trend_ampel is None or trend_ampel.ruleset_version != AMPEL_RULESET_VERSION)):
             response = _missing_market_overview()
             response.message = "Keine bestätigte Kursberechnung für die gewählte Marktampel-Logik verfügbar."
             return response
@@ -2231,6 +2231,8 @@ def _legacy_market_action_and_tone(
             "warning",
             "Startschuss erkannt, aber Umfeld noch nicht frei. Nur kleine Testpositionen und keine Aggressivität.",
         )
+    if clean_phase == "gelb_rally_unter_druck":
+        return "Rally unter Druck", "warning", "FTD negiert. Rallyversuch aktiv; eine neue gültige Aufwärtsbestätigung ist erforderlich."
     if clean_phase == "gelb_trend_unter_druck":
         return (
             "Trend unter Druck",
@@ -2325,6 +2327,13 @@ def _ampel_phase_info(
             last_changed_at=last_changed_at,
             last_change_reason=last_change_reason,
         )
+    if phase == "gelb_rally_unter_druck":
+        return MarketAmpelPhaseInfo(
+            phase=phase, label="GELB - Rally unter Druck", tone="warning",
+            reason="Follow Through Day negiert. Der Rallyversuch bleibt aktiv, solange das maßgebliche Rallytief hält.",
+            action="Für eine erneute Aufwärtsbestätigung ist ein neuer gültiger Follow Through Day erforderlich.",
+            next_step=next_step, last_changed_at=last_changed_at, last_change_reason=last_change_reason,
+        )
     if phase == "gelb_trend_unter_druck":
         return MarketAmpelPhaseInfo(
             phase=phase,
@@ -2415,6 +2424,8 @@ def _next_phase_step(
 ) -> str:
     """Explain the next state transition from already calculated daily data."""
     phase = latest.phase
+    if phase == "gelb_rally_unter_druck":
+        return "Neuer gültiger FTD erforderlich: mindestens +1%, höheres Volumen als am Vortag und intaktes Rallytief; Rallytage zählen weiter. Ein Rallytiefbruch oder schwere Marktschwäche führt zu Rot."
     if phase == "rot":
         anchor_index = _index_for_date(points, latest.anchor_date)
         if anchor_index is None or floor_mark is None:
@@ -2568,6 +2579,10 @@ def _ampel_lights(phase: str, *, logic: MarketAmpelLogic = "current") -> list[Ma
             tone="warning",
         ),
     ]
+    if logic == "ibd":
+        lights.append(MarketAmpelLight(key="gelb_rally_unter_druck", label="GELB - RALLY UNTER DRUCK",
+            active=active_key == "gelb_rally_unter_druck", tone="warning",
+            rule="FTD per Schlusskurs negiert, Rallytief intakt; neuer FTD erforderlich."))
     if phase == "neutral":
         return [item.model_copy(update={"active": False}) for item in lights]
     return lights
@@ -2611,6 +2626,8 @@ def _ampel_cycle(
         startschuss_distance_pct=_safe_pct_change(close, startschuss_low),
         startschuss_bonus=latest.startschuss_bonus,
         ftd_negated=latest.ftd_negated,
+        ftd_intraday_undercut=latest.ftd_intraday_undercut,
+        startschuss_date=latest.startschuss_date,
         ma_order=latest.ma_order,
         market_structure=latest.market_structure,
         uptrend_high=latest.uptrend_high,
@@ -2656,6 +2673,8 @@ def _ampel_reason_line(
         if anchor_date and startschuss_low is not None:
             return f"Trendwende-Ampel: GELB - Startschuss aktiv seit {anchor_date} · Startschuss-Tief {_format_number(startschuss_low)}"
         return "Trendwende-Ampel: GELB - Startschuss aktiv"
+    if latest.phase == "gelb_rally_unter_druck":
+        return "Trendwende-Ampel: GELB - Rally unter Druck · FTD negiert; Rallyversuch aktiv, neuer FTD erforderlich"
     if latest.phase == "gelb_trend_unter_druck":
         return f"Trendwende-Ampel: GELB - Trend unter Druck · {latest.phase_reason or 'technische Beschädigung'}"
     if latest.phase == "gruen":
@@ -3159,6 +3178,7 @@ def _ampel_phase_label(phase: str) -> str:
         "gruen": "GRÜN - Frühe Bestätigung",
         "aufwaertstrend": "AUFWÄRTSTREND",
         "gelb_trend_unter_druck": "GELB - Trend unter Druck",
+        "gelb_rally_unter_druck": "GELB - Rally unter Druck",
         "neutral": "NEUTRAL",
     }.get(str(phase or "").lower(), str(phase or "-").upper())
 
@@ -3166,7 +3186,7 @@ def _ampel_phase_label(phase: str) -> str:
 def _tone_for_phase(phase: str) -> str:
     if phase in {"gruen", "aufwaertstrend"}:
         return "good"
-    if phase in {"gelb_startschuss", "gelb_trend_unter_druck", "neutral"}:
+    if phase in {"gelb_startschuss", "gelb_trend_unter_druck", "gelb_rally_unter_druck", "neutral"}:
         return "warning"
     return "bad"
 
@@ -3236,7 +3256,7 @@ def _normalize_tickers(tickers: list[str]) -> list[str]:
 def _normalize_phase(value: str) -> str:
     if value == "gelb":
         return "gelb_startschuss"
-    if value in {"rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"}:
+    if value in {"rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "gelb_rally_unter_druck", "neutral"}:
         return value
     return "neutral"
 
@@ -3254,6 +3274,7 @@ def _phase_label(phase: str) -> str:
         "gruen": "Grün",
         "aufwaertstrend": "Aufwärtstrend",
         "gelb_trend_unter_druck": "Gelb - Trend unter Druck",
+        "gelb_rally_unter_druck": "Gelb - Rally unter Druck",
         "neutral": "Neutral",
     }.get(phase, "Neutral")
 
@@ -3263,6 +3284,8 @@ def _action_for_phase(phase: str) -> str:
         return "Defensiv bleiben, neue Käufe stark filtern und Risiko reduzieren."
     if phase == "gelb_startschuss":
         return "Selektiv bleiben, Positionsgrößen kontrollieren und Breakouts nur mit klarer Bestätigung handeln."
+    if phase == "gelb_rally_unter_druck":
+        return "Auf einen neuen gültigen FTD achten; Rallytief und unabhängige Verkaufssignale überwachen."
     if phase == "gelb_trend_unter_druck":
         return "Keine aggressiven Neueinstiege; bestehende Risiken eng überwachen und auf Rückeroberung oder Rot-Signal achten."
     if phase == "gruen":
@@ -3313,6 +3336,8 @@ def _trend_ampel_metrics(point: TrendAmpelPoint | None, *, ticker: str) -> dict:
         "logic": point.logic,
         "ruleset_version": AMPEL_RULESET_VERSION,
         "ftd_negated": point.ftd_negated,
+        "ftd_intraday_undercut": point.ftd_intraday_undercut,
+        "startschuss_date": point.startschuss_date,
         "price_data_complete": point.price_data_complete,
         "powertrend_ruleset_version": POWER_TREND_RULESET_VERSION,
         "powertrend_state": point.powertrend_state,

@@ -406,6 +406,8 @@ def _market_snapshot() -> dict:
             "logic": ampel.logic,
             "ruleset_version": AMPEL_RULESET_VERSION,
             "ftd_negated": ampel.cycle.ftd_negated,
+            "ftd_intraday_undercut": ampel.cycle.ftd_intraday_undercut,
+            "startschuss_date": ampel.cycle.startschuss_date,
             "powertrend": ampel.powertrend.model_dump(mode="json"),
             "ticker": ampel.ticker,
             "as_of": ampel.as_of,

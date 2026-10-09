@@ -15,7 +15,7 @@ GREEN_CONFIRMATION_DAYS = 3
 ATR_PERIOD = 21
 REVERSAL_ATR_MULTIPLIER = 1.5
 PIVOT_TOLERANCE_ATR = 0.25
-AMPEL_RULESET_VERSION = "trend_ampel_v3"
+AMPEL_RULESET_VERSION = "trend_ampel_v4"
 POWER_TREND_RULESET_VERSION = "powertrend_v2"
 
 MarketStructure = Literal["up", "down", "mixed", "unknown"]
@@ -112,6 +112,7 @@ class TrendAmpelPoint:
     green_below_sma200: bool = False
     phase_reason: str | None = None
     ftd_negated: bool = False
+    ftd_intraday_undercut: bool = False
     powertrend_state: PowerTrendState = "off"
     powertrend_start_date: str | None = None
     powertrend_pressure_since: str | None = None
@@ -469,6 +470,7 @@ def _compute_ampel_frame(
     green_below_sma200: list[bool] = [False] * row_count
     phase_reasons: list[str | None] = [None] * row_count
     ftd_negated_flags: list[bool] = [False] * row_count
+    ftd_intraday_flags: list[bool] = [False] * row_count
     powertrend_states: list[PowerTrendState] = ["off"] * row_count
     powertrend_start_dates: list[str | None] = [None] * row_count
     powertrend_pressure_dates: list[str | None] = [None] * row_count
@@ -571,7 +573,7 @@ def _compute_ampel_frame(
     def startschuss_low_broken(index: int) -> bool:
         if startschuss_low is None or (ibd_logic and ftd_negated):
             return False
-        return bool((low[index] if ibd_logic else close[index]) < startschuss_low)
+        return bool(close[index] < startschuss_low)
 
     def rally_day_one_low_broken(index: int) -> bool:
         return floor_mark is not None and low[index] < floor_mark
@@ -593,6 +595,22 @@ def _compute_ampel_frame(
             return "Schlusskurs unter 200-SMA"
         if uptrend_high is not None and close[index] <= uptrend_high * 0.90:
             return "Mindestens 10% Drawdown seit Aufwärtstrend-Hoch"
+        if _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4:
+            return "50-SMA-Bruch bei mindestens vier Distributionstagen"
+        if market_structure[index] == "down":
+            return "Bestätigtes tieferes Swing-Hoch und tieferes Swing-Tief"
+        return None
+
+    def early_rally_hard_red(index: int) -> str | None:
+        # Starting below SMA200 is allowed; a fresh break from above is different.
+        if rally_day_one_low_broken(index):
+            return "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
+        if (_is_finite(sma200[index]) and _is_finite(sma200[index - 1])
+                and close[index - 1] >= sma200[index - 1] and close[index] < sma200[index]):
+            return "Neuer Schlusskursbruch der 200-SMA von oben"
+        if (startschuss_idx is not None
+                and close[index] <= np.nanmax(high[startschuss_idx:index + 1]) * 0.90):
+            return "Mindestens 10% Drawdown seit dem Hoch der FTD-Phase"
         if _is_finite(sma50[index]) and close[index] < sma50[index] and dist_count_25[index] >= 4:
             return "50-SMA-Bruch bei mindestens vier Distributionstagen"
         if market_structure[index] == "down":
@@ -662,6 +680,25 @@ def _compute_ampel_frame(
             # Keep the last known phase, without confirming a transition from synthetic lows.
             closes_above_21_since_start = 0
             pressure_closes_above_21 = 0
+        elif (ibd_logic and phase in {"gelb_startschuss", "gruen", "gelb_rally_unter_druck"}
+              and (hard_red_reason := early_rally_hard_red(index))):
+            phase = "rot"
+            transition_reason = hard_red_reason
+            clear_state()
+        elif phase == "gelb_rally_unter_druck":
+            if (anchor_idx is not None and index >= anchor_idx + 3
+                and daily_pct >= 1.0 and _is_finite(volume[index])
+                and volume[index] > volume[index - 1]
+                and floor_mark is not None and low[index] >= floor_mark):
+                phase = "gelb_startschuss"
+                startschuss_idx = index
+                startschuss_low = float(low[index])
+                startschuss_date = dates[index]
+                startschuss_bonus = _is_finite(ema21[index]) and close[index] > ema21[index]
+                demand_confirmed = False
+                closes_above_21_since_start = 0
+                ftd_negated = False
+                transition_reason = "Neuer gültiger Follow Through Day im bestehenden Rallyversuch"
         elif phase == "neutral":
             if correction_detected(index):
                 phase = "rot"
@@ -714,7 +751,9 @@ def _compute_ampel_frame(
                 phase = "rot"
                 if ibd_logic:
                     transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Rally-Day-1-Tief intakt"
-                    clear_startschuss_state()
+                    phase = "gelb_rally_unter_druck"
+                    demand_confirmed = False
+                    closes_above_21_since_start = 0
                     ftd_negated = True
                 else:
                     transition_reason = "Schlusskurs unter Startschuss-Tief"
@@ -752,7 +791,9 @@ def _compute_ampel_frame(
                 phase = "rot"
                 if ibd_logic:
                     transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Rally-Day-1-Tief intakt"
-                    clear_startschuss_state()
+                    phase = "gelb_rally_unter_druck"
+                    demand_confirmed = False
+                    closes_above_21_since_start = 0
                     ftd_negated = True
                 else:
                     transition_reason = "Schlusskurs unter Startschuss-Tief"
@@ -849,6 +890,8 @@ def _compute_ampel_frame(
         phases[index] = phase
         phase_reasons[index] = transition_reason or (phase_reasons[index - 1] if index > 0 else None)
         ftd_negated_flags[index] = ftd_negated
+        ftd_intraday_flags[index] = bool(ibd_logic and price_complete[index]
+            and startschuss_low is not None and low[index] < startschuss_low)
         if anchor_idx is not None:
             anchor_dates[index] = pd.Timestamp(df.index[anchor_idx]).strftime("%Y-%m-%d")
         if floor_mark is not None:
@@ -875,6 +918,7 @@ def _compute_ampel_frame(
     df["Green_Below_SMA200"] = green_below_sma200
     df["Phase_Reason"] = phase_reasons
     df["FTD_Negated"] = ftd_negated_flags
+    df["FTD_Intraday_Undercut"] = ftd_intraday_flags
     df["PowerTrend_State"] = powertrend_states
     df["PowerTrend_Start_Date"] = powertrend_start_dates
     df["PowerTrend_Pressure_Since"] = powertrend_pressure_dates
@@ -988,6 +1032,7 @@ def _trend_ampel_point(index: Any, row: pd.Series) -> TrendAmpelPoint:
         green_below_sma200=bool(_safe_bool(row.get("Green_Below_SMA200"))),
         phase_reason=_safe_str(row.get("Phase_Reason")),
         ftd_negated=bool(_safe_bool(row.get("FTD_Negated"))),
+        ftd_intraday_undercut=bool(_safe_bool(row.get("FTD_Intraday_Undercut"))),
         powertrend_state=str(row.get("PowerTrend_State") or "off"),  # type: ignore[arg-type]
         powertrend_start_date=_safe_str(row.get("PowerTrend_Start_Date")),
         powertrend_pressure_since=_safe_str(row.get("PowerTrend_Pressure_Since")),

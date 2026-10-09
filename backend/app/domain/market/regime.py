@@ -9,7 +9,7 @@ MarketPhase = Literal[
     "gelb_startschuss",
     "gruen",
     "aufwaertstrend",
-    "gelb_trend_unter_druck",
+    "gelb_trend_unter_druck", "gelb_rally_unter_druck",
     "neutral",
 ]
 BreadthPhase = Literal["rot", "gelb", "gruen", "neutral"]

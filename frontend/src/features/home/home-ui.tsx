@@ -11,7 +11,7 @@ export const signedPercent = (value: number | null | undefined, digits = 2) => v
   ? "–" : `${value >= 0 ? "+" : ""}${number(value, digits)} %`;
 export function marketTone(phase?: string | null): Tone {
   return phase === "aufwaertstrend" || phase === "gruen" ? "good" : phase === "rot" ? "bad"
-    : phase === "gelb_startschuss" || phase === "gelb_trend_unter_druck" || phase === "mixed" ? "warning" : "neutral";
+    : phase === "gelb_startschuss" || phase === "gelb_rally_unter_druck" || phase === "gelb_trend_unter_druck" || phase === "mixed" ? "warning" : "neutral";
 }
 export function Panel({ id, icon: Icon, title, detail, action, children }: {
   id?: string; icon: LucideIcon; title: string; detail?: string; action?: ReactNode; children: ReactNode;
