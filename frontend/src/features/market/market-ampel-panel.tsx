@@ -461,7 +461,7 @@ function lastStatusChangeText(data: MarketAmpel) {
 
 function PhaseStepper({ lights }: { lights: MarketAmpelLight[] }) {
   return (
-    <div className="relative grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-5">
+    <div className={`relative grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 ${lights.length > 5 ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
       <div className="pointer-events-none absolute left-[10%] right-[10%] top-3 hidden h-px bg-[#dfe5ec] lg:block" />
       {lights.map((light) => (
         <PhaseStep key={light.key} light={light} />
