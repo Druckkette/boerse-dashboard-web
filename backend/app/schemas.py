@@ -50,10 +50,12 @@ class MarketTrendAmpel(BaseModel):
     logic: Literal["current", "ibd"] = "current"
     ruleset_version: str = "legacy"
     ftd_negated: bool = False
+    ftd_intraday_undercut: bool = False
+    startschuss_date: str | None = None
     price_data_complete: bool = True
     ticker: str
     as_of: str
-    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "gelb_rally_unter_druck", "neutral"]
     phase_label: str
     close: float | None = None
     anchor_date: str | None = None
@@ -80,7 +82,7 @@ class MarketAmpelHero(BaseModel):
 
 
 class MarketAmpelLight(BaseModel):
-    key: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck"]
+    key: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "gelb_rally_unter_druck"]
     label: str
     active: bool
     rule: str
@@ -88,7 +90,7 @@ class MarketAmpelLight(BaseModel):
 
 
 class MarketAmpelPhaseInfo(BaseModel):
-    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "gelb_rally_unter_druck", "neutral"]
     label: str
     reason: str
     action: str
@@ -109,6 +111,8 @@ class MarketAmpelCycle(BaseModel):
     startschuss_distance_pct: float | None = None
     startschuss_bonus: bool | None = None
     ftd_negated: bool = False
+    ftd_intraday_undercut: bool = False
+    startschuss_date: str | None = None
     ma_order: bool | None = None
     market_structure: Literal["up", "down", "mixed", "unknown"] = "unknown"
     uptrend_high: float | None = None
@@ -164,7 +168,7 @@ class MarketAmpelChartPoint(BaseModel):
     sma50_held: bool = False
     sma200_held: bool = False
     up_vol_declining: bool = False
-    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "gelb_rally_unter_druck", "neutral"]
     is_distribution: bool = False
     is_stall: bool = False
     intraday_reversal_down: bool = False
@@ -228,7 +232,7 @@ class MarketOverviewResponse(BaseModel):
     source: Literal["database", "synthetic_fixture", "missing"]
     data_status: Literal["fresh", "stale", "missing", "fallback", "partial"]
     message: str = ""
-    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "neutral"]
+    phase: Literal["rot", "gelb_startschuss", "gruen", "aufwaertstrend", "gelb_trend_unter_druck", "gelb_rally_unter_druck", "neutral"]
     phase_label: str
     action: str
     warning_count: int

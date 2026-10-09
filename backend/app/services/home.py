@@ -7,6 +7,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any, Callable
 
+from app.domain.market.ampel import AMPEL_RULESET_VERSION
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_KEY
 from app.domain.stocks.industry_groups import TAXONOMY_VERSION
 from app.repositories import earnings as earnings_repository
@@ -41,7 +42,7 @@ def _phase_label(phase: str | None) -> str:
     return {
         "rot": "Rot", "gelb_startschuss": "Startschuss", "gruen": "Grün",
         "aufwaertstrend": "Aufwärtstrend", "gelb_trend_unter_druck": "Trend unter Druck",
-        "neutral": "Neutral",
+        "gelb_rally_unter_druck": "Rally unter Druck", "neutral": "Neutral",
     }.get(phase or "", "Nicht verfügbar")
 
 
@@ -398,10 +399,10 @@ def get_cached_home_dashboard() -> dict[str, Any]:
     now = monotonic()
     logic = _selected_market_ampel_logic()
     with _home_cache_lock:
-        if _home_cache and _home_cache[1] == logic and now - _home_cache[0] < _HOME_CACHE_TTL_SECONDS:
+        if _home_cache and _home_cache[1] == f"{logic}:{AMPEL_RULESET_VERSION}" and now - _home_cache[0] < _HOME_CACHE_TTL_SECONDS:
             return _home_cache[2]
         payload = get_home_dashboard()
-        _home_cache = (now, logic, payload)
+        _home_cache = (now, f"{logic}:{AMPEL_RULESET_VERSION}", payload)
         return payload
 
 

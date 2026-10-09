@@ -97,3 +97,15 @@ test("home index card does not present an outdated Powertrend as current", () =>
   assert.ok(!html.includes("⚡ Powertrend aktiv"));
   assert.ok(html.includes("veraltet"));
 });
+
+const { marketTone } = await import("../src/features/home/home-ui.tsx");
+test("Rally unter Druck uses yellow on home and preserves independent Powertrend", () => {
+  assert.equal(marketTone("gelb_rally_unter_druck"), "warning");
+  const html = renderToStaticMarkup(React.createElement(IndexCard, { index: {
+    ticker: "^GSPC", label: "S&P 500", phase: "gelb_rally_unter_druck", phase_label: "Rally unter Druck",
+    phase_status: "available", status: "available", as_of: "2026-10-02", powertrend: powertrend("on")
+  } }));
+  assert.ok(html.includes("Rally unter Druck"));
+  assert.ok(html.includes("text-[#9a650f]"));
+  assert.ok(html.includes("⚡ Powertrend aktiv"));
+});

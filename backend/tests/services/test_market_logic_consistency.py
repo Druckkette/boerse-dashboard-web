@@ -224,3 +224,42 @@ def test_repository_preserves_missing_low_through_volume_proxy(monkeypatch):
     point = compute_trend_ampel([market._trend_bar_from_ohlcv(merged[0])], logic="ibd")[0]
     assert not point.price_data_complete
     assert point.low is None
+
+
+def test_new_rally_pressure_is_yellow_in_all_backend_views():
+    from dataclasses import replace
+    from app.domain.market.ampel import _trend_ampel_point
+    from tests.domain.market.test_trend_ampel_book_logic import _book_frame
+    from app.domain.market.ampel import _compute_ampel_frame
+
+    frame = _book_frame(confirm_green=None)
+    frame.loc[frame.index[8], ["Low", "Close"]] = [90, 90.1]
+    result = _compute_ampel_frame(frame, logic="ibd")
+    points = [_trend_ampel_point(i, row) for i, row in result.iloc[:9].iterrows()]
+    latest = points[-1]
+    assert latest.phase == "gelb_rally_unter_druck"
+    assert home._phase_label(latest.phase) == "Rally unter Druck"
+    assert market._tone_for_phase(latest.phase) == "warning"
+    info = market._ampel_phase_info(latest, points=points, anchor_date=latest.anchor_date,
+        floor_mark=latest.floor_mark, startschuss_low=latest.startschuss_low, logic="ibd")
+    assert info.label == "GELB - Rally unter Druck" and info.tone == "warning"
+    assert "neuer gültiger" in info.action
+    cycle = market._ampel_cycle(latest, anchor_date=latest.anchor_date,
+        floor_mark=latest.floor_mark, startschuss_low=latest.startschuss_low)
+    assert cycle.ftd_negated and not cycle.startschuss_current
+    assert cycle.startschuss_date == points[7].startschuss_date
+    stored = market._trend_ampel_metrics(latest, ticker="^GSPC")
+    assert market._trend_ampel_from_metrics({"trend_ampel": stored}).ftd_negated
+    assert stored["ruleset_version"] == AMPEL_RULESET_VERSION
+    assert [light.key for light in market._ampel_lights(latest.phase, logic="ibd") if light.active] == [latest.phase]
+    assert replace(latest, logic="current").powertrend_state == latest.powertrend_state
+
+
+def test_overview_rejects_obsolete_ibd_snapshot(market_inputs, monkeypatch):
+    state, snapshot, bars = market_inputs
+    state["logic"] = "ibd"
+    raw = market._trend_ampel_metrics(compute_trend_ampel(bars, logic="ibd")[-1], ticker="^GSPC")
+    raw["ruleset_version"] = "trend_ampel_v3"
+    snapshot.metrics_json = {"trend_ampel": raw}
+    monkeypatch.setattr(market, "_market_trend_ampel_for_ticker", lambda *a, **k: None)
+    assert market.get_market_overview().data_status == "missing"

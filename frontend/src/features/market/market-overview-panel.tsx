@@ -1,5 +1,7 @@
 "use client";
 
+import { marketTone } from "@/features/home/home-ui";
+
 import { useQuery } from "@tanstack/react-query";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -82,12 +84,12 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
               <div className="mt-2 text-sm text-[#a0a7b4]">Bodenmarke {formatNumber(data.trend_ampel.floor_mark)}</div>
             </div>
             <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
-              <div className="text-sm text-[#a0a7b4]">Startschuss</div>
+              <div className="text-sm text-[#a0a7b4]">{data.trend_ampel.ftd_negated ? "FTD (negiert)" : "Startschuss"}</div>
               <div className="mt-3 text-2xl font-semibold tracking-normal">
                 {formatNumber(data.trend_ampel.startschuss_low)}
               </div>
               <div className="mt-2 text-sm text-[#a0a7b4]">
-                Bonus {data.trend_ampel.startschuss_bonus ? "aktiv" : "inaktiv"}
+                {data.trend_ampel.ftd_negated ? "Historisches Signal; keine gültige Bestätigung" : data.trend_ampel.ftd_intraday_undercut ? "Intraday-Warnung; Schlusskurs hält FTD-Tief" : `Bonus ${data.trend_ampel.startschuss_bonus ? "aktiv" : "inaktiv"}`}
               </div>
             </div>
           </div>
@@ -105,9 +107,7 @@ export function MarketOverviewPanel({ ticker = "^GSPC" }: { ticker?: string }) {
 }
 
 function toneForPhase(phase: string) {
-  if (phase === "gruen" || phase === "aufwaertstrend") return "good";
-  if (phase === "gelb_startschuss" || phase === "gelb_trend_unter_druck" || phase === "neutral") return "warning";
-  return "bad";
+  return phase === "neutral" ? "warning" : marketTone(phase);
 }
 
 function isBreadthKpi(label: string) {
