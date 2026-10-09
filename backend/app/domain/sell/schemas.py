@@ -209,6 +209,7 @@ class SellEvaluationResponse(BaseModel):
 
 
 class SellPositionRankingItem(BaseModel):
+    generated_at: datetime | None = None
     ticker: str
     name: str
     pnl_pct: float

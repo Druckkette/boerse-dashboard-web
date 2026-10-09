@@ -25,6 +25,8 @@ def inputs():
 def storage(monkeypatch):
     from app.services import daily_opportunities
     monkeypatch.setattr(daily_opportunities, "refresh_top_daily", lambda writes: {"qualified_count": 0})
+    monkeypatch.setattr(screening, "get_workspace_state", lambda: SimpleNamespace(watchlist=[]))
+    monkeypatch.setattr(screening.portfolio, "list_open_positions", lambda: [])
     state = {"rows": [], "publications": 0}
     monkeypatch.setattr(screening.stock_assessments, "list_all_snapshots", lambda tickers=None: state["rows"])
 
@@ -218,3 +220,16 @@ def test_export_includes_all_filtered_rows_and_escapes_spreadsheet_formulas(monk
     assert len(result.splitlines()) == 52
     assert "'=HYPERLINK(test)" in result
     assert "Erfüllt: 3/3 Quartale" in result
+
+
+def test_full_screening_includes_owned_and_watched_values_outside_universe(monkeypatch, storage):
+    monkeypatch.setattr(screening.universes, "list_universe_tickers", lambda limit: ["UNIVERSE"])
+    monkeypatch.setattr(screening, "get_workspace_state", lambda: SimpleNamespace(watchlist=["WATCH", "UNIVERSE"]))
+    monkeypatch.setattr(screening.portfolio, "list_open_positions", lambda: [SimpleNamespace(ticker="OWNED")])
+    seen = []
+    def load(tickers, **kwargs):
+        seen.extend(tickers)
+        return [(ticker, None, inputs()) for ticker in tickers]
+    monkeypatch.setattr(screening, "_load_assessment_inputs", load)
+    screening.screen_universe()
+    assert seen == ["UNIVERSE", "WATCH", "OWNED"]

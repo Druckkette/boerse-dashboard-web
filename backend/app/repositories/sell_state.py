@@ -153,7 +153,7 @@ def list_ranking_snapshot() -> tuple[list[SellPositionRankingItem], datetime | N
                     SellRankingSnapshotModel.ticker.asc(),
                 )
             ).all()
-            items = [_ranking_item_from_model(row) for row in rows]
+            items = [_ranking_item_from_model(row).model_copy(update={"generated_at": row.generated_at}) for row in rows]
             generated_at = max((row.generated_at for row in rows if row.generated_at), default=None)
             source_job_id = next((row.source_job_id for row in rows if row.source_job_id), "")
             return items, generated_at, source_job_id
@@ -171,7 +171,7 @@ def list_ranking_snapshot() -> tuple[list[SellPositionRankingItem], datetime | N
         )
         generated_at = max((item[1] for item in rows), default=None)
         source_job_id = next((item[2] for item in rows if item[2]), "")
-        return [item[0] for item in rows], generated_at, source_job_id
+        return [item[0].model_copy(update={"generated_at": item[1]}) for item in rows], generated_at, source_job_id
 
 
 def upsert_ranking_snapshot(

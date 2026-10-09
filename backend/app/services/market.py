@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
-from app.services.market_calendar import completed_us_market_session, expected_us_market_session, daily_bar_is_final
+from app.services.market_calendar import completed_us_market_session, expected_us_market_session, daily_bar_is_final, previous_us_market_session_date
 
 from app.data_sources.finra_margin import FinraMarginDebtUnavailable, fetch_latest_margin_debt_snapshot
 from app.domain.market.ampel import (
@@ -1528,18 +1528,23 @@ def build_market_snapshot(
     )
 
 
-def _latest_cached_trend_ampel_point(
+def _cached_trend_ampel_points(
     ticker: str, *, lookback_days: int, logic: MarketAmpelLogic | None = None,
-) -> TrendAmpelPoint | None:
+) -> tuple[TrendAmpelPoint, ...]:
     start_date = date(1900, 1, 1)
     bars, _used_ticker = _load_cached_index_ohlcv(ticker, start_date=start_date)
     if len(bars) < 2:
-        return None
+        return ()
     points = _cached_ampel_calculation(
         tuple(_trend_bar_from_ohlcv(p) for p in _confirmed_ampel_bars(bars)),
         ticker,
         logic or _selected_market_ampel_logic(),
     )
+    return points
+
+
+def _latest_cached_trend_ampel_point(ticker: str, *, lookback_days: int, logic: MarketAmpelLogic | None = None) -> TrendAmpelPoint | None:
+    points = _cached_trend_ampel_points(ticker, lookback_days=lookback_days, logic=logic)
     return points[-1] if points else None
 
 
@@ -1547,10 +1552,15 @@ def _market_trend_ampel_for_ticker(
     ticker: str, *, lookback_days: int, logic: MarketAmpelLogic | None = None,
 ) -> MarketTrendAmpel | None:
     clean_ticker = _normalize_ampel_ticker(ticker)
-    point = _latest_cached_trend_ampel_point(clean_ticker, lookback_days=lookback_days, logic=logic)
+    points = _cached_trend_ampel_points(clean_ticker, lookback_days=lookback_days, logic=logic)
+    point = points[-1] if points else None
     raw = _trend_ampel_metrics(point, ticker=clean_ticker)
     if raw.get("source") == "missing":
         return None
+    if len(points) > 1 and points[-1].price_data_complete and points[-2].price_data_complete:
+        previous = points[-2]
+        if previous.date == previous_us_market_session_date(date.fromisoformat(raw["as_of"])).isoformat():
+            raw.update(previous_phase=previous.phase, previous_phase_as_of=previous.date)
     return MarketTrendAmpel.model_validate(raw)
 
 

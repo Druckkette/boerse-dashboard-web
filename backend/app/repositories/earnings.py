@@ -47,6 +47,38 @@ def next_earnings_dates(tickers: list[str]) -> dict[str, date]:
         raise EarningsRepositoryUnavailable(str(exc)) from exc
 
 
+def upcoming_earnings_events(tickers: list[str], *, start_date: date, end_date: date) -> list[dict]:
+    """One upcoming event per ticker, using the existing provider priority.
+
+    Conflicting providers must not create two calendar appointments. Prefer the
+    authoritative provider's nearest date, and expose conflicts rather than
+    interpreting an unverified calendar entry as a confirmed company release.
+    """
+    if not tickers:
+        return []
+    try:
+        with SessionLocal() as db:
+            rows = db.scalars(select(EarningsEvent).where(
+                EarningsEvent.ticker.in_(tickers), EarningsEvent.event_date >= start_date,
+                EarningsEvent.event_date <= end_date,
+            )).all()
+            selected = {}
+            dates = {}
+            for row in sorted(rows, key=lambda row: (
+                source_rank("earnings_date", row.source), row.event_date, row.ticker,
+            )):
+                dates.setdefault(row.ticker, set()).add(row.event_date)
+                selected.setdefault(row.ticker, row)
+            return sorted([{
+                "ticker": row.ticker, "date": row.event_date.isoformat(),
+                "time": row.time or "", "source": row.source,
+                "fetched_at": row.fetched_at.isoformat() if row.fetched_at else None,
+                "date_conflict": len(dates[row.ticker]) > 1,
+            } for row in selected.values()], key=lambda row: (row["date"], row["ticker"]))
+    except SQLAlchemyError as exc:
+        raise EarningsRepositoryUnavailable(str(exc)) from exc
+
+
 def upsert_earnings_events(rows: list[EarningsEventWrite]) -> int:
     if not rows:
         return 0
