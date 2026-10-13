@@ -68,7 +68,7 @@ function ContextScoreCard({ item }: { item: MarketContextScore }) {
     <details className="group mt-4 border-t border-[#e3e8ef] pt-3">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-[#172033]">Beiträge & Regeln<ChevronDown size={14} className="shrink-0 transition-transform group-open:rotate-180" /></summary>
       <p className="mt-3 text-[11px] leading-5 text-[#687386]">{item.message}</p>
-      <p className="mt-2 text-[11px] leading-5 text-[#687386]">Unterscore = gewichteter Mittelwert der bewertbaren Kriterien. Kennzahl = gewichteter Mittelwert der Unterscores. Fehlende Beiträge erhalten keinen Malus; bei weniger als 50 % bewertbarer Gewichtung bleibt der Gesamtwert offen.</p>
+      <p className="mt-2 text-[11px] leading-5 text-[#687386]">Unterscore = gewichteter Mittelwert der bewertbaren Kriterien. Für die Kennzahl zählt jedes Gruppengewicht nur im Umfang seiner verfügbaren Beiträge. Fehlende Beiträge erhalten keinen Malus; bei weniger als 50 % bewertbarer Gewichtung bleibt der Gesamtwert offen.</p>
       {item.subscores.map(sub => <div key={sub.key} className="mt-4 space-y-2">
         <h4 className="text-xs font-semibold text-[#172033]">{sub.label} · {sub.weight ? `${sub.weight} %` : "nur Information"}</h4>
         {sub.criteria.map(c => <CriterionContribution key={c.id} item={c} />)}

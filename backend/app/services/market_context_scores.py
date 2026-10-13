@@ -121,7 +121,11 @@ def get_market_context_scores(*, ticker="^GSPC", as_of: date | None = None):
         len(ew.get(t, [])) >= 252 and ew[t][-1].date == cutoff
         for t in market.EQUAL_WEIGHT_MARKET_TICKERS
     ):
-        ew_summary = compute_equal_weight_breadth_status(ew).to_dict()
+        ew_summary = compute_equal_weight_breadth_status(
+            ew, session_dates=[date.fromisoformat(p.date) for p in points]
+        ).to_dict()
+        if ew_summary["source"] != "database":
+            notes.append("Equal Weight: Vollständiges252-Sitzungs-Fenster noch nicht drei Sitzungen bestätigt.")
     else:
         notes.append(
             "Equal Weight: Gleichzeitige RSP/QQEW-Werte oder volle252-Sitzungs-Historie fehlen; keine Bewertung."
@@ -140,18 +144,20 @@ def get_market_context_scores(*, ticker="^GSPC", as_of: date | None = None):
     }
     vol_points = compute_volatility_dashboard(vol_series, limit=500)
     vp = vol_points[-1] if vol_points and vol_points[-1].date == cutoff.isoformat() else None
-    sessions = {p.date for p in points[-21:]}
-
-    def current(t):
+    def current(t, size):
+        sessions = {p.date for p in points[-size:]}
         observed = {
             p.date.isoformat()
             for p in vol_series.get(t, [])
             if scores.finite(p.close) and p.close > 0
         }
-        return len(sessions) == 21 and sessions.issubset(observed)
+        return len(sessions) == size and sessions.issubset(observed)
 
-    vix_valid, vxx_valid = current("^VIX"), current("VXX")
-    if not (vp and vix_valid and vxx_valid):
+    # EMA21 compared with its value five sessions ago needs26 observations.
+    # The combined regime also depends on a complete six-point SPY return.
+    vix_valid, vxx_valid = current("^VIX", 21), current("VXX", 26)
+    benchmark_valid = current("SPY", 6)
+    if not (vp and vix_valid and vxx_valid and benchmark_valid):
         notes.append(
             "Volatilität: Fehlende Sitzung/Historie wird nicht als ruhiges Regime bewertet."
         )
@@ -169,7 +175,9 @@ def get_market_context_scores(*, ticker="^GSPC", as_of: date | None = None):
             scores.breadth_score(points, rows, ad_divergence=ad_divergence),
             scores.powertrend_score(points, enabled=logic == "ibd"),
             scores.equal_weight_score(ew_summary),
-            scores.volatility_score(vp, vix_valid=vix_valid, vxx_valid=vxx_valid),
+            scores.volatility_score(
+                vp, vix_valid=vix_valid, vxx_valid=vxx_valid, benchmark_valid=benchmark_valid
+            ),
         ],
         notes=notes,
     )

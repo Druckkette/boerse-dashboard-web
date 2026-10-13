@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from math import isfinite
 from app.domain.market.ampel import TrendAmpelPoint
 
-CONTEXT_SCORE_VERSION = "market_context_v1"
+CONTEXT_SCORE_VERSION = "market_context_v2"
 
 
 def finite(v):
@@ -75,8 +75,13 @@ def subscore(key, label, weight, criteria, *, neutral=None):
 
 def category(key, title, scope, subscores, message=""):
     rated = [s for s in subscores if s["weight"] and s["score"] is not None]
-    known = sum(s["weight"] for s in rated)
-    score = sum(s["weight"] * s["score"] for s in rated) / known if known else None
+    # Preserve the configured influence of each available criterion. A lone
+    # observation must not inherit the weight of missing peers in its group.
+    known = sum(s["weight"] * s["coverage_pct"] / 100 for s in rated)
+    score = (
+        sum(s["weight"] * s["coverage_pct"] / 100 * s["score"] for s in rated) / known
+        if known else None
+    )
     score = round(score, 2) if score is not None else None
     status, tone = band(score)
     coverage = sum(s["weight"] * s["coverage_pct"] for s in subscores) / sum(
@@ -155,7 +160,7 @@ def index_score(points: Sequence[TrendAmpelPoint]):
             "Bärische Umkehrungen",
             1,
             lambda x, i: x.neg_reversals_10d >= 3,
-            10,
+            11,
             "Mindestens 3 negative Umkehrungen in 10 Sitzungen.",
             f"{p.neg_reversals_10d} / 10T" if p else "",
         ),
@@ -164,8 +169,8 @@ def index_score(points: Sequence[TrendAmpelPoint]):
             "Stau-Tage",
             0.5,
             lambda x, i: sum(bool(a.is_stall) for a in points[max(0, i - 9) : i + 1]) >= 3,
-            60,
-            "Mindestens 3 Stau-Tage in 10 Sitzungen; vollständige Volumen-SMA50.",
+            11,
+            "Mindestens 3 Stau-Tage in 10 Sitzungen; jeweils gültiger Vortagskurs und gültiges Vortagsvolumen.",
             f"{sum(bool(x.is_stall) for x in points[-10:])} / 10T",
             True,
         ),
@@ -414,7 +419,7 @@ def breadth_score(points, rows, *, ad_divergence=None):
             "new_lows",
             20,
             ratio_rule
-            + " Einzelaktien-Hoch/Tief aus bestehender 20T-Berechnung; gemeinsamer Unterscore mit B05.",
+            + " 20 Sitzungen sind das Summenfenster. Die Einzelaktien-Referenz ist im Altbestand nicht gespeichert und kann bis252 Vorwerte umfassen; keine gesicherte52W-Aussage. Gemeinsamer Unterscore mit B05.",
         ),
         criterion(
             "D08",
@@ -477,7 +482,7 @@ def breadth_score(points, rows, *, ad_divergence=None):
             else "Keine relevante Korrektur"
             if len(clean) >= 60
             else "Nicht verfügbar",
-            "(Schluss−Korrekturtief)/(Korrekturhoch−Korrekturtief)×100 im kausalen 60T-Fenster. Erst nach >5% Rückgang und ≥5 Sitzungen seit Hoch; sonst kein Malus.",
+            "(Schluss−Korrekturtief)/(Korrekturhoch−Korrekturtief)×100 im kausalen 60T-Fenster. Erst nach >5% Rückgang und ≥5 Beobachtungen einschließlich Hoch; sonst kein Malus. Kontinuierlicher Score ohne separaten Warntrigger.",
             "Indexerholung, nach deiner Excel der Marktbreite zugeordnet. Keine Messung der Anzahl teilnehmender Aktien.",
         )
     ]
@@ -537,7 +542,12 @@ def breadth_score(points, rows, *, ad_divergence=None):
 
 def powertrend_score(points, *, enabled):
     p = points[-1] if points else None
-    state = p.powertrend_state if p and enabled and p.price_data_complete else None
+    state = (
+        p.powertrend_state
+        if p and enabled and _window_valid(points, len(points) - 1, 54)
+        and finite(p.sma50) and finite(p.ema21)
+        else None
+    )
     status = [
         criterion(
             "P05",
@@ -652,9 +662,10 @@ def equal_weight_score(summary):
             "E04",
             "Bestätigung",
             1,
-            100 if valid and streak >= 3 else 50 if valid else None,
+            (100 if mode == "rueckenwind" else 0 if mode == "schutz" else 50)
+            if valid and streak >= 3 else 50 if valid else None,
             f"{streak}/3 Sitzungen" if valid else "Nicht verfügbar",
-            "Drei gemeinsame abgeschlossene Sitzungen im selben Kandidatenmodus; bisheriger Zustand bleibt bis neuer Bestätigung gültig.",
+            "Drei vollständige gemeinsame Sitzungen bestätigen die Richtung: Rückenwind100, Wachsam50, Schutz0. Laufender Wechsel50; bisheriger Zustand bleibt gültig.",
             "Schluss relativ zum höchsten Hoch der letzten252 Sitzungen; volle Historie erforderlich. Bestätigung verhindert Umschaltung durch einzelne Tagesausschläge.",
         )
     ]
@@ -672,14 +683,16 @@ def equal_weight_score(summary):
             ),
             subscore("confirmation", "Bestätigung & Stabilität", 20, confirmation),
         ],
-        "Schlechterer RSP/QQEW-Abstand bestimmt den Zustand. Bestätigung ist Vertrauensinformation, kein unabhängiger Marktbonus.",
+        "Schlechterer RSP/QQEW-Abstand bestimmt den Zustand. Bestätigung verstärkt dessen Richtung: Ein stabiler Schutzzustand gibt keinen positiven Bonus.",
     )
 
 
-def volatility_score(point, *, vix_valid=False, vxx_valid=False):
+def volatility_score(point, *, vix_valid=False, vxx_valid=False, benchmark_valid=True):
+    vix_valid = bool(point and vix_valid and point.vix_regime in {"Stress", "Ruhig", "Neutral"})
+    vxx_valid = bool(point and vxx_valid and point.vxx_state in {"Steigend", "Entspannt", "Gemischt"})
     vix = point.vix_regime if point and vix_valid else None
     vxx = point.vxx_state if point and vxx_valid else None
-    regime = point.vol_regime if point and vix_valid and vxx_valid else None
+    regime = point.vol_regime if point and vix_valid and vxx_valid and benchmark_valid else None
 
     def choice(id, label, w, value, selected, score, valid, rule):
         return criterion(

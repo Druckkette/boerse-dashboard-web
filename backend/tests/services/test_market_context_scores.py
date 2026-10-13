@@ -107,3 +107,49 @@ def test_sources_from_different_session_are_not_silently_forward_filled(monkeypa
     assert vix.data_status == "missing"
     assert result.scores[-1].score is None  # only40% VXX is available
     assert any("Volatilität" in n for n in result.notes)
+
+
+def test_equal_weight_requires_three_full_252_session_windows(monkeypatch):
+    _, bars, _, _ = source_fixture(monkeypatch)
+    for index in [250, 251, 252]:
+        result = get_market_context_scores(as_of=bars[index].date)
+        assert result.scores[3].score is None
+    result = get_market_context_scores(as_of=bars[253].date)
+    assert result.scores[3].score is not None
+
+
+def test_equal_weight_gap_cannot_be_counted_as_a_confirmation_session(monkeypatch):
+    _, bars, _, _ = source_fixture(monkeypatch)
+    monkeypatch.setattr(market.market_repository, 'load_cached_ohlcv',
+                        lambda ticker, **kw: bars[:-2] + bars[-1:] if ticker == 'RSP' else bars)
+    result = get_market_context_scores(as_of=bars[-1].date)
+    assert result.scores[3].score is None
+
+
+def test_vxx_requires_ema21_plus_five_previous_sessions(monkeypatch):
+    _, bars, _, series = source_fixture(monkeypatch)
+    series['VXX'] = series['VXX'][-25:]
+    result = get_market_context_scores(as_of=bars[-1].date)
+    assert result.scores[-1].subscores[1].score is None
+    assert result.scores[-1].score is None
+
+
+def test_missing_spy_session_does_not_supply_a_five_day_regime_return(monkeypatch):
+    _, bars, _, series = source_fixture(monkeypatch)
+    series['SPY'] = series['SPY'][:-3] + series['SPY'][-2:]
+    result = get_market_context_scores(as_of=bars[-1].date)
+    assert result.scores[-1].subscores[-1].score is None
+    assert result.scores[-1].coverage_pct == 80
+
+
+def test_equal_weight_does_not_reuse_a_confirmed_mode_across_an_unknown_window():
+    from datetime import timedelta
+    from app.domain.market.equal_weight_breadth import compute_equal_weight_breadth_status
+    days = [date(2024, 1, 1) + timedelta(days=i) for i in range(9)]
+    bars = [MarketOhlcvPoint('RSP', d, 99, 101, 98, 100, 1000) for d in days]
+    series = {t: bars[:5] + bars[6:] for t in ['RSP', 'QQEW']}
+    result = compute_equal_weight_breadth_status(
+        series, lookback_trading_days=3, confirmation_days=3, session_dates=days,
+    )
+    assert result.source == 'insufficient'
+    assert result.candidate_streak == 1

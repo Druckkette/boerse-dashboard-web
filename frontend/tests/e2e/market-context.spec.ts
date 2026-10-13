@@ -17,7 +17,7 @@ const ampel = (ticker: string) => ({
 });
 
 const scores = (ticker: string) => ({
-  version: "market_context_v1", ticker, as_of: asOf, phase: "gruen", informational_only: true, notes: ["Eine Zusatzquelle fehlt; betroffener Beitrag bleibt unbewertet."],
+  version: "market_context_v2", ticker, as_of: asOf, phase: "gruen", informational_only: true, notes: ["Eine Zusatzquelle fehlt; betroffener Beitrag bleibt unbewertet."],
   scores: [["index", "Index"], ["breadth", "Marktbreite"], ["powertrend", "Powertrend"], ["equal_weight", "Equal Weight"], ["volatility", "Volatilität"]].map(([key, title]) => ({
     key, title, scope: "Informationsscore", score: 0, status: "Schwach", tone: "bad", data_status: "partial", coverage_pct: 80, message: "Die Trendampel bleibt maßgeblich.",
     subscores: [{ key: "sample", label: "Beispiel-Unterscore", weight: 100, score: 0, status: "Schwach", tone: "bad", data_status: "partial", coverage_pct: 80, criteria: [

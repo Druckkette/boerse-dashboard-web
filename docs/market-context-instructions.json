@@ -3,7 +3,7 @@
   "source_sha256": "9d30322da73701cb0ff580f0014e1c1627ceb6928c8169e31ef13ac385f2216f",
   "sheet": "Kriterien",
   "instruction_column": "F",
-  "score_version": "market_context_v1",
+  "score_version": "market_context_v2",
   "criteria": [
     {
       "id": "A01",

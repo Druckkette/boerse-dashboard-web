@@ -206,3 +206,55 @@ def test_information_scores_use_only_their_input_prefix():
     before = s.index_score(hist[:90])
     hist[90:] = [replace(p, dist_count_25=10, ftd_negated=True, volume=0) for p in hist[90:]]
     assert s.index_score(hist[:90]) == before
+
+
+def test_partial_group_keeps_only_available_criterion_weight():
+    partial = s.subscore('partial', 'Partial', 60, [
+        s.criterion('a', 'A', 1, 100, 'value', ''),
+        s.criterion('b', 'B', 3, None, 'Nicht verfügbar', ''),
+    ])
+    complete = s.subscore('complete', 'Complete', 40, [
+        s.criterion('c', 'C', 1, 0, 'value', ''),
+    ])
+    result = s.category('index', 'Index', '', [partial, complete])
+    # Available mass is15 +40. The partial group must not retain all60%.
+    assert result['coverage_pct'] == 55
+    assert result['score'] == pytest.approx(100 * 15 / 55, abs=0.01)
+
+
+def test_equal_weight_confirmation_reinforces_risk_instead_of_rewarding_it():
+    results = {
+        mode: s.equal_weight_score({'source': 'database', 'mode': mode, 'candidate_streak': 3})
+        for mode in ['rueckenwind', 'wachsam', 'schutz']
+    }
+    assert [results[m]['score'] for m in results] == [70, 50, 10]
+    pending = s.equal_weight_score({'source': 'database', 'mode': 'schutz', 'candidate_streak': 1})
+    assert results['schutz']['score'] < pending['score']
+    assert results['rueckenwind']['status'] == 'Konstruktiv'
+    assert results['schutz']['status'] == 'Schwach'
+
+
+def test_powertrend_short_history_is_unknown_not_confirmed_off():
+    result = s.powertrend_score(points(53, powertrend_state='off'), enabled=True)
+    assert result['score'] is None
+    assert result['coverage_pct'] == 0
+
+
+def test_index_reversal_needs_prior_close_but_stall_needs_no_sma50():
+    assert criteria(s.index_score(points(10)))['W01']['score'] is None
+    assert criteria(s.index_score(points(12, is_stall=True)))['W03']['score'] == 0
+
+
+def test_absent_volatility_point_cannot_be_scored_neutral_with_valid_flags():
+    result = s.volatility_score(None, vix_valid=True, vxx_valid=True)
+    assert result['score'] is None
+    assert result['coverage_pct'] == 0
+
+
+def test_missing_benchmark_invalidates_only_combined_volatility():
+    p = SimpleNamespace(vix_regime='Stress', vxx_state='Steigend',
+                        vol_regime='Risk Off bestätigt', vix_panic_overextension=False)
+    result = s.volatility_score(p, vix_valid=True, vxx_valid=True, benchmark_valid=False)
+    assert result['score'] == 25
+    assert result['coverage_pct'] == 80
+    assert result['subscores'][-1]['score'] is None

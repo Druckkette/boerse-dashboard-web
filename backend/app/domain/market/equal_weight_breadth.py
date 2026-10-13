@@ -50,6 +50,7 @@ def compute_equal_weight_breadth_status(
     tickers: Sequence[str] = EQUAL_WEIGHT_MARKET_TICKERS,
     lookback_trading_days: int = LOOKBACK_TRADING_DAYS,
     confirmation_days: int = CONFIRMATION_DAYS,
+    session_dates: Sequence[date] | None = None,
 ) -> EqualWeightBreadthStatus:
     """Classify RSP/QQEW breadth by distance from the rolling 52-week high.
 
@@ -66,18 +67,32 @@ def compute_equal_weight_breadth_status(
     missing_tickers: list[str] = []
     for ticker in clean_tickers:
         points = sorted(series.get(ticker, []), key=lambda item: getattr(item, "date", date.min))
-        rolling_highs: list[float] = []
+        rolling_highs: list[float | None] = []
+        # The context score requires full, consecutive windows. Keep the
+        # legacy display's behavior when no explicit session calendar is given.
+        if session_dates is not None:
+            by_date = {point.date: point for point in points}
+            points = [by_date.get(day) for day in session_dates]
         ticker_has_data = False
         for point in points:
             point_date = getattr(point, "date", None)
             close = _finite_positive(getattr(point, "close", None))
             high = _finite_positive(getattr(point, "high", close))
-            if point_date is None or close is None or high is None:
+            if point_date is None or close is None or high is None or (
+                session_dates is not None and not getattr(point, "ohlc_complete", True)
+            ):
+                if session_dates is not None:
+                    rolling_highs.append(None)
+                    rolling_highs = rolling_highs[-lookback_trading_days:]
                 continue
             ticker_has_data = True
             rolling_highs.append(max(high, close))
             if len(rolling_highs) > lookback_trading_days:
                 rolling_highs.pop(0)
+            if session_dates is not None and (
+                len(rolling_highs) < lookback_trading_days or None in rolling_highs
+            ):
+                continue
             high_52w = max(rolling_highs)
             distance_pct = (close / high_52w - 1.0) * 100.0
             drawdown_pct = max(0.0, -distance_pct)
@@ -110,7 +125,12 @@ def compute_equal_weight_breadth_status(
     latest_status: list[EqualWeightTickerStatus] = []
     latest_worst_drawdown: float | None = None
 
-    for current_date in dates:
+    for current_date in session_dates if session_dates is not None else dates:
+        if current_date not in daily_status_by_date or not all(
+            ticker in daily_status_by_date[current_date] for ticker in clean_tickers
+        ):
+            confirmed_mode, current_candidate, current_streak = None, None, 0
+            continue
         ticker_status = [daily_status_by_date[current_date][ticker] for ticker in clean_tickers]
         worst_drawdown = max(item.drawdown_from_high_pct for item in ticker_status)
         candidate = classify_equal_weight_drawdown(worst_drawdown)
@@ -126,6 +146,11 @@ def compute_equal_weight_breadth_status(
         latest_worst_drawdown = worst_drawdown
 
     latest_date = dates[-1]
+    if session_dates is not None and latest_date != session_dates[-1]:
+        return missing_equal_weight_breadth_status(
+            "Keine vollständige gemeinsame252-Sitzungs-Historie bis zur ausgewählten Sitzung.",
+            tickers=clean_tickers,
+        )
     if confirmed_mode is None:
         return EqualWeightBreadthStatus(
             mode="wachsam",
