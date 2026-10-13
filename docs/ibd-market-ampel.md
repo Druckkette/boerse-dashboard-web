@@ -16,7 +16,7 @@ Tageskerze passen. Fehlende Werte werden nicht als belegte Tagestiefs behandelt.
 Eine unvollständige Kerze unterbricht den Powertrend-Low-Streak und bestätigt
 keine neue Ampelphase. Ein bereits formal aktiver Powertrend bleibt anhand der
 bekannten Schlusskurs-Durchschnitte bestehen; die Datenlücke wird angezeigt.
-Volumenlose Tage bestätigen keinen volumenabhängigen Startschuss.
+Volumenlose Tage bestätigen keinen volumenabhängigen Startschuss. Fehlendes Indexvolumen wird seit 13.10.2026 nicht mehr durch ETF-Volumen ersetzt; auch ETF-Kurse ersetzen keine fehlenden Indexkurse in der Ampelberechnung.
 
 Yahoo kann das Tagesvolumen nach dem ersten Abruf nach Börsenschluss noch
 korrigieren. Deshalb lädt ein eigener Index-Refresh Dienstag bis Samstag um
@@ -77,7 +77,9 @@ Aufwärtstrend. Sie ist keine vollständige Nachbildung von IBD Market Pulse.
   Rallyversuch; die Wartezeit bis Rally Day 4 startet erneut. Eine bloße
   Druckphase oder ein negierter früher FTD erhält dagegen den intakten Anker.
   Die IBD-Anzeige verwendet nur die Marken des aktuellen Zyklus und übernimmt
-  kein FTD-Tief aus einer abgeschlossenen Rally. Regelversion: `trend_ampel_v4`.
+  kein FTD-Tief aus einer abgeschlossenen Rally. Regelversion: `trend_ampel_v5`.
+
+Seit Version5 verändert reine Warnhäufung (A20) die Trendphase nicht mehr. Die Warnzahlen bleiben als Information erhalten. Die fünf Kontext-Kennzahlen ändern weder Trendampel noch Handlung; Preis- und Strukturbrüche bleiben bindend.
 
 ## Powertrend als Zusatzstatus
 
@@ -132,12 +134,12 @@ Auswertung der Primärtranskription, keine Behauptung vollständiger offizieller
 IBD-Market-Pulse-Regeln. Die gelben Farben und die getrennten frühen/stabilen
 Druckphasen sind ausdrücklich unsere Dashboard-Interpretation.
 
-Historische Kursreihen werden mit `trend_ampel_v4` neu berechnet. Ursprüngliche
+Historische Kursreihen werden mit `trend_ampel_v5` neu berechnet. Ursprüngliche
 Snapshots und archivierte Journal-Kontexte bleiben mit ihrer damaligen
 Regelversion erhalten; Rekonstruktionen verwenden einen neuen versionierten
 Fingerprint. Ein alter IBD-Snapshot wird ohne verfügbare Kursrekonstruktion
 nicht als aktuelle Version ausgegeben. Der Startseiten-Cache enthält die
-Regelversion. `current` und `powertrend_v2` behalten ihre Berechnungsregeln.
+Regelversion. Beide Ampelvarianten verwenden die neue Trennung von Warnhäufung und Phase; `powertrend_v2` behält seine Berechnungsregeln.
 Nur abgeschlossene Handelstage und echte vollständige OHLC-Kerzen bestätigen
 Negationen; fehlendes aktuelles oder vorheriges Volumen erlaubt keinen neuen
 FTD. Intraday-Kurse ändern keine bestätigte Phase.

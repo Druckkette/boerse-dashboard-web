@@ -21,6 +21,11 @@
   },
   {
     "method": "GET",
+    "path": "market/context-scores",
+    "query": ["ticker", "as_of"]
+  },
+  {
+    "method": "GET",
     "path": "market/breadth",
     "query": []
   },

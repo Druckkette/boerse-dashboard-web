@@ -35,6 +35,53 @@ export type MarketTrendAmpel = {
   source: "database" | "missing" | "synthetic_fixture";
 };
 
+export type MarketScoreCriterion = {
+  id: string;
+  label: string;
+  weight: number;
+  score: number | null;
+  contribution: number | null;
+  evaluation: "rated" | "info" | "missing" | "not_applicable";
+  value: string;
+  rule: string;
+  explanation: string;
+};
+
+export type MarketSubscore = {
+  key: string;
+  label: string;
+  weight: number;
+  score: number | null;
+  status: string;
+  tone: Tone;
+  data_status: "complete" | "partial" | "missing";
+  coverage_pct: number;
+  criteria: MarketScoreCriterion[];
+};
+
+export type MarketContextScore = {
+  key: "index" | "breadth" | "powertrend" | "equal_weight" | "volatility";
+  title: string;
+  scope: string;
+  score: number | null;
+  status: string;
+  tone: Tone;
+  data_status: "complete" | "partial" | "missing";
+  coverage_pct: number;
+  subscores: MarketSubscore[];
+  message: string;
+};
+
+export type MarketContextScores = {
+  version: string;
+  ticker: string;
+  as_of: string;
+  phase: MarketPhase;
+  informational_only: true;
+  scores: MarketContextScore[];
+  notes: string[];
+};
+
 export type MarketOverview = {
   as_of: string;
   as_of_time: string;

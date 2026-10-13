@@ -349,16 +349,16 @@ def test_under_50sma_is_counted_once_as_trend_break() -> None:
 @pytest.mark.parametrize(
     ("phase", "warning_count", "breadth_mode", "vix_regime", "expected_mode", "expected_tone"),
     [
-        ("aufwaertstrend", 1, "rueckenwind", "Ruhig", "Offensiv", "good"),
-        ("aufwaertstrend", 2, "rueckenwind", "Ruhig", "Neutral", "warning"),
-        ("aufwaertstrend", 3, "rueckenwind", "Ruhig", "Neutral", "warning"),
-        ("aufwaertstrend", 4, "rueckenwind", "Ruhig", "Defensiv", "bad"),
-        ("aufwaertstrend", 0, "schutz", "Ruhig", "Defensiv", "bad"),
-        ("aufwaertstrend", 0, "rueckenwind", "Stress", "Defensiv", "bad"),
+        ("aufwaertstrend", 1, "rueckenwind", "Ruhig", "Aufwärtstrend", "good"),
+        ("aufwaertstrend", 2, "rueckenwind", "Ruhig", "Aufwärtstrend", "good"),
+        ("aufwaertstrend", 3, "rueckenwind", "Ruhig", "Aufwärtstrend", "good"),
+        ("aufwaertstrend", 4, "rueckenwind", "Ruhig", "Aufwärtstrend", "good"),
+        ("aufwaertstrend", 0, "schutz", "Ruhig", "Aufwärtstrend", "good"),
+        ("aufwaertstrend", 0, "rueckenwind", "Stress", "Aufwärtstrend", "good"),
         ("rot", 0, "rueckenwind", "Ruhig", "Defensiv", "bad"),
     ],
 )
-def test_market_mode_uses_four_warning_threshold(
+def test_market_mode_uses_only_the_binding_trend_phase(
     phase: str,
     warning_count: int,
     breadth_mode: str,

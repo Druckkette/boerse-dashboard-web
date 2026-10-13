@@ -15,7 +15,7 @@ GREEN_CONFIRMATION_DAYS = 3
 ATR_PERIOD = 21
 REVERSAL_ATR_MULTIPLIER = 1.5
 PIVOT_TOLERANCE_ATR = 0.25
-AMPEL_RULESET_VERSION = "trend_ampel_v4"
+AMPEL_RULESET_VERSION = "trend_ampel_v5"
 POWER_TREND_RULESET_VERSION = "powertrend_v2"
 
 MarketStructure = Literal["up", "down", "mixed", "unknown"]
@@ -512,7 +512,6 @@ def _compute_ampel_frame(
     )
     market_structure = df["Market_Structure"].astype(str).to_numpy()
     latest_swing_low = df["Latest_Swing_Low"].to_numpy(dtype=float)
-    phase_warning_streak = df["Phase_Warning_Streak"].to_numpy(dtype=int)
     dates = [pd.Timestamp(value).strftime("%Y-%m-%d") for value in df.index]
 
     price_complete = df.get("OHLC_Complete", pd.Series(True, index=df.index)).to_numpy(dtype=bool)
@@ -635,8 +634,8 @@ def _compute_ampel_frame(
             return "21-EMA unter 50-SMA"
         if uptrend_structure_low is not None and close[index] < uptrend_structure_low:
             return "Schlusskurs unter letztem bestätigten höheren Swing-Tief"
-        if phase_warning_streak[index] >= 2:
-            return "Mindestens vier indexinterne Warnzeichen an zwei Handelstagen"
+        # A20: warning accumulation is informational. Only the price/structure
+        # conditions above may change the binding trend phase.
         return None
 
     def pressure_recovered(index: int) -> bool:

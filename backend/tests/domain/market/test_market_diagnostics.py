@@ -1,7 +1,8 @@
 from datetime import date, timedelta
 
 from app.repositories.market import MarketOhlcvPoint, MarketPricePoint
-from app.services.market import compute_intermarket_divergence, compute_sector_rotation
+from app.services.market import compute_intermarket_divergence, compute_sector_rotation, _has_intermarket_divergence
+from app.schemas import MarketIntermarketItem
 
 
 def test_intermarket_divergence_marks_lagging_index() -> None:
@@ -20,6 +21,15 @@ def test_intermarket_divergence_marks_lagging_index() -> None:
     assert rut.at_20d_high is False
     assert rut.dist_to_20d_high_pct is not None
     assert rut.tone in {"warning", "bad"}
+
+
+def test_intermarket_requires_meaningful_lag_beyond_two_percent():
+    lead = MarketIntermarketItem(ticker="^GSPC", name="S&P", close=100, day_pct=0, dist_to_20d_high_pct=0, at_20d_high=True, tone="good", status="Hoch")
+    def lag(distance):
+        return MarketIntermarketItem(ticker="^RUT", name="Russell", close=98, day_pct=0, dist_to_20d_high_pct=distance, at_20d_high=False, tone="warning", status="Hoch fehlt")
+    assert not _has_intermarket_divergence([lead, lag(-.21)])
+    assert not _has_intermarket_divergence([lead, lag(-2)])
+    assert _has_intermarket_divergence([lead, lag(-2.01)])
 
 
 def test_sector_rotation_detects_defensive_leadership() -> None:

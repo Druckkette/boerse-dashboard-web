@@ -181,13 +181,13 @@ def test_break_of_last_higher_swing_low_enters_pressure_phase() -> None:
     assert _run_frame(frame).iloc[14]["Ampel_Phase"] == "gelb_trend_unter_druck"
 
 
-def test_four_internal_warnings_need_two_consecutive_sessions_for_pressure() -> None:
+def test_warning_accumulation_cannot_change_the_binding_trend_phase() -> None:
     frame = _uptrend_ready_frame()
     frame.loc[frame.index[14:16], "Phase_Warning_Streak"] = [1, 2]
     result = _run_frame(frame)
 
     assert result.iloc[14]["Ampel_Phase"] == "aufwaertstrend"
-    assert result.iloc[15]["Ampel_Phase"] == "gelb_trend_unter_druck"
+    assert result.iloc[15]["Ampel_Phase"] == "aufwaertstrend"
 
 
 def test_two_qualified_closes_above_ema21_allow_recovery() -> None:
@@ -698,7 +698,8 @@ def test_market_pressure_and_red_do_not_pressure_an_active_powertrend():
     frame["Positive_Or_Flat_Day"] = False
     frame.loc[frame.index[13], ["Consec_Low_above_21", "Consec_EMA21_Above_SMA50"]] = [10, 5]
     frame.loc[frame.index[13], ["SMA50_Rising_1D", "Positive_Or_Flat_Day"]] = True
-    frame.loc[frame.index[14], "Phase_Warning_Streak"] = 2
+    # A confirmed swing-low break remains a price-based pressure trigger.
+    frame.loc[frame.index[13:15], "Latest_Swing_Low"] = 97.0
     frame.loc[frame.index[15], "Market_Structure"] = "down"
     result = _compute_ampel_frame(frame, logic="ibd")
     assert result.iloc[14]["Ampel_Phase"] == "gelb_trend_unter_druck"
@@ -767,7 +768,7 @@ def test_sp500_august_2026_powertrend_survives_pressure_and_replay():
     by_date = {point.date: point for point in points}
     assert by_date["2026-08-18"].powertrend_state == "off"
     assert by_date["2026-08-19"].powertrend_state == "on"
-    assert by_date["2026-08-20"].phase == "gelb_trend_unter_druck"
+    assert by_date["2026-08-20"].phase == "aufwaertstrend"
     assert by_date["2026-08-20"].powertrend_state == "on"
     assert by_date["2026-09-10"].powertrend_state == "under_pressure"
     assert by_date["2026-09-21"].powertrend_low_above_21_streak == 1

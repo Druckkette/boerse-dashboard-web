@@ -10,6 +10,7 @@ import { api } from "@/lib/api/client";
 import type { MarketAmpel, MarketAmpelChangeCard, MarketAmpelDistanceTile, MarketAmpelLight, MarketAmpelWarningCheck, Tone } from "@/lib/types/api";
 import { labelForStatus, toneForStatus } from "./data-status";
 import { PowerTrendBadge, PowerTrendCard } from "./powertrend-card";
+import { MarketContextScoresPanel } from "./market-context-scores-panel";
 import { useMarketRefetchInterval } from "./query-timing";
 
 const defaultIndexes = [
@@ -91,6 +92,8 @@ export function MarketAmpelPanel({
         ticker={ticker}
         todayCard={todayCard}
       />
+
+      <MarketContextScoresPanel ticker={ticker} asOf={data.confirmed_as_of || data.as_of} />
 
       {changeCards.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -221,18 +224,18 @@ function CompactMarketAmpel({
 
       <div className="p-4 sm:p-5">
         <div className={clsx("grid gap-4", todayCard && "xl:grid-cols-[minmax(0,1fr)_310px]")}>
-          <div className={clsx("relative overflow-hidden rounded-2xl border px-4 py-4", compactStatusClass(data.hero.tone))}>
-            <div className={clsx("absolute inset-y-0 left-0 w-1", cycleAccentClass(data.hero.tone))} />
+          <div className={clsx("relative overflow-hidden rounded-2xl border px-4 py-4", compactStatusClass(data.phase_info.tone))}>
+            <div className={clsx("absolute inset-y-0 left-0 w-1", cycleAccentClass(data.phase_info.tone))} />
             <div className="flex min-w-0 items-start gap-3">
-              <StatusEmblem tone={data.hero.tone} />
+              <StatusEmblem tone={data.phase_info.tone} />
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#64748b]">Aktuelle Marktphase</div>
-                <div className={clsx("mt-1 text-2xl font-semibold leading-tight sm:text-[28px]", toneText(data.hero.tone))}>
-                  {data.hero.mode}
+                <div className={clsx("mt-1 text-2xl font-semibold leading-tight sm:text-[28px]", toneText(data.phase_info.tone))}>
+                  {data.phase_info.label}
                 </div>
                 <div className="mt-2 flex items-start gap-2 text-sm font-medium leading-6 text-[#172033]">
                   <ShieldAlert className="mt-1 shrink-0 text-[#64748b]" size={14} />
-                  <span>{data.hero.action}</span>
+                  <span>{data.phase_info.action}</span>
                 </div>
               </div>
             </div>
@@ -377,8 +380,8 @@ function ActiveWarningsDisclosure({
             </div>
           ))}
           <p className="text-[11px] leading-5 text-[#687386]">
-            Defensiv wird der Modus bei mindestens vier aktiven Warnzeichen, roter Trend-Ampel,
-            Schutzmodus der gleichgewichteten Indizes oder VIX-Stress.
+            Die Warnzeichen ergänzen die Trendampel als Information. Die Marktphase und
+            ihre Handlung bleiben durch die bestätigten Preis- und Strukturregeln bestimmt.
           </p>
         </div>
       ) : null}

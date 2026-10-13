@@ -22,7 +22,6 @@ from app.domain.market.constants import (
     DEFAULT_MARKET_UNIVERSE_KEY,
     DEFAULT_MARKET_UNIVERSE_TICKERS,
     EQUAL_WEIGHT_MARKET_TICKERS,
-    MARKET_INDEX_FALLBACK_TICKERS,
     MARKET_TREND_BENCHMARK,
     SECTOR_ETFS,
     SECTOR_ETF_TICKERS,
@@ -32,7 +31,7 @@ from app.domain.market.equal_weight_breadth import (
     compute_equal_weight_breadth_status,
     missing_equal_weight_breadth_status,
 )
-from app.domain.market.regime import STRESS_VOLATILITY_REGIMES, MarketRegimeInput, classify_market_regime
+from app.domain.market.regime import STRESS_VOLATILITY_REGIMES, MarketRegimeInput, classify_market_regime, market_recommendation
 from app.domain.market.volatility import (
     VOLATILITY_TICKERS,
     compute_volatility_dashboard,
@@ -167,7 +166,7 @@ def _build_market_overview_response(
         message=_market_snapshot_message(snapshot.date, metrics, index_ticker=clean_ticker),
         phase=phase,
         phase_label=_phase_label(phase),
-        action=_overview_action(phase=phase, snapshot=snapshot, metrics=metrics),
+        action=_overview_action(phase=phase, snapshot=snapshot, metrics=metrics, trend_ampel=trend_ampel),
         warning_count=snapshot.warning_count,
         breadth_mode=_normalize_breadth_mode(snapshot.breadth_mode),
         volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
@@ -315,12 +314,6 @@ def build_market_ampel_response(
         index_name=name,
     )
     warning_count = sum(1 for item in warning_checks if item.active_warning)
-    mode, hero_tone, action = _legacy_market_action_and_tone(
-        latest.phase,
-        warning_count,
-        overview.breadth_mode,
-        vix_regime,
-    )
     phase_info = _ampel_phase_info(
         latest,
         points=points,
@@ -344,9 +337,9 @@ def build_market_ampel_response(
         volatility_regime=volatility.regime,
         vix_regime=vix_regime,
         hero=MarketAmpelHero(
-            mode=mode,
-            tone=hero_tone,
-            action=action,
+            mode=phase_info.label,
+            tone=phase_info.tone,
+            action=phase_info.action,
             reasons=_ampel_reasons(
                 latest,
                 warning_count=warning_count,
@@ -1516,6 +1509,8 @@ def build_market_snapshot(
             breadth_action=regime.action,
             breadth_mode=equal_weight_mode,
             volatility_regime=volatility_regime,
+            warning_count=regime.warning_count,
+            powertrend_state=trend_point.powertrend_state if trend_point.logic == "ibd" else "off",
         )
 
     return MarketSnapshotWrite(
@@ -1742,7 +1737,8 @@ def _index_ad_confirmation(
     reference_high = max(previous_highs)
     reference_ad_high = max(previous_ad_values)
     spx_at_high = latest_close >= reference_high * 0.998
-    ad_at_high = latest_ad >= reference_ad_high * 0.998
+    # A/D can be negative: a multiplicative price tolerance reverses its meaning.
+    ad_at_high = latest_ad >= reference_ad_high
     if spx_at_high and ad_at_high:
         detail = f"{index_name} und A/D-Linie bestätigen sich."
     elif spx_at_high:
@@ -1997,7 +1993,10 @@ def _market_diagnostics_summary(
 def _has_intermarket_divergence(items: list[MarketIntermarketItem]) -> bool:
     if len(items) < 2:
         return False
-    return any(item.at_20d_high for item in items) and any(not item.at_20d_high for item in items)
+    return any(item.at_20d_high for item in items) and any(
+        item.dist_to_20d_high_pct is not None and item.dist_to_20d_high_pct < -2
+        for item in items
+    )
 
 
 def _intermarket_detail(items: list[MarketIntermarketItem]) -> str:
@@ -2113,29 +2112,12 @@ def _normalize_ampel_ticker(value: str) -> str:
 
 
 def _load_cached_index_ohlcv(ticker: str, *, start_date: date) -> tuple[list[MarketOhlcvPoint], str | None]:
-    primary_rows: list[MarketOhlcvPoint] = []
-    primary_ticker: str | None = None
-    for candidate in [ticker, *MARKET_INDEX_FALLBACK_TICKERS.get(ticker, [])]:
-        try:
-            rows = market_repository.load_cached_ohlcv(candidate, start_date=start_date)
-        except MarketRepositoryUnavailable:
-            return [], None
-        if rows:
-            primary_rows = rows
-            primary_ticker = candidate
-            break
-    if not primary_rows:
+    # Q02: never substitute ETF prices or ETF volume for an index.
+    try:
+        rows = market_repository.load_cached_ohlcv(ticker, start_date=start_date)
+    except MarketRepositoryUnavailable:
         return [], None
-
-    if primary_ticker == ticker and _volume_series_unusable(primary_rows):
-        for proxy_ticker in MARKET_INDEX_FALLBACK_TICKERS.get(ticker, []):
-            try:
-                proxy_rows = market_repository.load_cached_ohlcv(proxy_ticker, start_date=start_date)
-            except MarketRepositoryUnavailable:
-                return primary_rows, primary_ticker
-            if proxy_rows and not _volume_series_unusable(proxy_rows):
-                return _merge_proxy_volume(primary_rows, proxy_rows), primary_ticker
-    return primary_rows, primary_ticker
+    return (rows, ticker) if rows else ([], None)
 
 
 def _volume_series_unusable(rows: Sequence[MarketOhlcvPoint]) -> bool:
@@ -2215,63 +2197,9 @@ def _legacy_market_action_and_tone(
     warning_count: int,
     breadth_mode: str,
     vix_regime: str,
+    powertrend_state: str = "off",
 ) -> tuple[str, str, str]:
-    clean_phase = str(phase or "").lower()
-    clean_breadth = str(breadth_mode or "").lower()
-    clean_vol = str(vix_regime or "").lower()
-    if clean_phase == "rot" or warning_count >= 4 or clean_breadth == "schutz" or clean_vol == "stress":
-        if clean_phase == "rot":
-            message = "Ampel rot. Risiko reduzieren, keine aggressiven Neueinstiege und bestehende Positionen kritisch prüfen."
-        elif clean_vol == "stress":
-            message = "Volatilität im Stress-Regime. Defensive Haltung - kein Neukauf trotz Ampelphase."
-        elif clean_breadth == "schutz":
-            message = "Gleichgewichtete Indizes RSP/QQEW im Schutzmodus. Risiko reduzieren - keine aggressiven Neueinstiege."
-        else:
-            message = f"{warning_count} Warnzeichen aktiv. Defensive Haltung - Risiko reduzieren trotz laufender Ampelphase."
-        return "Defensiv", "bad", message
-    if clean_phase == "gelb_startschuss":
-        if warning_count <= 2 and clean_breadth != "schutz" and clean_vol not in {"stress", "risk"}:
-            return (
-                "Startschuss",
-                "warning",
-                "Startschuss aktiv. Erste Pilotpositionen sind erlaubt, aber nur selektiv und mit enger Risikokontrolle über das Startschuss-Tief.",
-            )
-        return (
-            "Startschuss",
-            "warning",
-            "Startschuss erkannt, aber Umfeld noch nicht frei. Nur kleine Testpositionen und keine Aggressivität.",
-        )
-    if clean_phase == "gelb_rally_unter_druck":
-        return "Rally unter Druck", "warning", "FTD negiert. Rallyversuch aktiv; eine neue gültige Aufwärtsbestätigung ist erforderlich."
-    if clean_phase == "gelb_trend_unter_druck":
-        return (
-            "Trend unter Druck",
-            "bad",
-            "Der bestätigte Aufwärtstrend ist beschädigt. Keine aggressiven Neueinstiege; bestehende Risiken eng überwachen.",
-        )
-    if clean_phase == "gruen":
-        if warning_count <= 2 and clean_breadth != "schutz":
-            return (
-                "Frühe Bestätigung",
-                "good",
-                "Startschuss bestätigt. Gute Setups sind erlaubt und Risiko kann vorsichtig erhöht werden.",
-            )
-        return "Frühe Bestätigung", "warning", "Ampel grün, aber Umfeld gemischt. Nur selektiv aufstocken."
-    if clean_phase == "aufwaertstrend":
-        if warning_count >= 2 or clean_breadth == "wachsam" or clean_vol in {"risk", "vorsicht"}:
-            return (
-                "Neutral",
-                "warning",
-                f"Aufwärtstrend intakt, aber {warning_count} Warnzeichen aktiv. Neue Käufe selektiv halten und bestehende Risiken beobachten.",
-            )
-        return (
-            "Offensiv",
-            "good",
-            "MA-Ordnung bestätigt. Markt konstruktiv, führende Aktien beobachten und Risiko schrittweise erhöhen.",
-        )
-    if warning_count >= 2 or clean_breadth == "neutral" or clean_vol in {"risk", "vorsicht"}:
-        return "Neutral", "warning", "Selektiv bleiben. Nur A-Setups und eher kleine Einstiege."
-    return "Konstruktiv", "good", "Markt konstruktiv. Führende Aktien beobachten und Risiko schrittweise erhöhen."
+    return market_recommendation(phase, warning_count, breadth_mode, vix_regime, powertrend_state)
 
 
 def _ampel_phase_info(
@@ -2556,7 +2484,7 @@ def _ampel_lights(phase: str, *, logic: MarketAmpelLogic = "current") -> list[Ma
         "gelb_startschuss": start_rule,
         "gruen": f"GRÜN benötigt mindestens {GREEN_CONFIRMATION_DAYS} vollständige Handelstage nach dem Startschuss sowie einen weiteren Akkumulationstag oder drei Schlusskurse über der 21-EMA.",
         "aufwaertstrend": "AUFWÄRTSTREND benötigt höhere Swing-Hochs und -Tiefs, drei vollständige Tage über 21-EMA und 50-SMA, drei Tage korrekte MA-Ordnung sowie steigende 21-EMA und 50-SMA.",
-        "gelb_trend_unter_druck": "GELB - TREND UNTER DRUCK wird bei nachhaltigem 21-EMA-Bruch, deutlichem 50-SMA-Bruch, negativer Kreuzung, Strukturbruch oder vier Warnzeichen an zwei Tagen aktiv.",
+        "gelb_trend_unter_druck": "GELB - TREND UNTER DRUCK wird bei nachhaltigem 21-EMA-Bruch, deutlichem 50-SMA-Bruch, negativer Kreuzung oder bestätigtem Strukturbruch aktiv. Reine Warnhäufung ändert die Phase nicht.",
     }
     lights = [
         MarketAmpelLight(key="rot", label="ROT", active=active_key == "rot", rule=rules["rot"], tone="bad"),
@@ -3383,15 +3311,13 @@ def _combined_market_action(
     breadth_action: str,
     breadth_mode: str,
     volatility_regime: str,
+    warning_count: int = 0,
+    powertrend_state: str = "off",
 ) -> str:
-    trend_action = _action_for_phase(trend_phase)
-    if trend_phase == "rot":
-        return f"Trend-Ampel Rot. {trend_action}"
-    if volatility_regime == "Risk Off bestätigt":
-        return f"Trend-Ampel {_phase_label(trend_phase)}; Volatilität bestätigt Stress. Risiko nicht erhöhen."
-    if breadth_mode == "schutz":
-        return f"Trend-Ampel {_phase_label(trend_phase)}; Gleichgewichtete Indizes RSP/QQEW im Schutzmodus. {breadth_action}"
-    return f"Trend-Ampel {_phase_label(trend_phase)}. {breadth_action}"
+    action = market_recommendation(
+        trend_phase, warning_count, breadth_mode, volatility_regime, powertrend_state,
+    )[2]
+    return f"Trend-Ampel {_phase_label(trend_phase)}. {action}"
 
 
 def _format_pct(value: float | None) -> str:
@@ -3404,15 +3330,18 @@ def _data_status_for_date(value: date) -> str:
     return "fresh" if value == expected_us_market_session().date else "stale"
 
 
-def _overview_action(*, phase: str, snapshot, metrics: dict) -> str:
-    if phase != _normalize_phase(snapshot.ampel_phase):
-        return _combined_market_action(
-            trend_phase=phase,
-            breadth_action=str(metrics.get("breadth_action") or _action_for_phase(snapshot.ampel_phase)),
-            breadth_mode=_normalize_breadth_mode(snapshot.breadth_mode),
-            volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
-        )
-    return str(metrics.get("action") or _action_for_phase(snapshot.ampel_phase))
+def _overview_action(*, phase: str, snapshot, metrics: dict, trend_ampel=None) -> str:
+    # Recompute even for old snapshots so stale recommendation text cannot survive
+    # a policy change or a change of the selected index/Powertrend state.
+    return _combined_market_action(
+        trend_phase=phase,
+        breadth_action="",
+        breadth_mode=_normalize_breadth_mode(snapshot.breadth_mode),
+        volatility_regime=snapshot.volatility_regime or "Nicht berechnet",
+        warning_count=snapshot.warning_count,
+        powertrend_state=(trend_ampel.powertrend_state or "off")
+        if trend_ampel and trend_ampel.logic == "ibd" else "off",
+    )
 
 
 def _market_snapshot_message(

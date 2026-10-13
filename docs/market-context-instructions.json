@@ -1,0 +1,969 @@
+{
+  "source_file": "1-Marktphase_Gewichtungsvorlage_Empfehlung_V2_nach_Backtests_neu.xlsx",
+  "source_sha256": "9d30322da73701cb0ff580f0014e1c1627ceb6928c8169e31ef13ac385f2216f",
+  "sheet": "Kriterien",
+  "instruction_column": "F",
+  "score_version": "market_context_v1",
+  "criteria": [
+    {
+      "id": "A01",
+      "criterion": "Korrekturbeginn IBD",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A02",
+      "criterion": "Korrekturbeginn current",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A03",
+      "criterion": "Ankertag / Rally Day 1",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A04",
+      "criterion": "Rallytiefbruch",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A05",
+      "criterion": "Startschuss / FTD IBD",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A06",
+      "criterion": "Startschuss current",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A07",
+      "criterion": "Startschuss-Bonus",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A08",
+      "criterion": "Grün-Bestätigung",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A09",
+      "criterion": "Aufwärtstrend-Bestätigung",
+      "user_instruction": "Aufwärtstrend muss so wie in den Regeln angezeigt werden. Auftwärtstrend muss Bonuspunkt geben, da sehr starkes Signal. Swing Struktur aufwärts verstehe ich nicht, wenn nicht abbildbar dann löschen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "confirmation",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "A10",
+      "criterion": "FTD-Tief intraday unterschritten",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A11",
+      "criterion": "FTD negiert IBD",
+      "user_instruction": "Empfehlung übernehmen. Muss einen Malus in der Bewertung geben.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "confirmation",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "A12",
+      "criterion": "FTD-Tiefbruch current",
+      "user_instruction": "Empfehlung übernehmen. Wird aktuell nicht verwendet.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A13",
+      "criterion": "Neuer FTD nach Negation",
+      "user_instruction": "Empfehlung übernehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A14",
+      "criterion": "Harte Rot-Regeln frühe IBD-Rally",
+      "user_instruction": "Original Regel beibehalten.",
+      "score_locations": [],
+      "note": "Originale harte Rot-Regel beibehalten."
+    },
+    {
+      "id": "A15",
+      "criterion": "Harte Rot-Regeln bestätigter Trend",
+      "user_instruction": "Original Regel beibehalten.",
+      "score_locations": [],
+      "note": "Originale harte Rot-Regel beibehalten."
+    },
+    {
+      "id": "A16",
+      "criterion": "Trenddruck: drei Schlüsse unter21",
+      "user_instruction": "Empfehlung beibehalten.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A17",
+      "criterion": "Trenddruck: deutlicher 50-Bruch",
+      "user_instruction": "Empfehlung beibehalten.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A18",
+      "criterion": "Trenddruck: negative MA-Kreuzung",
+      "user_instruction": "Empfehlung beibehalten.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A19",
+      "criterion": "Trenddruck: höheres Swing-Tief gebrochen",
+      "user_instruction": "Ist das sinnvoll und zuverlässig berechenbar?",
+      "score_locations": [],
+      "note": "Kausal berechenbarer Bruch des gespeicherten höheren Swing-Tiefs bleibt bestehen; Erklärung und Grenzen im Begleitdokument."
+    },
+    {
+      "id": "A20",
+      "criterion": "Trenddruck: Warnhäufung",
+      "user_instruction": "Diese Regel muss neu gedacht werden, da meine Idee ist mit neuen Konzept die Phasenampel als bindend zu nehmen und alle anderen Kriterien zu großen Hauptkriterien zusammenzufügen.",
+      "score_locations": [],
+      "note": "Warnhäufung als Phasenwechsel entfernt. Die neuen Scores werden nicht in die Trendampel zurückgeführt; Preis-/Strukturregeln bleiben bindend."
+    },
+    {
+      "id": "A21",
+      "criterion": "Erholung aus Trenddruck",
+      "user_instruction": "Okay",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "A22",
+      "criterion": "Swing-Struktur",
+      "user_instruction": "Verstehe ich nicht. Bitte erläutern.",
+      "score_locations": [],
+      "note": "Bestätigte ATR-Pivots erklären höhere/tiefere Hochs und Tiefs; kausale Berechnung bleibt bestehen."
+    },
+    {
+      "id": "W01",
+      "criterion": "Bärische Intraday-Umkehrungen",
+      "user_instruction": "Sinnvoll - Gewichtung prüfen",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "selling",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W02",
+      "criterion": "Schwache Closing Range",
+      "user_instruction": "Sinnvoll - Gewichtung prüfen",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "demand",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W03",
+      "criterion": "Stau-Tage",
+      "user_instruction": "Sinnvoll - Gewichtung prüfen",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "selling",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W04",
+      "criterion": "Distributionstage",
+      "user_instruction": "Sinnvoll - Gewichtung prüfen",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "selling",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W05",
+      "criterion": "Mehr Verlust- als Gewinntage",
+      "user_instruction": "Sinnvoll - Gewichtung prüfen",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "demand",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W06",
+      "criterion": "Überdehnt über50-SMA",
+      "user_instruction": "Nicht gewichten, nur anzeigen. Sinnvolle Anpassungen für das Merkmal trotzdem umsetzen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W07",
+      "criterion": "Schluss unter21-EMA",
+      "user_instruction": "Rausnehmen aus der Bewertung, da schon in Ampelphasenbewertung. Weiterhin informativ anzeigen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W08",
+      "criterion": "Überdehnt über21-EMA",
+      "user_instruction": "Nicht gewichten, nur anzeigen. Sinnvolle Anpassungen für das Merkmal trotzdem umsetzen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W09",
+      "criterion": "Schluss unter50-SMA",
+      "user_instruction": "Rausnehmen aus der Bewertung, da schon in Ampelphasenbewertung. Weiterhin informativ anzeigen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W10",
+      "criterion": "Schluss unter200-SMA / Grün unter200",
+      "user_instruction": "Rausnehmen aus der Bewertung, da schon in Ampelphasenbewertung. Weiterhin informativ anzeigen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W11",
+      "criterion": "Nachlassendes Volumen bei Kursanstieg",
+      "user_instruction": "Sinnvoll - Gewichtung prüfen",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "demand",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W12",
+      "criterion": "Intermarket-Divergenz",
+      "user_instruction": "Nicht gewichten, nur anzeigen. Sinnvolle Anpassungen für das Merkmal trotzdem umsetzen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W13",
+      "criterion": "Defensive Sektorrotation",
+      "user_instruction": "Nicht gewichten, nur anzeigen.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "W14",
+      "criterion": "Schwache Erholungsquote",
+      "user_instruction": "Nähere Erläuterung. In neue Kennzahl: Marktbreite. Gewichten.",
+      "score_locations": [
+        {
+          "category": "index",
+          "subscore": "info",
+          "weight": 0
+        },
+        {
+          "category": "breadth",
+          "subscore": "recovery",
+          "weight": 0.5
+        }
+      ],
+      "note": "W14 bei Marktbreite gewichtet, beim Index nur Information."
+    },
+    {
+      "id": "B01",
+      "criterion": "Universe über50-SMA",
+      "user_instruction": "In neue Kennzahl: Marktbreite. Gewichten.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "participation",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B02",
+      "criterion": "Universe über200-SMA",
+      "user_instruction": "In neue Kennzahl: Marktbreite. Gewichten.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "participation",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B03",
+      "criterion": "McClellan negativ",
+      "user_instruction": "In neue Kennzahl: Marktbreite",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "momentum",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B04",
+      "criterion": "Mehr fallende Aktien",
+      "user_instruction": "In neue Kennzahl: Marktbreite",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "ad",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B05",
+      "criterion": "Mehr neue Tiefs",
+      "user_instruction": "In neue Kennzahl: Marktbreite",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "highs",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B06",
+      "criterion": "Datenabdeckung",
+      "user_instruction": "Rausnehmen, kein Kriterium. Nur Info.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B07",
+      "criterion": "Volatilitätswarnung Universe",
+      "user_instruction": "Empfehlung befolgen.Rausnehmen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "B08",
+      "criterion": "Margin Debt",
+      "user_instruction": "Nur anzeigen wie in der Empfehlung.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "B09",
+      "criterion": "Interne Breitenphase",
+      "user_instruction": "Erklärung? Empfehlung beibehalten.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B10",
+      "criterion": "Neue Hochs/Tiefs: Fenster",
+      "user_instruction": "In neue Kennzahl: Marktbreite. Gewichten.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "highs",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "B11",
+      "criterion": "20-SMA-Beteiligung",
+      "user_instruction": "In neue Kennzahl: Marktbreite. Gewichten.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "participation",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "P01",
+      "criterion": "Powertrend-Start",
+      "user_instruction": "In neue Kennzahl Powertrend. Empfehlung befolgen.",
+      "score_locations": [
+        {
+          "category": "powertrend",
+          "subscore": "progress",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "P02",
+      "criterion": "Powertrend-Druck",
+      "user_instruction": "In neue Kennzahl Powertrend. Empfehlung befolgen.",
+      "score_locations": [
+        {
+          "category": "powertrend",
+          "subscore": "progress",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "P03",
+      "criterion": "Powertrend-Erholung",
+      "user_instruction": "In neue Kennzahl Powertrend. Empfehlung befolgen.",
+      "score_locations": [
+        {
+          "category": "powertrend",
+          "subscore": "progress",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "P04",
+      "criterion": "Powertrend-Ende",
+      "user_instruction": "In neue Kennzahl Powertrend. Empfehlung befolgen.",
+      "score_locations": [
+        {
+          "category": "powertrend",
+          "subscore": "progress",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "P05",
+      "criterion": "Powertrend aktiv in Empfehlung",
+      "user_instruction": "In neue Kennzahl Powertrend",
+      "score_locations": [
+        {
+          "category": "powertrend",
+          "subscore": "state",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "P06",
+      "criterion": "Powertrend unter Druck in Empfehlung",
+      "user_instruction": "In neue Kennzahl Powertrend",
+      "score_locations": [
+        {
+          "category": "powertrend",
+          "subscore": "state",
+          "weight": 2
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "E01",
+      "criterion": "Equal Weight Rückenwind",
+      "user_instruction": "In neue Kennzahl: Equal Weight. Gewichten.",
+      "score_locations": [
+        {
+          "category": "equal_weight",
+          "subscore": "mode",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "E02",
+      "criterion": "Equal Weight Wachsam",
+      "user_instruction": "In neue Kennzahl: Equal Weight. Empfehlung beibehalten.",
+      "score_locations": [
+        {
+          "category": "equal_weight",
+          "subscore": "mode",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "E03",
+      "criterion": "Equal Weight Schutz",
+      "user_instruction": "In neue Kennzahl: Equal Weight. Gewichten.",
+      "score_locations": [
+        {
+          "category": "equal_weight",
+          "subscore": "mode",
+          "weight": 1.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "E04",
+      "criterion": "Equal Weight Bestätigung",
+      "user_instruction": "Wie wird das berechnet? Was bringt es? Wenn sinnvoll, dann übernehmen.",
+      "score_locations": [
+        {
+          "category": "equal_weight",
+          "subscore": "confirmation",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V01",
+      "criterion": "VIX Stress",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "vix",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V02",
+      "criterion": "VIX ruhig",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "vix",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V03",
+      "criterion": "VIX überdehnt",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfehlung beibehalten. Nur Anzeige.",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "vix",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V04",
+      "criterion": "VXX Stressbestätigung",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "vxx",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V05",
+      "criterion": "VXX Entspannung",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "vxx",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V06",
+      "criterion": "Fragile Rally",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "combined",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V07",
+      "criterion": "Risk Off bestätigt",
+      "user_instruction": "In neue Kennzahl: Volatilität. Gewichten für Score? Kein hartes Gate, da nur ein Beitrag zur Volatilitätsscore.",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "combined",
+          "weight": 3
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V08",
+      "criterion": "Kurzer Volatilitätsschock",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "combined",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "V09",
+      "criterion": "Risk On / ruhig",
+      "user_instruction": "In neue Kennzahl: Volatilität. Empfelung beibehalten. Nur Anzeige.Evtl. doch gewichten für den Score?",
+      "score_locations": [
+        {
+          "category": "volatility",
+          "subscore": "combined",
+          "weight": 0.5
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D01",
+      "criterion": "Russell vs.S&P",
+      "user_instruction": "Gehört zur Marktbreite. Nur wie bisher als Block anzeigen, nicht gewichten.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D02",
+      "criterion": "A/D-Linie vs.Index",
+      "user_instruction": "Gehört zur Marktbreite. Anpassungen durchführen. Prüfen ob sinnvoll für Marktbreite Kennzahl gewichtet werden kann. Sollte wenn, dann nur eine geringe Gewichtung besitzen.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "ad",
+          "weight": 0.25
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D03",
+      "criterion": "Up/Down Volume",
+      "user_instruction": "Gehört zur Marktbreite. Empfehlung umsetzen. Prüfen ob sinnvoll für Marktbreite Kennzahl gewichtet werden kann. Sollte wenn, dann nur eine geringe Gewichtung besitzen.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "volume",
+          "weight": 0.25
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D04",
+      "criterion": "Deemer Ratio",
+      "user_instruction": "Gehört zur Marktbreite. Empfehlung umsetzen. Prüfen ob sinnvoll für Marktbreite Kennzahl gewichtet werden kann. Sollte wenn, dann nur eine geringe Gewichtung besitzen.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "thrust",
+          "weight": 0.25
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D05",
+      "criterion": "Breitenschub Rückblick",
+      "user_instruction": "Gehört zur Marktbreite. Empfehlung umsetzen.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D06",
+      "criterion": "50-SMA-Breitendivergenz",
+      "user_instruction": "Gehört zur Marktbreite. Empfehlung umsetzen.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D07",
+      "criterion": "McClellan Stufen",
+      "user_instruction": "Gehört zur Marktbreite. Gewichten für den Score.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "momentum",
+          "weight": 1
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D08",
+      "criterion": "NH/NL Stufen",
+      "user_instruction": "Gehört zur Marktbreite. Empfehlung umsetzen.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "highs",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D09",
+      "criterion": "MA-Teilnahme Farbstufen",
+      "user_instruction": "Empfehlung befolgen. Nur anzeigen. Gehört zur Marktbreite.",
+      "score_locations": [
+        {
+          "category": "breadth",
+          "subscore": "info",
+          "weight": 0
+        }
+      ],
+      "note": "Relative Gewichte innerhalb des benannten Unterscores; keine Änderung der Ampel durch Scores."
+    },
+    {
+      "id": "D10",
+      "criterion": "10-SMA-Abstand",
+      "user_instruction": "Empfehlung befolgen. Nur anzeigen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "D11",
+      "criterion": "MA-Trendprüfungen UI",
+      "user_instruction": "Empfehlung befolgen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "D12",
+      "criterion": "Diagnose-Checkliste",
+      "user_instruction": "Was macht dieses Kriterium? Wird es nur intern berechnet?",
+      "score_locations": [],
+      "note": "Vorhandene Diagnose-Checkliste; keine versteckten Gewichte im neuen Score."
+    },
+    {
+      "id": "D13",
+      "criterion": "Drawdown Diagnose",
+      "user_instruction": "Was macht dieses Kriterium? Wird es nur intern berechnet?",
+      "score_locations": [],
+      "note": "Vorhandener Drawdown-Diagnosewert; kein zusätzliches Gewicht im neuen Score."
+    },
+    {
+      "id": "Q01",
+      "criterion": "Bestätigte Tageskerze",
+      "user_instruction": "Okay",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "Q02",
+      "criterion": "Volumengültigkeit",
+      "user_instruction": "Was heißt das? Es darf nie das Volumen eines ETFs herangezogen werden, da dies nicht vergleichbar mit dem Volumen im Index ist.",
+      "score_locations": [],
+      "note": "Keine ETF-Preis-/Volumenersatzdaten in der Indexberechnung. Fehlende Volumenhistorie bleibt in den Scores unbewertet."
+    },
+    {
+      "id": "Q03",
+      "criterion": "Frische / gemeinsamer Datenstand",
+      "user_instruction": "Okay, aber wozu werden Sektoren benötigt? Was heißt FINRA in dem Zusammenhang?",
+      "score_locations": [],
+      "note": "Sektoren nur im ungewichteten Rotationsblock; FINRA Margin Debt bleibt Hintergrund und ist keine Pflichtquelle der Scores."
+    },
+    {
+      "id": "Q04",
+      "criterion": "Fehlende Zusatzdaten",
+      "user_instruction": "Fehlende Daten sollten nicht einfach eine Warnmeldung geben sondern es sollte nur ein Hinweis gegeben werden, dass diese fehlen und das Kriterium daher nicht bewertet werden kann.",
+      "score_locations": [],
+      "note": "Unbekannte Beiträge ohne Malus aus dem Mittelwert nehmen; Datenhinweis und Bewertungsabdeckung anzeigen."
+    },
+    {
+      "id": "Q05",
+      "criterion": "SMA/ATR-Historie",
+      "user_instruction": "Okay",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "Q06",
+      "criterion": "Tiefenanalyse Mindestabdeckung",
+      "user_instruction": "Empfehlung befolgen.",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "H01",
+      "criterion": "Harte Empfehlung",
+      "user_instruction": "Risk off nach V07 darf keine Umschaltung zur Folge haben. Fällt mir neuer Logik wahrscheinlich eh weg.",
+      "score_locations": [],
+      "note": "Nur bestätigte Trendphase bestimmt die Handlung; Risk Off ist allein ein Volatilitätsbeitrag."
+    },
+    {
+      "id": "H02",
+      "criterion": "Druckphasen / fehlende Phase",
+      "user_instruction": "Okay",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "H03",
+      "criterion": "Startschuss Empfehlung",
+      "user_instruction": "Okay",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "H04",
+      "criterion": "Grün/Aufwärtstrend Kaufhemmnis",
+      "user_instruction": "EW darf nicht kompletten Status überschreiben. Fällt mir neuer Logik wahrscheinlich eh weg.",
+      "score_locations": [],
+      "note": "EW-Schutz überschreibt weder Marktphase noch Handlung."
+    },
+    {
+      "id": "H05",
+      "criterion": "Powertrend-Bonus Empfehlung",
+      "user_instruction": "Okay",
+      "score_locations": [],
+      "note": "Kein zusätzlicher Scorebeitrag; vorhandene Phase, Anzeige oder Datenregel. Erläuterung in market-context-scores.md."
+    },
+    {
+      "id": "H06",
+      "criterion": "Ohne Powertrend",
+      "user_instruction": "Die Regel muss neu gedacht werden,",
+      "score_locations": [],
+      "note": "Pauschale Warnzahl-/EW-Regel ohne Powertrend entfällt; die Indexphase bleibt bindend."
+    }
+  ]
+}

@@ -228,6 +228,53 @@ class MarketAmpelResponse(BaseModel):
     powertrend: MarketAmpelPowerTrend = Field(default_factory=MarketAmpelPowerTrend)
 
 
+class MarketScoreCriterion(BaseModel):
+    id: str
+    label: str
+    weight: float = Field(ge=0)
+    score: float | None = Field(default=None, ge=0, le=100)
+    contribution: float | None = None
+    evaluation: Literal["rated", "info", "missing", "not_applicable"]
+    value: str
+    rule: str
+    explanation: str = ""
+
+
+class MarketSubscore(BaseModel):
+    key: str
+    label: str
+    weight: float = Field(ge=0)
+    score: float | None = Field(default=None, ge=0, le=100)
+    status: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+    data_status: Literal["complete", "partial", "missing"]
+    coverage_pct: float = Field(ge=0, le=100)
+    criteria: list[MarketScoreCriterion]
+
+
+class MarketContextScore(BaseModel):
+    key: Literal["index", "breadth", "powertrend", "equal_weight", "volatility"]
+    title: str
+    scope: str
+    score: float | None = Field(default=None, ge=0, le=100)
+    status: str
+    tone: Literal["good", "neutral", "warning", "bad"]
+    data_status: Literal["complete", "partial", "missing"]
+    coverage_pct: float = Field(ge=0, le=100)
+    subscores: list[MarketSubscore]
+    message: str = ""
+
+
+class MarketContextScoresResponse(BaseModel):
+    version: str
+    ticker: str
+    as_of: str
+    phase: str
+    informational_only: Literal[True] = True
+    scores: list[MarketContextScore]
+    notes: list[str] = Field(default_factory=list)
+
+
 class MarketOverviewResponse(BaseModel):
     as_of: str
     as_of_time: str = ""

@@ -1,9 +1,11 @@
+from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 
 from app.repositories.universes import UniverseRepositoryUnavailable
 from app.schemas import (
     BreadthResponse,
     MarketAmpelResponse,
+    MarketContextScoresResponse,
     MarketBreadthOverviewResponse,
     MarketDeepAnalysisResponse,
     MarketDiagnosticsResponse,
@@ -24,6 +26,7 @@ from app.services.market import (
     get_sector_ranking,
     get_volatility,
 )
+from app.services.market_context_scores import get_market_context_scores
 from app.services.universes import (
     get_universe_status,
     get_universe_symbol_mappings,
@@ -47,6 +50,14 @@ def market_ampel(
     days: int = Query(default=90, ge=30, le=240),
 ) -> MarketAmpelResponse:
     return get_market_ampel(ticker=ticker, days=days)
+
+
+@router.get("/context-scores", response_model=MarketContextScoresResponse)
+def market_context_scores(
+    ticker: str = Query(default="^GSPC", max_length=24),
+    as_of: date | None = Query(default=None),
+) -> MarketContextScoresResponse:
+    return get_market_context_scores(ticker=ticker, as_of=as_of)
 
 
 @router.get("/breadth", response_model=BreadthResponse)

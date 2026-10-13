@@ -222,3 +222,29 @@ def _format_pct(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.1f}%"
+
+
+def market_recommendation(
+    phase: str, warning_count: int, breadth_mode: str, volatility_regime: str,
+    powertrend_state: str = "off",
+) -> tuple[str, str, str]:
+    """The trend phase alone determines posture; context is informational.
+
+    Keep the context arguments for callers and historical payload compatibility.
+    Context scores must never override or promote the selected index's phase.
+    """
+    phase = str(phase or "neutral").lower()
+    if phase == "rot":
+        return "Defensiv", "bad", "Ampel rot. Risiko reduzieren und keine aggressiven Neueinstiege."
+    if phase == "gelb_trend_unter_druck":
+        return "Trend unter Druck", "warning", "Aufwärtstrend beschädigt. Keine neuen Käufe; bestehende Risiken und Stops eng prüfen."
+    if phase == "gelb_rally_unter_druck":
+        return "Rally unter Druck", "warning", "FTD negiert. Auf eine neue gültige Aufwärtsbestätigung warten."
+    if phase not in {"gruen", "aufwaertstrend", "gelb_startschuss"}:
+        return "Abwarten", "neutral", "Keine bestätigte Trendphase. Daten prüfen und Risiko nicht erhöhen."
+
+    if phase == "gelb_startschuss":
+        return "Startschuss", "warning", "Nur kleine Pilotpositionen bei bestätigten Setups; Risiko über das Startschuss-Tief begrenzen."
+    if phase == "gruen":
+        return "Frühe Bestätigung", "good", "Ampel grün. Gute Setups sind erlaubt; Risiko vorsichtig und schrittweise erhöhen."
+    return "Aufwärtstrend", "good", "Aufwärtstrend vollständig bestätigt. Qualitäts-Setups aufbauen und Gewinner mit individuellen Stops führen."
