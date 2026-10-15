@@ -68,6 +68,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
                     Institutional13FTrend.manager_cik == "AGGREGATE"
                 )
             )
+            coverage_13f = _institutional_13f_coverage(db, now)
             prices = _price_universe_freshness(db, now, expected_session)
             breadth = _breadth_freshness(db, now, expected_session)
             relative_strength = _relative_strength_freshness(db, now, expected_session)
@@ -124,7 +125,7 @@ def _cache_freshness(now: datetime) -> list[ServiceFreshness]:
                 "source": latest_earnings_source or "",
             },
         ),
-        _institutional_13f_freshness(now, latest_13f),
+        _institutional_13f_freshness(now, latest_13f, coverage=coverage_13f),
         _sell_ranking_freshness(
             now,
             latest_sell_ranking,
@@ -451,9 +452,32 @@ def _date_freshness(
     )
 
 
+def _institutional_13f_coverage(db, now: datetime) -> dict:
+    required = _required_13f_period(now.date())[0]
+    members = (select(UniverseMember.ticker).join(Universe, Universe.id == UniverseMember.universe_id)
+               .where(Universe.key == DEFAULT_MARKET_UNIVERSE_KEY,
+                      UniverseMember.valid_from <= now.date(),
+                      UniverseMember.valid_to.is_(None) | (UniverseMember.valid_to >= now.date()))
+               .distinct().subquery())
+    latest = (select(Institutional13FTrend.ticker,
+                     func.max(Institutional13FTrend.report_period).label("period"))
+              .where(Institutional13FTrend.manager_cik == "AGGREGATE")
+              .group_by(Institutional13FTrend.ticker).subquery())
+    rows = db.execute(select(members.c.ticker, latest.c.period)
+                      .outerjoin(latest, latest.c.ticker == members.c.ticker)
+                      .order_by(members.c.ticker)).all()
+    missing = [ticker for ticker, period in rows if period is None]
+    stale = [ticker for ticker, period in rows if period is not None and period < required]
+    return {"coverage_available": bool(rows), "expected_count": len(rows),
+            "current_count": len(rows) - len(missing) - len(stale),
+            "missing_count": len(missing), "stale_count": len(stale),
+            "missing_sample": missing[:50], "stale_sample": stale[:50]}
+
+
 def _institutional_13f_freshness(
     now: datetime,
     latest_period: date | None,
+    *, coverage: dict | None = None,
 ) -> ServiceFreshness:
     required_period, next_period, next_due_date = _required_13f_period(now.date())
     detail = (
@@ -466,11 +490,14 @@ def _institutional_13f_freshness(
         "next_report_period": next_period.isoformat(),
         "next_due_date": next_due_date.isoformat(),
     }
+    if coverage is not None:
+        metadata.update(coverage)
+        detail += f" Aktuelles 13F für {coverage['current_count']} von {coverage['expected_count']} Aktien im aktiven Universum; {coverage['missing_count']} fehlen, {coverage['stale_count']} sind veraltet."
     if latest_period is None:
         return _missing("institutional_13f", detail=detail, metadata=metadata)
     return ServiceFreshness(
         name="institutional_13f",
-        status="fresh" if latest_period >= required_period else "stale",
+        status="fresh" if latest_period >= required_period and (coverage is None or coverage["current_count"] == coverage["expected_count"]) else "stale",
         as_of=latest_period.isoformat(),
         lag_minutes=_date_lag_minutes(now, latest_period),
         detail=detail,

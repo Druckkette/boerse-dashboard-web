@@ -241,8 +241,8 @@ def test_smart_plan_refreshes_missing_13f_trends() -> None:
     )
 
     assert [action.key for action in plan] == ["refresh_sec13f", "refresh_stock_assessments"]
-    assert plan[0].payload["universe"] == "tracked"
-    assert plan[0].payload["limit_universe"] == 500
+    assert plan[0].payload["universe"] == "us_common_stocks"
+    assert plan[0].payload["limit_universe"] == 10000
 
 
 def test_scheduled_smart_plan_forces_market_dependencies_even_when_current() -> None:
@@ -346,7 +346,7 @@ def test_smart_refresh_task_runs_13f_when_missing(monkeypatch: pytest.MonkeyPatc
     updated = job_repository.get_job(job.job_id)
 
     assert result["ok"] is True
-    assert calls == ["13f:tracked:500"]
+    assert calls == ["13f:us_common_stocks:10000"]
     assert result["results"]["refresh_sec13f"]["records_written"] == 1
     assert updated is not None
     assert updated.status == "done"

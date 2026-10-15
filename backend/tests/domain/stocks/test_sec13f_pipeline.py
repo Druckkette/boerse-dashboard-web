@@ -330,3 +330,48 @@ def test_sec13f_ticker_breakdown_reports_known_cusip_missing_from_loaded_dataset
             "reason": "Bekannte CUSIP(s) waren im geladenen 13F-Holdingsatz nicht enthalten.",
         }
     ]
+
+
+def test_sec13f_abbreviated_issuer_matches_veeva_without_fuzzy_matching():
+    meta = pd.DataFrame([{"CUSIP": "922475108", "issuer": "VEEVA SYS INC CL A COM", "title": "Stock"}])
+    mapping, unmatched = build_cusip_mapping(meta, {"VEEV"},
+        [SymbolRecord(ticker="VEEV", name="VEEVA SYSTEMS INC")], {})
+    assert mapping.iloc[0]["ticker"] == "VEEV"
+    assert unmatched.empty
+
+
+def test_sec13f_abbreviation_collision_is_not_assigned_arbitrarily():
+    meta = pd.DataFrame([{"CUSIP": "123456789", "issuer": "EXAMPLE SYS INC", "title": "COM"}])
+    mapping, unmatched = build_cusip_mapping(meta, {"ONE", "TWO"},
+        [SymbolRecord(ticker="ONE", name="EXAMPLE SYSTEMS INC"),
+         SymbolRecord(ticker="TWO", name="EXAMPLE SYS INC")], {})
+    assert mapping.empty
+    assert unmatched.iloc[0]["reason"] == "ambiguous_name"
+
+
+def test_sec13f_legal_state_suffix_and_reordered_names():
+    meta = pd.DataFrame([
+        {"CUSIP": "038222105", "issuer": "APPLIED MATLS INC COM", "title": "Stock"},
+        {"CUSIP": "254687106", "issuer": "DISNEY WALT CO COM", "title": "Stock"}])
+    records = [SymbolRecord(ticker="AMAT", name="APPLIED MATERIALS INC /DE"),
+               SymbolRecord(ticker="DIS", name="Walt Disney Co")]
+    mapping, unmatched = build_cusip_mapping(meta, {"AMAT", "DIS"}, records, {})
+    assert set(mapping["ticker"]) == {"AMAT", "DIS"}
+    assert unmatched.empty
+
+
+def test_sec13f_unmatched_float_columns_are_strict_json_safe():
+    import json
+    frame = pd.DataFrame({"current_holder_count": [1., float("nan")]})
+    rows = sec13f_client._dataframe_records(frame)
+    assert rows[1]["current_holder_count"] is None
+    json.dumps(rows, allow_nan=False)
+
+
+def test_sec13f_duplicate_alias_does_not_create_false_ambiguity():
+    meta = pd.DataFrame([{"CUSIP": "922475108", "issuer": "VEEVA SYS INC", "title": "COM"}])
+    mapping, unmatched = build_cusip_mapping(meta, {"VEEV"},
+        [SymbolRecord(ticker="VEEV", name="VEEVA SYSTEMS INC"),
+         SymbolRecord(ticker="VEEV", name="Veeva Systems Inc. Class A Common Stock")], {})
+    assert list(mapping["ticker"]) == ["VEEV"]
+    assert unmatched.empty

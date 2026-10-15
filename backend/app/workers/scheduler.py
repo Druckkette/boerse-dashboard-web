@@ -140,7 +140,7 @@ def get_beat_schedule() -> dict:
         "refresh-sec13f-monthly": {
             "task": "refresh_sec13f",
             "schedule": crontab(day_of_month=1, hour=3, minute=30),
-            "args": (None, {"mode": "incremental", "source": "scheduler"}),
+            "args": (None, {"mode": "incremental", "source": "scheduler", "universe": "us_common_stocks", "limit_universe": 10000}),
             "options": {"expires": 24 * 60 * 60},
         },
     }

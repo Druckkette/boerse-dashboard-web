@@ -56,6 +56,16 @@ class Sec13FRepositoryUnavailable(RuntimeError):
     pass
 
 
+def list_symbol_names(tickers: list[str]) -> list[tuple[str, str]]:
+    """Listing names are additional aliases; they never override SEC collisions."""
+    try:
+        with SessionLocal() as db:
+            return list(db.execute(select(Instrument.ticker, Instrument.name)
+                                   .where(Instrument.ticker.in_(tickers), Instrument.name != "")).all())
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
+
+
 def upsert_aggregate_trends(rows: list[Institutional13FTrendWrite]) -> int:
     incoming = [row for row in rows if row.ticker and row.report_period]
     if not incoming:

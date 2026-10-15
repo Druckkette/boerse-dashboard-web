@@ -39,6 +39,7 @@ def test_freshness_reports_trend_benchmark_separately(monkeypatch) -> None:
             return FakeResult()
 
     monkeypatch.setattr(freshness, "SessionLocal", FakeSession)
+    monkeypatch.setattr(freshness, "_institutional_13f_coverage", lambda db, now: None)
     expected_session = freshness.ExpectedMarketSession(date=date(2026, 6, 16), phase="closed")
     monkeypatch.setattr(freshness, "expected_us_market_session", lambda now=None: expected_session)
     monkeypatch.setattr(
@@ -207,3 +208,29 @@ def test_only_etfs_need_no_fundamental_check(monkeypatch):
     result = freshness._tracked_fundamentals_freshness(Session(), datetime(2026, 10, 4, tzinfo=UTC))
     assert result.status == "fresh"
     assert result.metadata["not_applicable"]
+
+
+def test_13f_freshness_does_not_hide_uncovered_stocks():
+    coverage = {"expected_count": 3, "current_count": 1, "missing_count": 1, "stale_count": 1}
+    result = freshness._institutional_13f_freshness(
+        datetime(2026, 10, 15, tzinfo=UTC), date(2026, 6, 30), coverage=coverage)
+    assert result.status == "stale"
+    assert result.metadata["current_count"] == 1
+    assert "1 von 3" in result.detail
+    assert freshness._institutional_13f_freshness(
+        datetime(2026, 10, 15, tzinfo=UTC), date(2026, 6, 30),
+        coverage={**coverage, "current_count": 3, "missing_count": 0, "stale_count": 0}).status == "fresh"
+
+
+def test_13f_coverage_counts_each_missing_and_stale_member():
+    class FakeResult:
+        def all(self):
+            return [("CURRENT", date(2026, 6, 30)), ("MISSING", None), ("OLD", date(2026, 3, 31))]
+    class FakeSession:
+        def execute(self, query):
+            return FakeResult()
+    coverage = freshness._institutional_13f_coverage(FakeSession(), datetime(2026, 10, 15, tzinfo=UTC))
+    assert coverage["expected_count"] == 3
+    assert coverage["current_count"] == 1
+    assert coverage["missing_sample"] == ["MISSING"]
+    assert coverage["stale_sample"] == ["OLD"]

@@ -495,9 +495,9 @@ def build_smart_refresh_plan(
                 payload={
                     "mode": "incremental",
                     "source": "smart_refresh",
-                    "universe": str(payload.get("sec13f_universe") or ("us_common_stocks" if force_market_refresh else "tracked")),
+                    "universe": str(payload.get("sec13f_universe") or "us_common_stocks"),
                     "limit_universe": _normalize_13f_limit(
-                        payload.get("sec13f_limit_universe") or payload.get("sec13f_limit") or 500
+                        payload.get("sec13f_limit_universe") or payload.get("sec13f_limit") or 10000
                     ),
                     "dataset_count": _normalize_dataset_count(payload.get("sec13f_dataset_count") or 2),
                 },

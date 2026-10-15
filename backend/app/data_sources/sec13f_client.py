@@ -140,6 +140,7 @@ def build_institutional_13f_payload(
     cusip_overrides: dict[str, str] | None = None,
     progress: ProgressCallback | None = None,
     sec_user_agent: str = "",
+    symbol_aliases: list[SymbolRecord] | None = None,
 ) -> Sec13FBuildResult:
     tickers = {normalize_ticker(value) for value in universe}
     tickers.discard("")
@@ -159,6 +160,7 @@ def build_institutional_13f_payload(
     )
     zip_paths = [download_dataset(link, cache_dir, sec_user_agent=sec_user_agent) for link in dataset_links]
     records = fetch_sec_company_symbol_records(tickers, sec_user_agent=sec_user_agent)
+    records.extend(record for record in (symbol_aliases or []) if record.ticker in tickers)
     fingerprint = hashlib.sha256(json.dumps({
         "artifacts": [(str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in zip_paths],
         "tickers": sorted(tickers), "overrides": cusip_overrides,
@@ -536,9 +538,13 @@ def build_symbol_indexes(
     for record in records:
         if not record.base_key:
             continue
-        by_base.setdefault(record.base_key, []).append(record)
+        base_records = by_base.setdefault(record.base_key, [])
+        if all(existing.ticker != record.ticker for existing in base_records):
+            base_records.append(record)
         if record.share_class:
-            by_base_class.setdefault((record.base_key, record.share_class), []).append(record)
+            class_records = by_base_class.setdefault((record.base_key, record.share_class), [])
+            if all(existing.ticker != record.ticker for existing in class_records):
+                class_records.append(record)
     return by_base, by_base_class
 
 
@@ -549,6 +555,12 @@ def build_cusip_mapping(
     overrides: dict[str, str],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     by_base, by_base_class = build_symbol_indexes(records)
+    by_tokens: dict[tuple[str, ...], list[SymbolRecord]] = {}
+    for record in records:
+        if record.base_key:
+            token_records = by_tokens.setdefault(tuple(sorted(record.base_key.split())), [])
+            if all(existing.ticker != record.ticker for existing in token_records):
+                token_records.append(record)
     mapped_rows: list[dict[str, Any]] = []
     unmatched_rows: list[dict[str, Any]] = []
 
@@ -582,6 +594,14 @@ def build_cusip_mapping(
                         method = "name_ambiguous_class_suffix"
                     else:
                         reason = "ambiguous_name"
+            if not ticker and not reason and base:
+                token_candidates = by_tokens.get(tuple(sorted(base.split())), [])
+                if len(token_candidates) == 1:
+                    ticker = token_candidates[0].ticker
+                    method = "name_tokens_unique"
+                elif len(token_candidates) > 1:
+                    candidates = token_candidates
+                    reason = "ambiguous_name"
             if not ticker and not reason:
                 reason = "no_name_match"
 
@@ -801,6 +821,7 @@ def extract_share_class(*values: object) -> str:
 
 def normalize_issuer_name(raw: object) -> str:
     text = str(raw or "").upper()
+    text = re.sub(r"\s*/[A-Z]{2,3}/?\s*$", "", text)
     text = text.replace("&", " AND ")
     text = re.sub(r"['`’]", "", text)
     text = re.sub(r"[^A-Z0-9]+", " ", text)
@@ -833,6 +854,27 @@ def normalize_issuer_name(raw: object) -> str:
     )
     for phrase in phrases:
         text = re.sub(rf"\b{re.escape(phrase)}\b", " ", text)
+    # SEC holdings frequently abbreviate issuer names while its ticker directory
+    # spells them out. Expand whole tokens before exact, ambiguity-checked matching.
+    abbreviations = {
+        "SYS": "SYSTEMS", "INTL": "INTERNATIONAL", "FINL": "FINANCIAL",
+        "SVCS": "SERVICES", "MTRS": "MOTORS", "HLDGS": "HOLDINGS",
+        "HLDG": "HOLDING", "INDS": "INDUSTRIES", "LABS": "LABORATORIES",
+        "PHARMS": "PHARMACEUTICALS", "RES": "RESOURCES",
+        "MATLS": "MATERIALS", "RLTY": "REALTY", "TR": "TRUST",
+        "RESH": "RESEARCH", "INDL": "INDUSTRIAL", "TECHS": "TECHNOLOGIES",
+        "TECH": "TECHNOLOGY", "COMMNS": "COMMUNICATIONS",
+        "ASSOCS": "ASSOCIATES", "ASSN": "ASSOCIATION", "NATL": "NATIONAL",
+        "AMER": "AMERICAN", "PHARM": "PHARMACEUTICAL", "CAP": "CAPITAL",
+        "MGMT": "MANAGEMENT", "INVTS": "INVESTMENTS", "INVT": "INVESTMENT",
+        "INS": "INSURANCE", "DEVS": "DEVICES", "DEV": "DEVELOPMENT",
+        "ACQUISITN": "ACQUISITION",
+
+    }
+    text = " ".join(abbreviations.get(word, word) for word in text.split())
+    text = re.sub(r"\bN V\b", "NV", text)
+    text = re.sub(r"\bS A\b", "SA", text)
+    text = re.sub(r"\bL P\b", "LP", text)
     suffixes = {
         "COM",
         "INC",
@@ -857,9 +899,11 @@ def normalize_issuer_name(raw: object) -> str:
         "HOLDINGS",
         "GROUP",
         "THE",
-        "DEL",
+        "DEL", "SHS", "SHARES",
     }
     words = [word for word in text.split() if word not in suffixes]
+    if words and words[-1] == "AND":
+        words.pop()
     return " ".join(words)
 
 
@@ -966,7 +1010,7 @@ def _is_na_scalar(value: object) -> bool:
 def _dataframe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
     if df.empty:
         return []
-    clean = df.where(pd.notna(df), None)
+    clean = df.astype(object).where(pd.notna(df), None)
     return [dict(row) for row in clean.to_dict(orient="records")]
 
 

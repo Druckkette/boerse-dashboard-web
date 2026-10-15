@@ -10,6 +10,7 @@ from app.data_sources.sec13f_client import (
     build_institutional_13f_payload,
     load_default_overrides,
     normalize_ticker,
+    SymbolRecord,
 )
 from app.domain.market.constants import DEFAULT_MARKET_UNIVERSE_TICKERS
 from app.repositories import sec13f as sec13f_repository
@@ -80,6 +81,11 @@ def refresh_institutional_13f_from_sec(
 ) -> dict:
     universe = _resolve_universe(payload)
     manual_overrides = _load_manual_overrides()
+    try:
+        aliases = [SymbolRecord(ticker=ticker, name=name)
+                   for ticker, name in sec13f_repository.list_symbol_names(universe)]
+    except Sec13FRepositoryUnavailable:
+        aliases = []
     cache_root = Path(str(payload.get("cache_dir") or os.environ.get("BACKEND_CACHE_DIR") or ".cache"))
     build_result = build_institutional_13f_payload(
         universe=universe,
@@ -90,6 +96,7 @@ def refresh_institutional_13f_from_sec(
         cusip_overrides=manual_overrides,
         progress=progress_callback,
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT"),
+        symbol_aliases=aliases,
     )
     known_overrides = {**load_default_overrides(set(universe)), **manual_overrides}
     revision = build_result.metadata.get("artifact_revision")
