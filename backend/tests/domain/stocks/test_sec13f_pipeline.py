@@ -402,3 +402,28 @@ def test_sec13f_established_cusip_repairs_changed_name_but_keeps_current_name_ma
     current = pd.DataFrame([{"CUSIP": "123456789", "issuer": "CURRENT ISSUER NAME", "title": "COM"}])
     mapping, _ = build_cusip_mapping(current, {"NEW", "OLD"}, records, {}, known_mappings={"123456789": "OLD"})
     assert mapping.iloc[0]["ticker"] == "NEW"
+
+
+def test_sec13f_fixed_width_truncation_requires_long_exact_unique_prefix():
+    meta = pd.DataFrame([{"CUSIP": "123456789", "issuer": "ARTISAN PARTNERS ASSET MGMT I CL A", "title": "Stock"}])
+    record = SymbolRecord(ticker="APAM", name="Artisan Partners Asset Management Inc.")
+    mapping, unmatched = build_cusip_mapping(meta, {"APAM"}, [record], {})
+    assert mapping.iloc[0]["ticker"] == "APAM"
+    assert mapping.iloc[0]["method"] == "issuer_prefix_unique"
+    assert unmatched.empty
+    other = SymbolRecord(ticker="OTHER", name="Artisan Partners Asset Management International Inc.")
+    mapping, unmatched = build_cusip_mapping(meta, {"APAM", "OTHER"}, [record, other], {})
+    assert mapping.empty
+    assert len(unmatched) == 1
+
+
+def test_verified_security_ids_handle_registered_share_names_and_abbreviated_issuer():
+    meta = pd.DataFrame([
+        {"CUSIP": "H5919C104", "issuer": "ON HLDG AG NAMEN AKT A", "title": "Stock"},
+        {"CUSIP": "78467J100", "issuer": "SS&C TECH HLDGS COM", "title": "Stock"}])
+    universe = {"ONON", "SSNC"}
+    mapping, unmatched = build_cusip_mapping(meta, universe,
+        [SymbolRecord(ticker="ONON", name="On Holding AG"),
+         SymbolRecord(ticker="SSNC", name="SS&C Technologies Holdings Inc.")], load_default_overrides(universe))
+    assert set(mapping["ticker"]) == universe
+    assert unmatched.empty

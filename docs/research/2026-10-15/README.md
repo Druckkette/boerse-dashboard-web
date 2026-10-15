@@ -7,15 +7,17 @@
 | Stand | Aktuelle Berichtsperiode | Veraltet | Fehlend |
 |---|---:|---:|---:|
 | Vor der Reparatur | 3.690 | 238 | 1.634 |
-| Nach der Reparatur | 4.603 | 14 | 945 |
+| Nach der Reparatur | 5.009 | 4 | 549 |
 
-Damit haben **913 zusätzliche Aktien** die erwartete Berichtsperiode. Geprüft wurden alle 5.562 aktiven Universumsmitglieder.
+Damit haben **1319 zusätzliche Aktien** die erwartete Berichtsperiode. Geprüft wurden alle 5.562 aktiven Universumsmitglieder.
 
 Bei VEEV scheiterte die Zuordnung von „VEEVA SYS INC CL A COM“ zu „VEEVA SYSTEMS INC“. Die SEC-Datei enthielt bereits 1.064 institutionelle Halter. Nach dem Import ist die 13F-Qualität auf dem NAS `fresh`, Berichtsperiode **30.06.2026**. Auch alle anderen Datenqualitätsbereiche von VEEV waren bei der abschließenden API-Prüfung aktuell.
 
-Die Reparatur verwendet standardisierte vollständige und abgekürzte Namen, Rechtsformzusätze, die aktuellen Handelsnamen und bei eindeutigen Treffern dieselben Namen in anderer Wortreihenfolge. Bereits gespeicherte, eindeutige CUSIP-Zuordnungen werden als Rückfall verwendet, wenn der aktuelle Name allein nicht zuordenbar ist. Mehrdeutige Zuordnungen bleiben offen. Fehlende Zahlen werden nicht geschätzt. Der regelmäßige 13F-Lauf umfasst künftig das ganze Universum; der globale Status zählt aktuelle, alte und fehlende Titel, statt nur den jüngsten Datensatz irgendeiner Aktie zu prüfen.
+Die Reparatur verwendet standardisierte vollständige und abgekürzte Namen, Rechtsformzusätze, die aktuellen Handelsnamen und bei eindeutigen Treffern dieselben Namen in anderer Wortreihenfolge. Lange, exakt übereinstimmende und im gesamten Namensbestand eindeutige Präfixe beheben abgeschnittene Firmennamen; kurze oder mehrdeutige Präfixe bleiben ausgeschlossen. Bereits gespeicherte, eindeutige CUSIP-Zuordnungen werden als Rückfall verwendet, wenn der aktuelle Name allein nicht zuordenbar ist. Mehrdeutige Zuordnungen bleiben offen. Fehlende Zahlen werden nicht geschätzt. Der regelmäßige 13F-Lauf umfasst künftig das ganze Universum; der globale Status zählt aktuelle, alte und fehlende Titel, statt nur den jüngsten Datensatz irgendeiner Aktie zu prüfen.
 
-**Offen bleiben 959 Titel: 945 ohne gespeicherte 13F-Daten und 14 mit altem Stand.** Die vorhandene Quelle und die eindeutigen Zuordnungen reichen für sie noch nicht aus. Diese Lücken sind nicht als „keine institutionellen Halter“ oder als aktuell umgedeutet. Ob jeweils ein Name, eine Wertpapierklasse, eine Umfirmierung, ein erst späterer Börsengang oder fehlende öffentliche Holdings ursächlich ist, ist damit noch nicht für jeden Einzelfall geklärt.
+**Offen bleiben 553 Titel: 549 ohne gespeicherte 13F-Daten und 4 mit altem Stand.** Die vorhandene Quelle und die eindeutigen Zuordnungen reichen für sie noch nicht aus. Diese Lücken sind nicht als „keine institutionellen Halter“ oder als aktuell umgedeutet. Ob jeweils ein Name, eine Wertpapierklasse, eine Umfirmierung, ein erst späterer Börsengang oder fehlende öffentliche Holdings ursächlich ist, ist damit noch nicht für jeden Einzelfall geklärt.
+
+Zusätzlich wurden über die bereits konfigurierte FMP-Verbindung 248 Profile geprüft: 230 lieferten gültige, prüfsummengeprüfte CUSIP-Kennungen, vier hatten einen Zuordnungskonflikt und 14 keine gültige CUSIP. Weitere Abrufe wurden mit **HTTP 429** begrenzt; 514 Anfragen blieben zurückgestellt. Der Bulk-Zugang war mit HTTP 402 nicht verfügbar. Erfolgreiche Kennungen sind auf dem NAS gespeichert und werden bei einem erneuten Lauf aus dem Cache verwendet. 36 der geprüften Profile nennen einen Börsengang nach dem aktuellen 13F-Berichtsstichtag; dieses Merkmal ist in der CSV gesondert gekennzeichnet. Anbieterbeschreibung: [FMP Company Profile mit CUSIP, ISIN und IPO-Datum](https://site.financialmodelingprep.com/developer/docs/stable/profile-symbol).
 
 [Vollständige Abdeckung je Aktie](13f-coverage.csv) · [Alle offenen Fälle](13f-unresolved.csv)
 
@@ -29,7 +31,7 @@ Die Datenbank enthält 54 Top-3-Empfehlungen aus 18 Bewertungsständen seit **22
 
 | Haltedauer | Empfehlungen / Bewertungstage | Aktien brutto | Aktien nach Kosten | SPY brutto | Mehrertrag brutto |
 |---|---:|---:|---:|---:|---:|
-| 1 Sitzungen | 48 / 16 | +0,09 % | -0,11 % | -0,05 % | +0,14 Prozentpunkte |
+| 1 Sitzung | 48 / 16 | +0,09 % | -0,11 % | -0,05 % | +0,14 Prozentpunkte |
 | 5 Sitzungen | 36 / 12 | +0,99 % | +0,79 % | +0,32 % | +0,68 Prozentpunkte |
 | 10 Sitzungen | 21 / 7 | +5,43 % | +5,22 % | +1,17 % | +4,26 Prozentpunkte |
 | 20 Sitzungen | 0 | Noch offen | Noch offen | – | – |

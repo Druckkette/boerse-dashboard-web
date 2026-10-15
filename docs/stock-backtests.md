@@ -34,3 +34,13 @@ Signale entstehen frühestens nach dem jeweiligen Tagesschluss; ihre Tranchen we
 Die Sensitivitäten 0, 10 und 25 Basispunkte je Kauf und Verkauf werden proportional zum ausgeführten Wert berechnet. Das Modell enthält keine Dividenden, Steuern, Wechselkurse, Broker-Mindestgebühren, Intraday-Daten oder Marktbeeinflussung. Verglichen werden Preisrenditen. Maximaler Rückgang wird aus dem täglichen Bruttowert einer einzelnen Kohorte einschließlich ihres Cash-Anteils gemessen.
 
 Die Ergebnisse berichten Kohortenmittel, Median, Gewinnquote und Rückgang. Sie werden weder zu einer handelbaren Gesamtportfolio-Rendite aufaddiert noch bei kurzen Horizonten als Jahresrendite ausgegeben. Die zwei halbjährlichen Einstiegsgruppen können sich kalenderbedingt überlappen. Es gibt keine nachträgliche Parameteroptimierung. Eine Rangfolge dieser Stichprobe ist kein Nachweis einer allgemeinen künftigen Überrendite.
+
+## Offene 13F-Kennungen fortsetzen
+
+Der optionale Kennungsabgleich nutzt die bereits konfigurierte FMP-Verbindung und den gemeinsamen Provider-Backoff. Er ändert keine Depotpositionen oder manuellen CUSIP-Zuordnungen. Erfolgreiche Profile werden 30 Tage aus dem Instrument-Cache gelesen; nach einem Providerlimit wird beim nächsten Lauf deshalb nicht erneut das erste Symbolpaket abgerufen. Nur exakt zurückgemeldete Symbole und CUSIPs mit gültiger Prüfsumme dürfen eine neue Kennung erzeugen. Konflikte bleiben sichtbar.
+
+```sh
+python -m app.research.repair_sec13f_identifiers identity-request.json identity-results.json
+```
+
+Anschließend verwendet ein regulärer vollständiger 13F-Lauf die gespeicherten Kennungen, um die echten SEC-Holdings zuzuordnen. FMP liefert hier ausschließlich Wertpapierkennungen und Stammdaten; die institutionellen Bestände stammen weiterhin aus den SEC-Dateien.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from bisect import bisect_left
 import re
 import tempfile
 import zipfile
@@ -61,6 +62,12 @@ DEFAULT_CUSIP_OVERRIDES = {
     "526057104": "LEN",
     "526057302": "LEN-B",
     "80004C200": "SNDK",
+    # Security IDs verified against SEC holdings and current issuer identities.
+    "H5919C104": "ONON",
+    "39540E401": "GP",
+    "654484609": "NB",
+    "654484104": "NB",
+    "78467J100": "SSNC",
 }
 
 ProgressCallback = Callable[[int, str, str, dict[str, Any]], None]
@@ -564,6 +571,12 @@ def build_cusip_mapping(
             token_records = by_tokens.setdefault(tuple(sorted(record.base_key.split())), [])
             if all(existing.ticker != record.ticker for existing in token_records):
                 token_records.append(record)
+    prefix_records: dict[str, set[str]] = {}
+    for record in records:
+        key = re.sub(r"[^A-Z0-9]", "", normalize_issuer_name(record.name, keep_legal_suffixes=True))
+        if key:
+            prefix_records.setdefault(key, set()).add(record.ticker)
+    prefix_keys = sorted(prefix_records)
     mapped_rows: list[dict[str, Any]] = []
     unmatched_rows: list[dict[str, Any]] = []
 
@@ -611,6 +624,22 @@ def build_cusip_mapping(
         if not ticker and (known_mappings or {}).get(cusip) in universe:
             ticker = known_mappings[cusip]
             method = "known_cusip"
+        if not ticker and reason != "ambiguous_name":
+            # Fixed-width issuer names in filings often end mid-word (e.g.
+            # ARTISAN PARTNERS ASSET MGMT I). Match only a long exact prefix,
+            # unique across every SEC/listing alias; never use edit distance.
+            identity = normalize_issuer_name(issuer, keep_legal_suffixes=True)
+            key = re.sub(r"[^A-Z0-9]", "", identity)
+            complete_legal_suffixes = {"INC", "CORP", "CORPORATION", "PLC", "LTD", "LIMITED", "SA", "AG", "NV"}
+            if len(key) >= 20 and len(normalize_issuer_name(issuer).split()) >= 2 and identity.split()[-1] not in complete_legal_suffixes:
+                offset = bisect_left(prefix_keys, key)
+                prefix_candidates: set[str] = set()
+                while offset < len(prefix_keys) and prefix_keys[offset].startswith(key):
+                    prefix_candidates.update(prefix_records[prefix_keys[offset]])
+                    offset += 1
+                if len(prefix_candidates) == 1:
+                    ticker = next(iter(prefix_candidates))
+                    method = "issuer_prefix_unique"
         if ticker and (not universe or ticker in universe):
             mapped_rows.append(
                 {
@@ -825,7 +854,7 @@ def extract_share_class(*values: object) -> str:
     return ""
 
 
-def normalize_issuer_name(raw: object) -> str:
+def normalize_issuer_name(raw: object, *, keep_legal_suffixes: bool = False) -> str:
     text = str(raw or "").upper()
     text = re.sub(r"\s*/[A-Z]{2,3}/?\s*$", "", text)
     text = re.sub(r"\bEXXON\s+MOBIL\b", "EXXONMOBIL", text)
@@ -890,6 +919,8 @@ def normalize_issuer_name(raw: object) -> str:
     text = re.sub(r"\bN V\b", "NV", text)
     text = re.sub(r"\bS A\b", "SA", text)
     text = re.sub(r"\bL P\b", "LP", text)
+    if keep_legal_suffixes:
+        return " ".join(text.split())
     suffixes = {
         "COM",
         "INC",
