@@ -141,6 +141,7 @@ def build_institutional_13f_payload(
     progress: ProgressCallback | None = None,
     sec_user_agent: str = "",
     symbol_aliases: list[SymbolRecord] | None = None,
+    known_cusip_mappings: dict[str, str] | None = None,
 ) -> Sec13FBuildResult:
     tickers = {normalize_ticker(value) for value in universe}
     tickers.discard("")
@@ -164,6 +165,7 @@ def build_institutional_13f_payload(
     fingerprint = hashlib.sha256(json.dumps({
         "artifacts": [(str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in zip_paths],
         "tickers": sorted(tickers), "overrides": cusip_overrides,
+        "known_mappings": known_cusip_mappings,
         "symbols": [asdict(record) for record in records],
         "minimum_value": large_holder_min_value_usd,
         "engine": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -211,8 +213,8 @@ def build_institutional_13f_payload(
         ticker = normalize_ticker(raw_ticker)
         if cusip and ticker and ticker in tickers:
             overrides[cusip] = ticker
-    cusip_meta = append_override_meta_rows(cusip_meta, holdings, overrides, tickers)
-    mapping, unmatched = build_cusip_mapping(cusip_meta, tickers, records, overrides)
+    cusip_meta = append_override_meta_rows(cusip_meta, holdings, {**(known_cusip_mappings or {}), **overrides}, tickers)
+    mapping, unmatched = build_cusip_mapping(cusip_meta, tickers, records, overrides, known_mappings=known_cusip_mappings)
 
     _emit(progress, 78, "Ticker-Trends berechnen", "13F-Halter und Werte werden je Ticker aggregiert.", {})
     ticker_agg = aggregate_by_ticker(
@@ -553,6 +555,7 @@ def build_cusip_mapping(
     universe: set[str],
     records: list[SymbolRecord],
     overrides: dict[str, str],
+    *, known_mappings: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     by_base, by_base_class = build_symbol_indexes(records)
     by_tokens: dict[tuple[str, ...], list[SymbolRecord]] = {}
@@ -605,6 +608,9 @@ def build_cusip_mapping(
             if not ticker and not reason:
                 reason = "no_name_match"
 
+        if not ticker and (known_mappings or {}).get(cusip) in universe:
+            ticker = known_mappings[cusip]
+            method = "known_cusip"
         if ticker and (not universe or ticker in universe):
             mapped_rows.append(
                 {
@@ -822,6 +828,8 @@ def extract_share_class(*values: object) -> str:
 def normalize_issuer_name(raw: object) -> str:
     text = str(raw or "").upper()
     text = re.sub(r"\s*/[A-Z]{2,3}/?\s*$", "", text)
+    text = re.sub(r"\bEXXON\s+MOBIL\b", "EXXONMOBIL", text)
+    text = re.sub(r"\bBANK OF AMER\b", "BANK OF AMERICA", text)
     text = text.replace("&", " AND ")
     text = re.sub(r"['`’]", "", text)
     text = re.sub(r"[^A-Z0-9]+", " ", text)
@@ -868,7 +876,14 @@ def normalize_issuer_name(raw: object) -> str:
         "AMER": "AMERICAN", "PHARM": "PHARMACEUTICAL", "CAP": "CAPITAL",
         "MGMT": "MANAGEMENT", "INVTS": "INVESTMENTS", "INVT": "INVESTMENT",
         "INS": "INSURANCE", "DEVS": "DEVICES", "DEV": "DEVELOPMENT",
-        "ACQUISITN": "ACQUISITION",
+        "ACQUISITN": "ACQUISITION", "MANUFACT": "MANUFACTURING",
+        "MFG": "MANUFACTURING", "INSTRS": "INSTRUMENTS", "HLDNGS": "HOLDINGS",
+        "MACHS": "MACHINES", "COS": "COMPANIES", "PAC": "PACIFIC",
+        "BK": "BANK", "CDA": "CANADA", "SYSTEM": "SYSTEMS",
+        "AMERN": "AMERICAN", "COML": "COMMERCIAL", "ENTMT": "ENTERTAINMENT",
+        "ELECTRS": "ELECTRONICS", "TECHNOLOGIE": "TECHNOLOGIES", "EQ": "EQUITIES",
+        "FIN": "FINANCE", "RESOUR": "RESOURCES", "FAM": "FAMILY", "SOL": "SOLUTIONS",
+        "ELEC": "ELECTRIC", "PWR": "POWER", "WTR": "WATER", "WKS": "WORKS",
 
     }
     text = " ".join(abbreviations.get(word, word) for word in text.split())
@@ -899,9 +914,12 @@ def normalize_issuer_name(raw: object) -> str:
         "HOLDINGS",
         "GROUP",
         "THE",
-        "DEL", "SHS", "SHARES",
+        "DEL", "SHS", "SHARES", "OF", "ONT",
     }
-    words = [word for word in text.split() if word not in suffixes]
+    tokens = text.split()
+    if tokens and tokens[-1] in {"IN", "COR"}:
+        tokens.pop()
+    words = [word for word in tokens if word not in suffixes]
     if words and words[-1] == "AND":
         words.pop()
     return " ".join(words)

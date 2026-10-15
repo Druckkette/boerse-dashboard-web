@@ -234,3 +234,14 @@ def test_13f_coverage_counts_each_missing_and_stale_member():
     assert coverage["current_count"] == 1
     assert coverage["missing_sample"] == ["MISSING"]
     assert coverage["stale_sample"] == ["OLD"]
+
+
+@pytest.mark.parametrize(("period", "expected"), [
+    (date(2026, 9, 30), date(2026, 11, 16)),
+    (date(2026, 12, 31), date(2027, 2, 16)),
+    (date(2025, 12, 31), date(2026, 2, 17)),
+])
+def test_sec_13f_deadline_moves_past_weekends_and_federal_holidays(period, expected):
+    assert freshness._13f_due_date(period) == expected
+    assert freshness._required_13f_period(expected)[0] < period
+    assert freshness._required_13f_period(expected + freshness.timedelta(days=1))[0] == period

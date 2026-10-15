@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import Institutional13FTrend, Instrument, Sec13fCusipMapping
@@ -54,6 +54,19 @@ class Sec13FMappingRow:
 
 class Sec13FRepositoryUnavailable(RuntimeError):
     pass
+
+
+def list_known_cusip_mappings(tickers: list[str]) -> dict[str, str]:
+    """Reuse established security IDs only when exactly one active ticker owns it."""
+    try:
+        with SessionLocal() as db:
+            rows = db.execute(select(Sec13fCusipMapping.cusip, func.min(Sec13fCusipMapping.ticker))
+                .where(Sec13fCusipMapping.ticker.in_(tickers), Sec13fCusipMapping.confidence >= 1)
+                .group_by(Sec13fCusipMapping.cusip)
+                .having(func.count(func.distinct(Sec13fCusipMapping.ticker)) == 1)).all()
+            return {cusip: ticker for cusip, ticker in rows if len(cusip) == 9 and cusip.isalnum()}
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
 
 
 def list_symbol_names(tickers: list[str]) -> list[tuple[str, str]]:

@@ -375,3 +375,30 @@ def test_sec13f_duplicate_alias_does_not_create_false_ambiguity():
          SymbolRecord(ticker="VEEV", name="Veeva Systems Inc. Class A Common Stock")], {})
     assert list(mapping["ticker"]) == ["VEEV"]
     assert unmatched.empty
+
+
+def test_sec13f_main_cusips_with_abbreviated_names_are_not_silently_omitted():
+    meta = pd.DataFrame([
+        {"CUSIP": "874039100", "issuer": "TAIWAN SEMICONDUCTOR MANUFACT", "title": "SPONSORED ADS"},
+        {"CUSIP": "882508104", "issuer": "TEXAS INSTRS INC COM", "title": "Stock"},
+        {"CUSIP": "127387108", "issuer": "CADENCE DESIGN SYSTEM INC COM", "title": "Stock"},
+        {"CUSIP": "30231G102", "issuer": "EXXON MOBIL CORP COM", "title": "Stock"}])
+    records = [SymbolRecord(ticker="TSM", name="TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD"),
+               SymbolRecord(ticker="TXN", name="TEXAS INSTRUMENTS INC"),
+               SymbolRecord(ticker="CDNS", name="CADENCE DESIGN SYSTEMS INC"),
+               SymbolRecord(ticker="XOM", name="ExxonMobil Holdings Corp")]
+    mapping, unmatched = build_cusip_mapping(meta, {r.ticker for r in records}, records, {})
+    assert set(mapping["cusip"]) == set(meta["CUSIP"])
+    assert unmatched.empty
+
+
+def test_sec13f_established_cusip_repairs_changed_name_but_keeps_current_name_match():
+    meta = pd.DataFrame([{"CUSIP": "123456789", "issuer": "OLD ISSUER NAME", "title": "COM"}])
+    records = [SymbolRecord(ticker="NEW", name="CURRENT ISSUER NAME")]
+    mapping, unmatched = build_cusip_mapping(meta, {"NEW"}, records, {}, known_mappings={"123456789": "NEW"})
+    assert mapping.iloc[0]["ticker"] == "NEW"
+    assert mapping.iloc[0]["method"] == "known_cusip"
+    assert unmatched.empty
+    current = pd.DataFrame([{"CUSIP": "123456789", "issuer": "CURRENT ISSUER NAME", "title": "COM"}])
+    mapping, _ = build_cusip_mapping(current, {"NEW", "OLD"}, records, {}, known_mappings={"123456789": "OLD"})
+    assert mapping.iloc[0]["ticker"] == "NEW"

@@ -82,6 +82,10 @@ def refresh_institutional_13f_from_sec(
     universe = _resolve_universe(payload)
     manual_overrides = _load_manual_overrides()
     try:
+        known_mappings = sec13f_repository.list_known_cusip_mappings(universe)
+    except Sec13FRepositoryUnavailable:
+        known_mappings = {}
+    try:
         aliases = [SymbolRecord(ticker=ticker, name=name)
                    for ticker, name in sec13f_repository.list_symbol_names(universe)]
     except Sec13FRepositoryUnavailable:
@@ -97,8 +101,9 @@ def refresh_institutional_13f_from_sec(
         progress=progress_callback,
         sec_user_agent=get_runtime_config_value("SEC_USER_AGENT"),
         symbol_aliases=aliases,
+        known_cusip_mappings=known_mappings,
     )
-    known_overrides = {**load_default_overrides(set(universe)), **manual_overrides}
+    known_overrides = {**known_mappings, **load_default_overrides(set(universe)), **manual_overrides}
     revision = build_result.metadata.get("artifact_revision")
     try:
         checkpoint = _read_json_setting("sec13f_ingested_artifact")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
+from functools import lru_cache
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -505,9 +506,22 @@ def _institutional_13f_freshness(
     )
 
 
+@lru_cache(maxsize=64)
+def _13f_due_date(period: date) -> date:
+    # SEC FAQ 25: a weekend or federal holiday moves the deadline to the next
+    # business day, e.g. 2026-09-30 -> 2026-11-16, not Saturday 2026-11-14.
+    from pandas.tseries.holiday import USFederalHolidayCalendar
+    deadline = period + timedelta(days=45)
+    holidays = {day.date() for day in USFederalHolidayCalendar().holidays(
+        start=deadline, end=deadline + timedelta(days=7))}
+    while deadline.weekday() >= 5 or deadline in holidays:
+        deadline += timedelta(days=1)
+    return deadline
+
+
 def _required_13f_period(today: date) -> tuple[date, date, date]:
     completed_period = _latest_completed_quarter_end(today)
-    due_date = completed_period + timedelta(days=45)
+    due_date = _13f_due_date(completed_period)
     required_period = (
         completed_period
         if today > due_date
