@@ -771,7 +771,7 @@ def _trade_summary(trade_id: str, rows: list[Any], *, include_executions: bool =
         results.append(result)
     realized_values = [float(value) for value in results if value is not None]
     incomplete = any(value is None for value in results) or len({getattr(row, "currency", "USD") for row in ordered}) > 1
-    realized = None if incomplete and sells else sum(realized_values)
+    realized = None if not buys or not sells or incomplete else sum(realized_values)
     cost = 0.0
     for row in sells:
         for allocation in (row.portfolio_snapshot_json or {}).get("allocations", []):

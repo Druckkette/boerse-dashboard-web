@@ -116,3 +116,16 @@ def test_research_checksums_and_open_horizons_are_reproducible():
     open_horizons = [row for row in result["horizons"] if row["sessions"] == 63]
     assert all(row["observations"] == 0 and row["stock_net_pct"] is None for row in open_horizons)
     assert all(row["stock_net_pct"] is None or row["benchmark_net_pct"] is not None for row in result["horizons"])
+
+
+
+def test_standalone_review_is_not_a_zero_profit_closed_trade(monkeypatch):
+    row = SimpleNamespace(id="review", ticker="TEST", entry_type="ex_post", trade_date=date(2025, 1, 3),
+        created_at=datetime(2025, 1, 3, tzinfo=UTC), shares=None, price=None, currency="EUR",
+        stock_snapshot_json={}, market_snapshot_json={}, sell_assessment_json={}, questionnaire_json={},
+        portfolio_snapshot_json={})
+    summary = trade_journal._trade_summary("review", [row], include_executions=False)
+    assert summary.realized_pnl is None
+    monkeypatch.setattr(trade_journal, "get_trade_journal_trades", lambda **kw: SimpleNamespace(trades=[summary]))
+    result = trade_journal.get_trade_journal_analytics()
+    assert result.closed_trades == 0 and result.hit_rate_pct is None and result.net_result is None
