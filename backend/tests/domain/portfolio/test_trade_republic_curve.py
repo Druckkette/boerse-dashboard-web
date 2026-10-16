@@ -483,14 +483,15 @@ def test_tax_refund_is_net_performance_not_external_deposit(monkeypatch):
 
 
 def test_fixed_redemption_receivable_bridges_until_actual_broker_payment(monkeypatch):
+    # Synthetic quantities and cash movements; issuer fixing terms are public.
     from types import SimpleNamespace
     monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2026, 2, 13))
     isin = "DE000VJ4G2A7"
     tx = [
-        _tr_row(date(2026, 2, 6), "customer_inbound", 0, None, 9543),
-        _tr_row(date(2026, 2, 6), "buy", 2600, 3.67, -9543, isin=isin, asset_class="DERIVATIVE"),
-        _tr_row(date(2026, 2, 13), "warrant_exercise", 2600, 0, 0, isin=isin, asset_class="DERIVATIVE"),
-        _tr_row(date(2026, 2, 13), "warrant_exercise", 0, 0, 10166, isin=isin, asset_class="DERIVATIVE"),
+        _tr_row(date(2026, 2, 6), "customer_inbound", 0, None, 368),
+        _tr_row(date(2026, 2, 6), "buy", 100, 3.67, -368, isin=isin, asset_class="DERIVATIVE"),
+        _tr_row(date(2026, 2, 13), "warrant_exercise", 100, 0, 0, isin=isin, asset_class="DERIVATIVE"),
+        _tr_row(date(2026, 2, 13), "warrant_exercise", 0, 0, 391, isin=isin, asset_class="DERIVATIVE"),
     ]
     monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: tx)
     monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda tickers: {
@@ -501,12 +502,12 @@ def test_fixed_redemption_receivable_bridges_until_actual_broker_payment(monkeyp
     result = portfolio_service.get_portfolio_curve(start_date=date(2026, 2, 6), model="execution_history")
     points = {point.date: point for point in result.points}
     for day in ["2026-02-06", "2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12"]:
-        assert points[day].positions_value == 10166
+        assert points[day].positions_value == 391
         assert points[day].cash == 0
         assert points[day].redemption_receivables == [isin]
         assert points[day].valuation_complete
     assert points["2026-02-13"].positions_value == 0
-    assert points["2026-02-13"].cash == 10166
+    assert points["2026-02-13"].cash == 391
     assert points["2026-02-13"].redemption_receivables == []
     assert points["2026-02-12"].portfolio_index == points["2026-02-13"].portfolio_index
 
