@@ -18,7 +18,7 @@ export function PortfolioCurvePanel() {
     <div className="space-y-2.5">
       <div className="flex flex-col gap-2.5 rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)] md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-base font-semibold">Depotkurve</h2>
+          <h2 className="text-base font-semibold">{curve?.model === "execution_history" ? "Depotkurve aus Ausführungen" : curve?.model === "current_holdings" ? "Simulation des heutigen Bestands" : "Depotkurve"}</h2>
           <p className="mt-0.5 text-xs leading-5 text-[#687386]">
             Depot und S&P 500 werden ab dem Basistag gemeinsam auf 100 gesetzt. Standard ist der 01.01. des laufenden Jahres.
           </p>
@@ -33,12 +33,7 @@ export function PortfolioCurvePanel() {
           />
         </label>
       </div>
-      {curve?.points.length && curve.message ? (
-        <details className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <summary className="cursor-pointer font-medium">Berechnungsgrundlage und Einschränkungen</summary>
-          <p className="mt-2 leading-6">{curve.message}</p>
-        </details>
-      ) : null}
+      {curve && <p className="app-notice">{curve.model === "current_holdings" ? "Keine historische Depotperformance. " : "Cashbewegungen werden am Tagesende berücksichtigt. "}{curve.message} · Bewertbare Tage {curve.complete_points ?? "–"}/{curve.total_points ?? curve.points.length}. Lücken werden nicht durch zukünftige Kurse ersetzt.</p>}
       <LineChartCard
         caption={
           curve?.points.length

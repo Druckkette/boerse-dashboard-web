@@ -12,3 +12,12 @@ frontend/node_modules
 frontend/tsconfig.tsbuildinfo
 *.sqlite
 *.sqlite3
+.env*
+**/.env*
+infra/backups
+output
+industry_group_analysis
+frontend/test-results
+frontend/playwright-report
+*.dump*
+**/*.dump*

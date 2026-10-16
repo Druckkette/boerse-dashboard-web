@@ -8,9 +8,12 @@ import { PortfolioCurvePanel } from "@/features/portfolio/portfolio-curve-panel"
 import { PortfolioManagementPanel } from "@/features/portfolio/portfolio-management-panel";
 import { PositionTable } from "@/features/portfolio/position-table";
 import { api } from "@/lib/api/client";
+import { QueryState } from "@/components/ui/query-state";
+import { PortfolioAnalysisPanel } from "@/features/portfolio/portfolio-analysis-panel";
 
 export default function PortfolioPage() {
-  const { data } = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot, refetchInterval: 60_000 });
+  const query = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot, refetchInterval: 60_000 });
+  const { data } = query;
   const afterHoursMutation = useMutation({ mutationFn: api.portfolioAfterHours });
   const afterHoursByTicker = new Map(
     afterHoursMutation.data?.positions.map((position) => [position.ticker, position]) ?? []
@@ -18,6 +21,7 @@ export default function PortfolioPage() {
 
   return (
     <div className="space-y-4">
+      <QueryState loading={query.isLoading} error={query.error} hasData={Boolean(data)} onRetry={() => query.refetch()} />
       <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         {data?.kpis.map((item) => <KpiCard key={item.label} item={item} />)}
       </div>
@@ -71,12 +75,13 @@ export default function PortfolioPage() {
       {data ? (
         <>
           <PortfolioCurvePanel />
+          <PortfolioAnalysisPanel />
           <BuyStrengthPanel />
           <PositionTable afterHoursByTicker={afterHoursByTicker} positions={data.positions} />
           <PortfolioManagementPanel positions={data.positions} />
         </>
       ) : (
-        <div className="rounded border border-[#2d333d] p-4">Portfolio lädt...</div>
+        null
       )}
     </div>
   );

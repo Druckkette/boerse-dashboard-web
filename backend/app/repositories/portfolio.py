@@ -47,6 +47,7 @@ class PortfolioPositionWrite:
     account: str
     note: str
     record_transaction: bool
+    create_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,10 @@ class TradeRepublicImportResult:
 
 
 class PortfolioRepositoryUnavailable(RuntimeError):
+    pass
+
+
+class PositionAlreadyExists(ValueError):
     pass
 
 
@@ -339,6 +344,7 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
 
     try:
         with SessionLocal() as db:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"position:{clean}"})
             instrument = _get_or_create_instrument(
                 db,
                 ticker=clean,
@@ -349,6 +355,8 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
                 select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
             ).first()
             previous_shares = float(position.shares) if position is not None else 0.0
+            if position is not None and write.create_only:
+                raise PositionAlreadyExists("Für diese Aktie besteht bereits eine offene Position. Bitte im Portfolio bearbeiten.")
             if position is None:
                 position = Position(
                     instrument_id=instrument.id,
@@ -572,29 +580,42 @@ def list_cash_flows(*, limit: int = 250) -> list[PortfolioCashFlowRow]:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
-def get_cash_balance() -> float:
+def get_cash_balances() -> dict[str, float]:
+    from collections import defaultdict
+    from decimal import Decimal
     try:
         with SessionLocal() as db:
             cash_flows = db.scalars(select(CashFlow)).all()
             transactions = db.scalars(select(Transaction)).all()
-            balance = 0.0
+            balances = defaultdict(lambda: Decimal(0))
             for flow in cash_flows:
-                amount = float(flow.amount or 0)
+                amount = Decimal(str(flow.amount or 0))
+                currency = str(flow.currency or "EUR").upper()
                 if flow.flow_type == "withdrawal":
-                    balance -= amount
+                    balances[currency] -= amount
                 else:
-                    balance += amount
+                    balances[currency] += amount
             for tx in transactions:
-                net = float(tx.net_amount or 0)
+                net = Decimal(str(tx.net_amount or 0))
+                currency = str(tx.currency or "EUR").upper()
                 if (tx.raw_json or {}).get("source") == "trade_republic_transactions":
-                    balance += net
+                    balances[currency] += net
                 elif tx.transaction_type == "buy":
-                    balance -= abs(net)
+                    balances[currency] -= abs(net)
                 elif tx.transaction_type == "sell":
-                    balance += abs(net)
-            return round(balance, 2)
+                    balances[currency] += abs(net)
+            return {currency: float(balance) for currency, balance in balances.items()}
     except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
+
+
+def get_cash_balance() -> float:
+    """Compatibility total in EUR; never add native amounts from different currencies."""
+    from app.services.money import convert_amount, money_sum, rounded_money
+    values = [convert_amount(value, currency, "EUR") for currency, value in get_cash_balances().items()]
+    if any(value is None for value in values):
+        raise PortfolioRepositoryUnavailable("Cashsaldo nicht umrechenbar: beobachtete Wechselkurse fehlen.")
+    return rounded_money(money_sum(values))
 
 
 def list_import_history(*, limit: int = 100) -> list[PortfolioImportHistoryRow]:

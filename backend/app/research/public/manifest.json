@@ -1,0 +1,18 @@
+{
+  "cutoff": "2026-10-14",
+  "generated_at": "2026-10-15T20:55:32.193025",
+  "input_sha256": "6cd9c2d1a449414c72df0296b6e8af02b49d1f12ed5daf294adb6504dc2922c5",
+  "recommendation_events": 54,
+  "limitations": [
+    "Stored recommendations start 2026-09-22; no fabricated historical fundamentals.",
+    "Exit-only sample is deterministic from today's universe and has survivorship bias.",
+    "Price returns exclude dividends, taxes, FX and intraday stop fills.",
+    "Cohorts overlap and are not an investable compounded portfolio.",
+    "Current configured rules are replayed unchanged; parameters were not optimized."
+  ],
+  "files": {
+    "sell-summary.csv": "703c555ec0ff439781af5dd424d4f35b20e2e8cf2a7d8828c8e58c57d768c9a3",
+    "recommendation-events.csv": "710dab38f5fa1d301789a5afb02794a4eb3f2e0ea07fa0aa9e817b92b37a4244"
+  },
+  "scope": "Archived public stock recommendations and exit-only cohorts; no personal journal data."
+}

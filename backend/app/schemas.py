@@ -643,6 +643,7 @@ class RsRatingDetailResponse(BaseModel):
 
 
 class StockAssessmentCheck(BaseModel):
+    id: str = ""
     category: Literal["fundamental", "technical", "trend", "risk"]
     label: str
     passed: bool
@@ -806,6 +807,7 @@ class StockEarningsWarning(BaseModel):
 
 
 class StockAssessmentResponse(BaseModel):
+    calculation: dict = Field(default_factory=dict)
     data_quality: dict[str, dict] = Field(default_factory=dict)
     ticker: str
     as_of: str
@@ -835,6 +837,8 @@ class StockAssessmentResponse(BaseModel):
 
 
 class StockAssessmentRankingItem(BaseModel):
+    calculation: dict = Field(default_factory=dict)
+    configuration_current: bool | None = None
     ticker: str
     name: str
     as_of: str
@@ -873,6 +877,7 @@ class StockScreeningItem(StockAssessmentRankingItem):
 
 
 class StockScreeningResponse(BaseModel):
+    criterion_options: list[dict] = Field(default_factory=list)
     summary: dict = Field(default_factory=dict)
     rows: list[StockScreeningItem]
     total_count: int = 0
@@ -1046,6 +1051,12 @@ class Sec13FMappingUpdateRequest(BaseModel):
 
 
 class PortfolioPosition(BaseModel):
+    position_id: str = ""
+    base_currency: str = "EUR"
+    base_market_value: float | None = None
+    base_pnl_abs: float | None = None
+    fx_as_of: str | None = None
+    fx_source: str = "identity"
     ticker: str
     name: str
     shares: float
@@ -1110,16 +1121,17 @@ class PortfolioAfterHoursResponse(BaseModel):
 
 
 class PortfolioPositionWriteRequest(BaseModel):
+    create_only: bool = False
     ticker: str
     name: str = ""
-    shares: float = Field(gt=0)
-    entry_price: float = Field(gt=0)
-    current_price: float | None = Field(default=None, gt=0)
+    shares: float = Field(gt=0, allow_inf_nan=False)
+    entry_price: float = Field(gt=0, allow_inf_nan=False)
+    current_price: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     currency: str = "EUR"
     buy_date: str | None = None
     pivot_tag: str | None = None
     stop_pct: float | None = Field(default=7.0, gt=0, le=50)
-    stop_price: float | None = Field(default=None, gt=0)
+    stop_price: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     broker: str = ""
     account: str = ""
     note: str = ""
@@ -1160,8 +1172,8 @@ class PortfolioTransactionsResponse(BaseModel):
 
 
 class PortfolioSellRequest(BaseModel):
-    shares: float = Field(gt=0)
-    price: float = Field(gt=0)
+    shares: float = Field(gt=0, allow_inf_nan=False)
+    price: float = Field(gt=0, allow_inf_nan=False)
     date: str | None = None
     currency: str = "EUR"
     fees: float = 0
@@ -1188,7 +1200,7 @@ class PortfolioCashFlow(BaseModel):
 
 class PortfolioCashFlowRequest(BaseModel):
     date: str | None = None
-    amount: float = Field(gt=0)
+    amount: float = Field(gt=0, allow_inf_nan=False)
     flow_type: Literal["deposit", "withdrawal", "dividend", "interest", "tax", "fee", "other"]
     currency: str = "EUR"
     broker: str = ""
@@ -1307,6 +1319,7 @@ class IsinMappingListResponse(BaseModel):
 
 
 class PortfolioSnapshotResponse(BaseModel):
+    currency: str = "EUR"
     as_of: str
     total_value: float
     invested_value: float
@@ -1327,17 +1340,24 @@ class PortfolioSnapshotResponse(BaseModel):
 
 
 class PortfolioCurvePoint(BaseModel):
+    valuation_complete: bool = True
+    missing_instruments: list[str] = Field(default_factory=list)
     date: str
-    depot_value: float
-    positions_value: float
-    cash: float
-    portfolio_index: float
+    depot_value: float | None
+    positions_value: float | None
+    cash: float | None
+    portfolio_index: float | None
     portfolio_index_sma10: float | None = None
     portfolio_index_sma21: float | None = None
     sp500_index: float | None = None
 
 
 class PortfolioCurveResponse(BaseModel):
+    model: Literal["execution_history", "current_holdings", "unavailable"] = "unavailable"
+    currency: str = "USD"
+    complete_points: int = 0
+    total_points: int = 0
+    cash_flow_timing: str = "end_of_day"
     as_of: str
     source: Literal["database", "trade_republic_transactions", "missing"]
     data_status: Literal["fresh", "limited", "stale", "missing"]
@@ -1457,13 +1477,13 @@ class TradeJournalEntryRequest(BaseModel):
     ticker: str = Field(min_length=1, max_length=32)
     entry_type: Literal["buy", "sell", "ex_post"]
     trade_date: date | None = None
-    price: float | None = Field(default=None, gt=0)
-    shares: float | None = Field(default=None, gt=0)
+    price: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    shares: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     currency: str = Field(default="USD", min_length=3, max_length=8)
-    fees: float | None = Field(default=None, ge=0)
-    tax: float | None = Field(default=None, ge=0)
+    fees: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    tax: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     source_evidence: str = ""
-    stop_price: float | None = Field(default=None, gt=0)
+    stop_price: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     linked_entry_id: str | None = None
     status: Literal["open", "closed", "draft"] | None = None
     basis_text: str = ""
@@ -1575,6 +1595,12 @@ class TradeJournalNoteRequest(BaseModel):
 
 
 class TradeJournalTradeSummary(BaseModel):
+    initial_risk: float | None = None
+    r_multiple: float | None = None
+    setup_tag: str = "unknown"
+    market_phase: str = "unknown"
+    sector: str = "unknown"
+    rule_deviation: str = "unknown"
     id: str
     ticker: str
     status: Literal["open", "closed", "partial"]
@@ -1601,8 +1627,14 @@ class TradeJournalTradesResponse(BaseModel):
 
 
 class TradeJournalAnalyticsResponse(BaseModel):
+    currency: str | None = None
+    by_currency: list[dict] = Field(default_factory=list)
+    groups: list[dict] = Field(default_factory=list)
+    group_by: str = "setup"
+    context: str = "all"
+    notes: list[str] = Field(default_factory=list)
     closed_trades: int = 0
-    net_result: float = 0
+    net_result: float | None = 0
     winners: int = 0
     losers: int = 0
     hit_rate_pct: float | None = None
@@ -1900,6 +1932,7 @@ class AssessmentScoreWeights(BaseModel):
 
 
 class AppSettings(BaseModel):
+    calculation_refresh: dict = Field(default_factory=dict)
     atr_threshold: float
     risk_per_position_pct: float = 1.0
     target_risk_contribution: float = 0.20

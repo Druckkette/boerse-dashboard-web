@@ -137,13 +137,13 @@ function BreadthSignalCard({
   tone: Tone;
 }) {
   return (
-    <div className={["rounded border bg-[#171a20] p-4", cardClass(tone)].join(" ")}>
+    <div className={["rounded border bg-[var(--panel)] p-4", cardClass(tone)].join(" ")}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-xs uppercase text-[#a0a7b4]">{title}</div>
+        <div className="text-xs uppercase text-[var(--muted)]">{title}</div>
         <StatusChip tone={tone}>{toneLabel(tone)}</StatusChip>
       </div>
       <div className={["text-2xl font-semibold tracking-normal tabular-nums", toneText(tone)].join(" ")}>{status}</div>
-      <div className="mt-2 text-sm leading-5 text-[#d8dde6]">{detail}</div>
+      <div className="mt-2 text-sm leading-5 text-[var(--text)]">{detail}</div>
     </div>
   );
 }
@@ -162,17 +162,17 @@ function toneForRatio(highs: number, lows: number): Tone {
 }
 
 function cardClass(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/35 bg-emerald-300/10";
-  if (tone === "bad") return "border-rose-300/35 bg-rose-300/10";
-  if (tone === "warning") return "border-amber-300/35 bg-amber-300/10";
-  return "border-[#2d333d]";
+  if (tone === "good") return "border-emerald-300/35 bg-[var(--green-soft)]";
+  if (tone === "bad") return "border-rose-300/35 bg-[var(--red-soft)]";
+  if (tone === "warning") return "border-amber-300/35 bg-[var(--yellow-soft)]";
+  return "border-[var(--border)]";
 }
 
 function toneText(tone: Tone) {
-  if (tone === "good") return "text-emerald-200";
-  if (tone === "bad") return "text-rose-200";
-  if (tone === "warning") return "text-amber-100";
-  return "text-[#c9d0da]";
+  if (tone === "good") return "text-[var(--green)]";
+  if (tone === "bad") return "text-[var(--red)]";
+  if (tone === "warning") return "text-[var(--yellow)]";
+  return "text-[var(--text)]";
 }
 
 function toneLabel(tone: Tone) {

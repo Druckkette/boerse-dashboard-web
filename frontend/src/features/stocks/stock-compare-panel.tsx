@@ -10,6 +10,8 @@ import { useMemo, useState } from "react";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { useViewState } from "@/lib/view-state";
+import { SavedViews } from "@/components/ui/saved-views";
 import type { StockAssessmentCompareItem, WorkspaceState } from "@/lib/types/api";
 
 const defaultTickers = ["NVDA", "MSFT", "AAPL", "AMZN", "GOOGL"];
@@ -26,9 +28,12 @@ type CompareCategory = (typeof categories)[number];
 export function StockComparePanel() {
   const beta = useBetaMode();
   const [open, setOpen] = useState(false);
-  const [tickers, setTickers] = useState<string[]>(defaultTickers);
+  const [view, setView] = useViewState("compare", { tickers: defaultTickers, category: "Gesamtscore" as CompareCategory });
+  const { tickers, category } = view;
+  const setTickers = (tickers: string[]) => setView({ tickers });
+  const setCategory = (category: CompareCategory) => setView({ category });
   const [manualInput, setManualInput] = useState("");
-  const [category, setCategory] = useState<CompareCategory>("Gesamtscore");
+
   const workspaceQuery = useQuery<WorkspaceState>({
     queryKey: ["workspace"],
     queryFn: api.workspace,
@@ -76,14 +81,15 @@ export function StockComparePanel() {
         </>
       }
     >
-      <div className="border-b border-[#2d333d] p-5">
+      <div className="border-b border-[var(--border)] p-5">
+        <SavedViews scope="compare" />
         <div className="flex justify-end">
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            className="inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
             onClick={() => compareQuery.refetch()}
           >
-            <RefreshCw size={15} className={compareQuery.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RefreshCw size={15} className={compareQuery.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Aktualisieren
           </button>
         </div>
@@ -99,7 +105,7 @@ export function StockComparePanel() {
             }}
           />
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-2 text-sm text-[var(--green)] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!parseTickers(manualInput).length || tickers.length >= 12}
             type="button"
             onClick={submitManual}
@@ -111,13 +117,13 @@ export function StockComparePanel() {
 
         <div className="mt-4 flex flex-wrap gap-2">
           {tickers.map((ticker) => (
-            <span key={ticker} className="inline-flex items-center overflow-hidden rounded border border-[#2d333d] bg-[#111419] text-sm">
-              <Link className="px-3 py-2 text-emerald-100 hover:bg-[#1f242c]" href={`/stocks/${encodeURIComponent(ticker)}`}>
+            <span key={ticker} className="inline-flex items-center overflow-hidden rounded border border-[var(--border)] bg-[var(--panel)] text-sm">
+              <Link className="px-3 py-2 text-[var(--green)] hover:bg-[var(--panel)]" href={`/stocks/${encodeURIComponent(ticker)}`}>
                 {ticker}
               </Link>
               <button
                 aria-label={`${ticker} entfernen`}
-                className="border-l border-[#2d333d] px-2 py-2 text-[#a0a7b4] hover:bg-rose-300/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                className="border-l border-[var(--border)] px-2 py-2 text-[var(--muted)] hover:bg-[var(--red-soft)] hover:text-[var(--red)] disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={tickers.length <= 2}
                 type="button"
                 onClick={() => setTickers(tickers.filter((item) => item !== ticker))}
@@ -130,11 +136,11 @@ export function StockComparePanel() {
 
         {suggestions.length > 0 && (
           <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-xs uppercase text-[#77808f]">Watchlist</span>
+            <span className="text-xs uppercase text-[var(--muted)]">Watchlist</span>
             {suggestions.map((ticker) => (
               <button
                 key={ticker}
-                className="rounded border border-[#2d333d] bg-[#111419] px-2.5 py-1.5 text-xs text-[#dbe4ef] hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded border border-[var(--border)] bg-[var(--panel)] px-2.5 py-1.5 text-xs text-[var(--text)] hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={tickers.length >= 12}
                 type="button"
                 onClick={() => addTickers([ticker])}
@@ -152,8 +158,8 @@ export function StockComparePanel() {
               className={[
                 "rounded border px-3 py-2 text-sm transition",
                 category === item
-                  ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-100"
-                  : "border-[#2d333d] bg-[#111419] text-[#a0a7b4] hover:border-[#697386]"
+                  ? "border-emerald-300/60 bg-[var(--green-soft)] text-[var(--green)]"
+                  : "border-[var(--border)] bg-[var(--panel)] text-[var(--muted)] hover:border-[#697386]"
               ].join(" ")}
               type="button"
               onClick={() => setCategory(item)}
@@ -165,28 +171,28 @@ export function StockComparePanel() {
       </div>
 
       {compareQuery.isError && (
-        <div className="border-b border-[#2d333d] px-5 py-3 text-sm text-rose-200">
+        <div className="border-b border-[var(--border)] px-5 py-3 text-sm text-[var(--red)]">
           {compareQuery.error instanceof Error ? compareQuery.error.message : "Aktienvergleich konnte nicht geladen werden."}
         </div>
       )}
 
       {missingTickers.length ? (
-        <div className="border-b border-[#2d333d] px-5 py-3 text-sm text-amber-100">
+        <div className="border-b border-[var(--border)] px-5 py-3 text-sm text-[var(--yellow)]">
           Kursdaten fehlen oder sind zu kurz für: {missingTickers.join(", ")}.
         </div>
       ) : null}
 
       {compareQuery.isLoading ? (
-        <div className="p-5 text-sm text-[#a0a7b4]">Aktienvergleich lädt...</div>
+        <div className="p-5 text-sm text-[var(--muted)]">Aktienvergleich lädt...</div>
       ) : compareQuery.isError ? null : tickers.length < 2 ? (
-        <div className="p-5 text-sm text-[#a0a7b4]">Bitte mindestens zwei Ticker auswählen.</div>
+        <div className="p-5 text-sm text-[var(--muted)]">Bitte mindestens zwei Ticker auswählen.</div>
       ) : rows.length === 0 ? (
-        <div className="p-5 text-sm text-[#a0a7b4]">Noch keine Vergleichsdaten. Lade zuerst Prices und RS Ratings.</div>
+        <div className="p-5 text-sm text-[var(--muted)]">Noch keine Vergleichsdaten. Lade zuerst Prices und RS Ratings.</div>
       ) : (
         <>
           <CompareTable category={category} rows={rows} />
-          <details className="border-t border-[#2d333d]">
-            <summary className="cursor-pointer px-5 py-3 text-sm text-[#a0a7b4] hover:text-[#dbe4ef]">
+          <details className="border-t border-[var(--border)]">
+            <summary className="cursor-pointer px-5 py-3 text-sm text-[var(--muted)] hover:text-[var(--text)]">
               Alle Kennzahlen im direkten Vergleich
             </summary>
             <RawMetricsTable rows={rows} />
@@ -202,10 +208,10 @@ function CompareTable({ category, rows }: { category: CompareCategory; rows: Sto
   return (
     <div className="max-h-[560px] overflow-auto">
       <table className="w-full min-w-[980px] border-collapse text-sm">
-        <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+        <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
           <tr>
             {columns.map((column) => (
-              <th key={column.key} className="border-b border-[#2d333d] px-4 py-3 font-medium">
+              <th key={column.key} className="border-b border-[var(--border)] px-4 py-3 font-medium">
                 {column.label}
               </th>
             ))}
@@ -213,7 +219,7 @@ function CompareTable({ category, rows }: { category: CompareCategory; rows: Sto
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.ticker} className="border-b border-[#242a33] transition hover:bg-[#20262f]">
+            <tr key={row.ticker} className="border-b border-[var(--border)] transition hover:bg-[var(--panel)]">
               {columns.map((column) => (
                 <td key={column.key} className="px-4 py-3">
                   {column.render(row)}
@@ -231,16 +237,16 @@ function RawMetricsTable({ rows }: { rows: StockAssessmentCompareItem[] }) {
   return (
     <div className="max-h-[420px] overflow-auto">
       <table className="w-full min-w-[1180px] border-collapse text-sm">
-        <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+        <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
           <tr>
             {["Ticker", "Preis", "1M", "3M", "6M", "Drawdown", "ATR", "Beta", "RS", "10-SMA", "21-EMA", "50-SMA", "200-SMA", "MA-Ordnung"].map((label) => (
-              <th key={label} className="border-b border-[#2d333d] px-4 py-3 font-medium">{label}</th>
+              <th key={label} className="border-b border-[var(--border)] px-4 py-3 font-medium">{label}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.ticker} className="border-b border-[#242a33]">
+            <tr key={row.ticker} className="border-b border-[var(--border)]">
               <td className="px-4 py-3"><TickerCell row={row} /></td>
               <td className="px-4 py-3">{money(row.price)}</td>
               <td className="px-4 py-3"><PctCell value={row.perf_1m_pct} /></td>
@@ -331,10 +337,10 @@ function columnsForCategory(category: CompareCategory): Column[] {
 function TickerCell({ row }: { row: StockAssessmentCompareItem }) {
   return (
     <Link className="group inline-flex items-center gap-2" href={`/stocks/${encodeURIComponent(row.ticker)}`}>
-      <BarChart3 className="size-4 text-[#77808f] group-hover:text-emerald-300" />
+      <BarChart3 className="size-4 text-[var(--muted)] group-hover:text-[var(--green)]" />
       <span>
-        <span className="block font-semibold text-emerald-100">{row.ticker}</span>
-        <span className="block max-w-48 truncate text-xs text-[#77808f]">{row.name}</span>
+        <span className="block font-semibold text-[var(--green)]">{row.ticker}</span>
+        <span className="block max-w-48 truncate text-xs text-[var(--muted)]">{row.name}</span>
       </span>
     </Link>
   );
@@ -382,7 +388,7 @@ function scoreChip(value: number, tone: StockAssessmentCompareItem["verdict_tone
 }
 
 function context(row: StockAssessmentCompareItem) {
-  return <div className="max-w-96 truncate text-xs text-[#a0a7b4]">{row.top_warning || row.top_driver || row.verdict_label}</div>;
+  return <div className="max-w-96 truncate text-xs text-[var(--muted)]">{row.top_warning || row.top_driver || row.verdict_label}</div>;
 }
 
 function boolChip(value?: boolean | null) {
@@ -392,9 +398,9 @@ function boolChip(value?: boolean | null) {
 
 function PctCell({ value }: { value?: number | null }) {
   if (typeof value !== "number" || Number.isNaN(value)) {
-    return <span className="text-[#697386]">-</span>;
+    return <span className="text-[var(--muted)]">-</span>;
   }
-  return <span className={value >= 0 ? "text-emerald-300" : "text-rose-300"}>{formatPct(value)}</span>;
+  return <span className={value >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}>{formatPct(value)}</span>;
 }
 
 function money(value?: number | null) {

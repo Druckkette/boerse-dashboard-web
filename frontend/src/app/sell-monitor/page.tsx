@@ -19,6 +19,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { QueryState } from "@/components/ui/query-state";
+import { useJob } from "@/lib/use-job";
 import { formatPercent, qualityLabel } from "@/lib/format";
 import type { PendingStatus, SellRankingRow, Tone } from "@/lib/types/api";
 
@@ -32,12 +34,17 @@ const toneByPending: Record<PendingStatus, Tone> = { halten: "good", in_bestaeti
 export default function SellMonitorPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["sell-ranking"], queryFn: api.sellRanking });
+  const query = useQuery({ queryKey: ["sell-ranking"], queryFn: api.sellRanking });
+  const { data, isLoading } = query;
+  const [jobId, setJobId] = useState<string | null>(null);
+  useEffect(() => { try { setJobId(window.sessionStorage.getItem("sell-monitor-active-job")); } catch { /* Storage is optional. */ } }, []);
+  const job = useJob(jobId, ["sell-ranking", "home-dashboard"]);
   const monitorMutation = useMutation({
     mutationFn: () => api.startJob({ type: "position_atr_monitor", payload: { mode: "manual", source: "sell_monitor", force: true } }),
-    onSuccess: () => {
+    onSuccess: created => {
+      setJobId(created.job_id);
+      try { window.sessionStorage.setItem("sell-monitor-active-job", created.job_id); } catch { /* Storage is optional. */ }
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      window.setTimeout(() => void queryClient.invalidateQueries({ queryKey: ["sell-ranking"] }), 2500);
     }
   });
   const rows = data?.rows ?? [];
@@ -51,20 +58,19 @@ export default function SellMonitorPage() {
   useEffect(() => { window.localStorage.setItem(VISIBILITY_KEY, JSON.stringify(columnVisibility)); }, [columnVisibility]);
 
   const columns = useMemo<ColumnDef<SellRankingRow>[]>(() => [
-    { accessorKey: "ticker", header: "Position", cell: ({ row }) => <div><div className="font-semibold text-[#172033]">{row.original.ticker}</div><div className="text-xs text-[#687386]">{row.original.name}</div></div> },
+    { accessorKey: "ticker", header: "Position", cell: ({ row }) => <div><Link className="font-semibold text-[#172033] underline decoration-dotted" href={`/sell-monitor/${encodeURIComponent(row.original.ticker)}`} onClick={event => event.stopPropagation()}>{row.original.ticker}</Link><div className="text-xs text-[#687386]">{row.original.name}</div></div> },
     { accessorKey: "pnl_pct", header: "P&L", cell: ({ getValue }) => <span className={Number(getValue()) >= 0 ? "font-medium text-[#138a57]" : "font-medium text-[#c2413b]"}>{formatPercent(Number(getValue()))}</span> },
     { accessorKey: "health_score", header: "Gesundheit", cell: ({ row, getValue }) => row.original.data_quality_status === "blocked" ? "–" : Number(getValue()).toFixed(0) },
-    { accessorKey: "recommendation_pct", header: "Tranche", cell: ({ row, getValue }) => row.original.data_quality_status === "blocked" ? "–" : `${Number(getValue())}%` },
+    { accessorKey: "recommendation_pct", header: "Tranche", cell: ({ row, getValue }) => !row.original.decision_eligible ? "–" : `${Number(getValue())}%` },
     {
       accessorKey: "status", header: "Entscheidung", cell: ({ row }) => {
-        const quality = row.original.data_quality_status;
-        return <StatusChip tone={quality === "blocked" ? "bad" : toneByStatus[row.original.status]}>{quality === "blocked" ? "Daten prüfen" : row.original.status}</StatusChip>;
+        return <StatusChip tone={row.original.decision_category === "data" ? "warning" : toneByStatus[row.original.status]}>{row.original.decision_category === "data" ? "Daten prüfen" : row.original.decision_eligible ? "Verkaufen" : row.original.decision_category === "observe" ? "Beobachten" : "Halten"}</StatusChip>;
       }
     },
     {
       accessorKey: "pending_status", header: "Bestätigung", cell: ({ row }) => <div className="space-y-1"><StatusChip tone={toneByPending[row.original.pending_status]}>{pendingLabel(row.original.pending_status)}</StatusChip><div className="text-xs text-[#687386]">{row.original.pending_status === "snoozed" && row.original.snoozed_until ? `bis ${row.original.snoozed_until}` : `${row.original.consecutive_days} Tage`}</div></div>
     },
-    { accessorKey: "primary_signal", header: "Grund", cell: ({ row }) => <div className="max-w-[420px] truncate text-[#4b5565]" title={row.original.data_quality_status === "trusted" ? row.original.primary_signal : row.original.data_quality_detail}>{row.original.data_quality_status === "trusted" ? row.original.primary_signal || row.original.reason : row.original.data_quality_detail}</div> },
+    { accessorKey: "primary_signal", header: "Grund", cell: ({ row }) => <div className="max-w-[420px] truncate text-[#4b5565]" title={row.original.decision_category !== "data" ? row.original.primary_signal : row.original.eligibility_reason || row.original.data_quality_detail}>{row.original.decision_category !== "data" ? row.original.primary_signal || row.original.reason : row.original.eligibility_reason || row.original.data_quality_detail}</div> },
     { accessorKey: "data_quality_status", header: "Datenbasis", cell: ({ row }) => <StatusChip tone={qualityTone(row.original.data_quality_status)}>{qualityLabel(row.original.data_quality_status)}</StatusChip> }
   ], []);
 
@@ -78,17 +84,21 @@ export default function SellMonitorPage() {
   const paddingTop = virtualRows.length ? virtualRows[0].start : 0;
   const paddingBottom = virtualRows.length ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
 
-  const trustedRows = rows.filter((row) => row.data_quality_status !== "blocked");
-  const sellCount = trustedRows.filter((row) => row.status === "Verkaufen").length;
+  const trustedRows = rows.filter((row) => row.data_quality_status === "trusted" && row.signal_current);
+  const sellCount = trustedRows.filter((row) => row.decision_eligible).length;
   const watchCount = trustedRows.filter((row) => row.status === "Beobachten").length;
   const blockedCount = rows.length - trustedRows.length;
   const averageHealth = trustedRows.length ? trustedRows.reduce((sum, row) => sum + row.health_score, 0) / trustedRows.length : 0;
 
+  if (!data) return <QueryState loading={isLoading} error={query.error} hasData={false} onRetry={() => query.refetch()} />;
   return <div className="space-y-4">
+    <QueryState error={query.error} hasData onRetry={() => query.refetch()} />
+    {(monitorMutation.error || job.error || job.data?.status === "failed") && <p role="alert" className="app-notice">{monitorMutation.error?.message || job.error?.message || job.data?.error_message || "Monitoraktualisierung fehlgeschlagen"}</p>}
+    {job.running && <p role="status" className="app-notice">Monitor läuft · {job.data?.progress ?? 0} % · {job.data?.current_step || "Wartet auf Worker"}</p>}
     <div className="flex flex-col gap-3 rounded-[14px] border border-[#e3e8ef] bg-white px-4 py-3 shadow-[0_5px_18px_rgba(15,23,42,0.05)] lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-wrap items-center gap-2 text-xs text-[#687386]"><span className="font-semibold uppercase tracking-[0.08em]">Stand</span><StatusChip tone={data?.source === "snapshot" ? "good" : "warning"}>{data?.source === "snapshot" ? "Vorberechnet" : "Direkt berechnet"}</StatusChip><span>{data?.generated_at ? new Date(data.generated_at).toLocaleString("de-DE") : "noch nicht verfügbar"}</span></div>
       <div className="flex items-center gap-2">
-        <button className="inline-flex h-9 items-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 text-sm font-medium text-[#172033] disabled:opacity-55" type="button" disabled={monitorMutation.isPending} onClick={() => monitorMutation.mutate()}><RefreshCw size={15} className={monitorMutation.isPending ? "animate-spin" : ""} />{monitorMutation.isPending ? "Startet" : "Monitor aktualisieren"}</button>
+        <button className="inline-flex h-9 items-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 text-sm font-medium text-[#172033] disabled:opacity-55" type="button" disabled={monitorMutation.isPending || job.running} onClick={() => monitorMutation.mutate()}><RefreshCw size={15} className={monitorMutation.isPending ? "animate-spin" : ""} />{job.running ? "Monitor läuft …" : monitorMutation.isPending ? "Startet" : "Monitor aktualisieren"}</button>
         <StatusChip tone={isLoading ? "warning" : "good"}>{isLoading ? "Lädt" : `${rows.length} Positionen`}</StatusChip>
       </div>
     </div>
@@ -107,7 +117,7 @@ export default function SellMonitorPage() {
       <div className="divide-y divide-[#e8edf2] md:hidden">{tableRows.map((row) => <MobileSellRow key={row.id} row={row.original} />)}</div>
       <div ref={scrollParentRef} className="hidden max-h-[560px] overflow-auto md:block">
         <table className="w-full min-w-[1100px] border-collapse text-sm">
-          <thead className="sticky top-0 z-10 bg-[#f6f8fb] text-left text-[10px] uppercase tracking-[0.06em] text-[#687386]">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th key={header.id} className="border-b border-[#e3e8ef] px-3 py-3 font-semibold">{header.isPlaceholder ? null : <button className="inline-flex items-center gap-1.5" type="button" onClick={header.column.getToggleSortingHandler()}>{flexRender(header.column.columnDef.header, header.getContext())}<ArrowUpDown size={12} /></button>}</th>)}</tr>)}</thead>
+          <thead className="sticky top-0 z-10 bg-[#f6f8fb] text-left text-[10px] uppercase tracking-[0.06em] text-[#687386]">{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => <th key={header.id} aria-sort={header.column.getIsSorted() === "asc" ? "ascending" : header.column.getIsSorted() === "desc" ? "descending" : "none"} className="border-b border-[#e3e8ef] px-3 py-3 font-semibold">{header.isPlaceholder ? null : <button className="inline-flex items-center gap-1.5" type="button" onClick={header.column.getToggleSortingHandler()}>{flexRender(header.column.columnDef.header, header.getContext())}<ArrowUpDown size={12} /></button>}</th>)}</tr>)}</thead>
           <tbody>
             {paddingTop > 0 ? <tr aria-hidden="true"><td colSpan={table.getVisibleLeafColumns().length} style={{ height: paddingTop }} /></tr> : null}
             {virtualRows.map((virtualRow) => { const row = tableRows[virtualRow.index]; return <tr key={row.id} className="cursor-pointer border-b border-[#eef2f6] transition hover:bg-[#f6faf9]" onClick={() => router.push(`/sell-monitor/${row.original.ticker}`)}>{row.getVisibleCells().map((cell) => <td key={cell.id} className="px-3 py-3">{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>; })}
@@ -124,8 +134,8 @@ function ColumnMenu({ table }: { table: Table<SellRankingRow> }) {
 }
 
 function MobileSellRow({ row }: { row: SellRankingRow }) {
-  const blocked = row.data_quality_status === "blocked";
-  return <div className="p-4"><div className="flex items-start justify-between gap-3"><div><Link className="inline-flex items-center gap-1.5 font-semibold text-[#172033]" href={`/sell-monitor/${row.ticker}`}>{row.ticker}<ExternalLink size={13} /></Link><div className="text-xs text-[#687386]">{row.name}</div></div><StatusChip tone={blocked ? "bad" : toneByStatus[row.status]}>{blocked ? "Daten prüfen" : row.status}</StatusChip></div><div className="mt-3 grid grid-cols-3 gap-2 text-sm"><Mini label="P&L" value={formatPercent(row.pnl_pct)} /><Mini label="Gesundheit" value={blocked ? "–" : row.health_score.toFixed(0)} /><Mini label="Tranche" value={blocked ? "–" : `${row.recommendation_pct}%`} /></div><p className="mt-2 text-xs leading-5 text-[#687386]">{blocked ? row.data_quality_detail : row.primary_signal || row.reason}</p></div>;
+  const blocked = row.data_quality_status !== "trusted" || !row.signal_current;
+  return <div className="p-4"><div className="flex items-start justify-between gap-3"><div><Link className="inline-flex items-center gap-1.5 font-semibold text-[#172033]" href={`/sell-monitor/${row.ticker}`}>{row.ticker}<ExternalLink size={13} /></Link><div className="text-xs text-[#687386]">{row.name}</div></div><StatusChip tone={blocked ? "bad" : toneByStatus[row.status]}>{blocked ? "Daten prüfen" : row.status}</StatusChip></div><div className="mt-3 grid grid-cols-3 gap-2 text-sm"><Mini label="P&L" value={formatPercent(row.pnl_pct)} /><Mini label="Gesundheit" value={blocked ? "–" : row.health_score.toFixed(0)} /><Mini label="Tranche" value={blocked ? "–" : `${row.decision_eligible ? `${row.recommendation_pct}%` : "–"}`} /></div><p className="mt-2 text-xs leading-5 text-[#687386]">{blocked ? row.eligibility_reason || row.data_quality_detail : row.primary_signal || row.reason}</p></div>;
 }
 
 function Mini({ label, value }: { label: string; value: string }) { return <div className="rounded-[8px] bg-[#f7f9fb] px-2 py-2"><div className="text-[9px] uppercase text-[#687386]">{label}</div><div className="mt-0.5 font-semibold text-[#172033]">{value}</div></div>; }

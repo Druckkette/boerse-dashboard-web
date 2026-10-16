@@ -79,6 +79,8 @@ def calculate_daily_rows(
             continue
         ticker = str(item["ticker"])
         old = previous.get(ticker)
+        if old and (item.get("calculation") or old.get("calculation")) and (item.get("calculation") or {}).get("configuration_hash") != (old.get("calculation") or {}).get("configuration_hash"):
+            old = None  # A weight/rule change is not a market-driven score improvement.
         now_signals = _signals(item)
         old_signals = set(old.get("signals_json") or []) if old else set()
         score = _number(item.get("overall_score")) or 0
@@ -190,6 +192,10 @@ def calculate_daily_rows(
             "candidate_qualified": qualified,
             "previous_candidate_qualified": old.get("candidate_qualified") if comparison_valid else None,
         })
+        details["calculation"] = item.get("calculation", {})
+        details["assessment_evidence"] = {"checks": item.get("checks", []),
+            "components": (item.get("overall_v2") or {}).get("components", {}),
+            "available_weight": (item.get("overall_v2") or {}).get("available_weight")}
         rows.append({
             "as_of": day, "ticker": ticker, "overall_score": int(score),
             "technical_score": technical, "fundamental_score": _number(item.get("fundamental_score")) or 0,
@@ -231,6 +237,7 @@ def refresh_top_daily(writes=None) -> dict:
                 "rs_rating": row.rs_rating, "rank": row.rank, "signals_json": row.signals_json,
                 "comparison_available": (row.details_json or {}).get("comparison_available", bool(row.details_json)),
                 "candidate_qualified": (row.details_json or {}).get("candidate_qualified"),
+                "calculation": (row.details_json or {}).get("calculation"),
             } for row in db.scalars(select(DailyStockOpportunity).where(DailyStockOpportunity.as_of == prior_day))}
         bars: dict[str, list[tuple]] = defaultdict(list)
         if candidate_tickers:
@@ -266,6 +273,9 @@ def refresh_top_daily(writes=None) -> dict:
 def get_top_daily() -> dict:
     """Read only three indexed history rows; never start a background job on GET."""
     expected = expected_us_market_session().date
+    from app.services.assessment_version import calculation_identity
+    from app.services.stocks import _assessment_score_weights
+    identity = calculation_identity(_assessment_score_weights())
     with SessionLocal() as db:
         day = db.scalar(select(func.max(DailyStockOpportunity.as_of)))
         if day is None:
@@ -274,7 +284,7 @@ def get_top_daily() -> dict:
                           .where(DailyStockOpportunity.as_of == day, DailyStockOpportunity.rank <= 3)
                           .order_by(DailyStockOpportunity.rank)).all()
         return {"as_of": day.isoformat(), "generated_at": max((row.generated_at for row in rows), default=None),
-                "status": "current" if day == expected else "stale", "rows": [
+                "status": "current" if day == expected and all((row.details_json.get("calculation") or {}).get("configuration_hash") == identity["configuration_hash"] for row in rows) else "stale", "rows": [
                     {"rank": row.rank, "ticker": row.ticker,
                      "daily_opportunity_score": row.daily_opportunity_score,
                      "quality_score": row.overall_score,
@@ -295,6 +305,8 @@ def _relevant_home_change(row, old) -> dict | None:
     current = row.details_json or {}
     previous = old.details_json or {} if old else {}
     if old is None or not current.get("comparison_available", bool(current)) or not previous.get("comparison_available", bool(previous)):
+        return None
+    if (current.get("calculation") or previous.get("calculation")) and (current.get("calculation") or {}).get("configuration_hash") != (previous.get("calculation") or {}).get("configuration_hash"):
         return None
     details = []
     relevant_deltas = []

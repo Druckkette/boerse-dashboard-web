@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Database, Search, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useId, useState } from "react";
 import { api } from "@/lib/api/client";
 import { qualityLabel } from "@/lib/format";
 
@@ -19,10 +19,13 @@ export function HeaderTools() {
   );
 }
 
-function GlobalStockSearch() {
+export function GlobalStockSearch({ label = "Aktie global suchen" }: { label?: string }) {
   const router = useRouter();
   const [value, setValue] = useState("");
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [active, setActive] = useState(-1);
+  const listId = useId();
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(value.trim()), 180);
     return () => window.clearTimeout(timer);
@@ -35,6 +38,7 @@ function GlobalStockSearch() {
   });
 
   function openTicker(ticker: string) {
+    setExpanded(false);
     setValue("");
     setQuery("");
     router.push(`/stocks/${encodeURIComponent(ticker.toUpperCase())}`);
@@ -42,26 +46,47 @@ function GlobalStockSearch() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const direct = query.toUpperCase().replace(/\s+/g, "");
-    const match = results.data?.rows[0];
+    const direct = value.trim().toUpperCase().replace(/\s+/g, "");
+    const rows = query === value.trim() ? results.data?.rows ?? [] : [];
+    const match = rows.find(row => row.ticker.toUpperCase() === direct) ?? (active >= 0 ? rows[active] : undefined);
     if (match) openTicker(match.ticker);
     else if (/^[A-Z0-9.^=-]{1,16}$/.test(direct)) openTicker(direct);
+    else if (rows[0]) openTicker(rows[0].ticker);
   }
 
   return (
     <form className="relative min-w-0 sm:w-[310px]" onSubmit={submit}>
       <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-[#687386]" />
       <input
-        aria-label="Aktie global suchen"
+        aria-label={label}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={expanded && query === value.trim() && Boolean(results.data?.rows.length)}
+        aria-controls={listId}
+        aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
         className="h-9 w-full rounded-[10px] border border-[#d8e1ea] bg-white pl-9 pr-3 text-sm text-[#172033] outline-none transition placeholder:text-[#8b95a5] focus:border-[#0f766e] focus:ring-2 focus:ring-[#0f766e]/10"
         placeholder="Ticker oder Unternehmen"
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => { setValue(event.target.value); setActive(-1); setExpanded(true); }}
+        onFocus={() => setExpanded(true)}
+        onBlur={(event) => { if (!event.currentTarget.form?.contains(event.relatedTarget)) setExpanded(false); }}
+        onKeyDown={(event) => {
+          const count = query === value.trim() ? results.data?.rows.length ?? 0 : 0;
+          if (event.key === "Escape") { event.preventDefault(); setExpanded(false); setActive(-1); }
+          if ((event.key === "ArrowDown" || event.key === "ArrowUp") && count) {
+            event.preventDefault(); setExpanded(true);
+            setActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + count) % count);
+          }
+        }}
       />
-      {query && results.data?.rows.length ? (
-        <div className="absolute right-0 top-11 z-30 w-full overflow-hidden rounded-[12px] border border-[#d8e1ea] bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.14)]">
-          {results.data.rows.map((item) => (
+      {expanded && query && query === value.trim() && results.data?.rows.length ? (
+        <div id={listId} role="listbox" aria-label="Suchergebnisse" className="absolute right-0 top-11 z-30 w-full overflow-hidden rounded-[12px] border border-[#d8e1ea] bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.14)]">
+          {results.data.rows.map((item, index) => (
             <button
+              id={`${listId}-${index}`}
+              role="option"
+              aria-selected={active === index}
+              tabIndex={-1}
               key={item.ticker}
               className="flex w-full items-center justify-between gap-3 rounded-[8px] px-2.5 py-2 text-left transition hover:bg-[#f3f8f7]"
               type="button"
@@ -76,6 +101,7 @@ function GlobalStockSearch() {
           ))}
         </div>
       ) : null}
+      {expanded && value.trim() && query === value.trim() && (results.isError || results.isLoading || results.data?.rows.length === 0) && <p role="status" className="absolute top-11 z-30 w-full rounded-lg border bg-white p-3 text-xs">{results.isError ? "Suche derzeit nicht verfügbar. Ticker direkt eingeben." : results.isLoading ? "Suche läuft …" : "Keine Treffer. Ticker direkt eingeben."}</p>}
     </form>
   );
 }

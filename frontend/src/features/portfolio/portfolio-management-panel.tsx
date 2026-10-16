@@ -56,18 +56,18 @@ function CollapsibleSection({
   children: React.ReactNode;
 }) {
   return (
-    <details className="group rounded border border-[#2d333d] bg-[#171a20]">
+    <details className="group rounded border border-[var(--border)] bg-[var(--panel)]">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden">
         <div>
           <h2 className="text-base font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">{description}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
         </div>
         <div className="flex items-center gap-2">
           <StatusChip tone="neutral">{badge}</StatusChip>
-          <ChevronDown className="size-4 text-[#a0a7b4] transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-[var(--muted)] transition group-open:rotate-180" />
         </div>
       </summary>
-      <div className="border-t border-[#2d333d] p-5">{children}</div>
+      <div className="border-t border-[var(--border)] p-5">{children}</div>
     </details>
   );
 }
@@ -134,11 +134,11 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
   const canSave = ticker.trim().length > 0 && Number(shares) > 0 && Number(entryPrice) > 0;
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Position erfassen</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">
+          <p className="mt-1 text-sm text-[var(--muted)]">
             Das Kaufdatum macht frische Käufe automatisch im Stärke-nach-Kauf-Check sichtbar.
           </p>
         </div>
@@ -195,7 +195,7 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
 
       <div className="mt-4 flex flex-wrap gap-3">
         <button
-          className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-2 text-sm text-[var(--green)] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!canSave || saveMutation.isPending}
           type="button"
           onClick={() => saveMutation.mutate()}
@@ -204,7 +204,7 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
           {saveMutation.isPending ? "Speichert" : "Position speichern"}
         </button>
         <button
-          className="inline-flex items-center gap-2 rounded border border-rose-300/30 bg-rose-300/10 px-4 py-2 text-sm text-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded border border-rose-300/30 bg-[var(--red-soft)] px-4 py-2 text-sm text-[var(--red)] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!selected || deleteMutation.isPending}
           type="button"
           onClick={() => deleteMutation.mutate()}
@@ -214,7 +214,7 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
         </button>
       </div>
       {(saveMutation.error || deleteMutation.error) && (
-        <div className="mt-4 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+        <div className="mt-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           {(saveMutation.error ?? deleteMutation.error) instanceof Error
             ? (saveMutation.error ?? deleteMutation.error)?.message
             : "Portfolio-Aktion fehlgeschlagen."}
@@ -253,13 +253,13 @@ function SellBooking({ positions }: { positions: PortfolioPosition[] }) {
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Verkauf buchen</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">Teil- oder Vollverkauf mit Transaktion und Cash-Wirkung.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Teil- oder Vollverkauf mit Transaktion und Cash-Wirkung.</p>
         </div>
-        <CircleDollarSign className="text-emerald-300" size={20} />
+        <CircleDollarSign className="text-[var(--green)]" size={20} />
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Position">
@@ -283,7 +283,7 @@ function SellBooking({ positions }: { positions: PortfolioPosition[] }) {
         </Field>
       </div>
       <button
-        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-2 text-sm hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
         disabled={!ticker || Number(shares || 0) <= 0 || Number(price || 0) <= 0 || mutation.isPending}
         type="button"
         onClick={() => mutation.mutate()}
@@ -314,11 +314,11 @@ function CashFlowPanel() {
   });
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Cashflows</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">Cash-Bestand: {money(flowsQuery.data?.cash_balance ?? 0)}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Cash-Bestand: {money(flowsQuery.data?.cash_balance ?? 0)}</p>
         </div>
         <StatusChip tone="neutral">{flowsQuery.data?.cash_flows.length ?? 0}</StatusChip>
       </div>
@@ -340,7 +340,7 @@ function CashFlowPanel() {
         </Field>
       </div>
       <button
-        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-2 text-sm hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
         disabled={Number(amount) <= 0 || mutation.isPending}
         type="button"
         onClick={() => mutation.mutate()}
@@ -355,7 +355,7 @@ function CashFlowPanel() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1 block text-[#a0a7b4]">{label}</span>
+      <span className="mb-1 block text-[var(--muted)]">{label}</span>
       {children}
     </label>
   );

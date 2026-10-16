@@ -14,25 +14,25 @@ export function StockRsPanel({ ticker }: { ticker: string }) {
   const item = query.data?.item;
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Relative Stärke</h2>
-          <div className="mt-1 text-sm text-[#a0a7b4]">
+          <div className="mt-1 text-sm text-[var(--muted)]">
             {item ? `Stand ${item.date}, Universe ${item.universe_size}` : "Noch kein gespeichertes RS-Rating."}
           </div>
         </div>
         <StatusChip tone={item ? toneForRating(item.rating) : "warning"}>{item?.rating ?? "fehlt"}</StatusChip>
       </div>
 
-      {query.isLoading && <div className="text-sm text-[#a0a7b4]">Lädt...</div>}
+      {query.isLoading && <div className="text-sm text-[var(--muted)]">Lädt...</div>}
       {query.isError && (
-        <div className="text-sm text-rose-200">
+        <div className="text-sm text-[var(--red)]">
           {query.error instanceof Error ? query.error.message : "RS-Rating konnte nicht geladen werden."}
         </div>
       )}
       {!query.isLoading && !query.isError && !item && (
-        <div className="text-sm text-[#a0a7b4]">
+        <div className="text-sm text-[var(--muted)]">
           Nach Kurs- und RS-Aktualisierung erscheint hier das Rating.
         </div>
       )}
@@ -44,7 +44,7 @@ export function StockRsPanel({ ticker }: { ticker: string }) {
             <Metric label="6M vs SPY" value={formatPct(item.excess_return_6m)} tone={pctTone(item.excess_return_6m)} />
             <Metric label="RS High" value={item.new_high_52w ? "New High" : item.near_high_52w ? "Near High" : "Off High"} />
           </div>
-          <p className="text-sm leading-6 text-[#a0a7b4]">
+          <p className="text-sm leading-6 text-[var(--muted)]">
             Die RS-Linie inklusive 21-EMA und 50-EMA ist im Kurschart darunter eingebettet, damit Kurs und relative Stärke zusammen gelesen werden können.
           </p>
         </div>
@@ -63,9 +63,9 @@ function Metric({
   tone?: "good" | "neutral" | "warning" | "bad";
 }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
+        <div className="text-xs uppercase text-[var(--muted)]">{label}</div>
         <StatusChip tone={tone}>{tone}</StatusChip>
       </div>
       <div className="text-xl font-semibold">{value}</div>

@@ -31,13 +31,13 @@ export function SectorRankingPanel() {
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Zeitraum</span>
-              <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
+              <div className="inline-flex rounded border border-[var(--border)] bg-[var(--panel)] p-1">
                 {(["daily", "weekly"] as const).map((item) => (
                   <button
                     key={item}
                     className={[
                       "rounded-[8px] px-3 py-1.5 text-xs font-semibold transition",
-                      mode === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
+                      mode === item ? "bg-[var(--green-soft)] text-[var(--green)]" : "text-[var(--muted)] hover:text-white"
                     ].join(" ")}
                     type="button"
                     onClick={() => setMode(item)}
@@ -49,13 +49,13 @@ export function SectorRankingPanel() {
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Anzeige</span>
-              <div className="inline-flex rounded border border-[#2d333d] bg-[#111419] p-1">
+              <div className="inline-flex rounded border border-[var(--border)] bg-[var(--panel)] p-1">
                 {(["return", "rank"] as const).map((item) => (
                   <button
                     key={item}
                     className={[
                       "rounded-[8px] px-3 py-1.5 text-xs font-semibold transition",
-                      performanceView === item ? "bg-emerald-300/15 text-emerald-100" : "text-[#a0a7b4] hover:text-white"
+                      performanceView === item ? "bg-[var(--green-soft)] text-[var(--green)]" : "text-[var(--muted)] hover:text-white"
                     ].join(" ")}
                     type="button"
                     onClick={() => setPerformanceView(item)}
@@ -70,7 +70,7 @@ export function SectorRankingPanel() {
               type="button"
               onClick={() => query.refetch()}
             >
-              <RotateCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+              <RotateCw size={15} className={query.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
               Aktualisieren
             </button>
           </div>
@@ -78,17 +78,17 @@ export function SectorRankingPanel() {
       </section>
 
       {query.isLoading && (
-        <div className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
           Sektordaten werden geladen...
         </div>
       )}
       {query.error && (
-        <div className="rounded border border-rose-400/40 bg-rose-400/10 p-5 text-sm text-rose-100">
+        <div className="rounded border border-rose-400/40 bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]">
           Sektor-API nicht erreichbar.
         </div>
       )}
       {!query.isLoading && !query.error && data && data.rows.length === 0 && (
-        <div className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
           Keine Sektorpreise im Cache. Starte auf der Jobs-Seite den Price-Refresh mit Preset `sector` oder `all`.
         </div>
       )}
@@ -102,7 +102,7 @@ export function SectorRankingPanel() {
             <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="text-base font-semibold">Performance-Tabelle</h2>
-                <p className="text-sm text-[#a0a7b4]">Stand {data.as_of}</p>
+                <p className="text-sm text-[var(--muted)]">Stand {data.as_of}</p>
               </div>
               <StatusChip tone="neutral">{performanceView === "return" ? "% Gewinn" : "Platz Ranking"}</StatusChip>
             </div>
@@ -124,7 +124,7 @@ function SectorSummary({
   title: string;
 }) {
   const Icon = direction === "up" ? ArrowUpRight : ArrowDownRight;
-  const tone = direction === "up" ? "text-emerald-300" : "text-rose-300";
+  const tone = direction === "up" ? "text-[var(--green)]" : "text-[var(--red)]";
   return (
     <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -136,9 +136,9 @@ function SectorSummary({
           <div key={row.ticker} className="flex items-center justify-between gap-3 border-b border-[#eef2f6] pb-2 last:border-0 last:pb-0">
             <div>
               <div className="font-medium">{row.name}</div>
-              <div className="text-xs text-[#77808f]">{row.ticker} · Rang {row.rank}</div>
+              <div className="text-xs text-[var(--muted)]">{row.ticker} · Rang {row.rank}</div>
             </div>
-            <div className={["text-right text-lg font-semibold tabular-nums", row.return_pct >= 0 ? "text-emerald-200" : "text-rose-200"].join(" ")}>
+            <div className={["text-right text-lg font-semibold tabular-nums", row.return_pct >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"].join(" ")}>
               {formatPct(row.return_pct)}
             </div>
           </div>
@@ -167,7 +167,7 @@ function SectorPerformanceTable({ points, view }: { points: SectorRankingPoint[]
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] border-collapse text-xs">
         <thead>
-          <tr className="border-b border-[#2d333d] text-left uppercase text-[#77808f]">
+          <tr className="border-b border-[var(--border)] text-left uppercase text-[var(--muted)]">
             <th className="py-3 pr-3">Sektor</th>
             {dates.map((date) => (
               <th key={date} className="px-2 py-3 text-center tabular-nums">
@@ -180,10 +180,10 @@ function SectorPerformanceTable({ points, view }: { points: SectorRankingPoint[]
           {sectors.map((ticker) => {
             const first = points.find((point) => point.ticker === ticker);
             return (
-              <tr key={ticker} className="border-b border-[#242a33] last:border-0">
+              <tr key={ticker} className="border-b border-[var(--border)] last:border-0">
                 <td className="py-3 pr-3">
-                  <div className="font-medium text-[#d8dde6]">{ticker}</div>
-                  <div className="text-[#77808f]">{first?.name ?? ticker}</div>
+                  <div className="font-medium text-[var(--text)]">{ticker}</div>
+                  <div className="text-[var(--muted)]">{first?.name ?? ticker}</div>
                 </td>
                 {dates.map((date) => {
                   const item = lookup.get(`${date}:${ticker}`);
@@ -207,15 +207,15 @@ function SectorPerformanceTable({ points, view }: { points: SectorRankingPoint[]
 }
 
 function pctClass(value?: number | null) {
-  if (value === null || value === undefined) return "text-[#77808f]";
-  return value >= 0 ? "text-emerald-200" : "text-rose-200";
+  if (value === null || value === undefined) return "text-[var(--muted)]";
+  return value >= 0 ? "text-[var(--green)]" : "text-[var(--red)]";
 }
 
 function rankClass(rank?: number) {
-  if (!rank) return "text-[#77808f]";
-  if (rank <= 3) return "rounded bg-emerald-300/10 px-2 py-1 text-emerald-100";
-  if (rank >= 9) return "rounded bg-rose-300/10 px-2 py-1 text-rose-100";
-  return "rounded bg-[#242a33] px-2 py-1 text-[#d8dde6]";
+  if (!rank) return "text-[var(--muted)]";
+  if (rank <= 3) return "rounded bg-[var(--green-soft)] px-2 py-1 text-[var(--green)]";
+  if (rank >= 9) return "rounded bg-[var(--red-soft)] px-2 py-1 text-[var(--red)]";
+  return "rounded bg-[var(--teal-soft)] px-2 py-1 text-[var(--text)]";
 }
 
 function formatPct(value: number) {

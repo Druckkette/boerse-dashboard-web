@@ -57,9 +57,22 @@ from app.services.portfolio import (
 router = APIRouter()
 
 
+@router.get("/analysis")
+def analysis(sessions: int = Query(default=21, ge=1, le=126), sector_shock: float = Query(default=-10, ge=-100, le=100),
+             fx_shock: float = Query(default=-5, ge=-100, le=100), shocked_sector: str = Query(default="all", max_length=128)) -> dict:
+    from app.services.portfolio_analysis import get_analysis
+    try:
+        return get_analysis(sessions=sessions, sector_shock=sector_shock, fx_shock=fx_shock, shocked_sector=shocked_sector)
+    except (PortfolioRepositoryUnavailable, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/positions", response_model=PortfolioPositionsResponse)
 def positions() -> PortfolioPositionsResponse:
-    return PortfolioPositionsResponse(positions=get_portfolio_positions())
+    try:
+        return PortfolioPositionsResponse(positions=get_portfolio_positions())
+    except (PortfolioRepositoryUnavailable, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/positions", response_model=PortfolioPositionWriteResponse)
@@ -68,6 +81,8 @@ def create_or_update_position(payload: PortfolioPositionWriteRequest) -> Portfol
         response = upsert_portfolio_position(payload)
         invalidate_home_dashboard_cache()
         return response
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -127,12 +142,18 @@ def sell_position(ticker: str, payload: PortfolioSellRequest) -> PortfolioSellRe
 
 @router.get("/snapshot", response_model=PortfolioSnapshotResponse)
 def snapshot() -> PortfolioSnapshotResponse:
-    return get_portfolio_snapshot()
+    try:
+        return get_portfolio_snapshot()
+    except (PortfolioRepositoryUnavailable, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/after-hours", response_model=PortfolioAfterHoursResponse)
 def after_hours() -> PortfolioAfterHoursResponse:
-    return get_portfolio_after_hours()
+    try:
+        return get_portfolio_after_hours()
+    except (PortfolioRepositoryUnavailable, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/curve", response_model=PortfolioCurveResponse)

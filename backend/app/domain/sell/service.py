@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import numpy as np
@@ -148,7 +148,7 @@ def get_sell_position_ranking() -> SellRankingResponse:
         snapshot_rows = [row for row in snapshot_rows if row.ticker.strip().upper() in open_tickers]
         quality_by_ticker = get_position_quality_by_ticker()
         return SellRankingResponse(
-            rows=[_with_data_quality(row, quality_by_ticker) for row in snapshot_rows],
+            rows=[_with_data_quality(row.model_copy(update={"generated_at": row.generated_at or generated_at}), quality_by_ticker) for row in snapshot_rows],
             source="snapshot",
             generated_at=generated_at.isoformat() if generated_at else "",
             source_job_id=source_job_id,
@@ -184,6 +184,7 @@ def _compute_sell_position_ranking_live() -> SellRankingResponse:
             _with_data_quality(
                 SellPositionRankingItem(
                 ticker=ticker,
+                generated_at=datetime.now(UTC),
                 name=str(context["name"]),
                 pnl_pct=float(metrics_response.pnl_pct or 0.0),
                 health_score=float(metrics_response.health.health_score),
@@ -218,22 +219,25 @@ def _with_data_quality(
     row: SellPositionRankingItem,
     quality_by_ticker: dict[str, dict[str, str]],
 ) -> SellPositionRankingItem:
+    from app.services.signal_eligibility import sell_signal_eligibility
     if row.data_quality_status == "blocked":
-        return row
+        return row.model_copy(update=sell_signal_eligibility(row.model_dump()))
     quality = quality_by_ticker.get(row.ticker.upper())
     if quality is None:
-        return row.model_copy(
+        row = row.model_copy(
             update={
                 "data_quality_status": "limited",
                 "data_quality_detail": "Für diese Position liegt keine Datenqualitätsprüfung vor.",
             }
         )
-    return row.model_copy(
+        return row.model_copy(update=sell_signal_eligibility(row.model_dump()))
+    row = row.model_copy(
         update={
             "data_quality_status": quality["status"],
             "data_quality_detail": quality["detail"],
         }
     )
+    return row.model_copy(update=sell_signal_eligibility(row.model_dump()))
 
 
 def _unavailable_ranking_item(ticker: str, name: str, reason: str) -> SellPositionRankingItem:

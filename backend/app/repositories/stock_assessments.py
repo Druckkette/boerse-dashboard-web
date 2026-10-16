@@ -215,7 +215,17 @@ def query_screening(filters: StockScreeningFilters, *, expected_date: date, expo
             model.name.icontains(filters.search.strip(), autoescape=True),
         ))
     for label in filters.required:
-        conditions.append(data["checks"].contains([{"label": label, "passed": True}]))
+        from app.services.assessment_version import CRITERIA, criterion_id
+        aliases = [name for name, key in CRITERIA.items() if key == label]
+        if label.startswith("legacy_v1_"):
+            # Existing snapshots may predate criterion IDs. Resolve against the
+            # run's persisted criterion registry, never silently drop a filter.
+            with SessionLocal() as registry_db:
+                registry_row = registry_db.get(AppSetting, "stock_screening_summary")
+                names = (registry_row.value_json or {}).get("criteria", []) if registry_row else []
+                aliases.extend(name for name in names if criterion_id(name) == label)
+        conditions.append(or_(data["checks"].contains([{"id": label, "passed": True}]),
+            *[data["checks"].contains([{"label": name, "passed": True}]) for name in [*aliases, label]]))
     score = getattr(model, filters.sort) if filters.sort in {"overall_score", "technical_score"} else data[filters.sort].as_float()
     try:
         with SessionLocal() as db:

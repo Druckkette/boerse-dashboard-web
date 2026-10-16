@@ -1,4 +1,5 @@
 import { withApiSlot } from "@/lib/beta/request-limiter";
+import type { PortfolioAnalysis, SavedView, ResearchResults, StockProvenance, ScoreHistory } from "@/lib/types/analysis";
 import type {
   AppSettings,
   Breadth,
@@ -192,6 +193,14 @@ async function errorMessage(response: Response) {
 }
 
 export const api = {
+  researchResults: () => getJson<ResearchResults>("/insights/research"),
+  stockProvenance: (ticker: string) => getJson<StockProvenance>(`/stocks/${encodeURIComponent(ticker)}/provenance`),
+  stockScoreHistory: (ticker: string) => getJson<ScoreHistory>(`/stocks/${encodeURIComponent(ticker)}/score-history`),
+  weightPreview: (weights: Record<string, number>) => postJson<{ rows: { ticker: string; name: string; current_score: number; alternative_score: number | null; coverage: number; rank: number; previous_rank: number; rank_change: number }[]; count: number; excluded: number; note: string }>("/stocks/assessment/weight-preview", { weights }),
+  portfolioAnalysis: (params: string) => getJson<PortfolioAnalysis>(`/portfolio/analysis?${params}`),
+  savedViews: () => getJson<{ items: SavedView[] }>("/workspace/views"),
+  saveView: (body: { name: string; scope: string; state: string; version: number }) => postJson<{ items: SavedView[] }>("/workspace/views", body),
+  deleteView: (id: string) => deleteJson<{ items: SavedView[] }>(`/workspace/views/${encodeURIComponent(id)}`),
   home: () => getJson<HomeDashboard>("/home"),
   betaHome: () => getJson<Pick<HomeDashboard, "market" | "opportunities" | "industry_groups" | "industry_groups_as_of" | "generated_at">>("/beta/home"),
   betaFreshness: (ticker: string) => getJson<{ ticker: string; fresh: boolean; refresh_needed?: boolean; as_of: string }>(`/beta/stocks/${encodeURIComponent(ticker)}/freshness`),
@@ -233,6 +242,7 @@ export const api = {
   industryGroupRsDiagnostics: () =>
     getJson<IndustryGroupRsDiagnostics>("/industry-groups/rs/diagnostics"),
   freshness: () => getJson<Freshness>("/freshness"),
+  operations: () => getJson<{ generated_at: string; completed_session: string; monitor_last_success: string | null; queued: number; oldest_queue_seconds: number | null; assessments: { total: number; current: number; oldest_session: string | null }; position_quotes: { ticker: string; as_of: string | null; current: boolean }[]; active: { type: string; heartbeat_at: string | null; stale: boolean }[]; provider_usage: Record<string, number>; backup: { checked_at?: string; check?: string; sha256?: string; restore_tested_at?: string } | null; notes: string[] }>("/operations"),
   readiness: () => getJson<SystemReadiness>("/readiness"),
   setupStatus: () => getJson<SetupStatus>("/setup/status"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>
@@ -420,7 +430,7 @@ export const api = {
     Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
     return getJson<TradeJournalTradesResponse>(`/trade-journal/trades${params.size ? `?${params}` : ""}`);
   },
-  tradeJournalAnalytics: (filters: Pick<TradeJournalFilters, "query" | "date_from" | "date_to"> = {}) => {
+  tradeJournalAnalytics: (filters: Pick<TradeJournalFilters, "query" | "date_from" | "date_to"> & { group_by?: string; context?: string } = {}) => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, String(value)); });
     return getJson<TradeJournalAnalytics>(`/trade-journal/analytics${params.size ? `?${params}` : ""}`);

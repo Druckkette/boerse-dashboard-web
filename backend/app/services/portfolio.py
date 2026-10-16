@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 
 import pandas as pd
+from app.services.money import conversion, money_sum
 
 from app.data_sources.yfinance_client import fetch_after_hours_quotes
 from app.repositories import portfolio as portfolio_repository
@@ -123,10 +124,7 @@ def get_portfolio_positions(
     rows: list[portfolio_repository.PortfolioPositionRow] | None = None,
 ) -> list[PortfolioPosition]:
     if rows is None:
-        try:
-            rows = portfolio_repository.list_open_positions()
-        except PortfolioRepositoryUnavailable:
-            rows = []
+        rows = portfolio_repository.list_open_positions()
     if not rows:
         return []
 
@@ -140,7 +138,11 @@ def get_portfolio_positions(
         else None
     )
     rows = [_normalize_trade_republic_row_to_usd(row, fx_rate=tr_fx_rate) for row in rows]
-    invested = sum(row.current_price * row.shares for row in rows)
+    base_currency = "USD" if all(row.currency == "USD" for row in rows) else "EUR"
+    rates = {currency: conversion(currency, base_currency) for currency in {row.currency for row in rows}}
+    if any(value is None for value in rates.values()):
+        raise PortfolioRepositoryUnavailable("Depotbewertung nicht verfügbar: beobachtete Wechselkurse fehlen.")
+    invested = money_sum(row.current_price * row.shares * rates[row.currency].rate for row in rows)
     cash = _cash_balance_for_normalized_rows(rows)
     allocation_base = invested + cash
     if allocation_base <= 0:
@@ -176,13 +178,20 @@ def get_portfolio_positions(
             )
         if beta is None:
             beta = _beta_for_ticker(row.ticker)
-        weight_pct = market_value / allocation_base * 100 if allocation_base else 0
+        fx = rates[row.currency]
+        weight_pct = market_value * fx.rate / allocation_base * 100 if allocation_base else 0
         beta_balancer_score = _beta_balancer_score(beta=beta, atr_pct=atr_pct, market_atr_pct=market_atr_pct)
         risk_contribution = _risk_contribution(weight_pct=weight_pct, beta_balancer_score=beta_balancer_score)
         position_loss_risk = _position_loss_risk(row)
         daily_change = _position_daily_change(row, price_series.get(row.ticker, []))
         positions.append(
             PortfolioPosition(
+                position_id=row.position_id,
+                base_currency=base_currency,
+                base_market_value=market_value * fx.rate,
+                base_pnl_abs=pnl_abs * fx.rate,
+                fx_as_of=fx.as_of.isoformat(),
+                fx_source=fx.source,
                 ticker=row.ticker,
                 name=row.name,
                 shares=row.shares,
@@ -197,7 +206,7 @@ def get_portfolio_positions(
                 risk_contribution=risk_contribution,
                 position_loss_risk=position_loss_risk,
                 position_loss_risk_pct=(
-                    position_loss_risk / allocation_base * 100
+                    position_loss_risk * fx.rate / allocation_base * 100
                     if allocation_base and position_loss_risk is not None
                     else None
                 ),
@@ -260,21 +269,15 @@ def _portfolio_daily_change_kpi(positions: list[PortfolioPosition], currency: st
 
 
 def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
-    try:
-        rows = portfolio_repository.list_open_positions()
-    except PortfolioRepositoryUnavailable:
-        rows = []
+    rows = portfolio_repository.list_open_positions()
     if not rows:
         return _empty_portfolio_snapshot()
 
     positions = get_portfolio_positions(rows)
-    invested = sum(position.market_value for position in positions)
-    try:
-        cash = portfolio_repository.get_cash_balance()
-    except PortfolioRepositoryUnavailable:
-        cash = 0.0
+    invested = money_sum(position.base_market_value for position in positions)
+    cash = portfolio_repository.get_cash_balance()
     display_currency = _portfolio_display_currency(positions)
-    if display_currency == "USD":
+    if display_currency == "USD" and cash:
         fx_rate = get_eur_usd_rate()
         cash = round(float(eur_to_usd(cash, rate=fx_rate) or 0.0), 2)
     total = invested + cash
@@ -288,19 +291,19 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
         if positions and all(position.risk_contribution is not None for position in positions)
         else None
     )
-    position_loss_values = [position.position_loss_risk for position in positions]
+    position_loss_values = [position.position_loss_risk * conversion(position.currency, display_currency).rate if position.position_loss_risk is not None else None for position in positions]
     max_depot_loss_available = bool(positions) and all(value is not None for value in position_loss_values)
     max_depot_loss_abs = sum(float(value or 0.0) for value in position_loss_values) if max_depot_loss_available else None
     max_depot_loss_pct = max_depot_loss_abs / total * 100 if total and max_depot_loss_abs is not None else 0.0
     stop_coverage_count = sum(position.stop_price is not None for position in positions)
     stop_coverage_total = len(positions)
     stop_coverage_pct = stop_coverage_count / stop_coverage_total * 100 if stop_coverage_total else 0.0
-    has_implausible_values = any(position.pnl_pct > 400 or position.pnl_pct < -75 for position in positions)
+    has_implausible_values = any(position.current_price <= 0 or position.entry_price <= 0 for position in positions)
     has_missing_risk_values = any(position.atr_pct is None or position.beta is None for position in positions)
     data_quality_status = "blocked" if has_implausible_values else "limited" if has_missing_risk_values else "trusted"
     market_atr_pct = _market_atr_pct()
-    total_pnl_abs = sum(position.pnl_abs for position in positions)
-    cost_basis = sum(position.entry_price * position.shares for position in positions)
+    total_pnl_abs = money_sum(position.base_pnl_abs for position in positions)
+    cost_basis = invested - total_pnl_abs
     total_pnl_pct = total_pnl_abs / cost_basis * 100 if cost_basis else 0.0
     kpis = [
         KpiCard(label="Depotwert", value=f"{total:,.0f} {display_currency}", detail="aus Import", tone="neutral"),
@@ -337,13 +340,14 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
     if max_depot_loss_available and max_depot_loss_abs is not None:
         kpis.append(
             KpiCard(
-                label="Maximaler Depotverlust",
+                label="Modelliertes Stopprisiko",
                 value=f"{max_depot_loss_abs:,.0f} {display_currency}",
                 detail=f"{max_depot_loss_pct:.1f}% des Depots inkl. Cash",
                 tone=_tone_for_max_depot_loss(max_depot_loss_pct),
             )
         )
     return PortfolioSnapshotResponse(
+        currency=display_currency,
         as_of=datetime.now(UTC).isoformat(),
         total_value=total,
         invested_value=invested,
@@ -365,10 +369,7 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
 
 
 def get_portfolio_after_hours() -> PortfolioAfterHoursResponse:
-    try:
-        rows = portfolio_repository.list_open_positions()
-    except PortfolioRepositoryUnavailable:
-        rows = []
+    rows = portfolio_repository.list_open_positions()
     rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
     tickers = [row.ticker for row in rows]
     quotes = fetch_after_hours_quotes(tickers)
@@ -379,14 +380,18 @@ def get_portfolio_after_hours() -> PortfolioAfterHoursResponse:
 
     for row in rows:
         quote = quotes.get(row.ticker)
+        fallback_price = currency_to_usd(row.current_price, row.currency)
+        if fallback_price is None:
+            raise PortfolioRepositoryUnavailable(f"Kein beobachteter {row.currency}/USD-Kurs für {row.ticker} verfügbar.")
         quote_currency = str(quote.currency or "USD").upper() if quote else "USD"
         quote_rate = get_currency_usd_rate(quote_currency) if quote else None
         regular_price = (
             currency_to_usd(quote.regular_price, quote_currency, rate=quote_rate)
             if quote and quote.regular_price is not None
-            else row.current_price
+            else fallback_price
         )
-        market_value = regular_price * row.shares if regular_price else row.current_price * row.shares
+        regular_price = regular_price if regular_price is not None else fallback_price
+        market_value = regular_price * row.shares
         total_market_value += market_value
         after_price = (
             currency_to_usd(quote.after_hours_price, quote_currency, rate=quote_rate)
@@ -1066,10 +1071,7 @@ def _buy_strength_status(passed: int, total: int, active_warnings: int) -> tuple
 
 
 def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
-    try:
-        cash = portfolio_repository.get_cash_balance()
-    except PortfolioRepositoryUnavailable:
-        cash = 0.0
+    cash = portfolio_repository.get_cash_balance()
     cash_ratio = 100.0 if cash > 0 else 0.0
     return PortfolioSnapshotResponse(
         as_of=datetime.now(UTC).isoformat(),
@@ -1121,7 +1123,7 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
     if not rows:
         return _missing_portfolio_curve(f"Keine offenen Positionen für die Depotkurve.{tr_error or ''}")
     rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
-    if rows and all(row.currency == "USD" for row in rows):
+    if cash:
         fx_rate = get_eur_usd_rate()
         cash = round(float(eur_to_usd(cash, rate=fx_rate) or 0.0), 2)
 
@@ -1148,6 +1150,8 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
                 series[~series.index.duplicated(keep="last")],
             )
 
+    if any(row.ticker not in series_map or series_map[row.ticker].empty for row in rows):
+        return _missing_portfolio_curve("Kurs- oder Währungsdaten fehlen für einen Teil des Bestands. Keine unvollständige Gesamtkurve.")
     if not series_map:
         return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars im Cache.{tr_error or ''}")
 
@@ -1164,12 +1168,18 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
         series = series_map.get(row.ticker)
         if series is None:
             continue
-        frame[row.ticker] = series.reindex(frame.index).ffill()
+        frame[row.ticker] = _align_price_series_to_calendar(series, frame.index)
     benchmark_index = _benchmark_index_series(frame.index)
 
     points: list[PortfolioCurvePoint] = []
     index_values: list[float] = []
     for timestamp, values in frame.iterrows():
+        missing = [row.ticker for row in rows if row.shares and not _is_finite_number(values.get(row.ticker))]
+        if missing:
+            points.append(PortfolioCurvePoint(date=timestamp.date().isoformat(), valuation_complete=False, missing_instruments=missing,
+                depot_value=None, positions_value=None, cash=None, portfolio_index=None,
+                sp500_index=_rounded_series_value(benchmark_index, timestamp)))
+            continue
         positions_value = 0.0
         for row in rows:
             close = values.get(row.ticker)
@@ -1205,6 +1215,8 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
     return PortfolioCurveResponse(
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="database",
+        model="current_holdings",
+        complete_points=sum(point.valuation_complete for point in points), total_points=len(points),
         data_status="limited",
         base_date=points[0].date if points else curve_start.isoformat(),
         message=(
@@ -1234,8 +1246,6 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         return None
     if not transactions:
         return None
-    fx_rate = get_eur_usd_rate()
-
     curve_start_date = start_date
     first_transaction_date = min(row.date for row in transactions)
     end_date = date.today()
@@ -1246,6 +1256,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         return None
 
     positions_value = pd.Series(0.0, index=calendar)
+    missing_by_day = {day: [] for day in calendar}
     missing_price_instruments: list[str] = []
     trade_price_fallbacks: list[str] = []
     incomplete_price_histories: list[str] = []
@@ -1260,13 +1271,10 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 history = _cached_price_series(f"{clean}USD=X", first_transaction_date - timedelta(days=10))
                 if not history.empty and history.index.max() < calendar.max():
                     fx_fallbacks.add(clean)
-                series = history.reindex(history.index.union(calendar)).sort_index().ffill().reindex(calendar)
+                series = _align_price_series_to_calendar(history, calendar)
                 if series.isna().any() or (series <= 0).any():
                     fx_fallbacks.add(clean)
-                    fallback = fx_rate if clean == "EUR" else get_currency_usd_rate(clean)
-                    if fallback is None:
-                        raise ValueError(f"Wechselkurse fuer {clean} fehlen.")
-                    series = series.where(series > 0).fillna(fallback.rate)
+                series = series.where(series > 0)
             fx_series[clean] = series
         return fx_series[clean]
 
@@ -1293,20 +1301,19 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             else pd.Series(dtype=float)
         )
         if cached_prices.empty:
-            cached_prices = _trade_price_fallback_series(instrument_transactions, calendar, fx_rate=fx_rate)
-            if cached_prices.empty:
-                missing_price_instruments.append(label)
-                continue
-            trade_price_fallbacks.append(label)
-            # Fallback prices already use today's FX; disclose this limitation.
-            fx_fallbacks.add(str(instrument_transactions[0].currency or "USD"))
+            missing_price_instruments.append(label)
+            for missing_day in shares[shares > 0].index:
+                missing_by_day[missing_day].append(label)
+            continue
         aligned_prices = _align_price_series_to_calendar(cached_prices, calendar)
         if label not in trade_price_fallbacks:
             held_dates = shares[shares > 0].index
             if len(held_dates) and (cached_prices.index.min() > held_dates.min() or cached_prices.index.max() < held_dates.max()):
                 incomplete_price_histories.append(label)
             aligned_prices = aligned_prices * rates(yahoo_quote_currency(ticker))
-        positions_value = positions_value.add(shares.values * aligned_prices.values, fill_value=0.0)
+        for missing_day in shares[(shares > 0) & aligned_prices.isna()].index:
+            missing_by_day[missing_day].append(label)
+        positions_value += (shares * aligned_prices).where(shares.abs() > 1e-9, 0).fillna(0)
 
     cash_daily = pd.Series(0.0, index=calendar)
     external_daily = pd.Series(0.0, index=calendar)
@@ -1331,7 +1338,11 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
 
     cash_balance = pd.Series(0.0, index=calendar)
     for currency, movements in cash_by_currency.items():
-        cash_balance += movements.cumsum() * rates(currency)
+        balance = movements.cumsum()
+        fx = rates(currency)
+        for missing_day in balance[(balance.abs() > 1e-9) & fx.isna()].index:
+            missing_by_day[missing_day].append(f"FX:{currency}")
+        cash_balance += (balance * fx).where(balance.abs() > 1e-9, 0).fillna(0)
 
     curve = pd.DataFrame(
         {
@@ -1342,12 +1353,9 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         }
     )
     curve["depot_value"] = curve["positions_value"] + curve["cash"]
-    first_active = curve["positions_value"].abs().gt(1e-9)
-    if not first_active.any():
-        first_active = curve["depot_value"].abs().gt(1e-9)
-    if not first_active.any():
-        return None
-    curve = curve.loc[first_active.idxmax() :].reset_index(drop=True)
+    for row_index, day in enumerate(calendar):
+        if missing_by_day[day]:
+            curve.loc[row_index, ["positions_value", "cash", "depot_value"]] = float("nan")
 
     window_start = pd.Timestamp(curve_start_date)
     curve = curve[curve["date"] >= window_start].reset_index(drop=True)
@@ -1357,16 +1365,16 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         if curve.empty:
             return None
 
-    index_values = [100.0]
     depot_values = curve["depot_value"].tolist()
+    index_values = [100.0 if _finite_float(depot_values[0]) is not None and depot_values[0] > 0 else float("nan")]
     external_values = curve["external_flow"].tolist()
     for idx in range(1, len(curve)):
         previous = float(depot_values[idx - 1])
         current = float(depot_values[idx])
         external = float(external_values[idx])
-        daily_return = (current - previous - external) / previous if previous > 0 and math.isfinite(previous) else 0.0
+        daily_return = (current - previous - external) / previous if previous > 0 and math.isfinite(previous) and math.isfinite(current) and math.isfinite(external) else float("nan")
         next_index = index_values[-1] * (1.0 + daily_return)
-        index_values.append(next_index if math.isfinite(next_index) else index_values[-1])
+        index_values.append(next_index)
     curve["portfolio_index"] = index_values
     first_index = _finite_float(curve["portfolio_index"].iloc[0])
     if first_index and first_index > 0:
@@ -1382,15 +1390,16 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         positions_value_row = _finite_float(row.positions_value)
         cash_value = _finite_float(row.cash)
         portfolio_index = _finite_float(row.portfolio_index)
-        if depot_value is None or positions_value_row is None or cash_value is None or portfolio_index is None:
-            continue
+        missing_day = missing_by_day.get(pd.Timestamp(row.date), [])
         points.append(
             PortfolioCurvePoint(
                 date=pd.Timestamp(row.date).date().isoformat(),
-                depot_value=round(depot_value, 2),
-                positions_value=round(positions_value_row, 2),
-                cash=round(cash_value, 2),
-                portfolio_index=round(portfolio_index, 2),
+                valuation_complete=not missing_day,
+                missing_instruments=missing_day,
+                depot_value=round(depot_value, 2) if depot_value is not None else None,
+                positions_value=round(positions_value_row, 2) if positions_value_row is not None else None,
+                cash=round(cash_value, 2) if cash_value is not None else None,
+                portfolio_index=round(portfolio_index, 2) if portfolio_index is not None else None,
                 portfolio_index_sma10=_round_optional(row.portfolio_index_sma10, 2),
                 portfolio_index_sma21=_round_optional(row.portfolio_index_sma21, 2),
                 sp500_index=_round_optional(row.sp500_index, 2),
@@ -1407,13 +1416,15 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         details.append(f"Lueckenhafte Kurshistorie / fortgeschriebene Ersatzkurse fuer {len(incomplete_price_histories)} Instrumente")
     message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, mit datumsspezifischen USD-Wechselkursen."
     if fx_fallbacks:
-        details.append("Historische Wechselkurse teilweise durch heutigen Kurs ersetzt: " + ", ".join(sorted(fx_fallbacks)))
+        details.append("Historische Wechselkurse fehlen; betroffene Tage bleiben offen: " + ", ".join(sorted(fx_fallbacks)))
     if details:
         message += " " + " · ".join(details)
 
     return PortfolioCurveResponse(
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="trade_republic_transactions",
+        model="execution_history",
+        complete_points=sum(point.valuation_complete for point in points), total_points=len(points),
         data_status="limited" if details else "fresh",
         base_date=points[0].date if points else curve_start_date.isoformat(),
         message=message,
@@ -1527,8 +1538,13 @@ def _align_price_series_to_calendar(series: pd.Series, calendar: pd.DatetimeInde
         return pd.Series(dtype=float)
     clean = _deduplicate_series_index(series)
     if clean.empty:
-        return pd.Series(0.0, index=calendar, dtype=float)
-    return clean.reindex(calendar, method="ffill").ffill().bfill().fillna(0.0)
+        return pd.Series(float("nan"), index=calendar, dtype=float)
+    # Only carry an earlier observed price, never a future observation. Expire
+    # stale values after four calendar days and leave the chart visibly open.
+    aligned = clean.reindex(clean.index.union(calendar)).sort_index().ffill().reindex(calendar)
+    stamps = pd.Series(clean.index, index=clean.index).reindex(clean.index.union(calendar)).sort_index().ffill().reindex(calendar)
+    age = pd.Series(calendar, index=calendar) - stamps
+    return aligned.where(age <= pd.Timedelta(days=4))
 
 
 def _signed_share_delta(transaction_type: str, shares: float) -> float:
@@ -1650,6 +1666,7 @@ def upsert_portfolio_position(payload: PortfolioPositionWriteRequest) -> Portfol
         account=payload.account,
         note=payload.note,
         record_transaction=payload.record_transaction,
+        create_only=payload.create_only,
     )
     row = portfolio_repository.upsert_position(write)
     return PortfolioPositionWriteResponse(position=_position_from_row(row, invested=row.current_price * row.shares))
@@ -2052,19 +2069,25 @@ def _normalize_trade_republic_row_to_usd(
         entry_price = float(eur_to_usd(entry_price, rate=rate) or entry_price)
     elif position_currency != "USD":
         converted_entry = currency_to_usd(entry_price, position_currency)
-        entry_price = float(converted_entry if converted_entry is not None else entry_price)
+        if converted_entry is None:
+            raise PortfolioRepositoryUnavailable(f"Wechselkurs für {position_currency} fehlt.")
+        entry_price = float(converted_entry)
 
     current_price = row.current_price
     if row.current_price_source == "price_cache":
         quote_currency = yahoo_quote_currency(row.ticker)
         converted_price = currency_to_usd(row.current_price, quote_currency)
-        current_price = float(converted_price if converted_price is not None else entry_price)
+        if converted_price is None:
+            raise PortfolioRepositoryUnavailable(f"Beobachteter Kurs oder Wechselkurs für {row.ticker} fehlt.")
+        current_price = float(converted_price)
     elif position_currency == "EUR":
         rate = fx_rate or get_eur_usd_rate()
         current_price = float(eur_to_usd(row.current_price, rate=rate) or row.current_price)
     elif position_currency != "USD":
         converted_price = currency_to_usd(row.current_price, position_currency)
-        current_price = float(converted_price if converted_price is not None else entry_price)
+        if converted_price is None:
+            raise PortfolioRepositoryUnavailable(f"Beobachteter Kurs oder Wechselkurs für {row.ticker} fehlt.")
+        current_price = float(converted_price)
     return portfolio_repository.PortfolioPositionRow(
         ticker=row.ticker,
         name=row.name,
@@ -2080,6 +2103,7 @@ def _normalize_trade_republic_row_to_usd(
         account=row.account,
         note=row.note,
         current_price_source=row.current_price_source,
+        position_id=row.position_id,
     )
 
 
@@ -2339,11 +2363,8 @@ def _beta_from_price_rows(
 def _cash_balance_for_normalized_rows(
     rows: list[portfolio_repository.PortfolioPositionRow],
 ) -> float:
-    try:
-        cash = portfolio_repository.get_cash_balance()
-    except PortfolioRepositoryUnavailable:
-        return 0.0
-    if rows and all(str(row.currency or "").upper() == "USD" for row in rows):
+    cash = portfolio_repository.get_cash_balance()
+    if cash and rows and all(str(row.currency or "").upper() == "USD" for row in rows):
         rate = get_eur_usd_rate()
         return round(float(eur_to_usd(cash, rate=rate) or 0.0), 2)
     return float(cash or 0.0)

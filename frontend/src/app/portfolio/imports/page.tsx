@@ -102,19 +102,19 @@ export default function PortfolioImportsPage() {
       <ImportModeGuide />
 
       <div className="grid gap-5 xl:grid-cols-[0.95fr_1.25fr]">
-        <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold">Positions-CSV direkt</h2>
-              <div className="text-sm text-[#a0a7b4]">Für fertige Positionslisten mit Ticker, Shares und Entry_Price.</div>
+              <div className="text-sm text-[var(--muted)]">Für fertige Positionslisten mit Ticker, Shares und Entry_Price.</div>
             </div>
-            <Upload className="text-emerald-300" size={20} />
+            <Upload className="text-[var(--green)]" size={20} />
           </div>
 
           <label
             className={[
-              "block rounded border border-dashed bg-[#111419] p-5 text-center text-sm transition",
-              dragActive ? "border-emerald-300 bg-emerald-300/10" : "border-[#4b5563] hover:border-emerald-300/50"
+              "block rounded border border-dashed bg-[var(--panel)] p-5 text-center text-sm transition",
+              dragActive ? "border-emerald-300 bg-[var(--green-soft)]" : "border-[var(--border)] hover:border-emerald-300/50"
             ].join(" ")}
             onDragEnter={(event) => {
               event.preventDefault();
@@ -133,26 +133,26 @@ export default function PortfolioImportsPage() {
               type="file"
               onChange={(event) => handleFile(event.target.files?.[0] ?? null)}
             />
-            <FileText className="mx-auto mb-3 text-[#a0a7b4]" />
+            <FileText className="mx-auto mb-3 text-[var(--muted)]" />
             <span className="font-medium">CSV auswählen oder hier ablegen</span>
-            <span className="mt-1 block text-xs text-[#a0a7b4]">
+            <span className="mt-1 block text-xs text-[var(--muted)]">
               {fileName || "Upload prüft automatisch eine Vorschau."}
             </span>
           </label>
 
           <label className="mt-4 block text-sm">
-            <span className="mb-1 block text-[#a0a7b4]">Dateiname</span>
+            <span className="mb-1 block text-[var(--muted)]">Dateiname</span>
             <input
-              className="w-full rounded border border-[#2d333d] bg-[#111419] px-3 py-2"
+              className="w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2"
               value={fileName}
               onChange={(event) => setFileName(event.target.value)}
             />
           </label>
 
           <label className="mt-4 block text-sm">
-            <span className="mb-1 block text-[#a0a7b4]">CSV Inhalt</span>
+            <span className="mb-1 block text-[var(--muted)]">CSV Inhalt</span>
             <textarea
-              className="min-h-64 w-full rounded border border-[#2d333d] bg-[#111419] px-3 py-2 font-mono text-xs leading-5"
+              className="min-h-64 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 font-mono text-xs leading-5"
               placeholder={positionCsvPlaceholder}
               value={content}
               onChange={(event) => {
@@ -162,10 +162,10 @@ export default function PortfolioImportsPage() {
             />
           </label>
 
-          <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm">
+          <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm">
             <span>
               <span className="block font-medium">Depotbestand synchronisieren</span>
-              <span className="mt-1 block text-xs leading-5 text-[#a0a7b4]">
+              <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">
                 Aktiv: offene Positionen, die nicht in der CSV stehen, werden geschlossen.
               </span>
             </span>
@@ -179,7 +179,7 @@ export default function PortfolioImportsPage() {
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={previewMutation.isPending || saveMutation.isPending || !content.trim()}
               type="button"
               onClick={() => previewMutation.mutate(positionPayload({ dryRun: true }))}
@@ -188,7 +188,7 @@ export default function PortfolioImportsPage() {
               {previewMutation.isPending ? "Prüft" : "Vorschau prüfen"}
             </button>
             <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canSave || saveMutation.isPending}
               type="button"
               onClick={() => saveMutation.mutate(positionPayload({ dryRun: false }))}
@@ -199,7 +199,7 @@ export default function PortfolioImportsPage() {
           </div>
 
           {(previewMutation.error || saveMutation.error) && (
-            <div className="mt-4 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+            <div className="mt-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
               {(previewMutation.error ?? saveMutation.error) instanceof Error
                 ? (previewMutation.error ?? saveMutation.error)?.message
                 : "Import fehlgeschlagen."}
@@ -207,11 +207,11 @@ export default function PortfolioImportsPage() {
           )}
         </section>
 
-        <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+        <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-base font-semibold">Vorschau</h2>
-              <div className="text-sm text-[#a0a7b4]">
+              <div className="text-sm text-[var(--muted)]">
                 {result
                   ? `${result.positions.length} Positionen erkannt, ca. ${parsedValue.toLocaleString("de-DE", { maximumFractionDigits: 0 })} Bewertungswert`
                   : "Noch keine Vorschau geprüft."}
@@ -221,12 +221,12 @@ export default function PortfolioImportsPage() {
           </div>
 
           {result?.errors.map((error) => (
-            <div key={error} className="mb-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+            <div key={error} className="mb-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
               {error}
             </div>
           ))}
           {result?.warnings.map((warning) => (
-            <div key={warning} className="mb-3 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">
+            <div key={warning} className="mb-3 rounded border border-amber-300/30 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
               {warning}
             </div>
           ))}
@@ -234,7 +234,7 @@ export default function PortfolioImportsPage() {
           {result?.positions.length ? (
             <ImportPreviewTable rows={result.positions} />
           ) : (
-            <div className="rounded border border-dashed border-[#4b5563] bg-[#111419] p-8 text-center text-sm text-[#a0a7b4]">
+            <div className="rounded border border-dashed border-[var(--border)] bg-[var(--panel)] p-8 text-center text-sm text-[var(--muted)]">
               CSV einfügen oder Datei auswählen und Vorschau prüfen.
             </div>
           )}
@@ -250,16 +250,16 @@ export default function PortfolioImportsPage() {
 function ImportModeGuide() {
   return (
     <section className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
         <h2 className="text-base font-semibold">Positions-CSV</h2>
-        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
           Nutze diesen Weg, wenn die Datei bereits offene Positionen enthält. Pflichtfelder: Ticker, Shares,
           Entry_Price. Die App speichert daraus direkt offene Positionen.
         </p>
       </div>
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
         <h2 className="text-base font-semibold">Trade-Republic-Transaktionsexport</h2>
-        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
           Nutze diesen Weg für den TR-Export mit Käufen, Verkäufen, Dividenden und Cashflows. Daraus werden offene
           Positionen rekonstruiert; ISINs werden dabei dauerhaft auf Yahoo-Ticker gemappt.
         </p>
@@ -366,11 +366,11 @@ function TradeRepublicTransactionImportPanel() {
     : "-";
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-lg font-semibold">Trade-Republic-Transaktionsexport</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
             CSV direkt hochladen; die Vorschau startet automatisch. Danach kannst du offene Positionen plus
             Transaktionen speichern. Es muss nichts manuell auf der NAS abgelegt werden.
           </p>
@@ -384,8 +384,8 @@ function TradeRepublicTransactionImportPanel() {
         <div>
           <label
             className={[
-              "block rounded border border-dashed bg-[#111419] p-5 text-center text-sm transition",
-              dragActive ? "border-emerald-300 bg-emerald-300/10" : "border-[#4b5563] hover:border-emerald-300/50"
+              "block rounded border border-dashed bg-[var(--panel)] p-5 text-center text-sm transition",
+              dragActive ? "border-emerald-300 bg-[var(--green-soft)]" : "border-[var(--border)] hover:border-emerald-300/50"
             ].join(" ")}
             onDragEnter={(event) => {
               event.preventDefault();
@@ -404,17 +404,17 @@ function TradeRepublicTransactionImportPanel() {
               type="file"
               onChange={(event) => handleFile(event.target.files?.[0] ?? null)}
             />
-            <FileText className="mx-auto mb-3 text-[#a0a7b4]" />
+            <FileText className="mx-auto mb-3 text-[var(--muted)]" />
             <span className="font-medium">TR-CSV auswählen oder hier ablegen</span>
-            <span className="mt-1 block text-xs text-[#a0a7b4]">
+            <span className="mt-1 block text-xs text-[var(--muted)]">
               {fileName || "Upload prüft automatisch eine Vorschau."}
             </span>
           </label>
 
           <label className="mt-4 block text-sm">
-            <span className="mb-1 block text-[#a0a7b4]">CSV Inhalt</span>
+            <span className="mb-1 block text-[var(--muted)]">CSV Inhalt</span>
             <textarea
-              className="min-h-56 w-full rounded border border-[#2d333d] bg-[#111419] px-3 py-2 font-mono text-xs leading-5"
+              className="min-h-56 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 font-mono text-xs leading-5"
               placeholder={tradeRepublicCsvPlaceholder}
               value={content}
               onChange={(event) => {
@@ -424,10 +424,10 @@ function TradeRepublicTransactionImportPanel() {
             />
           </label>
 
-          <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm">
+          <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm">
             <span>
               <span className="block font-medium">Depotbestand synchronisieren</span>
-              <span className="mt-1 block text-xs leading-5 text-[#a0a7b4]">
+              <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">
                 Aktiv: Positionen, die im neuen TR-Export nicht mehr offen sind, werden geschlossen.
               </span>
             </span>
@@ -441,7 +441,7 @@ function TradeRepublicTransactionImportPanel() {
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={previewMutation.isPending || saveMutation.isPending || !content.trim()}
               type="button"
               onClick={() => previewMutation.mutate(tradeRepublicPayload({ dryRun: true }))}
@@ -450,7 +450,7 @@ function TradeRepublicTransactionImportPanel() {
               {previewMutation.isPending ? "Prüft" : "TR-Vorschau prüfen"}
             </button>
             <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canSave || saveMutation.isPending}
               type="button"
               onClick={() => saveMutation.mutate(tradeRepublicPayload({ dryRun: false }))}
@@ -459,12 +459,12 @@ function TradeRepublicTransactionImportPanel() {
               {saveMutation.isPending ? "Speichert" : "TR-Import speichern"}
             </button>
           </div>
-          <div className="mt-3 rounded border border-[#2d333d] bg-[#111419] p-3 text-xs leading-5 text-[#a0a7b4]">
+          <div className="mt-3 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-xs leading-5 text-[var(--muted)]">
             {saveHint}
           </div>
 
           {(previewMutation.error || saveMutation.error) && (
-            <div className="mt-4 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+            <div className="mt-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
               {(previewMutation.error ?? saveMutation.error) instanceof Error
                 ? (previewMutation.error ?? saveMutation.error)?.message
                 : "TR-Import fehlgeschlagen."}
@@ -480,12 +480,12 @@ function TradeRepublicTransactionImportPanel() {
           </div>
 
           {result?.errors.map((error) => (
-            <div key={error} className="rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+            <div key={error} className="rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
               {error}
             </div>
           ))}
           {result?.warnings.map((warning) => (
-            <div key={warning} className="rounded border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">
+            <div key={warning} className="rounded border border-amber-300/30 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
               {warning}
             </div>
           ))}
@@ -495,24 +495,24 @@ function TradeRepublicTransactionImportPanel() {
           {result?.positions.length ? (
             <ImportPreviewTable rows={result.positions} />
           ) : (
-            <div className="rounded border border-dashed border-[#4b5563] bg-[#111419] p-8 text-center text-sm text-[#a0a7b4]">
+            <div className="rounded border border-dashed border-[var(--border)] bg-[var(--panel)] p-8 text-center text-sm text-[var(--muted)]">
               TR-CSV einfügen oder Datei auswählen und Vorschau prüfen.
             </div>
           )}
 
           {result?.skipped_positions.length ? (
-            <div className="rounded border border-[#2d333d] bg-[#111419] p-4 text-sm">
+            <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4 text-sm">
               <h3 className="mb-3 font-semibold">Nicht automatisch importiert</h3>
               <div className="space-y-2">
                 {result.skipped_positions.map((item) => (
-                  <div key={item.isin} className="flex items-start justify-between gap-3 border-b border-[#242a33] pb-2 last:border-b-0">
+                  <div key={item.isin} className="flex items-start justify-between gap-3 border-b border-[var(--border)] pb-2 last:border-b-0">
                     <div>
                       <div className="font-medium">{item.name || item.isin}</div>
-                      <div className="text-xs text-[#a0a7b4]">
+                      <div className="text-xs text-[var(--muted)]">
                         {item.isin} · {item.asset_class}
                       </div>
                     </div>
-                    <div className="max-w-sm text-right text-xs text-[#a0a7b4]">{item.reason}</div>
+                    <div className="max-w-sm text-right text-xs text-[var(--muted)]">{item.reason}</div>
                   </div>
                 ))}
               </div>
@@ -537,11 +537,11 @@ function MappingEditor({
   const missingCount = result.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length;
   const recognizedCount = result.mappings.length - missingCount;
   return (
-    <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <h3 className="font-semibold">ISIN zu Yahoo-Ticker</h3>
-          <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
             Trade Republic liefert ISINs. Für Kursdaten und Sell-Monitor braucht die Web-App Yahoo-Ticker. Erkannte
             Zuordnungen werden beim Speichern dauerhaft übernommen und beim nächsten Import automatisch genutzt.
           </p>
@@ -553,7 +553,7 @@ function MappingEditor({
       </div>
       <div className="max-h-72 space-y-2 overflow-auto pr-1">
         {result.mappings.map((mapping) => (
-          <label key={mapping.isin} className="grid gap-2 rounded border border-[#242a33] p-3 text-sm md:grid-cols-[1fr_160px]">
+          <label key={mapping.isin} className="grid gap-2 rounded border border-[var(--border)] p-3 text-sm md:grid-cols-[1fr_160px]">
             <span>
               <span className="flex flex-wrap items-center gap-2">
                 <span className="block font-medium">{mapping.name || mapping.isin}</span>
@@ -561,7 +561,7 @@ function MappingEditor({
                   {(overrides[mapping.isin] || mapping.ticker) ? "importfähig" : "Ticker fehlt"}
                 </StatusChip>
               </span>
-              <span className="text-xs text-[#a0a7b4]">
+              <span className="text-xs text-[var(--muted)]">
                 {mapping.isin} · {mapping.asset_class} · {mapping.source}
               </span>
             </span>
@@ -580,8 +580,8 @@ function MappingEditor({
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#111419] p-3">
-      <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
+      <div className="text-xs uppercase text-[var(--muted)]">{label}</div>
       <div className="mt-1 font-semibold tabular-nums">{value}</div>
     </div>
   );
@@ -613,11 +613,11 @@ function IsinMappingMaintenancePanel() {
   });
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-lg font-semibold">Gespeicherte ISIN-Zuordnungen</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
             Permanentes Wörterbuch für Trade-Republic-ISINs. Was hier gespeichert ist, muss beim nächsten TR-Import
             nicht erneut eingetragen werden.
           </p>
@@ -627,19 +627,19 @@ function IsinMappingMaintenancePanel() {
         </StatusChip>
       </div>
 
-      <div className="overflow-hidden rounded border border-[#2d333d]">
+      <div className="overflow-hidden rounded border border-[var(--border)]">
         <div className="max-h-80 overflow-auto">
           <table className="w-full min-w-[680px] border-collapse text-sm">
-            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+            <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
               <tr>
-                <th className="border-b border-[#2d333d] px-4 py-3">ISIN</th>
-                <th className="border-b border-[#2d333d] px-4 py-3">Yahoo-Ticker</th>
-                <th className="border-b border-[#2d333d] px-4 py-3">Quelle</th>
+                <th className="border-b border-[var(--border)] px-4 py-3">ISIN</th>
+                <th className="border-b border-[var(--border)] px-4 py-3">Yahoo-Ticker</th>
+                <th className="border-b border-[var(--border)] px-4 py-3">Quelle</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={`${row.isin}-${row.source}`} className="border-b border-[#242a33]">
+                <tr key={`${row.isin}-${row.source}`} className="border-b border-[var(--border)]">
                   <td className="px-4 py-3 font-mono text-xs">{row.isin}</td>
                   <td className="px-4 py-3">
                     <input
@@ -648,10 +648,10 @@ function IsinMappingMaintenancePanel() {
                       onChange={(event) => setDraft({ ...draft, [row.isin]: event.target.value.toUpperCase() })}
                     />
                   </td>
-                  <td className="px-4 py-3 text-xs text-[#a0a7b4]">{row.source}</td>
+                  <td className="px-4 py-3 text-xs text-[var(--muted)]">{row.source}</td>
                 </tr>
               ))}
-              <tr className="border-b border-[#242a33]">
+              <tr className="border-b border-[var(--border)]">
                 <td className="px-4 py-3">
                   <input
                     className="input-dark font-mono text-xs"
@@ -668,7 +668,7 @@ function IsinMappingMaintenancePanel() {
                     onChange={(event) => setNewTicker(event.target.value.toUpperCase())}
                   />
                 </td>
-                <td className="px-4 py-3 text-xs text-[#a0a7b4]">neu</td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">neu</td>
               </tr>
             </tbody>
           </table>
@@ -677,7 +677,7 @@ function IsinMappingMaintenancePanel() {
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
-          className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={saveMutation.isPending || query.isLoading}
           type="button"
           onClick={() => saveMutation.mutate()}
@@ -685,10 +685,10 @@ function IsinMappingMaintenancePanel() {
           <Save size={16} />
           Mappings speichern
         </button>
-        {query.isLoading && <span className="text-sm text-[#a0a7b4]">Mappings werden geladen...</span>}
+        {query.isLoading && <span className="text-sm text-[var(--muted)]">Mappings werden geladen...</span>}
       </div>
       {saveMutation.error && (
-        <div className="mt-4 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+        <div className="mt-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           {saveMutation.error instanceof Error ? saveMutation.error.message : "Mappings konnten nicht gespeichert werden."}
         </div>
       )}
@@ -698,31 +698,31 @@ function IsinMappingMaintenancePanel() {
 
 function ImportPreviewTable({ rows }: { rows: PortfolioImportRow[] }) {
   return (
-    <div className="overflow-hidden rounded border border-[#2d333d]">
+    <div className="overflow-hidden rounded border border-[var(--border)]">
       <div className="max-h-[520px] overflow-auto">
         <table className="w-full min-w-[760px] border-collapse text-sm">
-          <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+          <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
             <tr>
-              <th className="border-b border-[#2d333d] px-4 py-3">Ticker</th>
-              <th className="border-b border-[#2d333d] px-4 py-3">Stück</th>
-              <th className="border-b border-[#2d333d] px-4 py-3">Einstand</th>
-              <th className="border-b border-[#2d333d] px-4 py-3">Kurs</th>
-              <th className="border-b border-[#2d333d] px-4 py-3">Währung</th>
-              <th className="border-b border-[#2d333d] px-4 py-3">Hinweise</th>
+              <th className="border-b border-[var(--border)] px-4 py-3">Ticker</th>
+              <th className="border-b border-[var(--border)] px-4 py-3">Stück</th>
+              <th className="border-b border-[var(--border)] px-4 py-3">Einstand</th>
+              <th className="border-b border-[var(--border)] px-4 py-3">Kurs</th>
+              <th className="border-b border-[var(--border)] px-4 py-3">Währung</th>
+              <th className="border-b border-[var(--border)] px-4 py-3">Hinweise</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={`${row.ticker}-${row.account}`} className="border-b border-[#242a33]">
+              <tr key={`${row.ticker}-${row.account}`} className="border-b border-[var(--border)]">
                 <td className="px-4 py-3">
                   <div className="font-semibold">{row.ticker}</div>
-                  <div className="text-xs text-[#a0a7b4]">{row.name}</div>
+                  <div className="text-xs text-[var(--muted)]">{row.name}</div>
                 </td>
                 <td className="px-4 py-3 tabular-nums">{row.shares.toLocaleString("de-DE")}</td>
                 <td className="px-4 py-3 tabular-nums">{row.entry_price.toFixed(2)}</td>
                 <td className="px-4 py-3 tabular-nums">{row.current_price?.toFixed(2) ?? "-"}</td>
                 <td className="px-4 py-3">{row.currency}</td>
-                <td className="px-4 py-3 text-xs text-[#a0a7b4]">{row.warnings.join(" ") || "-"}</td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">{row.warnings.join(" ") || "-"}</td>
               </tr>
             ))}
           </tbody>

@@ -208,7 +208,7 @@ def _sell_sort_key(row: dict[str, Any]) -> tuple[int, int, int]:
 
 def _portfolio_alerts(sell_rows: list[dict[str, Any]], portfolio: dict[str, Any]) -> list[dict[str, Any]]:
     """Present stored decisions; never promote pending/unreliable signals to sells."""
-    completed = completed_us_market_session().date.isoformat()
+    from app.services.signal_eligibility import sell_signal_eligibility
     alerts = []
     covered = set()
     for row in sell_rows:
@@ -218,17 +218,11 @@ def _portfolio_alerts(sell_rows: list[dict[str, Any]], portfolio: dict[str, Any]
         covered.add(ticker)
         seen = str(row.get("last_seen_date") or "")
         generated = row.get("generated_at")
-        try:
-            generated_time = datetime.fromisoformat(str(generated).replace("Z", "+00:00")) if generated else None
-            if generated_time and generated_time.tzinfo is None:
-                generated_time = generated_time.replace(tzinfo=UTC)
-            generated_current = bool(generated_time and generated_time.date().isoformat() >= completed and generated_time <= datetime.now(UTC))
-        except ValueError:
-            generated_current = False
-        stale = not seen or seen < completed or seen > expected_us_market_session().date.isoformat() or not generated_current
+        eligibility = sell_signal_eligibility(row, now=datetime.now(UTC), completed=completed_us_market_session().date.isoformat(), expected=expected_us_market_session().date.isoformat())
+        stale = not eligibility["signal_current"]
         unreliable = row.get("data_quality_status") != "trusted"
         pending = row.get("pending_status")
-        action = row.get("status") == "Verkaufen" and pending == "scharf" and (row.get("recommendation_pct") or 0) > 0
+        action = eligibility["decision_eligible"]
         if stale or unreliable:
             category, label, tone = "data", "Daten prüfen", "warning"
             reason = row.get("data_quality_detail") or "Bewertung nicht ausreichend verlässlich."

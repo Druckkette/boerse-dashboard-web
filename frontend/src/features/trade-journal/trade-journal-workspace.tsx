@@ -3,7 +3,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  AlertTriangle,
   ArrowLeft,
   ChevronRight,
   CircleHelp,
@@ -18,14 +17,16 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { HistoricalScores, HistoricalSignals, HistoricalTradeChart } from "./historical-review";
 import { api } from "@/lib/api/client";
 import { berlinDate } from "@/lib/date";
+import { JournalAnalytics } from "./journal-analytics";
+import { useViewState } from "@/lib/view-state";
+import { SavedViews } from "@/components/ui/saved-views";
 import type {
   Tone,
-  TradeJournalAnalytics,
   TradeJournalEntryDetail,
   TradeJournalEntryRequest,
   TradeJournalEntryStatus,
@@ -48,6 +49,8 @@ type Draft = {
   source_evidence: string;
   note: string;
   stop_price: string;
+  setup: string;
+  rule_deviation: string;
 };
 
 const contextTone: Record<TradeJournalEntrySummary["context_status"], Tone> = {
@@ -63,19 +66,13 @@ export function TradeJournalWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const tab = parseTab(searchParams.get("tab"));
+  const [view] = useViewState("journal", { tab: searchParams.get("tab") || "executions", query: searchParams.get("query") || "", type: searchParams.get("type") || "", status: searchParams.get("status") || "", source: searchParams.get("source") || "", from: searchParams.get("from") || "", to: searchParams.get("to") || "", sort: searchParams.get("sort") || "newest", offset: Number(searchParams.get("offset") || 0), group_by: "setup", context: "all" });
+  const tab = parseTab(view.tab);
   const selectedId = searchParams.get("entry");
-  const filters = useMemo<TradeJournalFilters>(() => ({
-    query: searchParams.get("query") ?? "",
-    entry_type: (searchParams.get("type") ?? "") as TradeJournalEntryType | "",
-    status: (searchParams.get("status") ?? "") as TradeJournalEntryStatus | "",
-    source: (searchParams.get("source") ?? "") as TradeJournalFilters["source"],
-    date_from: searchParams.get("from") ?? "",
-    date_to: searchParams.get("to") ?? "",
-    sort: searchParams.get("sort") === "oldest" ? "oldest" : "newest",
-    limit: PAGE_SIZE,
-    offset: Math.max(0, Number(searchParams.get("offset") ?? 0) || 0)
-  }), [searchParams]);
+  const filters: TradeJournalFilters = {
+    query: view.query, entry_type: view.type as TradeJournalEntryType | "", status: view.status as TradeJournalEntryStatus | "", source: view.source as TradeJournalFilters["source"], date_from: view.from, date_to: view.to,
+    sort: view.sort === "oldest" ? "oldest" : "newest", limit: PAGE_SIZE, offset: Math.max(0, view.offset || 0)
+  };
   const [searchInput, setSearchInput] = useState(filters.query ?? "");
   const [dialog, setDialog] = useState<{ draft: Draft; entry: TradeJournalEntryDetail | null } | null>(null);
 
@@ -83,7 +80,7 @@ export function TradeJournalWorkspace() {
     queryKey: ["trade-journal", filters],
     queryFn: () => api.tradeJournalEntries(filters)
   });
-  const commonFilters = { query: filters.query, date_from: filters.date_from, date_to: filters.date_to };
+  const commonFilters = { query: filters.query, date_from: filters.date_from, date_to: filters.date_to, group_by: view.group_by, context: view.context };
   const analyticsQuery = useQuery({
     queryKey: ["trade-journal-analytics", commonFilters],
     queryFn: () => api.tradeJournalAnalytics(commonFilters),
@@ -106,10 +103,10 @@ export function TradeJournalWorkspace() {
         sell_reason: entry.entry_type === "sell" ? draft.note : entry.sell_reason,
         alternative_entry: entry.alternative_entry,
         alternative_entry_text: entry.alternative_entry_text,
-        questionnaire: entry.questionnaire,
+        questionnaire: { ...entry.questionnaire, setup: draft.setup, rule_deviation: draft.rule_deviation },
         chart_images: entry.chart_images
       });
-      return api.updateTradeJournalEntry(entry.id, payload);
+      return api.updateTradeJournalEntry(entry.id, { ...payload, questionnaire: { ...entry.questionnaire, ...payload.questionnaire }, chart_images: entry.chart_images, alternative_entry: entry.alternative_entry, alternative_entry_text: entry.alternative_entry_text });
     },
     onSuccess: (result) => {
       setDialog(null);
@@ -149,6 +146,9 @@ export function TradeJournalWorkspace() {
       if (value === null || value === undefined || value === "" || value === 0) params.delete(key);
       else params.set(key, String(value));
     }
+    const nextView = { ...view } as Record<string, unknown>;
+    for (const [key, value] of Object.entries(changes)) if (key in nextView) nextView[key] = key === "offset" ? Number(value || 0) : value == null ? (key === "tab" ? "executions" : "") : value;
+    params.set("journal", JSON.stringify({ ...nextView, version: 1 }));
     router.push(`/trade-journal${params.size ? `?${params.toString()}` : ""}`, { scroll: false });
   }
 
@@ -173,6 +173,7 @@ export function TradeJournalWorkspace() {
 
   return (
     <div className="space-y-5">
+      <SavedViews scope="journal" />
       <section className="rounded-[18px] border border-[#dfe6ed] bg-white p-5 shadow-[0_8px_28px_rgba(15,23,42,0.05)] md:p-6">
         <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-center 2xl:justify-between">
           <div>
@@ -230,7 +231,7 @@ export function TradeJournalWorkspace() {
         {tab === "executions" && <Pagination total={entriesQuery.data?.total ?? 0} offset={filters.offset ?? 0} loading={entriesQuery.isLoading} onPage={(offset) => navigate({ offset, entry: null })} />}
         <div className="p-4">
           {tab === "executions" && <ExecutionTable entries={entries} loading={entriesQuery.isLoading} onView={(id) => navigate({ entry: id })} />}
-          {tab === "analytics" && <AnalyticsPanel data={analyticsQuery.data} loading={analyticsQuery.isLoading} />}
+          {tab === "analytics" && <JournalAnalytics data={analyticsQuery.data} loading={analyticsQuery.isLoading} groupBy={view.group_by} context={view.context} onFilter={navigate} />}
         </div>
 
         {tab === "executions" && <Pagination total={entriesQuery.data?.total ?? 0} offset={filters.offset ?? 0} loading={entriesQuery.isLoading} onPage={(offset) => navigate({ offset, entry: null })} />}
@@ -265,11 +266,6 @@ function ExecutionTable({ entries, loading, onView }: { entries: TradeJournalEnt
   );
 }
 
-function AnalyticsPanel({ data, loading }: { data?: TradeJournalAnalytics; loading: boolean }) {
-  if (loading) return <LoadingRows />;
-  if (!data) return <EmptyState title="Keine Auswertung verfügbar" text="Die Kennzahlen werden serverseitig über alle gefilterten Trades berechnet." />;
-  return <div className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Geschlossene Trades" value={String(data.closed_trades)} detail={`${data.excluded_incomplete} ohne vollständige Kostenbasis ausgeschlossen`} /><Metric label="Nettoergebnis" value={money(data.net_result, "EUR")} detail="Summe der Tradeergebnisse; Währungen im Detail prüfen" tone={data.net_result >= 0 ? "good" : "bad"} /><Metric label="Trefferquote" value={data.hit_rate_pct == null ? "—" : `${number(data.hit_rate_pct)} %`} detail={`${data.winners} Gewinner · ${data.losers} Verlierer`} /><Metric label="Profit Factor" value={data.profit_factor == null ? "—" : number(data.profit_factor)} detail="Bruttogewinne / Bruttoverluste" /></div><div className="grid gap-3 sm:grid-cols-2"><Metric label="Durchschnittsgewinn" value={money(data.average_win, "EUR")} detail="nur gewinnende, geschlossene Trades" tone="good" /><Metric label="Durchschnittsverlust" value={money(data.average_loss, "EUR")} detail="nur verlierende, geschlossene Trades" tone="bad" /></div><div className="rounded-[14px] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><AlertTriangle className="mr-2 inline size-4" />Ergebnisse verschiedener Brokerwährungen werden nicht stillschweigend umgerechnet. Für eine belastbare Gesamtwährung müssen alle Trades eine gespeicherte FX-Basis besitzen.</div></div>;
-}
 
 function DetailWindow({ children, onClose, entryId }: { children: ReactNode; onClose: () => void; entryId: string }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -376,7 +372,7 @@ function EntryDialog({ dialog, pending, error, onClose, onChange, onSave }: { di
   const broker = dialog.entry?.source === "trade_republic";
   const patch = (value: Partial<Draft>) => onChange({ ...draft, ...value });
   function submit(event: FormEvent) { event.preventDefault(); onSave(); }
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/55 p-3 backdrop-blur-sm md:p-8" role="dialog" aria-modal="true" aria-label={dialog.entry ? "Notiz bearbeiten" : "Manueller Nachtrag"}><form className="mx-auto max-w-4xl rounded-[18px] bg-white shadow-2xl" onSubmit={submit}><div className="flex items-center justify-between border-b border-[#e8edf2] px-5 py-4"><div><h2 className="text-xl font-semibold text-[#172033]">{broker ? "Notiz zur Broker-Ausführung" : dialog.entry ? "Manuellen Eintrag bearbeiten" : "Manueller Nachtrag"}</h2><p className="mt-1 text-sm text-[#687386]">{broker ? "Ausführungsdaten und FIFO-Ergebnis bleiben unverändert." : "Fehlende Ausführung ergänzen; spätere CSV-Treffer werden nicht automatisch verschmolzen."}</p></div><button aria-label="Dialog schließen" className="rounded-full p-2 text-[#687386] hover:bg-[#f0f3f6]" type="button" onClick={onClose}><X size={20} /></button></div><div className="space-y-5 p-5">{!broker && <><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Field label="Ticker *"><input required className="input-light uppercase" value={draft.ticker} onChange={(event) => patch({ ticker: event.target.value.toUpperCase() })} /></Field><Field label="Ausführung *"><select className="input-light" value={draft.entry_type} onChange={(event) => patch({ entry_type: event.target.value as TradeJournalEntryType })}><option value="buy">Kauf</option><option value="sell">Verkauf</option><option value="ex_post">Nachbereitung</option></select></Field><Field label="Handelsdatum *"><input required className="input-light" type="date" value={draft.trade_date} onChange={(event) => patch({ trade_date: event.target.value })} /></Field><Field label="Währung *"><input required className="input-light uppercase" maxLength={8} value={draft.currency} onChange={(event) => patch({ currency: event.target.value.toUpperCase() })} /></Field></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Field label="Preis *"><input required className="input-light" inputMode="decimal" value={draft.price} onChange={(event) => patch({ price: event.target.value })} /></Field><Field label="Stückzahl *"><input required className="input-light" inputMode="decimal" value={draft.shares} onChange={(event) => patch({ shares: event.target.value })} /></Field><Field label="Gebühren"><input className="input-light" inputMode="decimal" value={draft.fees} onChange={(event) => patch({ fees: event.target.value })} /></Field><Field label="Steuern"><input className="input-light" inputMode="decimal" value={draft.tax} onChange={(event) => patch({ tax: event.target.value })} /></Field><Field label="Stopp"><input className="input-light" inputMode="decimal" value={draft.stop_price} onChange={(event) => patch({ stop_price: event.target.value })} /></Field></div><Field label="Quelle / Beleg"><input className="input-light" value={draft.source_evidence} placeholder="z. B. Abrechnung vom …" onChange={(event) => patch({ source_evidence: event.target.value })} /></Field></>}<Field label={draft.entry_type === "sell" ? "Verkaufsgrund / Notiz" : "Entscheidungsgrund / Notiz"}><textarea className="input-light min-h-36" value={draft.note} onChange={(event) => patch({ note: event.target.value })} /></Field>{Boolean(error) && <ErrorPanel>Speichern fehlgeschlagen: {(error as Error).message}</ErrorPanel>}<div className="flex justify-end gap-2"><button className="rounded-[9px] border border-[#d8e1ea] px-4 py-2 text-sm font-semibold text-[#526174]" type="button" onClick={onClose}>Abbrechen</button><button className="rounded-[9px] bg-[#0f766e] px-4 py-2 text-sm font-semibold !text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "Speichert…" : "Speichern"}</button></div></div></form></div>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/55 p-3 backdrop-blur-sm md:p-8" role="dialog" aria-modal="true" aria-label={dialog.entry ? "Notiz bearbeiten" : "Manueller Nachtrag"}><form className="mx-auto max-w-4xl rounded-[18px] bg-white shadow-2xl" onSubmit={submit}><div className="flex items-center justify-between border-b border-[#e8edf2] px-5 py-4"><div><h2 className="text-xl font-semibold text-[#172033]">{broker ? "Notiz zur Broker-Ausführung" : dialog.entry ? "Manuellen Eintrag bearbeiten" : "Manueller Nachtrag"}</h2><p className="mt-1 text-sm text-[#687386]">{broker ? "Ausführungsdaten und FIFO-Ergebnis bleiben unverändert." : "Fehlende Ausführung ergänzen; spätere CSV-Treffer werden nicht automatisch verschmolzen."}</p></div><button aria-label="Dialog schließen" className="rounded-full p-2 text-[#687386] hover:bg-[#f0f3f6]" type="button" onClick={onClose}><X size={20} /></button></div><div className="space-y-5 p-5">{!broker && <><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Field label="Ticker *"><input required className="input-light uppercase" value={draft.ticker} onChange={(event) => patch({ ticker: event.target.value.toUpperCase() })} /></Field><Field label="Ausführung *"><select className="input-light" value={draft.entry_type} onChange={(event) => patch({ entry_type: event.target.value as TradeJournalEntryType })}><option value="buy">Kauf</option><option value="sell">Verkauf</option><option value="ex_post">Nachbereitung</option></select></Field><Field label="Handelsdatum *"><input required className="input-light" type="date" value={draft.trade_date} onChange={(event) => patch({ trade_date: event.target.value })} /></Field><Field label="Währung *"><input required className="input-light uppercase" maxLength={8} value={draft.currency} onChange={(event) => patch({ currency: event.target.value.toUpperCase() })} /></Field></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Field label="Preis *"><input required className="input-light" inputMode="decimal" value={draft.price} onChange={(event) => patch({ price: event.target.value })} /></Field><Field label="Stückzahl *"><input required className="input-light" inputMode="decimal" value={draft.shares} onChange={(event) => patch({ shares: event.target.value })} /></Field><Field label="Gebühren"><input className="input-light" inputMode="decimal" value={draft.fees} onChange={(event) => patch({ fees: event.target.value })} /></Field><Field label="Steuern"><input className="input-light" inputMode="decimal" value={draft.tax} onChange={(event) => patch({ tax: event.target.value })} /></Field><Field label="Stopp"><input className="input-light" inputMode="decimal" value={draft.stop_price} onChange={(event) => patch({ stop_price: event.target.value })} /></Field></div><Field label="Quelle / Beleg"><input className="input-light" value={draft.source_evidence} placeholder="z. B. Abrechnung vom …" onChange={(event) => patch({ source_evidence: event.target.value })} /></Field></>}<div className="grid gap-3 sm:grid-cols-2"><Field label="Dokumentierter Einstiegsgrund"><select className="input-light" value={draft.setup} onChange={event => patch({ setup: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["breakout", "Ausbruch"], ["pullback", "Rücksetzer"], ["trend", "Trendfolge"], ["fundamental", "Fundamental"], ["other", "Sonstiger Grund"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Regelbezug"><select className="input-light" value={draft.rule_deviation} onChange={event => patch({ rule_deviation: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["followed", "Regel befolgt"], ["deviated", "Bewusst abgewichen"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div><Field label={draft.entry_type === "sell" ? "Verkaufsgrund / Notiz" : "Entscheidungsgrund / Notiz"}><textarea className="input-light min-h-36" value={draft.note} onChange={(event) => patch({ note: event.target.value })} /></Field>{Boolean(error) && <ErrorPanel>Speichern fehlgeschlagen: {(error as Error).message}</ErrorPanel>}<div className="flex justify-end gap-2"><button className="rounded-[9px] border border-[#d8e1ea] px-4 py-2 text-sm font-semibold text-[#526174]" type="button" onClick={onClose}>Abbrechen</button><button className="rounded-[9px] bg-[#0f766e] px-4 py-2 text-sm font-semibold !text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "Speichert…" : "Speichern"}</button></div></div></form></div>;
 }
 
 function HeaderStat({ label, value, detail }: { label: string; value: string; detail: string }) { return <div><div className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8798]">{label}</div><div className="mt-1 text-xl font-semibold tabular-nums text-[#172033]">{value}</div><div className="text-xs text-[#7a8798]">{detail}</div></div>; }
@@ -393,9 +389,9 @@ function EmptyState({ title, text: value }: { title: string; text: string }) { r
 function LoadingRows() { return <div className="space-y-2">{[0, 1, 2, 3].map((item) => <div key={item} className="h-16 animate-pulse rounded-[12px] bg-[#f1f4f7]" />)}</div>; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.06em] text-[#687386]">{label}</span>{children}</label>; }
 
-function emptyDraft(ticker: string, type: TradeJournalEntryType): Draft { return { ticker, entry_type: type, trade_date: berlinDate(), price: "", shares: "", currency: "EUR", fees: "", tax: "", source_evidence: "", note: "", stop_price: "" }; }
-function entryDraft(entry: TradeJournalEntryDetail): Draft { const portfolio = record(entry.portfolio_snapshot); return { ticker: entry.ticker, entry_type: entry.entry_type, trade_date: entry.trade_date, price: stringNumber(entry.price), shares: stringNumber(entry.shares), currency: entry.currency || "USD", fees: stringNumber(entry.fees), tax: stringNumber(entry.tax), source_evidence: text(portfolio.source_evidence), note: entry.entry_type === "sell" ? entry.sell_reason : entry.primary_reasons || entry.basis_text, stop_price: stringNumber(entry.stop_price) }; }
-function draftToRequest(draft: Draft): TradeJournalEntryRequest { return { ticker: draft.ticker.trim().toUpperCase(), entry_type: draft.entry_type, trade_date: draft.trade_date, price: parseNumber(draft.price), shares: parseNumber(draft.shares), currency: draft.currency.trim().toUpperCase(), fees: parseNumber(draft.fees), tax: parseNumber(draft.tax), source_evidence: draft.source_evidence, stop_price: parseNumber(draft.stop_price), status: draft.entry_type === "buy" ? "open" : "closed", primary_reasons: draft.entry_type === "sell" ? "" : draft.note, sell_reason: draft.entry_type === "sell" ? draft.note : "", basis_text: draft.entry_type === "buy" ? draft.note : "", questionnaire: {}, chart_images: { daily_chart: "", weekly_chart: "" } }; }
+function emptyDraft(ticker: string, type: TradeJournalEntryType): Draft { return { ticker, entry_type: type, trade_date: berlinDate(), price: "", shares: "", currency: "EUR", fees: "", tax: "", source_evidence: "", note: "", stop_price: "", setup: "unknown", rule_deviation: "unknown" }; }
+function entryDraft(entry: TradeJournalEntryDetail): Draft { const portfolio = record(entry.portfolio_snapshot); return { ticker: entry.ticker, entry_type: entry.entry_type, trade_date: entry.trade_date, price: stringNumber(entry.price), shares: stringNumber(entry.shares), currency: entry.currency || "USD", fees: stringNumber(entry.fees), tax: stringNumber(entry.tax), source_evidence: text(portfolio.source_evidence), note: entry.entry_type === "sell" ? entry.sell_reason : entry.primary_reasons || entry.basis_text, stop_price: stringNumber(entry.stop_price), setup: text(entry.questionnaire.setup) || "unknown", rule_deviation: text(entry.questionnaire.rule_deviation) || "unknown" }; }
+function draftToRequest(draft: Draft): TradeJournalEntryRequest { return { ticker: draft.ticker.trim().toUpperCase(), entry_type: draft.entry_type, trade_date: draft.trade_date, price: parseNumber(draft.price), shares: parseNumber(draft.shares), currency: draft.currency.trim().toUpperCase(), fees: parseNumber(draft.fees), tax: parseNumber(draft.tax), source_evidence: draft.source_evidence, stop_price: parseNumber(draft.stop_price), status: draft.entry_type === "buy" ? "open" : "closed", primary_reasons: draft.entry_type === "sell" ? "" : draft.note, sell_reason: draft.entry_type === "sell" ? draft.note : "", basis_text: draft.entry_type === "buy" ? draft.note : "", questionnaire: { setup: draft.setup, rule_deviation: draft.rule_deviation }, chart_images: { daily_chart: "", weekly_chart: "" } }; }
 function parseTab(value: string | null): Tab { return value === "analytics" ? value : "executions"; }
 function parseNumber(value: string): number | null { const parsed = Number(value.replace(",", ".")); return value.trim() && Number.isFinite(parsed) ? parsed : null; }
 function stringNumber(value: number | null | undefined): string { return value == null ? "" : String(value); }

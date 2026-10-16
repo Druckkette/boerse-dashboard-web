@@ -38,7 +38,7 @@ def test_beta_compose_has_same_image_and_no_private_environment_or_extra_infrast
 
 @pytest.mark.parametrize("active", [False, True])
 def test_update_keeps_active_beta_and_runs_one_migration_without_orphan_removal(tmp_path, active):
-    (tmp_path / ".env.nas").write_text("IMAGE_TAG=test-only\n")
+    (tmp_path / ".env.nas").write_text("IMAGE_TAG=" + "a" * 40 + "\n")
     trace = tmp_path / "trace.txt"
     docker = tmp_path / "docker"
     docker.write_text('''#!/bin/sh
@@ -69,3 +69,28 @@ def test_frontend_beta_entrypoint_cannot_import_private_runtime_file(tmp_path):
     assert subprocess.run(command, env=env).returncode == 0
     env["APP_BETA_MODE"] = "0"
     assert subprocess.run(command, env=env).returncode != 0
+
+
+def test_restore_aborts_before_database_write_when_stopping_services_fails(tmp_path):
+    (tmp_path / ".env.nas").write_text("IMAGE_TAG=" + "a" * 40 + "\n")
+    (tmp_path / "backup.dump").write_bytes(b"fixture")
+    trace = tmp_path / "trace.txt"
+    docker = tmp_path / "docker"
+    docker.write_text('''#!/bin/sh
+printf '%s\\n' "$*" >> "$TRACE"
+case "$*" in *" stop "*) exit 1;; esac
+exit 0
+''')
+    docker.chmod(0o755)
+    result = subprocess.run(["sh", str(ROOT / "infra/restore-postgres.sh"), "backup.dump"], cwd=tmp_path,
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "TRACE": str(trace), "RESTORE_CONFIRM": "I_UNDERSTAND_THIS_OVERWRITES_DATABASE"}, capture_output=True, text=True)
+    assert result.returncode != 0
+    calls = trace.read_text()
+    assert "interactive-worker" in calls and "frontend-beta" in calls
+    assert "pg_restore" not in calls and "psql" not in calls
+
+
+def test_update_rejects_latest_before_any_docker_action(tmp_path):
+    (tmp_path / ".env.nas").write_text("IMAGE_TAG=latest\n")
+    result = subprocess.run(["sh", str(ROOT / "infra/update-nas.sh")], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0 and "40-character" in result.stderr

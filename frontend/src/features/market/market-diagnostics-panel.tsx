@@ -25,7 +25,7 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
 
   if (query.isLoading) {
     return (
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+      <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
         Markt-Diagnose lädt...
       </section>
     );
@@ -33,7 +33,7 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
 
   if (!data) {
     return (
-      <section className="rounded border border-rose-400/40 bg-rose-400/10 p-5 text-sm text-rose-100">
+      <section className="rounded border border-rose-400/40 bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]">
         Markt-Diagnose ist aktuell nicht erreichbar.
       </section>
     );
@@ -45,7 +45,7 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
   return (
     <section className="space-y-4">
       {query.isError && <p role="alert" className="rounded border border-amber-300 p-3 text-sm">Aktualisierung fehlgeschlagen. Angezeigt wird der letzte erfolgreich geladene Datenstand.</p>}
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -59,16 +59,16 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
               )}
             </div>
             <h2 className="text-xl font-semibold tracking-normal">Tägliche Markt-Diagnose</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">{data.summary}</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">{data.summary}</p>
             {data.component_errors?.length ? <p role="status" className="text-sm text-amber-700">{data.component_errors.join(" · ")}</p> : null}
-            {data.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[#77808f]">{data.message}</p>}
+            {data.message && <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--muted)]">{data.message}</p>}
           </div>
           <button
-            className="inline-flex w-fit items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm text-[#d8dde6] transition hover:border-emerald-300/60"
+            className="inline-flex w-fit items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] transition hover:border-emerald-300/60"
             type="button"
             onClick={() => query.refetch()}
           >
-            <RotateCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RotateCw size={15} className={query.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Aktualisieren
           </button>
         </div>
@@ -85,21 +85,21 @@ export function MarketDiagnosticsPanel({ ticker = "^GSPC" }: { ticker?: string }
 
 function Checklist({ checks }: { checks: MarketDiagnosticCheck[] }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold">Checkliste</h3>
-          <p className="text-sm text-[#a0a7b4]">Streamlit-Regeln als API-Auswertung, ohne Live-Refresh im Klickpfad.</p>
+          <p className="text-sm text-[var(--muted)]">Streamlit-Regeln als API-Auswertung, ohne Live-Refresh im Klickpfad.</p>
         </div>
         <StatusChip tone="neutral">{checks.length} Regeln</StatusChip>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {checks.map((check) => (
-          <div key={`${check.category}-${check.label}`} className="rounded border border-[#242a33] bg-[#111419] p-3">
+          <div key={`${check.category}-${check.label}`} className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-medium text-[#d8dde6]">{check.label}</div>
-                <div className="mt-1 text-xs leading-5 text-[#77808f]">{check.detail}</div>
+                <div className="text-sm font-medium text-[var(--text)]">{check.label}</div>
+                <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{check.detail}</div>
               </div>
               <CheckIcon passed={check.passed} tone={check.tone} />
             </div>
@@ -118,23 +118,23 @@ function SectorRotation({
   spread?: number | null;
 }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold">Sektorrotation 10T</h3>
-          <p className="text-sm text-[#a0a7b4]">Defensive gegen offensive Leader aus dem Price-Cache.</p>
+          <p className="text-sm text-[var(--muted)]">Defensive gegen offensive Leader aus dem Price-Cache.</p>
         </div>
         <StatusChip tone={spread && spread > 0 ? "warning" : "good"}>Spread {formatPct(spread)}</StatusChip>
       </div>
       {groups.length === 0 ? (
-        <div className="rounded border border-[#242a33] bg-[#111419] p-3 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm text-[var(--muted)]">
           Keine Sektor-ETF-Daten im Cache.
         </div>
       ) : (
         <div className="space-y-4">
           {groups.map((group) => (
             <div key={group.group}>
-              <div className="mb-2 flex items-center justify-between gap-3 text-xs uppercase text-[#77808f]">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs uppercase text-[var(--muted)]">
                 <span>{group.label}</span>
                 <span className={pctClass(group.avg_return_10d_pct)}>{formatPct(group.avg_return_10d_pct)}</span>
               </div>
@@ -142,8 +142,8 @@ function SectorRotation({
                 {group.items.map((item) => (
                   <div key={item.ticker} className="flex items-center justify-between gap-3 text-sm">
                     <div>
-                      <div className="font-medium text-[#d8dde6]">{item.ticker}</div>
-                      <div className="text-xs text-[#77808f]">{item.name}</div>
+                      <div className="font-medium text-[var(--text)]">{item.ticker}</div>
+                      <div className="text-xs text-[var(--muted)]">{item.name}</div>
                     </div>
                     <div className={["tabular-nums", pctClass(item.return_10d_pct)].join(" ")}>
                       {formatPct(item.return_10d_pct)}
@@ -161,23 +161,23 @@ function SectorRotation({
 
 function IntermarketTable({ items }: { items: MarketIntermarketItem[] }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-4">
         <h3 className="text-base font-semibold">Intermarket-Bild</h3>
-        <p className="text-sm text-[#a0a7b4]">
+        <p className="text-sm text-[var(--muted)]">
           Tagesveränderung und Abstand zum vorherigen 20-Tage-Hoch zeigen, ob wichtige Indizes Stärke gemeinsam
           bestätigen.
         </p>
       </div>
       {items.length === 0 ? (
-        <div className="rounded border border-[#242a33] bg-[#111419] p-3 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm text-[var(--muted)]">
           Keine Indexdaten für S&P 500 oder Nasdaq im Cache.
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-[#2d333d] text-left text-xs uppercase text-[#77808f]">
+              <tr className="border-b border-[var(--border)] text-left text-xs uppercase text-[var(--muted)]">
                 <th className="py-3 pr-3">Index</th>
                 <th className="px-3 py-3 text-right">Close</th>
                 <th className="px-3 py-3 text-right">Tag</th>
@@ -187,12 +187,12 @@ function IntermarketTable({ items }: { items: MarketIntermarketItem[] }) {
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.ticker} className="border-b border-[#242a33] last:border-0">
+                <tr key={item.ticker} className="border-b border-[var(--border)] last:border-0">
                   <td className="py-3 pr-3">
-                    <div className="font-medium text-[#d8dde6]">{item.name}</div>
-                    <div className="text-xs text-[#77808f]">{item.ticker}</div>
+                    <div className="font-medium text-[var(--text)]">{item.name}</div>
+                    <div className="text-xs text-[var(--muted)]">{item.ticker}</div>
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-[#d8dde6]">{formatNumber(item.close)}</td>
+                  <td className="px-3 py-3 text-right tabular-nums text-[var(--text)]">{formatNumber(item.close)}</td>
                   <td className={["px-3 py-3 text-right tabular-nums", pctClass(item.day_pct)].join(" ")}>
                     {formatPct(item.day_pct)}
                   </td>
@@ -213,9 +213,9 @@ function IntermarketTable({ items }: { items: MarketIntermarketItem[] }) {
 }
 
 function CheckIcon({ passed, tone }: { passed: boolean; tone: Tone }) {
-  if (passed) return <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-300" size={18} />;
-  if (tone === "bad") return <AlertTriangle className="mt-0.5 shrink-0 text-rose-300" size={18} />;
-  return <CircleDashed className="mt-0.5 shrink-0 text-amber-300" size={18} />;
+  if (passed) return <CheckCircle2 className="mt-0.5 shrink-0 text-[var(--green)]" size={18} />;
+  if (tone === "bad") return <AlertTriangle className="mt-0.5 shrink-0 text-[var(--red)]" size={18} />;
+  return <CircleDashed className="mt-0.5 shrink-0 text-[var(--yellow)]" size={18} />;
 }
 
 function warningTone(count: number): Tone {
@@ -225,8 +225,8 @@ function warningTone(count: number): Tone {
 }
 
 function pctClass(value?: number | null) {
-  if (value === null || value === undefined) return "text-[#77808f]";
-  return value >= 0 ? "text-emerald-200" : "text-rose-200";
+  if (value === null || value === undefined) return "text-[var(--muted)]";
+  return value >= 0 ? "text-[var(--green)]" : "text-[var(--red)]";
 }
 
 function formatPct(value?: number | null) {

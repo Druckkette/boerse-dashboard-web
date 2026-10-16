@@ -220,6 +220,8 @@ def get_stock_assessment(ticker: str) -> StockAssessmentResponse:
         score_weights=_assessment_score_weights(),
     )
     response = _to_response(result)
+    from app.services.assessment_version import calculation_identity
+    response.calculation = calculation_identity(_assessment_score_weights())
     response.data_quality = dependency_quality(
         fundamentals_context, institutional_context, rs_context,
     )

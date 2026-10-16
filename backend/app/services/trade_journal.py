@@ -72,15 +72,17 @@ def get_trade_journal_entries(
 
 
 def get_trade_journal_trades(
-    *, query: str | None = None, date_from: date | None = None, date_to: date | None = None
+    *, query: str | None = None, date_from: date | None = None, date_to: date | None = None,
+    include_executions: bool = True,
 ) -> TradeJournalTradesResponse:
-    rows = journal_repository.list_trade_entries(query=query, date_from=date_from, date_to=date_to)
+    rows = journal_repository.list_trade_entries(query=query)
     grouped: dict[str, list[Any]] = {}
     for row in rows:
         # Position IDs survive prepended broker history and are therefore the stable public trade ID.
         key = row.position_id or row.trade_group_id or row.linked_entry_id or row.id
         grouped.setdefault(key, []).append(row)
-    trades = [_trade_summary(key, group) for key, group in grouped.items()]
+    trades = [_trade_summary(key, group, include_executions=include_executions) for key, group in grouped.items()]
+    trades = [trade for trade in trades if (date_from is None or (trade.last_exit_date or trade.first_entry_date) >= date_from.isoformat()) and (date_to is None or (trade.last_exit_date or trade.first_entry_date) <= date_to.isoformat())]
     trades.sort(key=lambda item: (item.first_entry_date, item.id), reverse=True)
     return TradeJournalTradesResponse(trades=trades, total=len(trades))
 
@@ -94,25 +96,54 @@ def get_trade_journal_trade(trade_id: str) -> TradeJournalTradeSummary:
 
 
 def get_trade_journal_analytics(
-    *, query: str | None = None, date_from: date | None = None, date_to: date | None = None
+    *, query: str | None = None, date_from: date | None = None, date_to: date | None = None,
+    group_by: str = "setup", context: str = "all",
 ) -> TradeJournalAnalyticsResponse:
-    trades = get_trade_journal_trades(query=query, date_from=date_from, date_to=date_to).trades
-    closed = [item for item in trades if item.status == "closed" and item.realized_pnl is not None]
-    winners = [item.realized_pnl for item in closed if (item.realized_pnl or 0) > 0]
-    losers = [item.realized_pnl for item in closed if (item.realized_pnl or 0) < 0]
-    gross_profit = sum(winners)
-    gross_loss = abs(sum(losers))
+    trades = get_trade_journal_trades(query=query, date_from=date_from, date_to=date_to, include_executions=False).trades
+    if context != "all":
+        trades = [trade for trade in trades if trade.context_status == context]
+    closed = [trade for trade in trades if trade.status == "closed" and trade.realized_pnl is not None]
+    currencies = sorted({trade.currency for trade in closed})
+    by_currency = [_analytics_metrics([trade for trade in closed if trade.currency == currency], currency) for currency in currencies]
+    metrics = by_currency[0] if len(by_currency) == 1 else {
+        "net_result": None, "average_win": None, "average_loss": None, "profit_factor": None,
+    }
+    grouped = {}
+    fields = {"setup": "setup_tag", "market": "market_phase", "sector": "sector", "deviation": "rule_deviation"}
+    for trade in closed:
+        if group_by == "holding":
+            days = (date.fromisoformat(trade.last_exit_date) - date.fromisoformat(trade.first_entry_date)).days
+            label = "0–7 Tage" if days <= 7 else "8–30 Tage" if days <= 30 else "31–90 Tage" if days <= 90 else "Über 90 Tage"
+        else:
+            label = getattr(trade, fields.get(group_by, "setup_tag"))
+        grouped.setdefault((label, trade.currency), []).append(trade)
     return TradeJournalAnalyticsResponse(
-        closed_trades=len(closed),
-        net_result=sum(item.realized_pnl or 0 for item in closed),
-        winners=len(winners),
-        losers=len(losers),
-        hit_rate_pct=round(len(winners) / len(closed) * 100, 2) if closed else None,
-        average_win=round(gross_profit / len(winners), 2) if winners else None,
-        average_loss=round(sum(losers) / len(losers), 2) if losers else None,
-        profit_factor=round(gross_profit / gross_loss, 2) if gross_loss else None,
-        excluded_incomplete=sum(1 for item in trades if item.status == "closed" and item.realized_pnl is None),
+        **{key: value for key, value in metrics.items() if key in {"net_result", "average_win", "average_loss", "profit_factor"}},
+        currency=currencies[0] if len(currencies) == 1 else None,
+        by_currency=by_currency, groups=[{"label": label, **_analytics_metrics(items, currency)} for (label, currency), items in sorted(grouped.items())],
+        group_by=group_by, context=context, closed_trades=len(closed),
+        winners=sum(trade.realized_pnl > 0 for trade in closed), losers=sum(trade.realized_pnl < 0 for trade in closed),
+        hit_rate_pct=round(sum(trade.realized_pnl > 0 for trade in closed) / len(closed) * 100, 2) if closed else None,
+        excluded_incomplete=sum(trade.status == "closed" and trade.realized_pnl is None for trade in trades),
+        notes=["Zeitraum bezieht sich auf den letzten Ausstieg; vollständige Positionszyklen bleiben erhalten.",
+               "Beträge verschiedener Währungen werden getrennt ausgewertet. Kleine Gruppen sind kein Strategienachweis.",
+               "R-Multiple nur mit dokumentiertem ursprünglichem Stopp; keine nachträgliche Schätzung."],
     )
+
+
+def _analytics_metrics(trades, currency):
+    from app.services.money import money_sum
+    values = [trade.realized_pnl for trade in trades]
+    wins, losses = [value for value in values if value > 0], [value for value in values if value < 0]
+    rs = [trade.r_multiple for trade in trades if trade.r_multiple is not None]
+    return dict(currency=currency, count=len(values), net_result=round(money_sum(values), 2),
+                average_win=round(money_sum(wins) / len(wins), 2) if wins else None,
+                average_loss=round(money_sum(losses) / len(losses), 2) if losses else None,
+                profit_factor=round(money_sum(wins) / abs(money_sum(losses)), 2) if losses else None,
+                hit_rate_pct=round(len(wins) / len(values) * 100, 2) if values else None,
+                average_r=round(sum(rs) / len(rs), 2) if rs else None, r_count=len(rs),
+                first_date=min((trade.first_entry_date for trade in trades), default=None),
+                last_date=max((trade.last_exit_date for trade in trades), default=None))
 
 
 def get_trade_journal_coverage() -> TradeJournalCoverageResponse:
@@ -164,11 +195,11 @@ def create_trade_journal_entry(payload: TradeJournalEntryRequest) -> TradeJourna
     _validate_images(payload.chart_images)
 
     trade_date = payload.trade_date or date.today()
-    price = _finite(payload.price) or _current_price(clean)
+    price = _finite(payload.price)
     shares = _finite(payload.shares)
     linked_buy = _linked_buy(clean, payload.linked_entry_id) if entry_type in {"sell", "ex_post"} else None
     linked_entry_id = payload.linked_entry_id or (linked_buy.id if linked_buy is not None else None)
-    realized_pnl_eur, realized_pnl_pct = _realized_pnl(linked_buy, price=price, shares=shares)
+    realized_pnl_eur, realized_pnl_pct = _realized_pnl(linked_buy, price=price, shares=shares, currency=payload.currency, on=payload.trade_date or date.today(), fees=payload.fees or 0, tax=payload.tax or 0)
     stop_deviation_pct = _stop_deviation(linked_buy, price=price)
     status = _default_status(entry_type, payload.status, payload.close_with_related_buy)
 
@@ -184,6 +215,7 @@ def create_trade_journal_entry(payload: TradeJournalEntryRequest) -> TradeJourna
         "stop_distance_pct": _stop_distance_pct(price, payload.stop_price),
         "linked_entry_id": linked_entry_id,
         "realized_pnl_eur": realized_pnl_eur,
+        "realized_pnl": _manual_native_result(linked_buy, price=price, shares=shares, currency=payload.currency, fees=payload.fees or 0, tax=payload.tax or 0),
         "realized_pnl_pct": realized_pnl_pct,
         "stop_deviation_pct": stop_deviation_pct,
         "basis_text": payload.basis_text.strip(),
@@ -222,7 +254,7 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
     price = existing.price if imported else _finite(payload.price)
     shares = existing.shares if imported else _finite(payload.shares)
     linked_buy = _linked_buy(clean, payload.linked_entry_id or existing.linked_entry_id) if entry_type in {"sell", "ex_post"} and not imported else None
-    realized_pnl_eur, realized_pnl_pct = _realized_pnl(linked_buy, price=price, shares=shares)
+    realized_pnl_eur, realized_pnl_pct = _realized_pnl(linked_buy, price=price, shares=shares, currency=payload.currency, on=payload.trade_date or date.today(), fees=payload.fees or 0, tax=payload.tax or 0)
     stop_deviation_pct = _stop_deviation(linked_buy, price=price)
 
     values = {
@@ -237,6 +269,7 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
         "stop_distance_pct": _stop_distance_pct(price, payload.stop_price),
         "linked_entry_id": payload.linked_entry_id or existing.linked_entry_id,
         "realized_pnl_eur": realized_pnl_eur,
+        "realized_pnl": _manual_native_result(linked_buy, price=price, shares=shares, currency=payload.currency, fees=payload.fees or 0, tax=payload.tax or 0),
         "realized_pnl_pct": realized_pnl_pct,
         "stop_deviation_pct": stop_deviation_pct,
         "basis_text": payload.basis_text.strip(),
@@ -258,7 +291,7 @@ def update_trade_journal_entry(entry_id: str, payload: TradeJournalEntryRequest)
     if getattr(existing, "source_transaction_id", None):
         # Broker executions and FIFO results remain authoritative when editing notes.
         for key in ("ticker", "entry_type", "currency", "status", "trade_date", "price", "shares",
-                    "linked_entry_id", "realized_pnl_eur", "realized_pnl_pct", "portfolio_snapshot_json"):
+                    "linked_entry_id", "realized_pnl", "realized_pnl_eur", "realized_pnl_pct", "portfolio_snapshot_json"):
             values.pop(key, None)
     row = journal_repository.update_entry(entry_id, values)
     if row is None:
@@ -495,11 +528,16 @@ def _linked_buy(ticker: str, linked_entry_id: str | None):
     if linked_entry_id:
         row = journal_repository.get_entry(linked_entry_id)
         if row is not None:
+            if row.ticker.upper() != ticker.upper() or row.entry_type != "buy":
+                raise ValueError("Verknüpfter Eintrag muss ein Kauf derselben Aktie sein.")
             return row
+        raise ValueError("Verknüpfter Kauf wurde nicht gefunden.")
     return journal_repository.latest_open_buy_entry(ticker)
 
 
-def _realized_pnl(linked_buy: Any, *, price: float | None, shares: float | None) -> tuple[float | None, float | None]:
+def _realized_pnl(linked_buy: Any, *, price: float | None, shares: float | None,
+                  currency: str = "USD", on: date | None = None,
+                  fees: float = 0, tax: float = 0) -> tuple[float | None, float | None]:
     buy_price = _finite(getattr(linked_buy, "price", None))
     sell_price = _finite(price)
     clean_shares = _finite(shares) or _finite(getattr(linked_buy, "shares", None))
@@ -508,13 +546,36 @@ def _realized_pnl(linked_buy: Any, *, price: float | None, shares: float | None)
     pnl_pct = round((sell_price / buy_price - 1) * 100, 2) if buy_price else None
     if clean_shares is None:
         return None, pnl_pct
-    pnl_usd = (sell_price - buy_price) * clean_shares
-    try:
-        rate = get_eur_usd_rate().rate
-        pnl_eur = round(pnl_usd / rate, 2) if rate else round(pnl_usd, 2)
-    except Exception:
-        pnl_eur = round(pnl_usd, 2)
+    native = _manual_native_result(linked_buy, price=sell_price, shares=clean_shares,
+                                   currency=currency, fees=fees, tax=tax)
+    if native is None:
+        return None, pnl_pct
+    from app.services.money import convert_amount
+    if on is None and currency == "USD":
+        # Compatibility for callers without an execution date; new writes always
+        # supply the date and use strictly prior observed FX.
+        pnl_eur = native / get_eur_usd_rate().rate
+    else:
+        pnl_eur = convert_amount(native, currency, "EUR", on=on)
+    pnl_eur = round(pnl_eur, 2) if pnl_eur is not None else None
     return pnl_eur, pnl_pct
+
+
+def _manual_native_result(buy: Any, *, price: float | None, shares: float | None,
+                          currency: str, fees: float = 0, tax: float = 0) -> float | None:
+    from app.services.money import rounded_money
+    buy_price = _finite(getattr(buy, "price", None))
+    quantity = _finite(shares)
+    bought = _finite(getattr(buy, "shares", None))
+    if buy_price is None or price is None or quantity is None or bought is None or bought <= 0:
+        return None
+    if getattr(buy, "currency", currency).upper() != currency.upper():
+        raise ValueError("Kauf und Verkauf müssen dieselbe Ausführungswährung verwenden.")
+    if quantity > bought + 1e-8:
+        raise ValueError("Verkaufsmenge überschreitet die verknüpfte Kaufmenge.")
+    portfolio = getattr(buy, "portfolio_snapshot_json", {}) or {}
+    buy_cost = abs(float(portfolio.get("fees") or 0)) * quantity / bought
+    return rounded_money((price - buy_price) * quantity - buy_cost - abs(fees) - abs(tax))
 
 
 def _stop_deviation(linked_buy: Any, *, price: float | None) -> float | None:
@@ -548,12 +609,20 @@ def _validate_images(images: TradeJournalImageSet) -> None:
 
 
 def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
-    metadata = journal_repository.execution_metadata(
-        getattr(row, "source_transaction_id", None), row.ticker
-    )
-    contexts = journal_repository.latest_contexts(row.id)
+    metadata = getattr(row, "_execution_metadata", None)
+    if metadata is None:
+        metadata = journal_repository.execution_metadata(getattr(row, "source_transaction_id", None), row.ticker)
+    contexts = getattr(row, "_latest_contexts", None)
+    if contexts is None:
+        contexts = journal_repository.latest_contexts(row.id)
     context_status, context_label = _context_status(row, contexts)
     portfolio = row.portfolio_snapshot_json or {}
+    native_result = getattr(row, "realized_pnl", None)
+    if native_result is None and row.entry_type == "sell" and not getattr(row, "source_transaction_id", None):
+        linked_buy = getattr(row, "_linked_buy", None)
+        if linked_buy is None and not hasattr(row, "_linked_buy") and row.linked_entry_id:
+            linked_buy = journal_repository.get_entry(row.linked_entry_id)
+        native_result = _manual_native_result(linked_buy, price=row.price, shares=row.shares, currency=getattr(row, "currency", "USD"), fees=float(portfolio.get("fees") or 0), tax=float(portfolio.get("tax") or 0))
     return TradeJournalEntrySummary(
         id=row.id,
         ticker=row.ticker,
@@ -566,7 +635,7 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
         realized_pnl_pct=row.realized_pnl_pct,
         linked_entry_id=row.linked_entry_id,
         currency=getattr(row, "currency", "USD") or "USD",
-        realized_pnl=getattr(row, "realized_pnl", None),
+        realized_pnl=native_result,
         source_transaction_id=getattr(row, "source_transaction_id", None),
         trade_group_id=getattr(row, "trade_group_id", None),
         position_id=getattr(row, "position_id", None),
@@ -591,7 +660,9 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
 def _detail_from_row(row: Any) -> TradeJournalEntryDetail:
     summary = _summary_from_row(row)
     images = row.chart_images_json or {}
-    contexts = journal_repository.latest_contexts(row.id)
+    contexts = getattr(row, "_latest_contexts", None)
+    if contexts is None:
+        contexts = journal_repository.latest_contexts(row.id)
     stock_snapshot = contexts.get("stock").payload_json if contexts.get("stock") else row.stock_snapshot_json or {}
     market_snapshot = contexts.get("market").payload_json if contexts.get("market") else row.market_snapshot_json or {}
     executions = journal_repository.related_entries(row)
@@ -679,18 +750,27 @@ def _context_status(row: Any, contexts: dict[str, Any] | None = None) -> tuple[s
     return "missing", labels["missing"]
 
 
-def _trade_summary(trade_id: str, rows: list[Any]) -> TradeJournalTradeSummary:
+def _trade_summary(trade_id: str, rows: list[Any], *, include_executions: bool = True) -> TradeJournalTradeSummary:
     ordered = sorted(rows, key=lambda row: (row.trade_date, row.created_at))
     buys = [row for row in ordered if row.entry_type == "buy"]
     sells = [row for row in ordered if row.entry_type == "sell"]
     bought = sum(float(row.shares or 0) for row in buys)
     sold = sum(float(row.shares or 0) for row in sells)
     remaining = max(0.0, bought - sold)
-    statuses = [_context_status(row)[0] for row in ordered]
+    statuses = [_context_status(row, getattr(row, "_latest_contexts", None))[0] for row in ordered]
     rank = {"failed": 0, "missing": 1, "pending": 2, "partial": 3, "reconstructed": 4, "archived": 5}
     context_status = min(statuses, key=lambda item: rank[item]) if statuses else "missing"
-    realized_values = [float(row.realized_pnl) for row in sells if row.realized_pnl is not None]
-    incomplete = any(row.realized_pnl is None for row in sells)
+    by_id = {row.id: row for row in buys}
+    results = []
+    for row in sells:
+        result = getattr(row, "realized_pnl", None)
+        if result is None and not getattr(row, "source_transaction_id", None):
+            portfolio = row.portfolio_snapshot_json or {}
+            result = _manual_native_result(by_id.get(row.linked_entry_id), price=row.price, shares=row.shares,
+                currency=getattr(row, "currency", "USD"), fees=float(portfolio.get("fees") or 0), tax=float(portfolio.get("tax") or 0))
+        results.append(result)
+    realized_values = [float(value) for value in results if value is not None]
+    incomplete = any(value is None for value in results) or len({getattr(row, "currency", "USD") for row in ordered}) > 1
     realized = None if incomplete and sells else sum(realized_values)
     cost = 0.0
     for row in sells:
@@ -699,11 +779,24 @@ def _trade_summary(trade_id: str, rows: list[Any]) -> TradeJournalTradeSummary:
             if basis is not None:
                 cost += basis
     invested = sum(float(row.price or 0) * float(row.shares or 0) for row in buys) or None
+    if not cost and invested and sold:
+        cost = invested * min(sold / bought, 1) if bought else 0
+    initial_risk = sum((float(row.price) - float(row.stop_price)) * float(row.shares) for row in buys) if buys and all(row.price and row.stop_price and row.price > row.stop_price and row.shares for row in buys) else None
+    first = buys[0] if buys else ordered[0]
+    questionnaire = getattr(first, "questionnaire_json", {}) or {}
+    market = getattr(first, "market_snapshot_json", {}) or {}
+    stock = getattr(first, "stock_snapshot_json", {}) or {}
     if remaining > 1e-9:
         trade_status = "open" if not sells else "partial"
     else:
         trade_status = "closed"
     return TradeJournalTradeSummary(
+        initial_risk=initial_risk,
+        r_multiple=round(realized / initial_risk, 3) if realized is not None and initial_risk and remaining <= 1e-9 else None,
+        setup_tag=str(questionnaire.get("setup") or "unknown"),
+        rule_deviation=str(questionnaire.get("rule_deviation") or "unknown"),
+        market_phase=str(market.get("phase") or market.get("ampel_phase") or (market.get("trend_ampel") or {}).get("phase") or "unknown"),
+        sector=str(stock.get("sector") or (stock.get("profile") or {}).get("sector") or "unknown"),
         id=trade_id,
         ticker=ordered[0].ticker,
         status=trade_status,
@@ -721,7 +814,7 @@ def _trade_summary(trade_id: str, rows: list[Any]) -> TradeJournalTradeSummary:
         realized_pnl_pct=round(realized / cost * 100, 2) if realized is not None and cost else None,
         context_status=context_status,
         has_review=any(row.entry_type == "ex_post" or bool(row.questionnaire_json) for row in ordered),
-        executions=[_summary_from_row(row) for row in ordered],
+        executions=[_summary_from_row(row) for row in ordered] if include_executions else [],
     )
 
 

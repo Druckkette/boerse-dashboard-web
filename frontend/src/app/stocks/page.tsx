@@ -1,3 +1,4 @@
+import { WeightPreview } from "@/features/stocks/weight-preview";
 import { RsRankingPanel } from "@/features/stocks/rs-ranking-panel";
 import { StockAssessmentRankingPanel } from "@/features/stocks/stock-assessment-ranking-panel";
 import { StockComparePanel } from "@/features/stocks/stock-compare-panel";
@@ -11,6 +12,7 @@ export default function StocksPage() {
       <TopDailyStocksPanel />
       <StockComparePanel />
       <StockAssessmentRankingPanel />
+      <WeightPreview />
       <RsRankingPanel />
     </div>
   );

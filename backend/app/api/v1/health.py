@@ -21,3 +21,14 @@ def readiness() -> SystemReadinessResponse:
 @router.get("/freshness", response_model=FreshnessResponse)
 def freshness() -> FreshnessResponse:
     return get_freshness()
+
+
+@router.get("/operations")
+def operations() -> dict:
+    from fastapi import HTTPException
+    from sqlalchemy.exc import SQLAlchemyError
+    from app.services.operations import operation_status
+    try:
+        return operation_status()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Betriebsstatus derzeit nicht verfügbar.") from exc

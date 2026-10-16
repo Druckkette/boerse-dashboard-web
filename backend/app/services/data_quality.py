@@ -10,6 +10,7 @@ from app.db.models import FundamentalSnapshot, Instrument, IsinMapping, PriceBar
 from app.db.session import SessionLocal
 from app.domain.stocks.instrument_type import classify_instrument, inapplicable_reason
 from app.repositories import prices as price_repository
+from app.repositories.portfolio import PortfolioRepositoryUnavailable
 from app.repositories.prices import PriceRepositoryUnavailable
 from app.schemas import DataDiagnosticIssue, DataDiagnosticsResponse, DataQualityEvent, PortfolioPosition
 from app.services.freshness import get_freshness
@@ -22,11 +23,15 @@ IMPLAUSIBLE_GAIN_PCT = 400.0
 IMPLAUSIBLE_LOSS_PCT = -75.0
 
 
+
 def build_data_diagnostics() -> DataDiagnosticsResponse:
     now = datetime.now(UTC)
     today = now.date()
     freshness = get_freshness().services
-    positions = get_portfolio_positions()
+    try:
+        positions = get_portfolio_positions()
+    except (PortfolioRepositoryUnavailable, ValueError):
+        return DataDiagnosticsResponse(as_of=today.isoformat(), generated_at=now, health_tone="bad", decision_status="blocked", summary="Depotdatenbank oder Währungsbewertung nicht verfügbar.", issues=[DataDiagnosticIssue(key="portfolio_unavailable", label="Depot nicht verfügbar", severity="critical", detail="Keine verlässliche Bestandsbewertung möglich.", blocks_decisions=True)])
     open_tickers = sorted({position.ticker.upper() for position in positions})
 
     latest_by_ticker: dict[str, date] = {}
@@ -200,7 +205,12 @@ def build_data_diagnostics() -> DataDiagnosticsResponse:
 
 
 def get_position_quality_by_ticker() -> dict[str, dict[str, str]]:
-    positions = get_portfolio_positions()
+    try:
+        positions = get_portfolio_positions()
+    except (PortfolioRepositoryUnavailable, ValueError):
+        # No verified per-position quality exists. The monitor marks every
+        # unmatched row as limited and suppresses actionable presentation.
+        return {}
     instrument_types: dict[str, str] = {}
     latest_by_ticker: dict[str, date] = {}
     fundamentals_by_ticker: dict[str, date] = {}
@@ -310,7 +320,9 @@ def _requires_fundamentals(position: PortfolioPosition, instrument_types: dict[s
 def _position_is_implausible(position: PortfolioPosition) -> bool:
     if position.entry_price <= 0 or position.current_price <= 0:
         return True
-    return position.pnl_pct > IMPLAUSIBLE_GAIN_PCT or position.pnl_pct < IMPLAUSIBLE_LOSS_PCT
+    # An exceptional investment return is not evidence of a data error. Actual
+    # price/corporate-action/FX checks remain separate, evidenced blockers.
+    return False
 
 
 def _build_issues(

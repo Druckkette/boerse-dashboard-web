@@ -34,8 +34,8 @@ export function Sec13FMappingPanel() {
   const canSave = normalizeForm(form).cusip.length === 9 && normalizeForm(form).ticker.length > 0;
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20]">
-      <div className="flex flex-col gap-3 border-b border-[#2d333d] p-5 lg:flex-row lg:items-start lg:justify-between">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)]">
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <Database className="size-5 text-[#8ea4c8]" />
@@ -45,22 +45,22 @@ export function Sec13FMappingPanel() {
             </StatusChip>
             <StatusChip tone={unmatched.length ? "warning" : "neutral"}>{unmatched.length} offen</StatusChip>
           </div>
-          <div className="mt-1 text-sm text-[#a0a7b4]">
+          <div className="mt-1 text-sm text-[var(--muted)]">
             Manuelle Overrides werden beim nächsten SEC-13F-Refresh automatisch verwendet.
           </div>
         </div>
         <button
-          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+          className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
           type="button"
           onClick={() => query.refetch()}
         >
-          <RefreshCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+          <RefreshCw size={15} className={query.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
           Aktualisieren
         </button>
       </div>
 
       <div className="grid gap-5 p-5 xl:grid-cols-[360px_1fr]">
-        <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
           <h3 className="text-sm font-semibold">Mapping eintragen</h3>
           <div className="mt-4 space-y-3">
             <Field
@@ -91,7 +91,7 @@ export function Sec13FMappingPanel() {
               Speichern
             </button>
             {mutation.isError && (
-              <div className="text-xs text-rose-200">
+              <div className="text-xs text-[var(--red)]">
                 {mutation.error instanceof Error ? mutation.error.message : "Mapping konnte nicht gespeichert werden."}
               </div>
             )}
@@ -115,16 +115,16 @@ function MappingTable({
   loading: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded border border-[#242a33] bg-[#111419]">
-      <div className="border-b border-[#242a33] px-4 py-3 text-sm font-semibold">Gespeicherte Mappings</div>
+    <div className="min-w-0 rounded border border-[var(--border)] bg-[var(--panel)]">
+      <div className="border-b border-[var(--border)] px-4 py-3 text-sm font-semibold">Gespeicherte Mappings</div>
       {loading ? (
-        <div className="p-4 text-sm text-[#a0a7b4]">Lädt...</div>
+        <div className="p-4 text-sm text-[var(--muted)]">Lädt...</div>
       ) : mappings.length === 0 ? (
-        <div className="p-4 text-sm text-[#a0a7b4]">Noch keine CUSIP-Mappings gespeichert.</div>
+        <div className="p-4 text-sm text-[var(--muted)]">Noch keine CUSIP-Mappings gespeichert.</div>
       ) : (
         <div className="max-h-[360px] overflow-auto">
           <table className="w-full min-w-[520px] border-collapse text-sm">
-            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+            <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-3 py-2 font-medium">CUSIP</th>
                 <th className="px-3 py-2 font-medium">Ticker</th>
@@ -134,11 +134,11 @@ function MappingTable({
             </thead>
             <tbody>
               {mappings.map((mapping) => (
-                <tr key={`${mapping.cusip}-${mapping.ticker}`} className="border-b border-[#242a33]">
+                <tr key={`${mapping.cusip}-${mapping.ticker}`} className="border-b border-[var(--border)]">
                   <td className="px-3 py-2 font-mono text-xs">{mapping.cusip}</td>
                   <td className="px-3 py-2 font-semibold">{mapping.ticker}</td>
-                  <td className="px-3 py-2 text-xs text-[#a0a7b4]">{mapping.source}</td>
-                  <td className="max-w-56 truncate px-3 py-2 text-xs text-[#a0a7b4]">{mapping.issuer_name || "-"}</td>
+                  <td className="px-3 py-2 text-xs text-[var(--muted)]">{mapping.source}</td>
+                  <td className="max-w-56 truncate px-3 py-2 text-xs text-[var(--muted)]">{mapping.issuer_name || "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -157,20 +157,20 @@ function UnmatchedTable({
   jobId: string;
 }) {
   return (
-    <div className="min-w-0 rounded border border-[#242a33] bg-[#111419]">
-      <div className="flex items-center justify-between gap-3 border-b border-[#242a33] px-4 py-3">
+    <div className="min-w-0 rounded border border-[var(--border)] bg-[var(--panel)]">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <AlertTriangle className="size-4 text-amber-200" />
+          <AlertTriangle className="size-4 text-[var(--yellow)]" />
           Unmatched CUSIPs
         </div>
-        {jobId && <div className="max-w-40 truncate text-xs text-[#697386]">{jobId}</div>}
+        {jobId && <div className="max-w-40 truncate text-xs text-[var(--muted)]">{jobId}</div>}
       </div>
       {unmatched.length === 0 ? (
-        <div className="p-4 text-sm text-[#a0a7b4]">Keine offenen CUSIPs aus dem letzten 13F-Job.</div>
+        <div className="p-4 text-sm text-[var(--muted)]">Keine offenen CUSIPs aus dem letzten 13F-Job.</div>
       ) : (
         <div className="max-h-[360px] overflow-auto">
           <table className="w-full min-w-[700px] border-collapse text-sm">
-            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+            <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-3 py-2 font-medium">CUSIP</th>
                 <th className="px-3 py-2 font-medium">Issuer</th>
@@ -181,15 +181,15 @@ function UnmatchedTable({
             </thead>
             <tbody>
               {unmatched.map((item) => (
-                <tr key={item.cusip} className="border-b border-[#242a33]">
+                <tr key={item.cusip} className="border-b border-[var(--border)]">
                   <td className="px-3 py-2 font-mono text-xs">{item.cusip}</td>
                   <td className="max-w-56 truncate px-3 py-2">
                     <div>{item.issuer || "-"}</div>
-                    <div className="text-xs text-[#697386]">{item.title}</div>
+                    <div className="text-xs text-[var(--muted)]">{item.title}</div>
                   </td>
-                  <td className="px-3 py-2 tabular-nums text-[#a0a7b4]">{usd(item.current_total_value_usd)}</td>
-                  <td className="px-3 py-2 text-xs text-[#a0a7b4]">{item.reason || "-"}</td>
-                  <td className="max-w-44 truncate px-3 py-2 text-xs text-[#a0a7b4]">
+                  <td className="px-3 py-2 tabular-nums text-[var(--muted)]">{usd(item.current_total_value_usd)}</td>
+                  <td className="px-3 py-2 text-xs text-[var(--muted)]">{item.reason || "-"}</td>
+                  <td className="max-w-44 truncate px-3 py-2 text-xs text-[var(--muted)]">
                     {item.candidate_tickers || "-"}
                   </td>
                 </tr>
@@ -214,10 +214,10 @@ function Field({
   placeholder: string;
 }) {
   return (
-    <label className="block text-xs uppercase text-[#a0a7b4]">
+    <label className="block text-xs uppercase text-[var(--muted)]">
       {label}
       <input
-        className="mt-1 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm text-white outline-none transition placeholder:text-[#697386] focus:border-emerald-300/70"
+        className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none transition placeholder:text-[var(--muted)] focus:border-emerald-300/70"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

@@ -1,4 +1,5 @@
 from typing import Annotated
+from pydantic import BaseModel, Field, field_validator
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
@@ -44,6 +45,37 @@ from app.services.stocks import (
 
 
 router = APIRouter()
+
+
+
+class WeightPreviewRequest(BaseModel):
+    weights: dict[str, float] = Field(min_length=4, max_length=4)
+
+    @field_validator("weights")
+    @classmethod
+    def validate_weights(cls, value):
+        from math import isfinite
+        if set(value) != {"technical", "fundamental", "chart", "moving_average"} or any(not isfinite(weight) or not 0 <= weight <= 100 for weight in value.values()) or sum(value.values()) <= 0:
+            raise ValueError("Vier nichtnegative Gewichte bis 100 angeben; mindestens eines muss positiv sein.")
+        return value
+
+
+@router.post("/assessment/weight-preview")
+def preview_weights(payload: WeightPreviewRequest) -> dict:
+    from app.services.stock_insights import weight_preview
+    return weight_preview(payload.weights)
+
+
+@router.get("/{ticker}/provenance")
+def stock_provenance(ticker: str) -> dict:
+    from app.services.stock_insights import provenance
+    return provenance(ticker)
+
+
+@router.get("/{ticker}/score-history")
+def archived_score_history(ticker: str) -> dict:
+    from app.services.stock_insights import score_history
+    return score_history(ticker)
 
 
 @router.get("/top-daily", response_model=TopDailyStockResponse)
