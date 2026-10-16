@@ -431,3 +431,12 @@ def test_derivative_uses_own_issuer_bid_and_daily_quote_currency(monkeypatch):
     assert curve.points[0].depot_value == 132  # (60 actual cash + 2 * 25 issuer bid) * 1.2
     assert curve.points[0].positions_value == 60
     assert curve.points[1].portfolio_index == pytest.approx(1.3 / 1.2 * 100, abs=.01)
+
+
+def test_hong_kong_official_easter_closure_keeps_last_close_but_not_missing_sessions():
+    pd = portfolio_service.pd
+    history = pd.Series([65.0], index=pd.DatetimeIndex(['2026-04-02']))
+    calendar = pd.DatetimeIndex(['2026-04-07', '2026-04-08'])
+    aligned = portfolio_service._align_price_series_to_calendar(history, calendar, exchange='XHKG')
+    assert aligned.iloc[0] == 65  # Hong Kong closed until April 8
+    assert pd.isna(aligned.iloc[1])  # April 8 is an actual session without a quote

@@ -1333,7 +1333,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             for missing_day in shares[shares > 0].index:
                 missing_by_day[missing_day].append(label)
             continue
-        aligned_prices = _align_price_series_to_calendar(cached_prices, calendar)
+        aligned_prices = _align_price_series_to_calendar(cached_prices, calendar, exchange="XHKG" if ticker.endswith(".HK") else None)
         aligned_prices = aligned_prices * rates(quote_currency)
         if ((shares > 0) & (calendar >= pd.Timestamp(curve_start_date)) & aligned_prices.isna()).any():
             incomplete_price_histories.append(label)
@@ -1582,7 +1582,7 @@ def _deduplicate_series_index(series: pd.Series) -> pd.Series:
     return ordered[~ordered.index.duplicated(keep="last")]
 
 
-def _align_price_series_to_calendar(series: pd.Series, calendar: pd.DatetimeIndex) -> pd.Series:
+def _align_price_series_to_calendar(series: pd.Series, calendar: pd.DatetimeIndex, *, exchange: str | None = None) -> pd.Series:
     if calendar.empty:
         return pd.Series(dtype=float)
     clean = _deduplicate_series_index(series)
@@ -1593,7 +1593,16 @@ def _align_price_series_to_calendar(series: pd.Series, calendar: pd.DatetimeInde
     aligned = clean.reindex(clean.index.union(calendar)).sort_index().ffill().reindex(calendar)
     stamps = pd.Series(clean.index, index=clean.index).reindex(clean.index.union(calendar)).sort_index().ffill().reindex(calendar)
     age = pd.Series(calendar, index=calendar) - stamps
-    return aligned.where(age <= pd.Timedelta(days=4))
+    valid = age <= pd.Timedelta(days=4)
+    if exchange and (~valid).any():
+        import exchange_calendars
+
+        sessions = exchange_calendars.get_calendar(exchange).sessions_in_range(clean.index.min(), calendar.max())
+        expected = pd.Series(sessions, index=sessions).reindex(sessions.union(calendar)).sort_index().ffill().reindex(calendar)
+        # A long official exchange closure does not make the preceding closing
+        # price stale. Missing prices on an actual session still remain gaps.
+        valid |= stamps.ge(expected) & expected.notna()
+    return aligned.where(valid)
 
 
 def _signed_share_delta(transaction_type: str, shares: float) -> float:
