@@ -1,9 +1,15 @@
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
 
 from app.services.portfolio_curve_prices import curve_price_requirements
+
+
+@pytest.fixture(autouse=True)
+def fixed_refresh_year(monkeypatch):
+    from app.services import portfolio_curve_prices as service
+    monkeypatch.setattr(service, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 16, tzinfo=tz)))
 
 
 def transaction(day, kind, quantity, ticker="TEST", isin="TEST", asset="STOCK"):

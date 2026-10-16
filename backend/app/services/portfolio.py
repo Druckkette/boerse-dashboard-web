@@ -1503,6 +1503,8 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     if incomplete_price_histories:
         details.append(f"Lückenhafte Tageskurse im gewählten Zeitraum für {len(incomplete_price_histories)} Instrumente")
     message = "Depotkurve aus dem Trade-Republic-Export: Bestand und Cash werden aus sämtlichen Buchungen bis zum jeweiligen Tag rekonstruiert. Tageskurse und historische USD-Wechselkurse bewerten den Bestand; Ein- und Auszahlungen werden renditeneutral berücksichtigt. Derivate werden mit ihren eigenen Emittenten-Geldkursen bewertet."
+    if any(point.redemption_receivables for point in points):
+        message += " Feststehende Emittentenrückzahlungen werden ab dem Tagesende des Bewertungstags bis zur Broker-Ausbuchung als Wertpapierforderungen bewertet."
     unpriced = sorted({item for day in points for item in day.missing_instruments})
     if unpriced:
         details.append("Bewertungslücken bleiben sichtbar: " + ", ".join(unpriced))
