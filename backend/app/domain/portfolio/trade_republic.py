@@ -356,7 +356,8 @@ def reconstruct_open_positions(
             state["shares"] -= sell_shares
             state["cost"] -= sell_shares * avg
         elif typ == "split":
-            state["shares"] = max(raw_shares, 0.0)
+            # TR exports the signed booking delta, not the new total holding.
+            state["shares"] = max(state["shares"] + float(row.shares or 0), 0.0)
         elif typ in NON_SHARE_TYPES:
             continue
 

@@ -90,3 +90,23 @@ test("automatic portfolio curve keeps the TR ledger and January basis", async ({
   await expect(page.getByRole("heading", { name: "Simulation des heutigen Bestands", exact: true })).toHaveCount(0);
   expect(requests).toContain("2026-01-01");
 });
+
+test("open portfolio rolls over at Berlin midnight and renders the shared single-point basis", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-12-31T22:59:59Z") });
+  await page.route("**/api/v1/portfolio/snapshot", route => route.fulfill({ json: { positions: [position], kpis: [], cash: 0, cash_ratio_pct: 0, currency: "EUR", total_value: 750 } }));
+  await page.route("**/api/v1/portfolio/curve?**", route => {
+    const start = new URL(route.request().url()).searchParams.get("start_date")!;
+    return route.fulfill({ json: { model: "execution_history", source: "trade_republic_transactions", data_status: "fresh", as_of: start, base_date: start, complete_points: 1, total_points: 1, message: "TR-Jahresanfang", points: [{ date: start, portfolio_index: 100, sp500_index: 100, depot_value: 1000, positions_value: 500, cash: 500 }] } });
+  });
+  await page.goto("/portfolio");
+  const input = page.getByRole("textbox", { name: "Startdatum", exact: true });
+  await expect(input).toHaveValue("2026-01-01");
+  await page.clock.runFor(1000);
+  await expect(input).toHaveValue("2027-01-01");
+  await expect(page.getByText("Basis 2027-01-01 · Stand 2027-01-01", { exact: true })).toBeVisible();
+  await expect(page.locator('circle[data-series="portfolio_index"]')).toHaveCount(1);
+  await expect(page.locator('circle[data-series="sp500_index"]')).toHaveCount(1);
+  await input.fill("2026-07-01");
+  await page.clock.runFor(60_000);
+  await expect(input).toHaveValue("2026-07-01");
+});

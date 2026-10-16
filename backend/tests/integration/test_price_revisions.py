@@ -55,3 +55,20 @@ def test_price_and_rs_revisions_and_atomic_snapshot_publication(monkeypatch):
     assert result["summary"]["universe_count"] == 1
     assert stock_assessments.query_screening(StockScreeningFilters(complete_only=True), expected_date=bar.date)["total_count"] == 0
     engine.dispose()
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_POSTGRES_URL"), reason="Disposable Postgres not configured")
+def test_redemption_evidence_roundtrip_preserves_existing_instrument_metadata(monkeypatch):
+    url = os.environ["TEST_POSTGRES_URL"]
+    assert make_url(url).database == "audit_tests"
+    engine = create_engine(url)
+    monkeypatch.setattr(prices, "SessionLocal", sessionmaker(bind=engine))
+    ticker = "TEST_" + uuid4().hex[:12].upper()
+    prices.upsert_price_bars(ticker, [prices.PriceBarWrite(date(2026, 2, 6), None, None, None, 3.85, None, None)], source="vontobel:EUR:bid")
+    before = prices.list_instrument_metadata([ticker])[ticker]
+    evidence = {"amount": 3.91, "currency": "EUR", "valuation_date": "2026-02-06", "payment_date": "2026-02-13", "source_url": "https://markets.vontobel.com/"}
+    prices.save_instrument_metadata(ticker, {"fixed_redemption": evidence})
+    after = prices.list_instrument_metadata([ticker])[ticker]
+    assert after["fixed_redemption"] == evidence
+    assert all(after[key] == value for key, value in before.items())
+    engine.dispose()

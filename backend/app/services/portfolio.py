@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import math
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from io import StringIO
 
 import pandas as pd
@@ -100,7 +101,6 @@ TR_EXTERNAL_FLOW_TYPES = {
     "transfer_outbound",
     "withdrawal",
     "gift",
-    "tax_optimization",
 }
 
 HEADER_ALIASES = {
@@ -1257,15 +1257,16 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         return None
     curve_start_date = start_date
     first_transaction_date = min(row.date for row in transactions)
-    end_date = date.today()
+    end_date = _portfolio_curve_today()
     if first_transaction_date > end_date or curve_start_date > end_date:
         return None
-    calendar = pd.DatetimeIndex(pd.date_range(first_transaction_date, end_date, freq="B"))
+    calendar = pd.DatetimeIndex(pd.date_range(first_transaction_date, end_date, freq="B")).union(pd.DatetimeIndex([pd.Timestamp(curve_start_date)]))
     if calendar.empty:
         return None
 
     positions_value = pd.Series(0.0, index=calendar)
     missing_by_day = {day: [] for day in calendar}
+    receivables_by_day = {day: [] for day in calendar}
     missing_price_instruments: list[str] = []
     incomplete_price_histories: list[str] = []
     fx_fallbacks: set[str] = set()
@@ -1276,6 +1277,9 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     symbols.update(f"{yahoo_quote_currency(row.ticker)}USD=X" for row in transactions if row.ticker and yahoo_quote_currency(row.ticker) != "USD")
     symbols.update({"^GSPC", "SPY"})
     price_cache = prices_repository.list_price_bars_for_tickers(symbols, start_date=curve_start_date - timedelta(days=10))
+    instrument_metadata = prices_repository.list_instrument_metadata(
+        row.isin for row in transactions if row.asset_class.upper() == "DERIVATIVE" and row.isin
+    )
 
     def cached_series(ticker):
         return _cached_price_series(ticker, curve_start_date, rows=price_cache.get(ticker, []))
@@ -1299,18 +1303,26 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         label = ticker or instrument_key
         shares = pd.Series(0.0, index=calendar)
         running = 0.0
+        splits: list[tuple[date, float]] = []
         for row in sorted(instrument_transactions, key=_stored_transaction_sort_key):
             typ = normalize_transaction_type(row.transaction_type)
             if typ == "split":
-                running = max(row.shares, 0.0)
+                updated = running + float((row.raw_json or {}).get("shares", row.shares) or 0)
+                if running > 0 and updated > 0:
+                    splits.append((row.date, updated / running))
+                running = updated
             elif typ in SHARE_DECREASE_TYPES and abs(float(row.shares or 0.0)) <= 1e-12 and row.asset_class.upper() == "DERIVATIVE":
                 running = 0.0
             elif typ in NON_SHARE_TYPES:
                 pass
             else:
-                running = max(running + _signed_share_delta(typ, row.shares), 0.0)
+                running += _signed_share_delta(typ, row.shares)
+            if abs(running) <= 1e-9:
+                running = 0.0
             shares.loc[shares.index >= pd.Timestamp(row.date)] = running
 
+        for invalid_day in shares[shares < -1e-9].index:
+            missing_by_day[invalid_day].append(f"Bestand:{label}")
         if not (shares.loc[calendar >= pd.Timestamp(curve_start_date)] > 1e-9).any():
             continue
 
@@ -1319,6 +1331,22 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if ticker
             else pd.Series(dtype=float)
         )
+        if splits and ticker:
+            # Yahoo historical Close is split-adjusted to the download date.
+            # Restore the contemporaneous quote before multiplying by the
+            # contemporaneous broker quantity. Otherwise a later cache repair
+            # changes old NAVs and a split creates an artificial gain/loss.
+            restored = []
+            for price_row in price_cache.get(ticker, []):
+                if price_row.close is None:
+                    continue
+                fetched_at = getattr(price_row, "fetched_at", None)
+                downloaded_on = fetched_at.date() if fetched_at else end_date
+                factor = math.prod(ratio for split_day, ratio in splits if price_row.date < split_day <= downloaded_on)
+                value = float(price_row.close) * (factor if getattr(price_row, "source", "yfinance") == "yfinance" else 1)
+                restored.append((pd.Timestamp(price_row.date), value))
+            if restored:
+                cached_prices = _deduplicate_series_index(pd.Series([value for _, value in restored], index=pd.DatetimeIndex([day for day, _ in restored]), dtype=float))
         quote_currency = yahoo_quote_currency(ticker)
         issuer_rows = price_cache.get(instrument_key, [])
         if instrument_transactions[0].asset_class.upper() == "DERIVATIVE" and issuer_rows:
@@ -1328,12 +1356,27 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if len(currencies) == 1:
                 cached_prices = _cached_price_series(instrument_key, curve_start_date, rows=issuer_rows)
                 quote_currency = currencies.pop()
+        redemption = instrument_metadata.get(instrument_key, {}).get("fixed_redemption")
+        if redemption:
+            # A final issuer fixing is a security receivable until the broker
+            # books the redemption. Never invent a daily quote or a cash flow.
+            fixing_day = date.fromisoformat(redemption["valuation_date"])
+            amount = float(redemption["amount"])
+            if redemption.get("currency") != "EUR" or not math.isfinite(amount) or amount < 0 or not redemption.get("source_url"):
+                raise ValueError(f"Invalid fixed redemption evidence: {instrument_key}")
+            quote_currency = "EUR"
+            fixed_days = calendar[(calendar.date > fixing_day) & (shares > 1e-9)]
+            cached_prices = cached_prices.reindex(cached_prices.index.union(fixed_days))
+            cached_prices.loc[fixed_days] = amount
+            for day in fixed_days:
+                receivables_by_day[day].append(instrument_key)
         if cached_prices.empty:
             missing_price_instruments.append(label)
             for missing_day in shares[shares > 0].index:
                 missing_by_day[missing_day].append(label)
             continue
-        aligned_prices = _align_price_series_to_calendar(cached_prices, calendar, exchange="XHKG" if ticker.endswith(".HK") else None)
+        exchange = "XHKG" if ticker.endswith(".HK") else "XETR" if ticker.endswith(".DE") or issuer_rows else "XLON" if ticker.endswith(".L") else "XNYS"
+        aligned_prices = _align_price_series_to_calendar(cached_prices, calendar, exchange=exchange)
         aligned_prices = aligned_prices * rates(quote_currency)
         if ((shares > 0) & (calendar >= pd.Timestamp(curve_start_date)) & aligned_prices.isna()).any():
             incomplete_price_histories.append(label)
@@ -1440,6 +1483,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 date=pd.Timestamp(row.date).date().isoformat(),
                 valuation_complete=not missing_day,
                 missing_instruments=missing_day,
+                redemption_receivables=receivables_by_day[pd.Timestamp(row.date)],
                 depot_value=round(depot_value, 2) if depot_value is not None else None,
                 positions_value=round(positions_value_row, 2) if positions_value_row is not None else None,
                 cash=round(cash_value, 2) if cash_value is not None else None,
@@ -1462,6 +1506,8 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         details.append("Bewertungslücken bleiben sichtbar: " + ", ".join(unpriced))
     if first_valid:
         details.append(f"Gemeinsame Indexbasis ab erstem vollständig bewertbaren Tag {base_date}; frühere Tage bleiben offen")
+    if interrupted_by_flow:
+        details.append("Nach einer Bewertungslücke mit externem Zahlungsstrom ist keine exakte Renditeverkettung möglich; der Depotindex bleibt offen")
     if fx_fallbacks:
         details.append("Historische Wechselkurse fehlen; betroffene Tage bleiben offen: " + ", ".join(sorted(fx_fallbacks)))
     if details:
@@ -1483,9 +1529,13 @@ def _portfolio_curve_start_date(days: int, start_date: date | None) -> date:
     if start_date is not None:
         return start_date
     if days != DEFAULT_PORTFOLIO_CURVE_DAYS:
-        return date.today() - timedelta(days=max(30, min(2500, days)))
-    today = date.today()
+        return _portfolio_curve_today() - timedelta(days=max(30, min(2500, days)))
+    today = _portfolio_curve_today()
     return date(today.year, 1, 1)
+
+
+def _portfolio_curve_today() -> date:
+    return datetime.now(ZoneInfo("Europe/Berlin")).date()
 
 
 def _cached_price_series(
@@ -1518,10 +1568,10 @@ def _benchmark_index_series(calendar: pd.DatetimeIndex, *, price_cache=None) -> 
     for ticker in ("^GSPC", "SPY"):
         series = _cached_price_series(ticker, start - timedelta(days=10), rows=price_cache.get(ticker, []) if price_cache is not None else None)
         if not series.empty:
-            aligned = _align_price_series_to_calendar(series, calendar)
-            valid = aligned.dropna()
-            if not valid.empty and float(valid.iloc[0]) > 0:
-                return aligned / float(valid.iloc[0]) * 100
+            aligned = _align_price_series_to_calendar(series, calendar, exchange="XNYS")
+            base = _finite_float(aligned.iloc[0])
+            if base is not None and base > 0:
+                return aligned / base * 100
     return pd.Series(index=calendar, dtype=float)
 
 
@@ -1594,14 +1644,16 @@ def _align_price_series_to_calendar(series: pd.Series, calendar: pd.DatetimeInde
     stamps = pd.Series(clean.index, index=clean.index).reindex(clean.index.union(calendar)).sort_index().ffill().reindex(calendar)
     age = pd.Series(calendar, index=calendar) - stamps
     valid = age <= pd.Timedelta(days=4)
-    if exchange and (~valid).any():
+    if exchange:
         import exchange_calendars
 
-        sessions = exchange_calendars.get_calendar(exchange).sessions_in_range(clean.index.min(), calendar.max())
+        session_start = clean.index.min() - pd.Timedelta(days=10)
+        session_end = max(clean.index.max(), calendar.max()) + pd.Timedelta(days=1)
+        sessions = exchange_calendars.get_calendar(exchange, start=f"{session_start.year}-01-01", end=f"{session_end.year}-12-31").sessions_in_range(session_start, session_end)
         expected = pd.Series(sessions, index=sessions).reindex(sessions.union(calendar)).sort_index().ffill().reindex(calendar)
         # A long official exchange closure does not make the preceding closing
         # price stale. Missing prices on an actual session still remain gaps.
-        valid |= stamps.ge(expected) & expected.notna()
+        valid = stamps.ge(expected) & expected.notna()
     return aligned.where(valid)
 
 

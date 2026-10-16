@@ -7,8 +7,9 @@ from app.workers.tasks import refresh_prices as refresh_prices_module
 
 
 @pytest.fixture(autouse=True)
-def reset_jobs() -> None:
+def reset_jobs(monkeypatch) -> None:
     job_repository.clear_memory_jobs()
+    monkeypatch.setattr(refresh_prices_module, "refresh_portfolio_curve_prices", lambda: {"ok": True})
 
 
 def test_refresh_prices_volatility_preset(monkeypatch: pytest.MonkeyPatch) -> None:

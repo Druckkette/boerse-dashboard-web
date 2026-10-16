@@ -17,7 +17,7 @@ def backfill_missing_symbols():
             "id": row.id, "timestamp": transaction_row(row).event_ts.isoformat(), "order": index,
             "date": row.date.isoformat(), "type": row.transaction_type, "ticker": row.ticker,
             "isin": transaction_row(row).isin, "asset_class": transaction_row(row).asset_class,
-            "currency": row.currency, "shares": row.shares, "price": row.price,
+            "currency": row.currency, "shares": transaction_row(row).shares, "price": row.price,
             "fees": row.fees, "tax": row.tax,
         } for index, row in enumerate(stored)])
         unresolved = [event for event in events if not event["symbol_resolved"]]

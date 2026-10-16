@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.portfolio_curve_prices import refresh_portfolio_curve_prices
+
 from typing import Literal
 
 from app.domain.market.constants import MARKET_CORE_PRICE_TICKERS, MARKET_INDEX_FALLBACK_TICKERS, MARKET_TREND_BENCHMARK, SECTOR_ETF_TICKERS
@@ -84,6 +86,8 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
 
     job_repository.mark_running(job.job_id, step="Price-Cache-Refresh startet")
     try:
+        if _should_include_market_helpers(payload, preset=preset, explicit_tickers=explicit_tickers):
+            result["portfolio_curve_prices"] = refresh_portfolio_curve_prices()
         total = max(1, len(symbols))
         for offset in range(0, len(symbols), batch_size):
             raise_if_cancelled(job.job_id)

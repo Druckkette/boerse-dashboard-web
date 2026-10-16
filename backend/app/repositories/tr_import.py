@@ -19,7 +19,8 @@ def transaction_row(row):
     return TradeRepublicTransactionRow(date=pd.Timestamp(row.date), event_ts=timestamp,
         transaction_type=row.transaction_type, asset_class=raw.get("asset_class", "STOCK"),
         name=raw.get("name", row.ticker), isin=raw.get("isin") or raw.get("symbol", ""),
-        shares=row.shares, price=row.price or 0, currency=row.currency, amount=row.gross_amount or 0,
+        shares=raw.get("shares", row.shares) if row.transaction_type.lower() == "split" else row.shares,
+        price=row.price or 0, currency=row.currency, amount=row.gross_amount or 0,
         fee=row.fees or 0, tax=row.tax or 0, external_id=row.external_id, raw=raw)
 
 
@@ -118,7 +119,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
                 "id": row.id, "timestamp": transaction_row(row).event_ts.isoformat(), "order": i,
                 "date": row.date.isoformat(), "type": row.transaction_type, "ticker": row.ticker,
                 "isin": transaction_row(row).isin, "asset_class": transaction_row(row).asset_class,
-                "currency": row.currency, "shares": row.shares, "price": row.price,
+                "currency": row.currency, "shares": transaction_row(row).shares, "price": row.price,
                 "fees": row.fees, "tax": row.tax,
             } for i, row in enumerate(stored)])
             journal_count = sync_journal(db, stored, events, current_positions, prior_positions)

@@ -35,3 +35,20 @@ def test_report_order_independent_matching_without_broker_id():
         currency="EUR", gross_amount=-200, fees=-1, tax=0)
     incoming = parse_transaction_export_csv(header + cash + buy)
     assert match_executions(incoming, [stored])[1] == "stored-buy"
+
+
+def test_forward_and_reverse_split_preserve_fifo_cost_and_signed_delta():
+    forward = allocate_trades([row("1", "buy", 20, 400), row("2", "split", 60, 0), row("3", "sell", 80, 110)])
+    assert forward[-1]["unallocated"] == 0
+    assert forward[-1]["pnl"] == 800
+    assert forward[-1]["allocations"][0]["cost_basis"] == 8000
+    reverse = allocate_trades([row("1", "buy", 100, 10), row("2", "split", -90, 0), row("3", "sell", 10, 110)])
+    assert reverse[-1]["unallocated"] == 0
+    assert reverse[-1]["pnl"] == 100
+
+
+def test_stored_reverse_split_preserves_original_signed_broker_quantity():
+    from app.repositories.tr_import import transaction_row
+    stored = SimpleNamespace(date="2026-01-02", transaction_type="split", ticker="TEST", shares=90,
+        raw_json={"shares": -90}, price=0, currency="EUR", gross_amount=0, fees=0, tax=0, external_id="split")
+    assert transaction_row(stored).shares == -90

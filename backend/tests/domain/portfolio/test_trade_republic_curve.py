@@ -18,6 +18,7 @@ class PriceRow:
 
 @pytest.fixture(autouse=True)
 def fixed_fx_rate(monkeypatch) -> None:
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda tickers: {})
     monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars_for_tickers", lambda tickers, start_date=None: {ticker: portfolio_service.prices_repository.list_price_bars(ticker, start_date=start_date) for ticker in tickers})
     monkeypatch.setattr(
         portfolio_service,
@@ -77,6 +78,7 @@ def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
                 PriceRow(date=date(2025, 1, 3), close=110),
             ],
             "^GSPC": [
+                PriceRow(date=date(2024, 12, 31), close=5000),
                 PriceRow(date=date(2025, 1, 2), close=5000),
                 PriceRow(date=date(2025, 1, 3), close=5050),
             ],
@@ -422,7 +424,7 @@ def test_derivative_uses_own_issuer_bid_and_daily_quote_currency(monkeypatch):
     transactions = [_tr_row(date(2025, 12, 30), 'customer_inbound', 0, None, 100),
                     _tr_row(date(2025, 12, 30), 'buy', 2, 20, -40, isin='DE000PRODUCT', asset_class='DERIVATIVE')]
     monkeypatch.setattr(portfolio_repository, 'list_trade_republic_transactions', lambda: transactions)
-    prices = {'DE000PRODUCT': [SimpleNamespace(date=date(2025, 12, 31), close=25, source='vontobel:EUR:bid')],
+    prices = {'DE000PRODUCT': [SimpleNamespace(date=date(2025, 12, 31), close=25, source='vontobel:EUR:bid'), SimpleNamespace(date=date(2026, 1, 2), close=25, source='vontobel:EUR:bid')],
               'EURUSD=X': [PriceRow(date(2025, 12, 31), 1.2), PriceRow(date(2026, 1, 2), 1.3)],
               '^GSPC': [PriceRow(date(2025, 12, 31), 5000)]}
     monkeypatch.setattr(portfolio_service.prices_repository, 'list_price_bars', lambda ticker, **kw: prices.get(ticker, []))
@@ -440,3 +442,126 @@ def test_hong_kong_official_easter_closure_keeps_last_close_but_not_missing_sess
     aligned = portfolio_service._align_price_series_to_calendar(history, calendar, exchange='XHKG')
     assert aligned.iloc[0] == 65  # Hong Kong closed until April 8
     assert pd.isna(aligned.iloc[1])  # April 8 is an actual session without a quote
+
+
+@pytest.mark.parametrize("fetched_after_split", [False, True])
+def test_split_delta_and_historical_yahoo_adjustment_preserve_nav(monkeypatch, fetched_after_split):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2026, 7, 3))
+    transactions = [
+        _tr_row(date(2026, 7, 1), "customer_inbound", 0, None, 8000),
+        _tr_row(date(2026, 7, 1), "buy", 20, 400, -8000, ticker="CRWD", isin="US22788C1053"),
+        _tr_row(date(2026, 7, 2), "split", 60, None, 0, ticker="CRWD", isin="US22788C1053"),
+        _tr_row(date(2026, 7, 3), "sell", 80, 100, 8000, ticker="CRWD", isin="US22788C1053"),
+    ]
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: transactions)
+    prices = {
+        "CRWD": [SimpleNamespace(date=date(2026, 7, 1), close=100 if fetched_after_split else 400,
+            source="yfinance", fetched_at=datetime(2026, 7, 3 if fetched_after_split else 1, tzinfo=UTC)),
+            PriceRow(date(2026, 7, 2), 100)],
+        "EURUSD=X": [PriceRow(date(2026, 7, 1), 1), PriceRow(date(2026, 7, 2), 1), PriceRow(date(2026, 7, 3), 1)],
+        "^GSPC": [PriceRow(date(2026, 7, 1), 5000)],
+    }
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: prices.get(ticker, []))
+    result = portfolio_service.get_portfolio_curve(start_date=date(2026, 7, 1), model="execution_history")
+    assert [point.depot_value for point in result.points] == [8000, 8000, 8000]
+    assert [point.portfolio_index for point in result.points] == [100, 100, 100]
+    assert result.points[-1].positions_value == 0
+
+
+def test_tax_refund_is_net_performance_not_external_deposit(monkeypatch):
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2026, 1, 2))
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(date(2025, 12, 31), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2026, 1, 2), "tax_optimization", 0, None, 20)])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: [
+        PriceRow(date(2025, 12, 31), 1 if ticker == "EURUSD=X" else 5000)])
+    result = portfolio_service.get_portfolio_curve(start_date=date(2026, 1, 1), model="execution_history")
+    assert result.points[0].portfolio_index == 100
+    assert result.points[-1].portfolio_index == 102
+
+
+def test_fixed_redemption_receivable_bridges_until_actual_broker_payment(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2026, 2, 13))
+    isin = "DE000VJ4G2A7"
+    tx = [
+        _tr_row(date(2026, 2, 6), "customer_inbound", 0, None, 9543),
+        _tr_row(date(2026, 2, 6), "buy", 2600, 3.67, -9543, isin=isin, asset_class="DERIVATIVE"),
+        _tr_row(date(2026, 2, 13), "warrant_exercise", 2600, 0, 0, isin=isin, asset_class="DERIVATIVE"),
+        _tr_row(date(2026, 2, 13), "warrant_exercise", 0, 0, 10166, isin=isin, asset_class="DERIVATIVE"),
+    ]
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: tx)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda tickers: {
+        isin: {"fixed_redemption": {"valuation_date": "2026-02-06", "amount": 3.91, "currency": "EUR",
+            "payment_date": "2026-02-13", "source_url": "https://markets.vontobel.com/de-de/produkte/hebel/faktor-optionsscheine/" + isin}}})
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: (
+        [SimpleNamespace(date=date(2026, 2, 6), close=3.85, source="vontobel:EUR:bid")] if ticker == isin else [PriceRow(date(2026, 2, day), 1) for day in [6, 9, 10, 11, 12, 13]]))
+    result = portfolio_service.get_portfolio_curve(start_date=date(2026, 2, 6), model="execution_history")
+    points = {point.date: point for point in result.points}
+    for day in ["2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12"]:
+        assert points[day].positions_value == 10166
+        assert points[day].cash == 0
+        assert points[day].redemption_receivables == [isin]
+        assert points[day].valuation_complete
+    assert points["2026-02-13"].positions_value == 0
+    assert points["2026-02-13"].cash == 10166
+    assert points["2026-02-13"].redemption_receivables == []
+    assert points["2026-02-12"].portfolio_index == points["2026-02-13"].portfolio_index
+
+
+@pytest.mark.parametrize("year", [2027, 2028])
+def test_new_year_has_actual_holdings_cash_and_shared_index_basis_even_on_weekend(monkeypatch, year):
+    first = date(year, 1, 1)
+    prior = date(year - 1, 12, 31)
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: first)
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(prior, "customer_inbound", 0, None, 1500),
+        _tr_row(prior, "buy", 10, 100, -1000, ticker="NVDA", isin="US67066G1040")])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: [
+        PriceRow(prior, {"NVDA": 110, "EURUSD=X": 1.2, "^GSPC": 5000}.get(ticker, 1))])
+    result = portfolio_service.get_portfolio_curve(model="execution_history")
+    assert result.base_date == first.isoformat()
+    assert len(result.points) == 1
+    point = result.points[0]
+    assert point.depot_value == 1700
+    assert point.cash == 600
+    assert point.portfolio_index == point.sp500_index == 100
+
+
+def test_curve_clock_uses_berlin_year_at_utc_december_31(monkeypatch):
+    from datetime import UTC, datetime
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 12, 31, 23, 0, tzinfo=UTC).astimezone(tz)
+    monkeypatch.setattr(portfolio_service, "datetime", Clock)
+    assert portfolio_service._portfolio_curve_today() == date(2027, 1, 1)
+    assert portfolio_service._portfolio_curve_start_date(portfolio_service.DEFAULT_PORTFOLIO_CURVE_DAYS, None) == date(2027, 1, 1)
+
+
+def test_previous_quote_does_not_cover_a_missing_actual_exchange_session():
+    import pandas as pd
+    values = pd.Series([100.0], index=pd.to_datetime(["2026-01-02"]))
+    result = portfolio_service._align_price_series_to_calendar(values, pd.to_datetime(["2026-01-03", "2026-01-05"]), exchange="XNYS")
+    assert result.iloc[0] == 100
+    assert pd.isna(result.iloc[1])
+
+
+def test_impossible_ledger_balance_stays_visible_instead_of_clamping_to_zero(monkeypatch):
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2026, 1, 2))
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(date(2026, 1, 1), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2026, 1, 2), "sell", 1, 100, 100, ticker="NVDA")])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: [PriceRow(date(2025, 12, 31), 1)])
+    result = portfolio_service.get_portfolio_curve(start_date=date(2026, 1, 1), model="execution_history")
+    assert result.points[-1].portfolio_index is None
+    assert result.points[-1].missing_instruments == ["Bestand:NVDA"]
+
+
+def test_benchmark_cannot_silently_start_on_a_later_basis_date():
+    import pandas as pd
+    calendar = pd.to_datetime(["2026-01-01", "2026-01-02"])
+    result = portfolio_service._benchmark_index_series(calendar, price_cache={"^GSPC": [PriceRow(date(2026, 1, 2), 5000)]})
+    assert result.isna().all()

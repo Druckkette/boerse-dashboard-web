@@ -1,17 +1,36 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
+import { nextPortfolioYearCheck, portfolioYearStart } from "./portfolio-year";
 
 export function PortfolioCurvePanel() {
-  const defaultStartDate = useMemo(() => `${new Date().getFullYear()}-01-01`, []);
-  const [startDate, setStartDate] = useState(defaultStartDate);
+  const [defaultStartDate, setDefaultStartDate] = useState("");
+  const [selectedStartDate, setSelectedStartDate] = useState<string | null>(null);
+  const startDate = selectedStartDate ?? defaultStartDate;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const update = () => {
+      clearTimeout(timer);
+      setDefaultStartDate(portfolioYearStart());
+      timer = setTimeout(update, nextPortfolioYearCheck());
+    };
+    update();
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
   const [model, setModel] = useState<"auto" | "execution_history" | "current_holdings">("auto");
   const query = useQuery({
     queryKey: ["portfolio-curve", startDate, model],
     queryFn: () => api.portfolioCurve({ startDate, model }),
+    enabled: Boolean(startDate),
     staleTime: 60_000
   });
   const curve = query.data;
@@ -38,7 +57,7 @@ export function PortfolioCurvePanel() {
             className="input-dark"
             type="date"
             value={startDate}
-            onChange={(event) => setStartDate(event.target.value || defaultStartDate)}
+            onChange={(event) => setSelectedStartDate(event.target.value || null)}
           />
         </label>
       </div>

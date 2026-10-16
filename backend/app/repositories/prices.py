@@ -34,6 +34,31 @@ class PriceRepositoryUnavailable(RuntimeError):
     pass
 
 
+def list_instrument_metadata(tickers: Iterable[str]) -> dict[str, dict]:
+    clean = {str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()}
+    if not clean:
+        return {}
+    try:
+        with SessionLocal() as db:
+            return {ticker: dict(metadata or {}) for ticker, metadata in db.execute(
+                select(Instrument.ticker, Instrument.metadata_json).where(Instrument.ticker.in_(clean))
+            )}
+    except SQLAlchemyError as exc:
+        raise PriceRepositoryUnavailable(str(exc)) from exc
+
+
+def save_instrument_metadata(ticker: str, values: dict) -> None:
+    try:
+        with SessionLocal() as db:
+            instrument = db.scalar(select(Instrument).where(Instrument.ticker == ticker.upper()))
+            if instrument is None:
+                raise ValueError(f"No cached instrument: {ticker}")
+            instrument.metadata_json = {**(instrument.metadata_json or {}), **values}
+            db.commit()
+    except SQLAlchemyError as exc:
+        raise PriceRepositoryUnavailable(str(exc)) from exc
+
+
 def list_price_bars(ticker: str, *, start_date: date | None = None) -> list[PriceBar]:
     clean = ticker.strip().upper()
     try:

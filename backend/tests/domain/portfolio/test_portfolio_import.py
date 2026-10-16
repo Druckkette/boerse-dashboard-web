@@ -510,8 +510,8 @@ def test_trade_republic_parser_handles_broker_edge_cases() -> None:
     assert skipped == []
     assert len(positions) == 1
     assert positions[0].ticker == "NVDA"
-    assert positions[0].shares == pytest.approx(15)
-    assert positions[0].avg_buy_price == pytest.approx(50.25)
+    assert positions[0].shares == pytest.approx(25)  # 10 bought + 20 split delta - 5 sold
+    assert positions[0].avg_buy_price == pytest.approx(33.5)
 
 
 def test_trade_republic_import_maps_current_reference_sample(monkeypatch: pytest.MonkeyPatch) -> None:

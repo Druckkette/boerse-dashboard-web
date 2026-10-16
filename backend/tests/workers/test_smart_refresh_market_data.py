@@ -19,6 +19,7 @@ from app.workers.tasks import smart_refresh_market_data as smart_module
 @pytest.fixture(autouse=True)
 def reset_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     job_repository.clear_memory_jobs()
+    monkeypatch.setattr(smart_module, "refresh_portfolio_curve_prices", lambda: {"ok": True})
     monkeypatch.setattr(smart_module, "plan_report_work", lambda **kwargs: 0)
     monkeypatch.setattr(
         smart_module.stock_assessment_repository,

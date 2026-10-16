@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.portfolio_curve_prices import refresh_portfolio_curve_prices
+
 from app.services.refresh_attempts import read_attempts, record_attempt, retry_due
 from app.services.report_planner import plan_report_work
 
@@ -660,6 +662,8 @@ def _refresh_prices(
         "overlap_days": overlap_days,
         "batch_count": 0,
     }
+    if payload.get("include_market_helpers"):
+        price_result["portfolio_curve_prices"] = refresh_portfolio_curve_prices()
     total_symbols = max(1, len(symbols))
     base_progress = 8 + int((action_index - 1) / max(1, total_actions) * 82)
     next_progress = 8 + int(action_index / max(1, total_actions) * 82)

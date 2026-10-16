@@ -1342,6 +1342,7 @@ class PortfolioSnapshotResponse(BaseModel):
 class PortfolioCurvePoint(BaseModel):
     valuation_complete: bool = True
     missing_instruments: list[str] = Field(default_factory=list)
+    redemption_receivables: list[str] = Field(default_factory=list)
     date: str
     depot_value: float | None
     positions_value: float | None

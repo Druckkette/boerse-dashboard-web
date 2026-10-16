@@ -22,15 +22,19 @@ def allocate_trades(rows):
         if kind not in {"buy", "sell"}:
             if kind in {"split", "transfer_in", "transfer_out", "sell_cancelled", "delisted", "expiration", "warrant_exercise", "insolvency_proceedings"}:
                 # Do not manufacture cost basis for corporate actions or missing transfers.
-                for lot in lots[key]:
-                    lot["known"] = False
+                if kind != "split":
+                    for lot in lots[key]:
+                        lot["known"] = False
                 if kind in {"transfer_in", "sell_cancelled"}:
                     lots[key].append({"row": row, "remaining": quantity, "cost": Decimal(0), "known": False})
                 elif kind == "split":
                     old = sum(lot["remaining"] for lot in lots[key])
-                    if old:
+                    new = old + number(row["shares"])
+                    if old > EPS and new > EPS:
+                        ratio = new / old
                         for lot in lots[key]:
-                            lot["remaining"] *= quantity / old
+                            lot["remaining"] *= ratio
+                            lot["cost"] /= ratio
                 else:
                     remaining = quantity
                     for lot in lots[key]:

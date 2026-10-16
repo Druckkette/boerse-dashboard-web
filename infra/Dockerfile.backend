@@ -14,6 +14,7 @@ COPY backend /app
 COPY frontend/src/lib/beta/api-policy.json /app/app/beta_api_policy.json
 RUN pip install --upgrade pip \
     && pip install "." \
+    && python -m playwright install --with-deps --only-shell chromium \
     && chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000

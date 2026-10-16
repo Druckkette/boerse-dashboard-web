@@ -460,7 +460,15 @@ export function LineChartCard({
               </g>
             )}
 
-            {visibleSeries.map((item) => {
+            {visibleSeries.map((item, seriesIndex) => {
+              if (visiblePoints.length === 1) {
+                const value = toNumber(visiblePoints[0][item.key]);
+                return value === null ? null : <circle key={item.key} data-series={item.key}
+                  cx={(PLOT_LEFT + plotRight) / 2} cy={yForValue(value, priceScale.min, priceScale.max, PAD_TOP, priceBottom)}
+                  r={3 + (visibleSeries.length - seriesIndex)} fill="none" stroke={item.color} strokeWidth="2" vectorEffect="non-scaling-stroke">
+                  <title>{item.label}: {item.formatter?.(value) ?? value} ({visiblePoints[0].date})</title>
+                </circle>;
+              }
               const path = buildPath(visiblePoints, item.key, priceScale.min, priceScale.max, PAD_TOP, priceBottom, plotRight);
               if (!path) return null;
               return <path key={item.key} d={path} fill="none" stroke={item.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" vectorEffect="non-scaling-stroke" />;
