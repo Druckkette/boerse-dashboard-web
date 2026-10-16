@@ -566,3 +566,64 @@ def test_benchmark_cannot_silently_start_on_a_later_basis_date():
     calendar = pd.to_datetime(["2026-01-01", "2026-01-02"])
     result = portfolio_service._benchmark_index_series(calendar, price_cache={"^GSPC": [PriceRow(date(2026, 1, 2), 5000)]})
     assert result.isna().all()
+
+
+@pytest.mark.parametrize("downloaded_after_company_split", [False, True])
+def test_2027_closed_position_is_not_repriced_by_a_later_unbooked_company_split(monkeypatch, downloaded_after_company_split):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2027, 6, 12))
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(date(2027, 1, 1), "customer_inbound", 0, None, 10000),
+        _tr_row(date(2027, 1, 4), "buy", 10, 1000, -10000, ticker="TEST", isin="TEST"),
+        _tr_row(date(2027, 1, 5), "sell", 10, 1000, 10000, ticker="TEST", isin="TEST")])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda symbols: {
+        "TEST": {"stock_splits": {"2027-06-10": 10}}})
+    day = date(2027, 6, 11) if downloaded_after_company_split else date(2027, 1, 4)
+    stock = SimpleNamespace(date=date(2027, 1, 4), close=100 if downloaded_after_company_split else 1000,
+        source="yfinance", fetched_at=datetime.combine(day, datetime.min.time(), UTC))
+    fx = [PriceRow(day.date(), 1) for day in portfolio_service.pd.date_range('2026-12-31', '2027-06-12', freq='B')]
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw:
+        [stock] if ticker == "TEST" else fx if ticker == "EURUSD=X" else [PriceRow(row.date, 5000) for row in fx])
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2027, 1, 1), model="execution_history")
+    assert curve.base_date == "2027-01-01"
+    assert {point.depot_value for point in curve.points} == {10000}
+    assert {point.portfolio_index for point in curve.points} == {100}
+
+
+def test_weekend_broker_booking_and_provider_ex_date_are_one_split(monkeypatch):
+    from types import SimpleNamespace
+    from datetime import UTC, datetime
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2024, 6, 10))
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(date(2024, 6, 7), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2024, 6, 7), "buy", 10, 100, -1000, ticker="TEST", isin="TEST"),
+        _tr_row(date(2024, 6, 8), "split", 90, None, 0, ticker="TEST", isin="TEST")])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda symbols: {
+        "TEST": {"stock_splits": {"2024-06-10": 10}}})
+    bars = [SimpleNamespace(date=day, close=10, source="yfinance", fetched_at=datetime(2024,6,11,tzinfo=UTC)) for day in [date(2024,6,7), date(2024,6,10)]]
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: bars if ticker == "TEST" else [PriceRow(bar.date, 1) for bar in bars])
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2024, 6, 7), model="execution_history")
+    assert [point.depot_value for point in curve.points] == [1000, 1000]
+
+
+def test_quote_snapshot_factor_overrides_download_date_guess_on_split_day(monkeypatch):
+    from types import SimpleNamespace
+    from datetime import UTC, datetime
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: date(2027, 6, 10))
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(date(2027, 1, 1), "customer_inbound", 0, None, 10000),
+        _tr_row(date(2027, 1, 4), "buy", 10, 1000, -10000, ticker="TEST", isin="TEST"),
+        _tr_row(date(2027, 1, 5), "sell", 10, 1000, 10000, ticker="TEST", isin="TEST")])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda symbols: {
+        "TEST": {"stock_splits": {"2027-06-10": 10}}})
+    # Before the provider has applied today's split, this old quote still uses
+    # its original basis. The saved factor, not its download date, is decisive.
+    stock = SimpleNamespace(date=date(2027, 1, 4), close=1000, source="yfinance",
+        fetched_at=datetime(2027, 6, 10, 1, tzinfo=UTC), split_adjustment_factor=1)
+    fx = [PriceRow(day.date(), 1) for day in portfolio_service.pd.date_range('2026-12-31', '2027-06-10', freq='B')]
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw:
+        [stock] if ticker == "TEST" else fx if ticker == "EURUSD=X" else [PriceRow(row.date, 5000) for row in fx])
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2027, 1, 1), model="execution_history")
+    assert {point.depot_value for point in curve.points} == {10000}
+    assert {point.portfolio_index for point in curve.points} == {100}

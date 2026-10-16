@@ -508,7 +508,7 @@ def build_smart_refresh_plan(
 
     try:
         assessment_generated_at = stock_assessment_repository.latest_generated_at()
-        assessment_snapshot_missing = assessment_generated_at is None or assessment_generated_at.date() < date.today()
+        assessment_snapshot_missing = assessment_generated_at is None or assessment_generated_at.astimezone(UTC).date() < datetime.now(UTC).date()
     except stock_assessment_repository.StockAssessmentRepositoryUnavailable:
         assessment_snapshot_missing = True
     assessment_dependencies = {

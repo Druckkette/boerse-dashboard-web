@@ -183,3 +183,27 @@ def test_fetch_live_quotes_batch_rejects_previous_day_bar(monkeypatch) -> None:
 
     assert quote.price is None
     assert "Letzter Yahoo-Intraday-Kurs" in quote.error_message
+
+
+def test_daily_download_keeps_company_split_events_after_investor_sale(monkeypatch):
+    import yfinance as yf
+    seen = {}
+    def download(symbol, **kwargs):
+        seen.update(kwargs)
+        return pd.DataFrame({"Close": [100.0, 110.0], "Stock Splits": [0.0, 10.0]}, index=pd.to_datetime(["2026-01-02", "2026-06-12"]))
+    monkeypatch.setattr(yf, "download", download)
+    bars = fetch_daily_price_bars("TEST")
+    assert seen["actions"] is True
+    assert bars[0].stock_split == 0
+    assert bars[1].stock_split == 10
+    assert bars[0].split_adjustment_factor == 10
+    assert bars[1].split_adjustment_factor == 1
+
+
+def test_duplicate_daily_actions_cannot_multiply_the_adjustment_twice(monkeypatch):
+    import pytest
+    import yfinance as yf
+    frame = pd.DataFrame({"Close": [100, 100], "Stock Splits": [10, 10]}, index=pd.to_datetime(["2026-06-12", "2026-06-12"]))
+    monkeypatch.setattr(yf, "download", lambda *a, **k: frame)
+    with pytest.raises(ValueError, match="Duplicate daily"):
+        fetch_daily_price_bars("TEST")

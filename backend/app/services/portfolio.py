@@ -1277,9 +1277,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     symbols.update(f"{yahoo_quote_currency(row.ticker)}USD=X" for row in transactions if row.ticker and yahoo_quote_currency(row.ticker) != "USD")
     symbols.update({"^GSPC", "SPY"})
     price_cache = prices_repository.list_price_bars_for_tickers(symbols, start_date=curve_start_date - timedelta(days=10))
-    instrument_metadata = prices_repository.list_instrument_metadata(
-        row.isin for row in transactions if row.asset_class.upper() == "DERIVATIVE" and row.isin
-    )
+    instrument_metadata = prices_repository.list_instrument_metadata(symbols)
 
     def cached_series(ticker):
         return _cached_price_series(ticker, curve_start_date, rows=price_cache.get(ticker, []))
@@ -1331,7 +1329,17 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if ticker
             else pd.Series(dtype=float)
         )
-        if splits and ticker:
+        provider_splits = [(date.fromisoformat(day), float(ratio)) for day, ratio in
+            instrument_metadata.get(ticker, {}).get("stock_splits", {}).items()]
+        if any(not math.isfinite(ratio) or ratio <= 0 for _, ratio in provider_splits):
+            raise ValueError(f"Invalid provider split evidence: {ticker}")
+        # Company actions also adjust old quotes after the investor has sold.
+        # Broker bookings alone cannot describe these later price revisions.
+        # TR may book a weekend ahead of the exchange ex-date; count it once.
+        quote_splits = provider_splits + [(day, ratio) for day, ratio in splits if not any(
+            abs((provider_day - day).days) <= 7
+            for provider_day, _ in provider_splits)]
+        if ticker and (quote_splits or any(getattr(row, "split_adjustment_factor", None) is not None for row in price_cache.get(ticker, []))):
             # Yahoo historical Close is split-adjusted to the download date.
             # Restore the contemporaneous quote before multiplying by the
             # contemporaneous broker quantity. Otherwise a later cache repair
@@ -1342,7 +1350,12 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                     continue
                 fetched_at = getattr(price_row, "fetched_at", None)
                 downloaded_on = fetched_at.date() if fetched_at else end_date
-                factor = math.prod(ratio for split_day, ratio in splits if price_row.date < split_day <= downloaded_on)
+                factor = getattr(price_row, "split_adjustment_factor", None)
+                if factor is None:
+                    # Legacy bars predate the explicit adjustment snapshot.
+                    factor = math.prod(ratio for split_day, ratio in quote_splits if price_row.date < split_day <= downloaded_on)
+                if not math.isfinite(factor) or factor <= 0:
+                    raise ValueError(f"Invalid quote adjustment factor: {ticker}")
                 value = float(price_row.close) * (factor if getattr(price_row, "source", "yfinance") == "yfinance" else 1)
                 restored.append((pd.Timestamp(price_row.date), value))
             if restored:

@@ -677,3 +677,21 @@ def _universe(*, key: str = "us_common_stocks") -> UniverseStatusResponse:
         sample_tickers=["AAPL", "MSFT", "NVDA"],
         metadata={},
     )
+
+
+def test_utc_assessment_stays_current_when_local_calendar_is_already_tomorrow(monkeypatch):
+    from datetime import date
+    class LocalDate(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 10, 17)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 16, 22, 5, tzinfo=UTC).astimezone(tz)
+    monkeypatch.setattr(smart_module, "date", LocalDate)
+    monkeypatch.setattr(smart_module, "datetime", Clock)
+    monkeypatch.setattr(smart_module.stock_assessment_repository, "latest_generated_at", lambda: datetime(2026, 10, 16, 22, tzinfo=UTC))
+    assert smart_module.build_smart_refresh_plan(diagnostics=_diagnostics(),
+        freshness=_freshness(prices="fresh", breadth="fresh", rs="fresh", sell_ranking="fresh"),
+        universe_status=_universe(), payload={"universe": "us_common_stocks"}) == []

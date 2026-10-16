@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from math import isnan
+from math import isfinite, isnan, prod
 from typing import Any
 
 import pandas as pd
@@ -21,6 +21,8 @@ class FetchedPriceBar:
     close: float
     adj_close: float | None
     volume: float | None
+    stock_split: float | None = None
+    split_adjustment_factor: float | None = None
 
 
 @dataclass(frozen=True)
@@ -305,6 +307,7 @@ def _download_kwargs(*, period: str, start: date | None, timeout: int) -> dict[s
     download_kwargs: dict[str, Any] = {
         "interval": "1d",
         "auto_adjust": False,
+        "actions": True,
         "progress": False,
         "threads": False,
         "timeout": max(3, int(timeout)),
@@ -319,8 +322,18 @@ def _download_kwargs(*, period: str, start: date | None, timeout: int) -> dict[s
 def _bars_from_frame(normalized: pd.DataFrame) -> list[FetchedPriceBar]:
     if "Close" not in normalized.columns:
         return []
+    if pd.Index([pd.Timestamp(stamp).date() for stamp in normalized.index]).has_duplicates:
+        raise ValueError("Duplicate daily price observations")
 
-    normalized = normalized.dropna(subset=["Close"])
+    split_events = []
+    if "Stock Splits" in normalized.columns:
+        for stamp, value in normalized["Stock Splits"].items():
+            ratio = _float_or_none(value)
+            if ratio:
+                if not isfinite(ratio) or ratio <= 0:
+                    raise ValueError("Invalid provider stock split")
+                split_events.append((pd.Timestamp(stamp).date(), ratio))
+    normalized = normalized.dropna(subset=["Close"]).sort_index()
     bars: list[FetchedPriceBar] = []
     for index, row in normalized.iterrows():
         bar_date = index.date() if hasattr(index, "date") else pd.Timestamp(index).date()
@@ -336,6 +349,8 @@ def _bars_from_frame(normalized: pd.DataFrame) -> list[FetchedPriceBar]:
                 close=close,
                 adj_close=_float_or_none(row.get("Adj Close")),
                 volume=_float_or_none(row.get("Volume")),
+                stock_split=_float_or_none(row.get("Stock Splits")),
+                split_adjustment_factor=prod(ratio for day, ratio in split_events if day > bar_date) if "Stock Splits" in normalized.columns else None,
             )
         )
     return bars

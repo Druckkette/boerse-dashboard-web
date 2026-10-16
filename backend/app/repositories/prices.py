@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+import math
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -21,6 +22,8 @@ class PriceBarWrite:
     close: float
     adj_close: float | None
     volume: float | None
+    stock_split: float | None = None
+    split_adjustment_factor: float | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,16 @@ def upsert_price_bars(
     incoming = list(bars)
     if not clean or not incoming:
         return 0
+    corporate_splits = {}
+    for bar in incoming:
+        factor = getattr(bar, "split_adjustment_factor", None)
+        if factor is not None and (not math.isfinite(factor) or factor <= 0):
+            raise ValueError("Invalid quote split adjustment factor")
+        ratio = getattr(bar, "stock_split", None)
+        if ratio is not None and ratio != 0:
+            if not math.isfinite(ratio) or ratio <= 0:
+                raise ValueError("Invalid provider stock split")
+            corporate_splits[bar.date.isoformat()] = float(ratio)
 
     try:
         with SessionLocal() as db:
@@ -196,24 +209,32 @@ def upsert_price_bars(
                         low=bar.low,
                         close=bar.close,
                         adj_close=bar.adj_close,
+                        split_adjustment_factor=getattr(bar, "split_adjustment_factor", None),
                         volume=bar.volume,
                     )
                     db.add(row)
                 else:
                     changed = changed or any(
-                        getattr(row, field) != getattr(bar, field)
-                        for field in ("open", "high", "low", "close", "adj_close", "volume")
+                        getattr(row, field) != getattr(bar, field, None)
+                        for field in ("open", "high", "low", "close", "adj_close", "volume", "split_adjustment_factor")
                     )
                     row.open = bar.open
                     row.high = bar.high
                     row.low = bar.low
                     row.close = bar.close
                     row.adj_close = bar.adj_close
+                    row.split_adjustment_factor = getattr(bar, "split_adjustment_factor", None)
                     row.volume = bar.volume
                 row.fetched_at = fetched_at
                 written += 1
 
             metadata = dict(instrument.metadata_json or {})
+            if source == "yfinance" and corporate_splits:
+                prior_splits = metadata.get("stock_splits", {})
+                merged_splits = {**prior_splits, **corporate_splits}
+                changed = changed or merged_splits != prior_splits
+                metadata["stock_splits"] = merged_splits
+                metadata["stock_splits_source"] = "yfinance:corporate_actions"
             metadata["price_checked_at"] = fetched_at.isoformat()
             if changed or not metadata.get("price_revision"):
                 metadata["price_revision"] = str(uuid4())

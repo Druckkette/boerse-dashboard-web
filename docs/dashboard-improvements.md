@@ -64,7 +64,7 @@ Fehlende Tagesbewertungen bleiben Lücken. Ohne externe Cashflows innerhalb eine
 
 ### Zusätzliche Prüfung der Depotkurve und Jahreswechsel
 
-TR-Splitbuchungen sind vorzeichenbehaftete Stückzahländerungen. Der Replay addiert diese Änderung zum vorherigen Bestand und erhält den Anschaffungswert. Historische Yahoo-Schlusskurse sind splitbereinigt; die Kurve stellt für bekannte Broker-Splits den damaligen Stückpreis anhand des Downloadzeitpunkts wieder her. Steuererstattungen gehören zur Nettoperformance und werden nicht wie externe Einzahlungen neutralisiert.
+TR-Splitbuchungen sind vorzeichenbehaftete Stückzahländerungen. Der Replay addiert diese Änderung zum vorherigen Bestand und erhält den Anschaffungswert. Historische Yahoo-Schlusskurse sind splitbereinigt. Der Kursabruf lädt deshalb auch die unternehmensweiten Split-Ereignisse und speichert den exakten Bereinigungsfaktor der jeweiligen Kursantwort pro Kurszeile. Die Depotbewertung stellt daraus den damaligen Stückpreis wieder her. Dies berücksichtigt auch Splits nach dem Verkauf, für die das persönliche Brokerkonto keine Splitbuchung enthält. Bei älteren Kurszeilen ohne gespeicherten Faktor dienen belegte Anbieterereignisse und Brokerbuchungen als Übergang; doppelte Ereignisse mit abweichendem Buchungs-/Ex-Tag werden zusammengeführt. Steuererstattungen gehören zur Nettoperformance und werden nicht wie externe Einzahlungen neutralisiert.
 
 Ein durch den Emittenten belegter finaler Rückzahlungsbetrag wird zum Tagesende des Bewertungstags als Wertpapierforderung bewertet, bis TR die Stücke ausbucht und die Zahlung bucht. Er wird weder als erfundener Tageskurs gespeichert noch als zusätzliche Cashreserve behandelt. Die API nennt solche Instrumente pro Tag in `redemption_receivables`. Ohne belegte Bewertung bleiben Kurslücken sichtbar.
 
@@ -75,3 +75,6 @@ Der bestehende Markt-Kursrefresh pflegt zusätzlich die für die laufende Jahres
 Liegt die benötigte Startbewertung im Kurscache, werden neue Kurstage mit Überlappung nachgeladen. Nur fehlende historische Starts lösen eine vollständige Nachladung aus. Bereits vollständig abgedeckte geschlossene Positionen werden nicht erneut geladen. Der vorherige Dezember-Schlusskurs bleibt als Jahresbasis erhalten; die Splitbehandlung funktioniert auch bei unterschiedlichen Downloadzeitpunkten einzelner Kurszeilen.
 
 Eine vollständige Brokerhistorie ersetzt keine historischen Marktkurse. Bei nicht mehr öffentlich verfügbaren Produkten ist eine vollständig belegte Kurve erst mit zusätzlichem Kursnachweis möglich. Auch eine vollständig bewertete Kurve verwendet die offengelegte Tagesend-Konvention für externe Zahlungsströme, keine exakte untertägige zeitgewichtete Rendite.
+
+
+Die Migration `0023_price_split_factor` ergänzt nur ein nullable Kurscache-Feld. Neue Kurse bewahren ihre eigene Bereinigungsbasis auch dann, wenn am selben Kalendertag vor und nach einem Split heruntergeladen wird. Spätere Unternehmensereignisse verändern damit frühere Jahresbewertungen nicht durch eine falsche Kombination aus historischen Stückzahlen und nachträglich bereinigten Preisen.

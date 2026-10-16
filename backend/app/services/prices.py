@@ -371,6 +371,8 @@ def _write_price_cache_result(
             close=bar.close,
             adj_close=bar.adj_close,
             volume=bar.volume,
+            stock_split=getattr(bar, "stock_split", None),
+            split_adjustment_factor=getattr(bar, "split_adjustment_factor", None),
         )
         for bar in fetched
     ]

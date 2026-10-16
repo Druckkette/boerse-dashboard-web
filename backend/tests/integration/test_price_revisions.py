@@ -72,3 +72,20 @@ def test_redemption_evidence_roundtrip_preserves_existing_instrument_metadata(mo
     assert after["fixed_redemption"] == evidence
     assert all(after[key] == value for key, value in before.items())
     engine.dispose()
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_POSTGRES_URL"), reason="Disposable Postgres not configured")
+def test_company_split_survives_later_incremental_bars_without_actions(monkeypatch):
+    url = os.environ["TEST_POSTGRES_URL"]
+    assert make_url(url).database == "audit_tests"
+    engine = create_engine(url)
+    monkeypatch.setattr(prices, "SessionLocal", sessionmaker(bind=engine))
+    ticker = "TEST_" + uuid4().hex[:12].upper()
+    split_bar = prices.PriceBarWrite(date(2026, 6, 12), None, None, None, 110, None, None, stock_split=10, split_adjustment_factor=1)
+    prices.upsert_price_bars(ticker, [split_bar])
+    prices.upsert_price_bars(ticker, [prices.PriceBarWrite(date(2026, 10, 16), None, None, None, 120, None, None)])
+    metadata = prices.list_instrument_metadata([ticker])[ticker]
+    assert metadata["stock_splits"] == {"2026-06-12": 10.0}
+    assert metadata["stock_splits_source"] == "yfinance:corporate_actions"
+    assert prices.list_price_bars(ticker)[0].split_adjustment_factor == 1
+    engine.dispose()

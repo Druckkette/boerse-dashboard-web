@@ -82,6 +82,7 @@ class PriceBar(Base):
     low: Mapped[float | None] = mapped_column(Float)
     close: Mapped[float | None] = mapped_column(Float)
     adj_close: Mapped[float | None] = mapped_column(Float)
+    split_adjustment_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
     volume: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(32), default="yfinance")
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
