@@ -237,3 +237,28 @@ def test_missing_symbol_backfill_is_idempotent_and_preserves_execution_and_posit
         txs = list(db.scalars(select(Transaction).where(Transaction.import_id == result.import_id)))
         assert [(t.id, t.ticker, t.position_id, t.price, t.shares, t.raw_json) for t in txs] == before
         assert len(list(db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.source_transaction_id.in_(ids))))) == 2
+
+
+def test_industry_score_projection_preserves_order_and_values_without_full_payload(setup_import, monkeypatch):
+    from datetime import date
+    from app.db.models import StockAssessmentSnapshot
+    from app.repositories import stock_assessments as repository
+    sessions, prefix, _ = setup_import
+    monkeypatch.setattr(repository, "SessionLocal", sessions)
+    tickers = [prefix + suffix for suffix in ["A", "B", "C"]]
+    values = dict(rs_rating=91, fundamental_score=80, moving_average_score=70,
+        chart_behavior_score=60, verdict_label="Qualifiziert")
+    with sessions() as db:
+        for ticker, available, overall, technical in [(tickers[0], True, 80, 70),
+                (tickers[1], True, 80, 90), (tickers[2], False, 99, 99)]:
+            db.add(StockAssessmentSnapshot(ticker=ticker, as_of=date(2026, 10, 15),
+                overall_score=overall, technical_score=technical,
+                item_json={**values, "overall_status": "available" if available else "missing",
+                    "full_assessment_detail": "x" * 1_000_000}))
+        db.commit()
+    full = repository.list_all_snapshots(tickers)
+    compact = repository.list_ranking_context(tickers)
+    assert [row.ticker for row in compact] == [row.ticker for row in full] == [tickers[1], tickers[0], tickers[2]]
+    assert all(row.item_json == values for row in compact)
+    assert [(r.overall_score, r.technical_score) for r in compact] == [(r.overall_score, r.technical_score) for r in full]
+    assert all("full_assessment_detail" in row.item_json for row in full)

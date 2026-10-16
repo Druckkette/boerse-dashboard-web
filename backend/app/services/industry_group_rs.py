@@ -726,7 +726,7 @@ def _snapshot_payload(group, snapshot) -> dict:
 
 def _assessment_context(tickers: list[str]):
     clean = list(dict.fromkeys(ticker for ticker in tickers if ticker))
-    assessments = stock_assessment_repository.list_all_snapshots(clean)
+    assessments = stock_assessment_repository.list_ranking_context(clean)
     return (
         {row.ticker.upper(): row for row in assessments},
         {row.ticker.upper(): index for index, row in enumerate(assessments)},

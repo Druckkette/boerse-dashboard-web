@@ -182,6 +182,26 @@ def list_all_snapshots(tickers: list[str] | None = None) -> list[StockAssessment
         raise StockAssessmentRepositoryUnavailable(str(exc)) from exc
 
 
+def list_ranking_context(tickers: list[str]) -> list[StockAssessmentSnapshotRow]:
+    """Read only the scalar scores needed by industry overviews, in canonical order."""
+    if not tickers:
+        return []
+    model = StockAssessmentSnapshot
+    fields = ("rs_rating", "fundamental_score", "moving_average_score", "chart_behavior_score", "verdict_label")
+    projection = func.jsonb_build_object(*[part for key in fields for part in (key, model.item_json[key])]).label("item_json")
+    try:
+        with SessionLocal() as db:
+            rows = db.execute(select(model.ticker, model.name, model.as_of, model.overall_score,
+                model.technical_score, model.generated_at, model.source_job_id, projection).where(
+                model.ticker.in_(tickers)).order_by(
+                case((model.item_json["overall_status"].as_string() == "available", 1), else_=0).desc(),
+                model.overall_score.desc(), model.technical_score.desc(), model.ticker.asc(),
+            )).mappings()
+            return [StockAssessmentSnapshotRow(**row) for row in rows]
+    except SQLAlchemyError as exc:
+        raise StockAssessmentRepositoryUnavailable(str(exc)) from exc
+
+
 def query_screening(filters: StockScreeningFilters, *, expected_date: date, export: bool = False) -> dict:
     model = StockAssessmentSnapshot
     data = model.item_json

@@ -6,6 +6,7 @@ from typing import Iterable
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import load_only
 
 from app.db.models import (
     IndustryGroup,
@@ -494,6 +495,9 @@ def list_group_snapshot_histories(
             )
             rows = db.scalars(
                 select(IndustryGroupRsSnapshot)
+                .options(load_only(IndustryGroupRsSnapshot.industry_group_id, IndustryGroupRsSnapshot.snapshot_date,
+                    IndustryGroupRsSnapshot.rank, IndustryGroupRsSnapshot.rs_score,
+                    IndustryGroupRsSnapshot.ranked_group_count, IndustryGroupRsSnapshot.is_ranked))
                 .join(ranked, ranked.c.snapshot_id == IndustryGroupRsSnapshot.id)
                 .where(ranked.c.rn <= capped_limit)
                 .order_by(
