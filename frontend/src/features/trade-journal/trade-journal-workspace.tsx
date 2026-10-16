@@ -9,7 +9,6 @@ import {
   FileText,
   FilterX,
   NotebookPen,
-  Plus,
   Search,
   SlidersHorizontal,
   Upload,
@@ -21,14 +20,12 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { HistoricalScores, HistoricalSignals, HistoricalTradeChart } from "./historical-review";
 import { api } from "@/lib/api/client";
-import { berlinDate } from "@/lib/date";
 import { JournalAnalytics } from "./journal-analytics";
 import { useViewState } from "@/lib/view-state";
 import { SavedViews } from "@/components/ui/saved-views";
 import type {
   Tone,
   TradeJournalEntryDetail,
-  TradeJournalEntryRequest,
   TradeJournalEntryStatus,
   TradeJournalEntrySummary,
   TradeJournalEntryType,
@@ -38,17 +35,7 @@ import type {
 type Tab = "executions" | "analytics";
 const PAGE_SIZE = 20;
 type Draft = {
-  ticker: string;
-  entry_type: TradeJournalEntryType;
-  trade_date: string;
-  price: string;
-  shares: string;
-  currency: string;
-  fees: string;
-  tax: string;
-  source_evidence: string;
   note: string;
-  stop_price: string;
   setup: string;
   rule_deviation: string;
 };
@@ -74,7 +61,7 @@ export function TradeJournalWorkspace() {
     sort: view.sort === "oldest" ? "oldest" : "newest", limit: PAGE_SIZE, offset: Math.max(0, view.offset || 0)
   };
   const [searchInput, setSearchInput] = useState(filters.query ?? "");
-  const [dialog, setDialog] = useState<{ draft: Draft; entry: TradeJournalEntryDetail | null } | null>(null);
+  const [dialog, setDialog] = useState<{ draft: Draft; entry: TradeJournalEntryDetail } | null>(null);
 
   const entriesQuery = useQuery({
     queryKey: ["trade-journal", filters],
@@ -93,11 +80,8 @@ export function TradeJournalWorkspace() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: ({ draft, entry }: { draft: Draft; entry: TradeJournalEntryDetail | null }) => {
-      const payload = draftToRequest(draft);
-      if (!entry) return api.createTradeJournalEntry(payload);
-      if (entry.source === "trade_republic") return api.updateTradeJournalNotes(entry.id, {
-        ...payload,
+    mutationFn: ({ draft, entry }: { draft: Draft; entry: TradeJournalEntryDetail }) => {
+      return api.updateTradeJournalNotes(entry.id, {
         basis_text: entry.entry_type === "buy" ? draft.note : entry.basis_text,
         primary_reasons: entry.entry_type === "buy" ? draft.note : entry.primary_reasons,
         sell_reason: entry.entry_type === "sell" ? draft.note : entry.sell_reason,
@@ -106,7 +90,6 @@ export function TradeJournalWorkspace() {
         questionnaire: { ...entry.questionnaire, setup: draft.setup, rule_deviation: draft.rule_deviation },
         chart_images: entry.chart_images
       });
-      return api.updateTradeJournalEntry(entry.id, { ...payload, questionnaire: { ...entry.questionnaire, ...payload.questionnaire }, chart_images: entry.chart_images, alternative_entry: entry.alternative_entry, alternative_entry_text: entry.alternative_entry_text });
     },
     onSuccess: (result) => {
       setDialog(null);
@@ -162,11 +145,6 @@ export function TradeJournalWorkspace() {
     router.push(`/trade-journal${tab === "executions" ? "" : `?tab=${tab}`}`, { scroll: false });
   }
 
-  function openNew(type: TradeJournalEntryType = "buy") {
-    const probableTicker = /^[A-Za-z0-9.^-]{1,32}$/.test(searchInput.trim()) ? searchInput.trim().toUpperCase() : "";
-    setDialog({ entry: null, draft: emptyDraft(probableTicker, type) });
-  }
-
   function openEdit(entry: TradeJournalEntryDetail) {
     setDialog({ entry, draft: entryDraft(entry) });
   }
@@ -186,9 +164,6 @@ export function TradeJournalWorkspace() {
             <Link className="inline-flex h-10 items-center justify-center gap-2 rounded-[10px] bg-[#0f766e] px-4 text-sm font-semibold !text-white hover:bg-[#0b655f]" href="/portfolio/imports">
               <Upload size={16} /> Trade-Republic-Auszug importieren
             </Link>
-            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[10px] border border-[#cfd9e3] px-4 text-sm font-semibold text-[#304052] hover:bg-[#f6f8fb]" type="button" onClick={() => openNew()}>
-              <Plus size={16} /> Manueller Nachtrag
-            </button>
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-[10px] border border-[#cfd9e3] px-4 text-sm font-semibold text-[#304052] hover:bg-[#f6f8fb] disabled:opacity-50" disabled={backfillRunning} type="button" onClick={() => backfillMutation.mutate()}>
               <BarChart3Icon /> {backfillRunning ? "Historie wird ergänzt…" : "Historie ergänzen"}
             </button>
@@ -220,7 +195,7 @@ export function TradeJournalWorkspace() {
           </label>
           <FilterSelect label="Art" value={filters.entry_type ?? ""} onChange={(value) => navigate({ type: value, offset: null, entry: null })} options={[["", "Alle Arten"], ["buy", "Käufe"], ["sell", "Verkäufe"], ["ex_post", "Nachbereitungen"]]} />
           <FilterSelect label="Status" value={filters.status ?? ""} onChange={(value) => navigate({ status: value, offset: null, entry: null })} options={[["", "Alle Status"], ["open", "Offene Position"], ["closed", "Abgeschlossen"], ["draft", "Zuordnung offen"]]} />
-          <FilterSelect label="Quelle" value={filters.source ?? ""} onChange={(value) => navigate({ source: value, offset: null, entry: null })} options={[["", "Alle Quellen"], ["broker", "Trade Republic"], ["manual", "Manuell"]]} />
+          <FilterSelect label="Quelle" value={filters.source ?? ""} onChange={(value) => navigate({ source: value, offset: null, entry: null })} options={[["", "Alle Quellen"], ["broker", "Trade Republic"], ["unlinked", "Ohne Broker-Verknüpfung"]]} />
           <input aria-label="Zeitraum von" className="h-9 rounded-[9px] border border-[#d8e1ea] px-2 text-sm" type="date" value={filters.date_from ?? ""} onChange={(event) => navigate({ from: event.target.value, offset: null, entry: null })} />
           <input aria-label="Zeitraum bis" className="h-9 rounded-[9px] border border-[#d8e1ea] px-2 text-sm" type="date" value={filters.date_to ?? ""} onChange={(event) => navigate({ to: event.target.value, offset: null, entry: null })} />
           <FilterSelect label="Sortierung" value={filters.sort ?? "newest"} onChange={(value) => navigate({ sort: value === "newest" ? null : value, offset: null })} options={[["newest", "Neueste zuerst"], ["oldest", "Älteste zuerst"]]} />
@@ -304,7 +279,7 @@ function EntryDetail({ entry, onEdit, onView }: { entry: TradeJournalEntryDetail
   const priceCurrency = text(stock.quote_currency) || "USD";
   const notice = text(stock.context_notice) || text(market.context_notice);
   return <article className="space-y-6 rounded-[18px] border border-[#dfe6ed] bg-white p-5 md:p-6">
-    <div className="flex flex-col gap-4 border-b border-[#e8edf2] pb-5 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-semibold text-[#172033]">{entry.instrument_name || entry.ticker}</h2><StatusChip tone="neutral">{entry.ticker}</StatusChip><ExecutionLabel entry={entry} /></div><p className="mt-2 text-sm text-[#687386]">{dateTime(entry)} · {quantity(entry.shares)} Stück zu {money(entry.price, entry.currency)} · {entry.source === "trade_republic" ? "Trade Republic" : "Manueller Nachtrag"}</p><div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#687386]"><StatusChip tone={contextTone[entry.context_status]}>{entry.context_label}</StatusChip><span>Kursdaten bis {formatDate(text(stock.data_as_of))}</span></div>{notice && <p className="mt-3 text-sm text-amber-900">{notice}</p>}</div><button className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 py-2 text-sm font-semibold text-[#304052]" type="button" onClick={onEdit}><NotebookPen size={15} /> {entry.has_note ? "Notiz bearbeiten" : "Notiz ergänzen"}</button></div>
+    <div className="flex flex-col gap-4 border-b border-[#e8edf2] pb-5 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-semibold text-[#172033]">{entry.instrument_name || entry.ticker}</h2><StatusChip tone="neutral">{entry.ticker}</StatusChip><ExecutionLabel entry={entry} /></div><p className="mt-2 text-sm text-[#687386]">{dateTime(entry)} · {quantity(entry.shares)} Stück zu {money(entry.price, entry.currency)} · {entry.source === "trade_republic" ? "Trade Republic" : "Altaufzeichnung ohne Broker-Verknüpfung"}</p><div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#687386]"><StatusChip tone={contextTone[entry.context_status]}>{entry.context_label}</StatusChip><span>Kursdaten bis {formatDate(text(stock.data_as_of))}</span></div>{notice && <p className="mt-3 text-sm text-amber-900">{notice}</p>}</div><button className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 py-2 text-sm font-semibold text-[#304052]" type="button" onClick={onEdit}><NotebookPen size={15} /> {entry.has_note ? "Notiz bearbeiten" : "Notiz ergänzen"}</button></div>
     <section><SectionTitle>Überblick</SectionTitle><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ausführungspreis" value={money(entry.price, entry.currency)} detail={`${quantity(entry.shares)} Stück`} /><Metric label="Bruttobetrag" value={money(Math.abs(entry.gross_amount ?? gross(entry) ?? 0), entry.currency)} detail={`Gebühren ${money(Math.abs(entry.fees ?? 0), entry.currency)} · Steuern ${money(Math.abs(entry.tax ?? 0), entry.currency)}`} /><Metric label="Realisiertes Ergebnis" value={money(entry.realized_pnl, entry.currency)} detail={entry.realized_pnl == null ? "Noch kein zugeordnetes Verkaufsergebnis" : entry.entry_type === "buy" ? "Ergebnis der zugeordneten Verkäufe" : `${number(entry.realized_pnl_pct)} %`} tone={entry.realized_pnl == null ? "neutral" : entry.realized_pnl >= 0 ? "good" : "bad"} /><Metric label={entry.entry_type === "buy" ? "Bestand dieses Kauflots" : "Status der Ausführung"} value={entry.entry_type === "buy" ? `${quantity(numeric(portfolio.remaining_shares))} Stück` : statusText(entry.status)} detail={entry.entry_type === "buy" ? "Nach zugeordneten Verkäufen" : "Status der Ausführung"} /></div></section>
     <nav aria-label="Bereiche der Handelsdetails" className="flex flex-wrap gap-2">{[["historical-chart", "Chart"], ["historical-signals", "Warnzeichen"], ["historical-scores", "Score-Details"], ["historical-market", "Markt"]].map(([id, title]) => <button type="button" key={id} className="rounded-lg border px-3 py-2 text-sm font-semibold text-teal-800" onClick={() => document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" })}>{title}</button>)}</nav>
     <div id="historical-chart" className="scroll-mt-20"><HistoricalTradeChart key={entry.id} entry={entry} /></div>
@@ -315,7 +290,7 @@ function EntryDetail({ entry, onEdit, onView }: { entry: TradeJournalEntryDetail
     <section id="historical-market" className="scroll-mt-20"><SectionTitle>Markt damals</SectionTitle>{Object.keys(market).length ? <MarketContext value={market} /> : <UnknownBlock text="Kein verlässlicher Marktkontext gespeichert." />}</section>
     {allocations.length > 0 && <section><SectionTitle>Kauf- und Verkaufszuordnung (FIFO)</SectionTitle><div className="overflow-x-auto rounded-[12px] border border-[#e1e7ed]"><table className="w-full min-w-[700px] text-sm"><thead><tr className="bg-[#f7f9fb] text-left text-xs text-[#7a8798]">{["Kaufdatum", "Verkaufsdatum", "Stück", "Kostenbasis", "Nettoerlös", "Ergebnis"].map((label) => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>{allocations.map((item, index) => { const buy = executions.find((execution) => execution.source_transaction_id === item.buy_transaction_id); return <tr key={index}><td className="border-t p-3">{buy ? <button type="button" className="text-[#0f766e] hover:underline" onClick={() => onView(buy.id)}>{formatDate(text(item.buy_date))}</button> : formatDate(text(item.buy_date))}</td><td className="border-t p-3">{formatDate(entry.trade_date)}</td><td className="border-t p-3">{quantity(numeric(item.shares))}</td><td className="border-t p-3">{money(numeric(item.cost_basis), entry.currency)}</td><td className="border-t p-3">{money(numeric(item.net_proceeds), entry.currency)}</td><td className={clsx("border-t p-3 font-semibold", resultColor(numeric(item.pnl)))}>{money(numeric(item.pnl), entry.currency)}</td></tr>; })}</tbody></table></div></section>}
     <section><SectionTitle>Notizen & Nachbereitung</SectionTitle><div className="grid gap-3 md:grid-cols-2"><TextCard title="Entscheidungsgrund" value={entry.entry_type === "sell" ? entry.sell_reason : entry.primary_reasons || (entry.basis_text.startsWith("Automatisch aus Trade-Republic") ? "" : entry.basis_text)} /><TextCard title="Nachbereitung" value={Object.keys(entry.questionnaire).length ? Object.entries(entry.questionnaire).map(([key, value]) => `${key}: ${String(value)}`).join("\n") : "Noch keine Nachbereitung."} /></div></section>
-    <section><SectionTitle>Datenbasis</SectionTitle><div className="grid gap-3 md:grid-cols-2"><Metric label="Verwendeter Handelstag" value={formatDate(text(stock.data_as_of))} detail="Letzte abgeschlossene US-Börsensitzung vor der Ausführung. Intraday-Daten sind nicht archiviert." /><Metric label="Erfasst" value={formatDateTime(entry.created_at)} detail={entry.source === "trade_republic" ? "Aus der Brokerabrechnung übernommen" : "Manuell erfasst"} /></div></section>
+    <section><SectionTitle>Datenbasis</SectionTitle><div className="grid gap-3 md:grid-cols-2"><Metric label="Verwendeter Handelstag" value={formatDate(text(stock.data_as_of))} detail="Letzte abgeschlossene US-Börsensitzung vor der Ausführung. Intraday-Daten sind nicht archiviert." /><Metric label="Erfasst" value={formatDateTime(entry.created_at)} detail={entry.source === "trade_republic" ? "Aus der Brokerabrechnung übernommen" : "Herkunft der Altaufzeichnung nicht verknüpft; kein zusätzlicher belegter Handel"} /></div></section>
   </article>;
 }
 
@@ -351,6 +326,7 @@ function NoticeList({ title, items }: { title: string; items: string[] }) {
 }
 
 const REASON_LABELS: Record<string, string> = {
+  ticker_mapping_missing: "Die Broker-Ausführung liegt vollständig vor; ein Börsenticker für Kursdaten ist noch nicht zugeordnet.",
   historical_market_logic_unknown: "Die damalige Marktampel-Variante ist nicht belegt; angezeigt wird eine gekennzeichnete Rekonstruktion.",
   market_ohlc_incomplete: "Historische OHLC-Daten sind unvollständig; Tiefprüfungen und Powertrend sind eingeschränkt.",
   price_history_below_200_sessions: "Weniger als 200 historische Kurstage; langfristige Trendbewertung unvollständig.",
@@ -367,12 +343,23 @@ function reasonTexts(value: Record<string, unknown>): string[] { const reasons =
 function percent(value: unknown): string { return numeric(value) == null ? "—" : `${number(numeric(value))} %`; }
 function formatDate(value: string): string { if (!value) return "Nicht belegt"; const date = new Date(`${value.slice(0, 10)}T12:00:00`); return Number.isNaN(date.valueOf()) ? "Nicht belegt" : new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "Europe/Berlin" }).format(date); }
 
-function EntryDialog({ dialog, pending, error, onClose, onChange, onSave }: { dialog: { draft: Draft; entry: TradeJournalEntryDetail | null }; pending: boolean; error: unknown; onClose: () => void; onChange: (draft: Draft) => void; onSave: () => void }) {
+function EntryDialog({ dialog, pending, error, onClose, onChange, onSave }: { dialog: { draft: Draft; entry: TradeJournalEntryDetail }; pending: boolean; error: unknown; onClose: () => void; onChange: (draft: Draft) => void; onSave: () => void }) {
   const draft = dialog.draft;
-  const broker = dialog.entry?.source === "trade_republic";
+  const broker = dialog.entry.source === "trade_republic";
   const patch = (value: Partial<Draft>) => onChange({ ...draft, ...value });
   function submit(event: FormEvent) { event.preventDefault(); onSave(); }
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/55 p-3 backdrop-blur-sm md:p-8" role="dialog" aria-modal="true" aria-label={dialog.entry ? "Notiz bearbeiten" : "Manueller Nachtrag"}><form className="mx-auto max-w-4xl rounded-[18px] bg-white shadow-2xl" onSubmit={submit}><div className="flex items-center justify-between border-b border-[#e8edf2] px-5 py-4"><div><h2 className="text-xl font-semibold text-[#172033]">{broker ? "Notiz zur Broker-Ausführung" : dialog.entry ? "Manuellen Eintrag bearbeiten" : "Manueller Nachtrag"}</h2><p className="mt-1 text-sm text-[#687386]">{broker ? "Ausführungsdaten und FIFO-Ergebnis bleiben unverändert." : "Fehlende Ausführung ergänzen; spätere CSV-Treffer werden nicht automatisch verschmolzen."}</p></div><button aria-label="Dialog schließen" className="rounded-full p-2 text-[#687386] hover:bg-[#f0f3f6]" type="button" onClick={onClose}><X size={20} /></button></div><div className="space-y-5 p-5">{!broker && <><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Field label="Ticker *"><input required className="input-light uppercase" value={draft.ticker} onChange={(event) => patch({ ticker: event.target.value.toUpperCase() })} /></Field><Field label="Ausführung *"><select className="input-light" value={draft.entry_type} onChange={(event) => patch({ entry_type: event.target.value as TradeJournalEntryType })}><option value="buy">Kauf</option><option value="sell">Verkauf</option><option value="ex_post">Nachbereitung</option></select></Field><Field label="Handelsdatum *"><input required className="input-light" type="date" value={draft.trade_date} onChange={(event) => patch({ trade_date: event.target.value })} /></Field><Field label="Währung *"><input required className="input-light uppercase" maxLength={8} value={draft.currency} onChange={(event) => patch({ currency: event.target.value.toUpperCase() })} /></Field></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Field label="Preis *"><input required className="input-light" inputMode="decimal" value={draft.price} onChange={(event) => patch({ price: event.target.value })} /></Field><Field label="Stückzahl *"><input required className="input-light" inputMode="decimal" value={draft.shares} onChange={(event) => patch({ shares: event.target.value })} /></Field><Field label="Gebühren"><input className="input-light" inputMode="decimal" value={draft.fees} onChange={(event) => patch({ fees: event.target.value })} /></Field><Field label="Steuern"><input className="input-light" inputMode="decimal" value={draft.tax} onChange={(event) => patch({ tax: event.target.value })} /></Field><Field label="Stopp"><input className="input-light" inputMode="decimal" value={draft.stop_price} onChange={(event) => patch({ stop_price: event.target.value })} /></Field></div><Field label="Quelle / Beleg"><input className="input-light" value={draft.source_evidence} placeholder="z. B. Abrechnung vom …" onChange={(event) => patch({ source_evidence: event.target.value })} /></Field></>}<div className="grid gap-3 sm:grid-cols-2"><Field label="Dokumentierter Einstiegsgrund"><select className="input-light" value={draft.setup} onChange={event => patch({ setup: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["breakout", "Ausbruch"], ["pullback", "Rücksetzer"], ["trend", "Trendfolge"], ["fundamental", "Fundamental"], ["other", "Sonstiger Grund"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Regelbezug"><select className="input-light" value={draft.rule_deviation} onChange={event => patch({ rule_deviation: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["followed", "Regel befolgt"], ["deviated", "Bewusst abgewichen"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div><Field label={draft.entry_type === "sell" ? "Verkaufsgrund / Notiz" : "Entscheidungsgrund / Notiz"}><textarea className="input-light min-h-36" value={draft.note} onChange={(event) => patch({ note: event.target.value })} /></Field>{Boolean(error) && <ErrorPanel>Speichern fehlgeschlagen: {(error as Error).message}</ErrorPanel>}<div className="flex justify-end gap-2"><button className="rounded-[9px] border border-[#d8e1ea] px-4 py-2 text-sm font-semibold text-[#526174]" type="button" onClick={onClose}>Abbrechen</button><button className="rounded-[9px] bg-[#0f766e] px-4 py-2 text-sm font-semibold !text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "Speichert…" : "Speichern"}</button></div></div></form></div>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/55 p-3 backdrop-blur-sm md:p-8" role="dialog" aria-modal="true" aria-label="Notiz bearbeiten">
+    <form className="mx-auto max-w-4xl rounded-[18px] bg-white shadow-2xl" onSubmit={submit}>
+      <div className="flex items-center justify-between border-b border-[#e8edf2] px-5 py-4">
+        <div><h2 className="text-xl font-semibold text-[#172033]">{broker ? "Notiz zur Broker-Ausführung" : "Notiz zur Altaufzeichnung"}</h2><p className="mt-1 text-sm text-[#687386]">{broker ? "Ausführungsdaten und FIFO-Ergebnis bleiben unverändert." : "Ohne Broker-Verknüpfung zählt dieser Eintrag nicht als zusätzliche Ausführung."}</p></div>
+        <button aria-label="Dialog schließen" className="rounded-full p-2 text-[#687386] hover:bg-[#f0f3f6]" type="button" onClick={onClose}><X size={20} /></button>
+      </div>
+      <div className="space-y-5 p-5"><div className="grid gap-3 sm:grid-cols-2"><Field label="Dokumentierter Einstiegsgrund"><select className="input-light" value={draft.setup} onChange={event => patch({ setup: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["breakout", "Ausbruch"], ["pullback", "Rücksetzer"], ["trend", "Trendfolge"], ["fundamental", "Fundamental"], ["other", "Sonstiger Grund"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Regelbezug"><select className="input-light" value={draft.rule_deviation} onChange={event => patch({ rule_deviation: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["followed", "Regel befolgt"], ["deviated", "Bewusst abgewichen"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div><Field label={dialog.entry.entry_type === "sell" ? "Verkaufsgrund / Notiz" : "Entscheidungsgrund / Notiz"}><textarea className="input-light min-h-36" value={draft.note} onChange={(event) => patch({ note: event.target.value })} /></Field>
+        {Boolean(error) && <ErrorPanel>Speichern fehlgeschlagen: {(error as Error).message}</ErrorPanel>}
+        <div className="flex justify-end gap-2"><button className="rounded-[9px] border border-[#d8e1ea] px-4 py-2 text-sm font-semibold text-[#526174]" type="button" onClick={onClose}>Abbrechen</button><button className="rounded-[9px] bg-[#0f766e] px-4 py-2 text-sm font-semibold !text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "Speichert…" : "Speichern"}</button></div>
+      </div>
+    </form>
+  </div>;
 }
 
 function HeaderStat({ label, value, detail }: { label: string; value: string; detail: string }) { return <div><div className="text-xs font-semibold uppercase tracking-[0.1em] text-[#7a8798]">{label}</div><div className="mt-1 text-xl font-semibold tabular-nums text-[#172033]">{value}</div><div className="text-xs text-[#7a8798]">{detail}</div></div>; }
@@ -389,12 +376,9 @@ function EmptyState({ title, text: value }: { title: string; text: string }) { r
 function LoadingRows() { return <div className="space-y-2">{[0, 1, 2, 3].map((item) => <div key={item} className="h-16 animate-pulse rounded-[12px] bg-[#f1f4f7]" />)}</div>; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block"><span className="mb-1 block text-xs font-semibold uppercase tracking-[0.06em] text-[#687386]">{label}</span>{children}</label>; }
 
-function emptyDraft(ticker: string, type: TradeJournalEntryType): Draft { return { ticker, entry_type: type, trade_date: berlinDate(), price: "", shares: "", currency: "EUR", fees: "", tax: "", source_evidence: "", note: "", stop_price: "", setup: "unknown", rule_deviation: "unknown" }; }
-function entryDraft(entry: TradeJournalEntryDetail): Draft { const portfolio = record(entry.portfolio_snapshot); return { ticker: entry.ticker, entry_type: entry.entry_type, trade_date: entry.trade_date, price: stringNumber(entry.price), shares: stringNumber(entry.shares), currency: entry.currency || "USD", fees: stringNumber(entry.fees), tax: stringNumber(entry.tax), source_evidence: text(portfolio.source_evidence), note: entry.entry_type === "sell" ? entry.sell_reason : entry.primary_reasons || entry.basis_text, stop_price: stringNumber(entry.stop_price), setup: text(entry.questionnaire.setup) || "unknown", rule_deviation: text(entry.questionnaire.rule_deviation) || "unknown" }; }
-function draftToRequest(draft: Draft): TradeJournalEntryRequest { return { ticker: draft.ticker.trim().toUpperCase(), entry_type: draft.entry_type, trade_date: draft.trade_date, price: parseNumber(draft.price), shares: parseNumber(draft.shares), currency: draft.currency.trim().toUpperCase(), fees: parseNumber(draft.fees), tax: parseNumber(draft.tax), source_evidence: draft.source_evidence, stop_price: parseNumber(draft.stop_price), status: draft.entry_type === "buy" ? "open" : "closed", primary_reasons: draft.entry_type === "sell" ? "" : draft.note, sell_reason: draft.entry_type === "sell" ? draft.note : "", basis_text: draft.entry_type === "buy" ? draft.note : "", questionnaire: { setup: draft.setup, rule_deviation: draft.rule_deviation }, chart_images: { daily_chart: "", weekly_chart: "" } }; }
+
+function entryDraft(entry: TradeJournalEntryDetail): Draft { return { note: entry.entry_type === "sell" ? entry.sell_reason : entry.primary_reasons || entry.basis_text, setup: text(entry.questionnaire.setup) || "unknown", rule_deviation: text(entry.questionnaire.rule_deviation) || "unknown" }; }
 function parseTab(value: string | null): Tab { return value === "analytics" ? value : "executions"; }
-function parseNumber(value: string): number | null { const parsed = Number(value.replace(",", ".")); return value.trim() && Number.isFinite(parsed) ? parsed : null; }
-function stringNumber(value: number | null | undefined): string { return value == null ? "" : String(value); }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function text(value: unknown): string { return typeof value === "string" || typeof value === "number" ? String(value) : ""; }
 function numeric(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) ? value : null; }

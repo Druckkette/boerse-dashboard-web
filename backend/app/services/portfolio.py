@@ -1105,15 +1105,20 @@ def _empty_portfolio_snapshot() -> PortfolioSnapshotResponse:
     )
 
 
-def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: date | None = None) -> PortfolioCurveResponse:
+def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: date | None = None, *, model: str = "auto") -> PortfolioCurveResponse:
     curve_start = _portfolio_curve_start_date(days=days, start_date=start_date)
     tr_error: str | None = None
-    try:
-        tr_curve = _get_trade_republic_curve(days=days, start_date=curve_start)
-    except Exception as exc:
-        return _missing_portfolio_curve(f"TR-Kurve konnte nicht berechnet werden: {exc}")
-    if tr_curve is not None:
-        return tr_curve
+    if model != "current_holdings":
+        try:
+            tr_curve = _get_trade_republic_curve(days=days, start_date=curve_start)
+        except Exception as exc:
+            return _missing_portfolio_curve(f"TR-Kurve konnte nicht berechnet werden: {exc}")
+        if tr_curve is not None:
+            if model == "execution_history" or (sum(point.portfolio_index is not None for point in tr_curve.points) >= 2 and tr_curve.points[-1].portfolio_index is not None):
+                return tr_curve
+            tr_error = "Die TR-Ausführungen sind gespeichert, historische Kursbewertungen reichen jedoch nicht für eine Depot-Renditekurve. Angezeigt wird die Simulation des heutigen Bestands. "
+        elif model == "execution_history":
+            return _missing_portfolio_curve("Keine gespeicherte TR-Ausführungshistorie verfügbar.")
 
     try:
         rows = portfolio_repository.list_open_positions()
@@ -1162,7 +1167,7 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
         all_dates = all_cached_dates
         used_requested_start = False
     frame = pd.DataFrame(index=pd.DatetimeIndex(all_dates))
-    if frame.empty:
+    if frame.index.empty:
         return _missing_portfolio_curve(f"Für die offenen Positionen fehlen Price-Bars im Cache.{tr_error or ''}")
     for row in rows:
         series = series_map.get(row.ticker)
@@ -1212,15 +1217,21 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
     if not points:
         return _missing_portfolio_curve(f"Depotkurve konnte aus vorhandenen Positionen nicht berechnet werden.{tr_error or ''}")
 
+    base_point = next((point for point in points if point.portfolio_index is not None), None)
+    if base_point:
+        benchmark_base = _finite_float(benchmark_index.get(pd.Timestamp(base_point.date)))
+        for point in points:
+            point.sp500_index = round(point.sp500_index / benchmark_base * 100, 2) if benchmark_base and point.sp500_index is not None and point.date >= base_point.date else None
+
     return PortfolioCurveResponse(
         as_of=points[-1].date if points else datetime.now(UTC).date().isoformat(),
         source="database",
         model="current_holdings",
         complete_points=sum(point.valuation_complete for point in points), total_points=len(points),
         data_status="limited",
-        base_date=points[0].date if points else curve_start.isoformat(),
+        base_date=base_point.date if base_point else None,
         message=(
-            "Simulation des heutigen Bestands, keine historische Depotperformance. Vergangene Zu- und Abfluesse sind nicht rekonstruiert."
+            (tr_error or "") + "Simulation des heutigen Bestands, keine historische Depotperformance. Heutige Stückzahlen und Cash werden konstant gehalten."
             if used_requested_start
             else f"Keine Price-Bars ab {curve_start.isoformat()} gefunden; Kurve startet mit dem ersten verfügbaren Cache-Datum."
         ),
@@ -1262,13 +1273,20 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     incomplete_price_histories: list[str] = []
     fx_fallbacks: set[str] = set()
     fx_series: dict[str, pd.Series] = {}
+    symbols = {row.ticker for row in transactions if row.ticker}
+    symbols.update(f"{row.currency.upper()}USD=X" for row in transactions if row.currency.upper() != "USD")
+    symbols.update({"^GSPC", "SPY"})
+    price_cache = prices_repository.list_price_bars_for_tickers(symbols, start_date=curve_start_date - timedelta(days=10))
+
+    def cached_series(ticker):
+        return _cached_price_series(ticker, curve_start_date, rows=price_cache.get(ticker, []))
 
     def rates(currency: str) -> pd.Series:
         clean = str(currency or "USD").upper()
         if clean not in fx_series:
             series = pd.Series(1.0, index=calendar)
             if clean != "USD":
-                history = _cached_price_series(f"{clean}USD=X", first_transaction_date - timedelta(days=10))
+                history = cached_series(f"{clean}USD=X")
                 if not history.empty and history.index.max() < calendar.max():
                     fx_fallbacks.add(clean)
                 series = _align_price_series_to_calendar(history, calendar)
@@ -1295,8 +1313,11 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 running = max(running + _signed_share_delta(typ, row.shares), 0.0)
             shares.loc[shares.index >= pd.Timestamp(row.date)] = running
 
+        if not (shares.loc[calendar >= pd.Timestamp(curve_start_date)] > 1e-9).any():
+            continue
+
         cached_prices = (
-            _cached_price_series(ticker, first_transaction_date)
+            cached_series(ticker)
             if ticker
             else pd.Series(dtype=float)
         )
@@ -1366,22 +1387,26 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             return None
 
     depot_values = curve["depot_value"].tolist()
-    index_values = [100.0 if _finite_float(depot_values[0]) is not None and depot_values[0] > 0 else float("nan")]
+    first_valid = next((idx for idx, value in enumerate(depot_values) if _finite_float(value) is not None and value > 0), None)
+    index_values = [float("nan")] * len(curve)
+    if first_valid is not None:
+        index_values[first_valid] = 100.0
     external_values = curve["external_flow"].tolist()
-    for idx in range(1, len(curve)):
+    for idx in range(first_valid + 1 if first_valid is not None else len(curve), len(curve)):
         previous = float(depot_values[idx - 1])
         current = float(depot_values[idx])
         external = float(external_values[idx])
         daily_return = (current - previous - external) / previous if previous > 0 and math.isfinite(previous) and math.isfinite(current) and math.isfinite(external) else float("nan")
-        next_index = index_values[-1] * (1.0 + daily_return)
-        index_values.append(next_index)
+        index_values[idx] = index_values[idx - 1] * (1.0 + daily_return)
     curve["portfolio_index"] = index_values
     first_index = _finite_float(curve["portfolio_index"].iloc[0])
     if first_index and first_index > 0:
         curve["portfolio_index"] = curve["portfolio_index"] / first_index * 100
     curve["portfolio_index_sma10"] = curve["portfolio_index"].rolling(10, min_periods=10).mean()
     curve["portfolio_index_sma21"] = curve["portfolio_index"].rolling(21, min_periods=21).mean()
-    benchmark_index = _benchmark_index_series(pd.DatetimeIndex(curve["date"]))
+    base_date = pd.Timestamp(curve["date"].iloc[first_valid]).date() if first_valid is not None else None
+    benchmark_calendar = pd.DatetimeIndex(curve.loc[curve["date"] >= pd.Timestamp(base_date), "date"]) if base_date else pd.DatetimeIndex(curve["date"])
+    benchmark_index = _benchmark_index_series(benchmark_calendar, price_cache=price_cache)
     curve["sp500_index"] = benchmark_index.reindex(pd.DatetimeIndex(curve["date"])).values
 
     points: list[PortfolioCurvePoint] = []
@@ -1415,6 +1440,8 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     if incomplete_price_histories:
         details.append(f"Lueckenhafte Kurshistorie / fortgeschriebene Ersatzkurse fuer {len(incomplete_price_histories)} Instrumente")
     message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, mit datumsspezifischen USD-Wechselkursen."
+    if first_valid:
+        details.append(f"Gemeinsame Indexbasis ab erstem vollständig bewertbaren Tag {base_date}; frühere Tage bleiben offen")
     if fx_fallbacks:
         details.append("Historische Wechselkurse fehlen; betroffene Tage bleiben offen: " + ", ".join(sorted(fx_fallbacks)))
     if details:
@@ -1426,7 +1453,7 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         model="execution_history",
         complete_points=sum(point.valuation_complete for point in points), total_points=len(points),
         data_status="limited" if details else "fresh",
-        base_date=points[0].date if points else curve_start_date.isoformat(),
+        base_date=base_date.isoformat() if base_date else None,
         message=message,
         points=points,
     )
@@ -1446,11 +1473,13 @@ def _cached_price_series(
     start_date: date,
     *,
     convert_to_usd: bool = False,
+    rows=None,
 ) -> pd.Series:
-    try:
-        rows = prices_repository.list_price_bars(ticker, start_date=start_date)
-    except PriceRepositoryUnavailable:
-        rows = []
+    if rows is None:
+        try:
+            rows = prices_repository.list_price_bars(ticker, start_date=start_date)
+        except PriceRepositoryUnavailable:
+            rows = []
     values = [(pd.Timestamp(row.date), float(row.close)) for row in rows if row.close is not None]
     if not values:
         return pd.Series(dtype=float)
@@ -1462,12 +1491,12 @@ def _cached_price_series(
     return _price_series_to_usd(ticker, series) if convert_to_usd else series
 
 
-def _benchmark_index_series(calendar: pd.DatetimeIndex) -> pd.Series:
+def _benchmark_index_series(calendar: pd.DatetimeIndex, *, price_cache=None) -> pd.Series:
     if calendar.empty:
         return pd.Series(dtype=float)
     start = pd.Timestamp(calendar.min()).date()
     for ticker in ("^GSPC", "SPY"):
-        series = _cached_price_series(ticker, start)
+        series = _cached_price_series(ticker, start, rows=price_cache.get(ticker, []) if price_cache is not None else None)
         if not series.empty:
             aligned = _align_price_series_to_calendar(series, calendar)
             valid = aligned.dropna()
@@ -1564,8 +1593,7 @@ def _trade_republic_valuation_groups(
     for row in transactions:
         ticker = str(row.ticker or "").upper().strip()
         isin = row.isin or str((row.raw_json or {}).get("isin") or "").upper().strip()
-        asset_class = (row.asset_class or str((row.raw_json or {}).get("asset_class") or "")).upper().strip()
-        key = ticker or (isin if asset_class == "DERIVATIVE" else "")
+        key = isin or ticker
         if not key:
             continue
         groups.setdefault(key, []).append(row)
@@ -2115,12 +2143,13 @@ def _money_to_usd(value: float, currency: str, fx_rate: FxRate) -> float:
 
 def _price_series_to_usd(ticker: str, series: pd.Series) -> pd.Series:
     quote_currency = yahoo_quote_currency(ticker)
-    rate = get_currency_usd_rate(quote_currency)
     if quote_currency == "USD":
         return series
-    if rate is None:
+    if series.empty:
         return pd.Series(dtype=float)
-    return series * rate.rate
+    history = _cached_price_series(f"{quote_currency}USD=X", series.index.min().date() - timedelta(days=10))
+    rates = _align_price_series_to_calendar(history, series.index)
+    return series * rates.where(rates > 0)
 
 
 def _transfer_external_value(row: portfolio_repository.TradeRepublicStoredTransactionRow, fx_rate: FxRate) -> float:

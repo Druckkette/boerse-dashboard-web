@@ -133,7 +133,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
         raise PortfolioRepositoryUnavailable(str(exc)) from exc
 
 
-def sync_journal(db, transactions, events, current_positions, prior_positions=()):
+def sync_journal(db, transactions, events, current_positions, prior_positions=(), *, journal_only=False):
     from app.services.historical_sell import ASSESSMENT_VERSION, assess_historical_sale
     by_id = {row.id: row for row in transactions}
     groups = defaultdict(list)
@@ -155,19 +155,19 @@ def sync_journal(db, transactions, events, current_positions, prior_positions=()
                 candidate = db.get(Position, next(iter(linked_ids)))
                 if candidate and candidate.broker == "Trade Republic":
                     position = candidate
-        if position is None and buys:
+        if position is None and buys and first.get("symbol_resolved", True) and not journal_only:
             candidates = list(db.scalars(select(Position).where(Position.ticker == first["ticker"],
                 Position.broker == "Trade Republic", Position.buy_date == datetime.fromisoformat(buys[0]["date"]).date(),
                 Position.import_trade_key.is_(None))))
             if len(candidates) == 1:
                 position = candidates[0]
-        if position is None and buys:
+        if position is None and buys and first.get("symbol_resolved", True) and not journal_only:
             position = Position(ticker=first["ticker"], instrument_id=by_id[first["id"]].instrument_id,
                 shares=0, buy_price=buys[0]["price"] or 0, buy_date=datetime.fromisoformat(buys[0]["date"]).date(),
                 currency=first["currency"], broker="Trade Republic", account="Trade Republic",
                 note="Aus gespeicherten TR-Ausführungen rekonstruiert")
             db.add(position)
-        if position is not None:
+        if position is not None and not journal_only:
             position.import_trade_key = group_id
             # Current reconstructed holdings already account for splits and transfer events.
             current = next((p for p in current_positions if p.isin == first["isin"] and buys and p.first_buy_date == buys[0]["date"]), None)
@@ -205,8 +205,10 @@ def sync_journal(db, transactions, events, current_positions, prior_positions=()
                 db.add(entry)
                 count += 1
             entry.source_transaction_id, entry.trade_group_id = event["id"], group_id
+            entry.ticker = event["ticker"]
             entry.position_id = position.id if position else None
-            by_id[event["id"]].position_id = entry.position_id
+            if not journal_only:
+                by_id[event["id"]].position_id = entry.position_id
             if event["type"] == "buy":
                 remaining = event["shares"] - sum(a["shares"] for sale in group for a in sale["allocations"] if a["buy_transaction_id"] == event["id"])
                 entry.status = "closed" if remaining <= 1e-9 else "open"
@@ -230,7 +232,10 @@ def sync_journal(db, transactions, events, current_positions, prior_positions=()
                     or (entry.sell_assessment_json or {}).get("status") != "available"):
                 try:
                     with db.begin_nested():
-                        entry.sell_assessment_json = assess_historical_sale(db, event)
+                        entry.sell_assessment_json = assess_historical_sale(db, event) if event.get("symbol_resolved", True) else {
+                            "status": "missing", "assessment_version": ASSESSMENT_VERSION,
+                            "reason_code": "ticker_mapping_missing",
+                            "message": "Ausführung vollständig importiert; Börsenticker für historische Bewertung noch nicht zugeordnet."}
                 except Exception:
                     import logging
                     logging.getLogger(__name__).exception("Historical assessment failed for %s", event["ticker"])
@@ -241,6 +246,8 @@ def sync_journal(db, transactions, events, current_positions, prior_positions=()
             existing_entries[event["id"]] = entry
             if root_entry is None and event["type"] == "buy":
                 root_entry = entry
+    if journal_only:
+        return count
     # Transfer-only holdings have no fabricated buy journal entry, but remain positions.
     active_transfer_keys = set()
     for current in current_positions:

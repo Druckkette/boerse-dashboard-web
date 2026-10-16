@@ -131,7 +131,7 @@ def test_standalone_review_is_not_a_zero_profit_closed_trade(monkeypatch):
     assert result.closed_trades == 0 and result.hit_rate_pct is None and result.net_result is None
 
 
-def test_inconsistent_legacy_manual_sale_does_not_break_valid_journal_reads(monkeypatch):
+def test_inconsistent_unlinked_legacy_sale_does_not_break_journal_reads(monkeypatch):
     common = dict(ticker="TEST", currency="EUR", trade_date=date(2025, 1, 3),
         created_at=datetime(2025, 1, 3, tzinfo=UTC), stock_snapshot_json={}, market_snapshot_json={},
         sell_assessment_json={}, portfolio_snapshot_json={}, questionnaire_json={}, stop_price=None)
@@ -170,3 +170,21 @@ def test_analysis_coalesces_parallel_reads_and_portfolio_changes_invalidate(monk
         assert service.get_analysis(sector_shock=-20)["generation"] == 3
     finally:
         service.invalidate_analysis_cache()
+
+
+def test_unlinked_legacy_entries_never_count_as_additional_broker_trades(monkeypatch):
+    common = dict(ticker="TEST", currency="EUR", trade_date=date(2025, 1, 3),
+        created_at=datetime(2025, 1, 3, tzinfo=UTC), stock_snapshot_json={}, market_snapshot_json={},
+        sell_assessment_json={}, portfolio_snapshot_json={}, questionnaire_json={}, stop_price=None,
+        position_id="cycle", trade_group_id="cycle", linked_entry_id=None)
+    broker_buy = SimpleNamespace(**common, id="buy", entry_type="buy", price=100, shares=2,
+        source_transaction_id="tx-buy", realized_pnl=None)
+    broker_sale = SimpleNamespace(**common, id="sale", entry_type="sell", price=120, shares=2,
+        source_transaction_id="tx-sale", realized_pnl=40)
+    legacy = SimpleNamespace(**common, id="legacy", entry_type="sell", price=120, shares=999,
+        source_transaction_id=None, realized_pnl=999)
+    monkeypatch.setattr(trade_journal.journal_repository, "list_trade_entries", lambda **kw: [broker_buy, broker_sale, legacy])
+    result = trade_journal.get_trade_journal_trades(include_executions=False)
+    assert result.total == 1
+    assert result.trades[0].execution_count == 2
+    assert result.trades[0].sold_shares == 2 and result.trades[0].realized_pnl == 40

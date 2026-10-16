@@ -587,7 +587,7 @@ def _compute_ampel_frame(
     def uptrend_hard_red(index: int) -> str | None:
         if ibd_logic:
             if rally_day_one_low_broken(index):
-                return "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
+                return "Bodenmarke unterschritten; Rallyversuch beendet"
         elif startschuss_low_broken(index):
             return "Schlusskurs unter Startschuss-Tief"
         if _is_finite(sma200[index]) and close[index] < sma200[index]:
@@ -603,7 +603,7 @@ def _compute_ampel_frame(
     def early_rally_hard_red(index: int) -> str | None:
         # Starting below SMA200 is allowed; a fresh break from above is different.
         if rally_day_one_low_broken(index):
-            return "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
+            return "Bodenmarke unterschritten; Rallyversuch beendet"
         if (_is_finite(sma200[index]) and _is_finite(sma200[index - 1])
                 and close[index - 1] >= sma200[index - 1] and close[index] < sma200[index]):
             return "Neuer Schlusskursbruch der 200-SMA von oben"
@@ -744,12 +744,12 @@ def _compute_ampel_frame(
         elif phase == "gelb_startschuss":
             if ibd_logic and rally_day_one_low_broken(index):
                 phase = "rot"
-                transition_reason = "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
+                transition_reason = "Bodenmarke unterschritten; Rallyversuch beendet"
                 clear_state()
             elif startschuss_low_broken(index):
                 phase = "rot"
                 if ibd_logic:
-                    transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Rally-Day-1-Tief intakt"
+                    transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Bodenmarke intakt"
                     phase = "gelb_rally_unter_druck"
                     demand_confirmed = False
                     closes_above_21_since_start = 0
@@ -784,12 +784,12 @@ def _compute_ampel_frame(
         elif phase == "gruen":
             if ibd_logic and rally_day_one_low_broken(index):
                 phase = "rot"
-                transition_reason = "Rally-Day-1-Tief unterschritten; Rallyversuch beendet"
+                transition_reason = "Bodenmarke unterschritten; Rallyversuch beendet"
                 clear_state()
             elif startschuss_low_broken(index):
                 phase = "rot"
                 if ibd_logic:
-                    transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Rally-Day-1-Tief intakt"
+                    transition_reason = "Startschuss/FTD negiert; Rallyversuch bleibt über Bodenmarke intakt"
                     phase = "gelb_rally_unter_druck"
                     demand_confirmed = False
                     closes_above_21_since_start = 0
@@ -816,7 +816,7 @@ def _compute_ampel_frame(
                 ftd_negated = True
                 phase = "gelb_trend_unter_druck"
                 pressure_closes_above_21 = 0
-                transition_reason = "Startschuss/FTD negiert; Rally-Day-1-Tief hält"
+                transition_reason = "Startschuss/FTD negiert; Bodenmarke hält"
             else:
                 pressure_reason = uptrend_pressure_reason(index)
                 if pressure_reason:
@@ -838,7 +838,7 @@ def _compute_ampel_frame(
             else:
                 if ibd_logic and not ftd_negated and startschuss_low_broken(index):
                     ftd_negated = True
-                    transition_reason = "Startschuss/FTD negiert; Rally-Day-1-Tief hält"
+                    transition_reason = "Startschuss/FTD negiert; Bodenmarke hält"
                 if pressure_recovered(index):
                     if market_structure[index] == "up":
                         phase = "aufwaertstrend"

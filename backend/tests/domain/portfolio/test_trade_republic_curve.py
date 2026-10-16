@@ -18,6 +18,7 @@ class PriceRow:
 
 @pytest.fixture(autouse=True)
 def fixed_fx_rate(monkeypatch) -> None:
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars_for_tickers", lambda tickers, start_date=None: {ticker: portfolio_service.prices_repository.list_price_bars(ticker, start_date=start_date) for ticker in tickers})
     monkeypatch.setattr(
         portfolio_service,
         "get_eur_usd_rate",
@@ -35,7 +36,7 @@ def test_historical_fx_revalues_cash_and_neutralizes_new_euro_deposits(monkeypat
         "EURUSD=X": [PriceRow(date(2025, 1, 2), 1.0), PriceRow(date(2025, 1, 3), 1.2)],
         "^GSPC": [PriceRow(date(2025, 1, 2), 5000), PriceRow(date(2025, 1, 3), 5000)],
     }.get(ticker, []))
-    result = portfolio_service.get_portfolio_curve(days=2500)
+    result = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
     points = {point.date: point for point in result.points}
     assert points["2025-01-02"].cash == 1000
     assert points["2025-01-03"].cash == 1320
@@ -83,7 +84,7 @@ def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
         }.get(ticker, []),
     )
 
-    curve = portfolio_service.get_portfolio_curve(days=2500)
+    curve = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
@@ -121,7 +122,7 @@ def test_trade_republic_curve_keeps_dividends_as_performance_and_neutralizes_dep
         }.get(ticker, []),
     )
 
-    curve = portfolio_service.get_portfolio_curve(days=2500)
+    curve = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
     by_date = {point.date: point for point in curve.points}
 
     assert by_date["2025-01-03"].cash == 6
@@ -154,7 +155,7 @@ def test_trade_republic_curve_neutralizes_security_transfers(monkeypatch) -> Non
         }.get(ticker, []),
     )
 
-    curve = portfolio_service.get_portfolio_curve(days=2500)
+    curve = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
     by_date = {point.date: point for point in curve.points}
 
     assert by_date["2025-01-03"].depot_value == 2000
@@ -199,14 +200,15 @@ def test_trade_republic_curve_keeps_missing_derivative_valuations_open(monkeypat
         }.get(ticker, []),
     )
 
-    curve = portfolio_service.get_portfolio_curve(days=2500)
+    curve = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
     by_date = {point.date: point for point in curve.points}
 
     assert by_date["2025-02-03"].positions_value is None
     assert not by_date["2025-02-03"].valuation_complete
     assert by_date["2025-02-04"].positions_value == 0
     assert by_date["2025-02-04"].cash == 110
-    assert by_date["2025-02-04"].portfolio_index is None
+    assert by_date["2025-02-04"].portfolio_index == 100
+    assert curve.base_date == "2025-02-04"
     assert "Kursdaten fehlen für 1 Instrumente" in curve.message
 
 
@@ -235,7 +237,7 @@ def test_trade_republic_curve_deduplicates_cached_price_dates(monkeypatch) -> No
         }.get(ticker, []),
     )
 
-    curve = portfolio_service.get_portfolio_curve(days=2500)
+    curve = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
@@ -281,7 +283,7 @@ def test_trade_republic_curve_deduplicates_trade_price_fallback_dates(monkeypatc
         }.get(ticker, []),
     )
 
-    curve = portfolio_service.get_portfolio_curve(days=2500)
+    curve = portfolio_service.get_portfolio_curve(days=2500, model="execution_history")
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
@@ -335,3 +337,34 @@ def _tr_row(
         asset_class=asset_class,
         name=name,
     )
+
+
+def test_auto_curve_shows_labeled_current_holdings_when_history_has_no_valuations(monkeypatch):
+    from types import SimpleNamespace
+    from app.schemas import PortfolioCurvePoint, PortfolioCurveResponse
+    empty_history = PortfolioCurveResponse(model="execution_history", as_of="2025-01-03",
+        source="trade_republic_transactions", data_status="limited", points=[
+            PortfolioCurvePoint(date="2025-01-02", portfolio_index=None, depot_value=None, positions_value=None, cash=None, valuation_complete=False, missing_instruments=["ISIN"]),
+            PortfolioCurvePoint(date="2025-01-03", portfolio_index=None, depot_value=None, positions_value=None, cash=None, valuation_complete=False, missing_instruments=["ISIN"]),
+        ])
+    monkeypatch.setattr(portfolio_service, "_get_trade_republic_curve", lambda **kw: empty_history)
+    monkeypatch.setattr(portfolio_repository, "list_open_positions", lambda: [SimpleNamespace(ticker="NVDA", shares=2, broker="Test")])
+    monkeypatch.setattr(portfolio_repository, "get_cash_balance", lambda: 0)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: [PriceRow(date(2025, 1, 2), 100), PriceRow(date(2025, 1, 3), 110)])
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2025, 1, 2))
+    assert curve.model == "current_holdings", curve.message
+    assert [p.portfolio_index for p in curve.points] == [100, 110]
+    assert [p.sp500_index for p in curve.points] == [100, 110]
+    assert "TR-Ausführungen sind gespeichert" in curve.message
+    assert "keine historische Depotperformance" in curve.message
+    assert portfolio_service.get_portfolio_curve(model="execution_history") is empty_history
+
+
+def test_missing_stock_symbol_also_prevents_fabricated_total_valuation(monkeypatch):
+    rows = [_tr_row(date(2025, 1, 2), "customer_inbound", 0, None, 100),
+        _tr_row(date(2025, 1, 2), "buy", 1, 100, -100, isin="UNKNOWN-STOCK")]
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: rows)
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: [PriceRow(date(2025, 1, 2), 1)] if ticker == "EURUSD=X" else [])
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2025, 1, 2), model="execution_history")
+    assert curve.points[0].portfolio_index is None
+    assert "UNKNOWN-STOCK" in curve.points[0].missing_instruments

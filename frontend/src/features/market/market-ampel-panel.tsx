@@ -161,7 +161,6 @@ function CompactMarketAmpel({
       <div className="flex flex-col gap-3 border-b border-[#e7ebf0] bg-[#fbfcfe] px-4 py-3.5 xl:flex-row xl:items-center xl:justify-between sm:px-5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h1 className="mr-1 text-base font-semibold text-[#0f172a]">Marktampel</h1>
-          <StatusChip tone={data.phase_info.tone}>{data.phase_info.label}</StatusChip>
           {data.logic === "ibd" ? <StatusChip tone="neutral">IBD Logik</StatusChip> : null}
           {data.powertrend.enabled ? <PowerTrendBadge powertrend={data.powertrend} /> : null}
           <StatusChip tone={toneForStatus(data.data_status)}>{labelForStatus(data.data_status)}</StatusChip>
@@ -223,7 +222,8 @@ function CompactMarketAmpel({
       </div>
 
       <div className="p-4 sm:p-5">
-        <div className={clsx("grid gap-4", todayCard && "xl:grid-cols-[minmax(0,1fr)_310px]")}>
+        {data.powertrend.enabled ? <PowerTrendCard powertrend={data.powertrend} /> : null}
+        <div className={clsx("grid gap-4", data.powertrend.enabled && "mt-4", todayCard && "xl:grid-cols-[minmax(0,1fr)_310px]")}>
           <div className={clsx("relative overflow-hidden rounded-2xl border px-4 py-4", compactStatusClass(data.phase_info.tone))}>
             <div className={clsx("absolute inset-y-0 left-0 w-1", cycleAccentClass(data.phase_info.tone))} />
             <div className="flex min-w-0 items-start gap-3">
@@ -249,6 +249,7 @@ function CompactMarketAmpel({
         <div className="mt-4 border-t border-[#e7ebf0] pt-4">
           <PhaseStepper lights={data.lights} />
         </div>
+        <RuleDefinitions lights={data.lights} />
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <InfoBlock title="Definition" text={data.phase_info.reason} />
@@ -260,14 +261,13 @@ function CompactMarketAmpel({
           <InfoBlock title="Letzte Statusänderung" text={lastStatusChangeText(data)} />
         </div>
 
-        {data.powertrend.enabled ? <PowerTrendCard powertrend={data.powertrend} /> : null}
         {data.cycle.ftd_intraday_undercut && !data.cycle.ftd_negated ? (
           <p className="mt-2 text-xs text-[#b45309]">FTD-Tief intraday unterschritten; Schlusskurs hält die Marke. Keine dauerhafte FTD-Negation.</p>
         ) : null}
         {data.cycle.startschuss_date ? <p className="mt-2 text-xs">FTD-Datum: {data.cycle.startschuss_date} · Bestätigung: {data.cycle.ftd_negated ? "negiert (historisches Signal)" : "gültig"}</p> : null}
         {data.cycle.ftd_negated ? (
           <p className="mt-2 rounded-lg border border-[#fed7aa] bg-[#fffbeb] px-3 py-2 text-xs font-medium text-[#b45309]">
-            Startschuss/FTD negiert. Der Rallyversuch bleibt aktiv, solange das Rally-Day-1-Tief hält.
+            Startschuss/FTD negiert. Der Rallyversuch bleibt aktiv, solange die Bodenmarke hält.
           </p>
         ) : null}
 
@@ -279,7 +279,7 @@ function CompactMarketAmpel({
             freshness={cycleFreshness(data.cycle.anchor_date, data.cycle.anchor_current)}
           />
           <CycleMetric
-            label={data.logic === "ibd" ? "Rally-Day-1-Tief" : "Bodenmarke"}
+            label="Bodenmarke"
             value={formatValueWithDistance(data.cycle.floor_mark, data.cycle.floor_distance_pct)}
             tone={distanceTone(data.cycle.floor_distance_pct)}
             freshness={cycleFreshness(data.cycle.floor_mark, data.cycle.floor_current)}
@@ -311,7 +311,6 @@ function CompactMarketAmpel({
           <div className="mt-2.5 text-xs leading-5 text-[#64748b]">{data.cycle.diagnostics.join(" · ")}</div>
         ) : null}
 
-        <RuleDefinitions lights={data.lights} />
         <MovingAverageDistanceSummary tiles={data.distance_tiles} />
       </div>
     </div>
@@ -465,7 +464,6 @@ function lastStatusChangeText(data: MarketAmpel) {
 function PhaseStepper({ lights }: { lights: MarketAmpelLight[] }) {
   return (
     <div className={`relative grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 ${lights.length > 5 ? "lg:grid-cols-6" : "lg:grid-cols-5"}`}>
-      <div className="pointer-events-none absolute left-[10%] right-[10%] top-3 hidden h-px bg-[#dfe5ec] lg:block" />
       {lights.map((light) => (
         <PhaseStep key={light.key} light={light} />
       ))}

@@ -753,3 +753,15 @@ def test_ibd_real_ohlcv_negation_and_replacement_ftd():
     assert replacement.floor_mark == first.floor_mark
     assert replacement.startschuss_date == dates[-1].strftime("%Y-%m-%d")
     assert replacement.startschuss_low == bars[-1].low
+
+
+def test_defensive_rotation_warning_uses_the_actual_risk_condition():
+    points = compute_trend_ampel(_rising_bars(220, start=100.0, step=0.2))
+    for defensive in [False, True]:
+        checks = _build_ampel_warning_checks(points=points, latest=points[-1], intermarket=[],
+            defensive_lead=defensive, defensive_spread_pct=2 if defensive else -2, index_name="S&P 500")
+        rotation = next(check for check in checks if "Sektorrotation" in check.label)
+        assert rotation.active_warning is defensive
+        assert rotation.passed is not defensive
+        assert rotation.label == ("Sektorrotation in Defensive" if defensive else "Keine Sektorrotation in Defensive")
+        assert rotation.tone == ("warning" if defensive else "good")

@@ -38,7 +38,7 @@ def entries(
     query: str | None = Query(default=None, max_length=120),
     entry_type: str | None = Query(default=None, pattern="^(buy|sell|ex_post)$"),
     position_status: str | None = Query(default=None, alias="status", pattern="^(open|closed|draft)$"),
-    source: str | None = Query(default=None, pattern="^(broker|manual)$"),
+    source: str | None = Query(default=None, pattern="^(broker|manual|unlinked)$"),
     date_from: date | None = None,
     date_to: date | None = None,
     limit: int = Query(default=50, ge=1, le=200),

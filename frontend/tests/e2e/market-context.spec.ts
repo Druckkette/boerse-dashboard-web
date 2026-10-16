@@ -58,6 +58,11 @@ for (const width of [1440, 390]) {
     await expect(page.locator("#warnings")).toContainText("Warnzeichen");
     await expect(page.locator("#breadth")).toContainText("Marktbreite");
     await expect(page.locator("#sentiment")).toContainText("Stimmungs- und Positionierungsindikatoren");
+    const powertrendBox = await page.locator("#trend").getByText("Powertrend", { exact: true }).first().boundingBox();
+    const statusBox = await phase.first().boundingBox();
+    expect(powertrendBox!.y).toBeLessThan(statusBox!.y);
+    await expect(page.locator("#trend").getByText("Bodenmarke", { exact: true })).toBeVisible();
+    await expect(page.locator("#trend").getByText("Rally-Day-1-Tief", { exact: true })).toHaveCount(0);
     const contextBox = await page.locator("#context-scores").boundingBox();
     const phaseBox = await phase.first().boundingBox();
     expect(contextBox!.y).toBeGreaterThan(phaseBox!.y);

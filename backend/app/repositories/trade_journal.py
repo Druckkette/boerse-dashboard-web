@@ -50,6 +50,8 @@ def list_entries(
                     TradeJournalEntry.ticker.ilike(pattern),
                     Instrument.name.ilike(pattern),
                     Instrument.isin.ilike(pattern),
+                    Transaction.raw_json["name"].astext.ilike(pattern),
+                    Transaction.raw_json["isin"].astext.ilike(pattern),
                 ))
             if entry_type:
                 filters.append(TradeJournalEntry.entry_type == entry_type)
@@ -57,7 +59,7 @@ def list_entries(
                 filters.append(TradeJournalEntry.status == status)
             if source == "broker":
                 filters.append(TradeJournalEntry.source_transaction_id.is_not(None))
-            elif source == "manual":
+            elif source in {"manual", "unlinked"}:
                 filters.append(TradeJournalEntry.source_transaction_id.is_(None))
             if date_from:
                 filters.append(TradeJournalEntry.trade_date >= date_from)

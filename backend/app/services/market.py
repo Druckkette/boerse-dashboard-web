@@ -1897,7 +1897,7 @@ def _build_market_diagnostic_checks(
         ),
         _diagnostic_check(
             "rotation",
-            "Keine Sektorrotation in Defensive",
+            "Sektorrotation in Defensive" if defensive_lead else "Keine Sektorrotation in Defensive",
             defensive_lead is not True,
             "Spread: "
             + (_format_optional_pct(defensive_spread_pct) if defensive_spread_pct is not None else "n/a"),
@@ -2225,7 +2225,7 @@ def _ampel_phase_info(
         if logic == "ibd" and latest.ftd_negated and anchor_date and floor_mark is not None:
             reason = (
                 f"Startschuss/FTD negiert. Der Rallyversuch seit {anchor_date} bleibt intakt, "
-                f"solange das Rally-Day-1-Tief {_format_number(floor_mark)} hält."
+                f"solange die Bodenmarke {_format_number(floor_mark)} hält."
             )
             action = "Auf einen neuen Startschuss innerhalb des laufenden Rallyversuchs warten."
         else:
@@ -2285,7 +2285,7 @@ def _ampel_phase_info(
         )
     if phase == "gruen":
         reason = (
-            "Erholung bestätigt; der frühere Startschuss/FTD bleibt negiert. Rally-Day-1-Tief hält."
+            "Erholung bestätigt; der frühere Startschuss/FTD bleibt negiert. Bodenmarke hält."
             if logic == "ibd" and latest.ftd_negated
             else f"Startschuss hält. Kurs bleibt über dem Startschuss-Tief {_format_number(startschuss_low)}."
             if startschuss_low is not None
@@ -2475,7 +2475,7 @@ def _ampel_lights(phase: str, *, logic: MarketAmpelLogic = "current") -> list[Ma
         else "ROT wird bei mindestens 10% Drawdown vom relevanten Hoch, bestätigter Abwärtsstruktur oder einer harten Bruchregel aktiv."
     )
     start_rule = (
-        "GELB - STARTSCHUSS ist ab Rally Day 4 möglich: mindestens +1,0%, Volumen über Vortag und Rally-Day-1-Tief intakt."
+        "GELB - STARTSCHUSS ist ab Rally Day 4 möglich: mindestens +1,0%, Volumen über Vortag und Bodenmarke intakt."
         if logic == "ibd"
         else "GELB - STARTSCHUSS wird frühestens ab Tag 5 nach dem Ankertag aktiv: mindestens +1,0%, Volumen über Vortag und Tagestief nicht unter der Bodenmarke."
     )
@@ -2919,7 +2919,7 @@ def _build_ampel_warning_checks(
     if defensive_lead is not None:
         checks.append(
             _ampel_warning_check(
-                "Keine Sektorrotation in Defensive",
+                "Sektorrotation in Defensive" if defensive_lead else "Keine Sektorrotation in Defensive",
                 not defensive_lead,
                 f"Spread: {_format_optional_pct(defensive_spread_pct)}",
                 bool(defensive_lead),

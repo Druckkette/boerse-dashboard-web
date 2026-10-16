@@ -1,9 +1,32 @@
 """Idempotently project already stored TR executions after schema migration."""
 from collections import Counter
-from sqlalchemy import select
+from sqlalchemy import select, text
 from app.db.models import Transaction, TradeJournalEntry
 from app.db.session import SessionLocal
-from app.repositories.tr_import import import_transactions
+from app.repositories.tr_import import import_transactions, sync_journal, transaction_row
+from app.domain.portfolio.trade_ledger import allocate_trades
+
+
+def backfill_missing_symbols():
+    """Add journal projections only; preserve every stored execution and position."""
+    with SessionLocal() as db:
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext('trade_republic_import'))"))
+        stored = list(db.scalars(select(Transaction).where(Transaction.broker == "Trade Republic")))
+        stored.sort(key=lambda row: (transaction_row(row).event_ts, (row.raw_json or {}).get("import_order", 0), row.created_at, row.id))
+        events = allocate_trades([{
+            "id": row.id, "timestamp": transaction_row(row).event_ts.isoformat(), "order": index,
+            "date": row.date.isoformat(), "type": row.transaction_type, "ticker": row.ticker,
+            "isin": transaction_row(row).isin, "asset_class": transaction_row(row).asset_class,
+            "currency": row.currency, "shares": row.shares, "price": row.price,
+            "fees": row.fees, "tax": row.tax,
+        } for index, row in enumerate(stored)])
+        unresolved = [event for event in events if not event["symbol_resolved"]]
+        groups = {event["group"] for event in unresolved}
+        # Keep complete cycles, including any previously mapped sibling executions.
+        count = sync_journal(db, stored, [event for event in events if event["group"] in groups], [], journal_only=True)
+        db.commit()
+        return {"journal_entries_added": count, "unmapped_executions": len(unresolved),
+                "transactions_inserted": 0, "positions_changed": 0}
 
 
 def backfill():
@@ -24,5 +47,9 @@ def backfill():
 
 
 if __name__ == "__main__":
+    import argparse
     import json
-    print(json.dumps(backfill()))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--missing-symbols-only", action="store_true")
+    args = parser.parse_args()
+    print(json.dumps(backfill_missing_symbols() if args.missing_symbols_only else backfill()))

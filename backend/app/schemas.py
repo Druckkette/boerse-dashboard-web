@@ -1505,7 +1505,7 @@ class TradeJournalEntrySummary(BaseModel):
     instrument_name: str = ""
     isin: str = ""
     execution_at: str | None = None
-    source: Literal["trade_republic", "manual"] = "manual"
+    source: Literal["trade_republic", "manual", "unlinked"] = "unlinked"
     fees: float | None = None
     tax: float | None = None
     gross_amount: float | None = None

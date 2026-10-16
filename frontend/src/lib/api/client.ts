@@ -76,6 +76,7 @@ import type {
   TradeJournalDefaults,
   TradeJournalEntriesResponse,
   TradeJournalEntryRequest,
+  TradeJournalNoteRequest,
   TradeJournalEntryResponse,
   TradeJournalEntryType,
   TradeJournalFilters,
@@ -286,10 +287,11 @@ export const api = {
   },
   portfolioSnapshot: () => getJson<PortfolioSnapshot>("/portfolio/snapshot"),
   portfolioAfterHours: () => postJson<PortfolioAfterHours>("/portfolio/after-hours", {}),
-  portfolioCurve: (options?: { days?: number; startDate?: string }) => {
+  portfolioCurve: (options?: { days?: number; startDate?: string; model?: "auto" | "execution_history" | "current_holdings" }) => {
     const params = new URLSearchParams();
     if (options?.days) params.set("days", String(options.days));
     if (options?.startDate) params.set("start_date", options.startDate);
+    if (options?.model) params.set("model", options.model);
     const query = params.toString();
     return getJson<PortfolioCurve>(`/portfolio/curve${query ? `?${query}` : ""}`);
   },
@@ -445,7 +447,7 @@ export const api = {
     postJson<TradeJournalEntryResponse>("/trade-journal", body),
   updateTradeJournalEntry: (entryId: string, body: TradeJournalEntryRequest) =>
     patchJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}`, body),
-  updateTradeJournalNotes: (entryId: string, body: TradeJournalEntryRequest) =>
+  updateTradeJournalNotes: (entryId: string, body: TradeJournalNoteRequest) =>
     patchJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}/notes`, body),
   closeTradeJournalEntry: (entryId: string) =>
     postJson<TradeJournalEntryResponse>(`/trade-journal/${encodeURIComponent(entryId)}/close`)

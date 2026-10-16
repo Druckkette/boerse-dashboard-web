@@ -78,6 +78,10 @@ def get_trade_journal_trades(
     rows = journal_repository.list_trade_entries(query=query)
     grouped: dict[str, list[Any]] = {}
     for row in rows:
+        # The broker ledger is the execution authority. Unlinked legacy notes must
+        # never add synthetic buys/sells to its quantities or realized results.
+        if not getattr(row, "source_transaction_id", None):
+            continue
         # Position IDs survive prepended broker history and are therefore the stable public trade ID.
         key = row.position_id or row.trade_group_id or row.linked_entry_id or row.id
         grouped.setdefault(key, []).append(row)
@@ -126,6 +130,7 @@ def get_trade_journal_analytics(
         hit_rate_pct=round(sum(trade.realized_pnl > 0 for trade in closed) / len(closed) * 100, 2) if closed else None,
         excluded_incomplete=sum(trade.status == "closed" and trade.realized_pnl is None for trade in trades),
         notes=["Zeitraum bezieht sich auf den letzten Ausstieg; vollständige Positionszyklen bleiben erhalten.",
+               "Ausgewertet werden importierte Trade-Republic-Ausführungen für Aktien und Fonds. Unverknüpfte Altaufzeichnungen zählen nicht als weitere Geschäfte.",
                "Beträge verschiedener Währungen werden getrennt ausgewertet. Kleine Gruppen sind kein Strategienachweis.",
                "R-Multiple nur mit dokumentiertem ursprünglichem Stopp; keine nachträgliche Schätzung."],
     )
@@ -646,7 +651,7 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
         instrument_name=metadata["instrument_name"],
         isin=metadata["isin"],
         execution_at=metadata["execution_at"],
-        source="trade_republic" if getattr(row, "source_transaction_id", None) else "manual",
+        source="trade_republic" if getattr(row, "source_transaction_id", None) else "unlinked",
         fees=metadata["fees"] if metadata["fees"] is not None else _finite(portfolio.get("fees")),
         tax=metadata["tax"] if metadata["tax"] is not None else _finite(portfolio.get("tax")),
         gross_amount=metadata["gross_amount"],

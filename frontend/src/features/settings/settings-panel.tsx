@@ -351,7 +351,7 @@ export function SettingsPanel() {
                     IBD Logik startet die Beobachtung eines Rallyversuchs
                     früher, erlaubt den Startschuss ab Rally Day 4 und trennt
                     ein negiertes Startschuss-/FTD-Tief vom tieferen
-                    Rally-Day-1-Tief. Der Powertrend wird als zusätzlicher
+                    Bodenmarke. Der Powertrend wird als zusätzlicher
                     Status berechnet und ersetzt die normale Aufwärtstrend-Phase
                     nicht. Die Korrekturschwellen (8% oder unter 50-SMA bei 3%
                     Rückgang bzw. drei Distributionstagen) sind eine eigene

@@ -14,7 +14,7 @@ def allocate_trades(rows):
     groups = {}
     events = []
     for row in sorted(rows, key=lambda r: (r["timestamp"], r.get("order", 0), r["id"])):
-        if row.get("asset_class") not in {"STOCK", "FUND"} or not row.get("ticker"):
+        if row.get("asset_class") not in {"STOCK", "FUND"} or not (row.get("ticker") or row.get("isin")):
             continue
         key = (row["isin"], row["currency"])
         kind = row["type"]
@@ -50,7 +50,9 @@ def allocate_trades(rows):
             groups[key] = row["id"]
         group = groups.setdefault(key, row["id"])
         fees = abs(number(row.get("fees"))) + abs(number(row.get("tax")))
-        event = {**row, "group": group, "allocations": [], "pnl": None, "pnl_pct": None,
+        event = {**row, "ticker": row.get("ticker") or row["isin"],
+                 "symbol_resolved": bool(row.get("ticker")),
+                 "group": group, "allocations": [], "pnl": None, "pnl_pct": None,
                  "unallocated": 0.0, "remaining": 0.0}
         if kind == "buy":
             total_cost = quantity * number(row["price"]) + fees

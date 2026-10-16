@@ -160,8 +160,9 @@ def after_hours() -> PortfolioAfterHoursResponse:
 def curve(
     days: int = Query(default=370, ge=30, le=2500),
     start_date: date | None = Query(default=None),
+    model: str = Query(default="auto", pattern="^(auto|execution_history|current_holdings)$"),
 ) -> PortfolioCurveResponse:
-    return get_portfolio_curve(days=days, start_date=start_date)
+    return get_portfolio_curve(days=days, start_date=start_date, model=model)
 
 
 @router.get("/buy-strength", response_model=BuyStrengthOverviewResponse)

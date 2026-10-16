@@ -24,13 +24,13 @@ def setup_import(monkeypatch):
     monkeypatch.setattr(tr_import, "SessionLocal", sessions)
     token = uuid4().hex[:10]
     ticker, isin = "T" + token.upper(), "TEST" + token.upper()
-    def run(executions):
+    def run(executions, *, mapped=True):
         csv = "date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax,transaction_id\n"
         for day, kind, shares, price, fee, ident in executions:
             amount = shares * price * (-1 if kind == "BUY" else 1)
             csv += f"2025-01-{day:02d},2025-01-{day:02d}T15:00:00Z,{kind},STOCK,Test,{isin},{shares},{price},EUR,{amount},{fee},0,{token}-{ident}\n"
         return tr_import.import_transactions(transactions=parse_transaction_export_csv(csv), positions=[],
-            mappings={isin: ticker}, file_name="test.csv", replace_open_positions=True)
+            mappings={isin: ticker} if mapped else {}, file_name="test.csv", replace_open_positions=True)
     yield sessions, ticker, run
     engine.dispose()
 
@@ -188,3 +188,52 @@ def test_existing_assessment_version_is_rebuilt_once(setup_import, monkeypatch):
     run(rows)
     run(rows)
     assert len(calls) == 1
+
+
+def test_unmapped_isin_keeps_broker_executions_and_fifo_without_fabricated_position(setup_import, monkeypatch):
+    sessions, ticker, run = setup_import
+    rows = [(2, "BUY", 3, 100, -1, "b"), (3, "SELL", 3, 120, -1, "s")]
+    result = run(rows, mapped=False)
+    with sessions() as db:
+        txs = list(db.scalars(select(Transaction).where(Transaction.import_id == result.import_id)))
+        ids = [tx.id for tx in txs]
+        entries = list(db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.source_transaction_id.in_(ids))))
+        assert len(entries) == 2
+        sale = next(row for row in entries if row.entry_type == "sell")
+        assert sale.ticker == txs[0].raw_json["isin"]
+        assert sale.realized_pnl == pytest.approx(58)
+        assert sale.sell_assessment_json["reason_code"] == "ticker_mapping_missing"
+        assert all(row.position_id is None for row in entries)
+        sale.basis_text = "Originalnotiz bewahren"
+        identity = sale.id
+        db.commit()
+    run(rows, mapped=False)
+    # Supplying the symbol later updates the same projections, with no double counting.
+    run(rows)
+    with sessions() as db:
+        entries = list(db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.source_transaction_id.in_(ids))))
+        assert len(entries) == 2 and {entry.ticker for entry in entries} == {ticker}
+        assert db.get(TradeJournalEntry, identity).basis_text == "Originalnotiz bewahren"
+        assert all(row.position_id is not None for row in entries)
+
+
+def test_missing_symbol_backfill_is_idempotent_and_preserves_execution_and_position(setup_import, monkeypatch):
+    sessions, _, run = setup_import
+    from app.services import backfill_trade_journal as service
+    monkeypatch.setattr(service, "SessionLocal", sessions)
+    result = run([(2, "BUY", 3, 100, -1, "b"), (3, "SELL", 3, 120, -1, "s")], mapped=False)
+    with sessions() as db:
+        txs = list(db.scalars(select(Transaction).where(Transaction.import_id == result.import_id)))
+        ids = [tx.id for tx in txs]
+        before = [(t.id, t.ticker, t.position_id, t.price, t.shares, t.raw_json) for t in txs]
+        entries = list(db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.source_transaction_id.in_(ids))))
+        for entry in entries:
+            db.delete(entry)
+        db.commit()
+    first = service.backfill_missing_symbols()
+    assert first["journal_entries_added"] >= 2
+    assert service.backfill_missing_symbols()["journal_entries_added"] == 0
+    with sessions() as db:
+        txs = list(db.scalars(select(Transaction).where(Transaction.import_id == result.import_id)))
+        assert [(t.id, t.ticker, t.position_id, t.price, t.shares, t.raw_json) for t in txs] == before
+        assert len(list(db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.source_transaction_id.in_(ids))))) == 2

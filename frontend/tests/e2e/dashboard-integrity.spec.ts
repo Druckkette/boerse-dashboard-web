@@ -55,3 +55,21 @@ test("unavailable portfolio remains an error and private cross-site writes are r
   const cross = await request.patch("/api/v1/settings", { headers: { Origin: "https://attacker.invalid", "Sec-Fetch-Site": "cross-site" }, data: { atr_threshold: 2 } });
   expect(cross.status()).toBe(403);
 });
+
+test("portfolio curve distinguishes a usable simulation from unavailable historical valuations", async ({ page }) => {
+  await page.route("**/api/v1/portfolio/snapshot", route => route.fulfill({ json: { positions: [position], kpis: [], cash: 0, cash_ratio_pct: 0, currency: "EUR", total_value: 750 } }));
+  await page.route("**/api/v1/portfolio/curve?**", route => {
+    const history = new URL(route.request().url()).searchParams.get("model") === "execution_history";
+    return route.fulfill({ json: { model: history ? "execution_history" : "current_holdings", source: "database", data_status: "limited", as_of: "2026-10-15", base_date: "2026-10-14", complete_points: history ? 0 : 2, total_points: 2,
+      message: history ? "Historische Kursbewertungen fehlen; TR-Buchungen sind dokumentiert." : "Simulation des heutigen Bestands, keine historische Depotperformance.",
+      points: ["2026-10-14", "2026-10-15"].map((date, index) => ({ date, depot_value: history ? null : 750 + index * 10, positions_value: history ? null : 750 + index * 10, cash: 0, portfolio_index: history ? null : 100 + index * 2, sp500_index: 100 + index, valuation_complete: !history })) } });
+  });
+  await page.goto("/portfolio");
+  await expect(page.getByRole("heading", { name: "Simulation des heutigen Bestands", exact: true })).toBeVisible();
+  await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(1);
+  await page.getByRole("combobox", { name: "Darstellung", exact: true }).selectOption("execution_history");
+  await expect(page.getByRole("status").filter({ hasText: "Für diese Auswahl fehlen vollständige Depotbewertungen" })).toBeVisible();
+  await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Darstellung", exact: true }).selectOption("current_holdings");
+  await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(1);
+});

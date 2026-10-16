@@ -8,9 +8,10 @@ import { api } from "@/lib/api/client";
 export function PortfolioCurvePanel() {
   const defaultStartDate = useMemo(() => `${new Date().getFullYear()}-01-01`, []);
   const [startDate, setStartDate] = useState(defaultStartDate);
+  const [model, setModel] = useState<"auto" | "execution_history" | "current_holdings">("auto");
   const query = useQuery({
-    queryKey: ["portfolio-curve", startDate],
-    queryFn: () => api.portfolioCurve({ startDate }),
+    queryKey: ["portfolio-curve", startDate, model],
+    queryFn: () => api.portfolioCurve({ startDate, model }),
     staleTime: 60_000
   });
   const curve = query.data;
@@ -23,6 +24,14 @@ export function PortfolioCurvePanel() {
             Depot und S&P 500 werden ab dem Basistag gemeinsam auf 100 gesetzt. Standard ist der 01.01. des laufenden Jahres.
           </p>
         </div>
+        <label className="w-full text-sm md:w-64">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Darstellung</span>
+          <select className="input-dark" value={model} onChange={event => setModel(event.target.value as typeof model)}>
+            <option value="auto">Automatisch nach Datenlage</option>
+            <option value="execution_history">TR-Ausführungshistorie</option>
+            <option value="current_holdings">Heutiger Bestand als Simulation</option>
+          </select>
+        </label>
         <label className="w-full text-sm md:w-56">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Startdatum</span>
           <input
@@ -34,6 +43,7 @@ export function PortfolioCurvePanel() {
         </label>
       </div>
       {curve && <p className="app-notice">{curve.model === "current_holdings" ? "Keine historische Depotperformance. " : "Cashbewegungen werden am Tagesende berücksichtigt. "}{curve.message} · Bewertbare Tage {curve.complete_points ?? "–"}/{curve.total_points ?? curve.points.length}. Lücken werden nicht durch zukünftige Kurse ersetzt.</p>}
+      {curve && !curve.points.some(point => point.portfolio_index != null) && <p role="status" className="app-notice">Für diese Auswahl fehlen vollständige Depotbewertungen. Die TR-Buchungen bleiben dokumentiert. Wähle „Heutiger Bestand als Simulation“, um die Kursentwicklung des aktuellen Bestands zu sehen.</p>}
       <LineChartCard
         caption={
           curve?.points.length

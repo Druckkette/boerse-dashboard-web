@@ -798,6 +798,8 @@ export type TradeJournalEntryRequest = {
   chart_images?: TradeJournalImageSet;
 };
 
+export type TradeJournalNoteRequest = Pick<TradeJournalEntryRequest, "basis_text" | "alternative_entry" | "alternative_entry_text" | "primary_reasons" | "sell_reason" | "questionnaire" | "chart_images">;
+
 export type TradeJournalEntrySummary = {
   currency?: string;
   realized_pnl?: number | null;
@@ -807,7 +809,7 @@ export type TradeJournalEntrySummary = {
   instrument_name: string;
   isin: string;
   execution_at?: string | null;
-  source: "trade_republic" | "manual";
+  source: "trade_republic" | "manual" | "unlinked";
   fees?: number | null;
   tax?: number | null;
   gross_amount?: number | null;
@@ -871,7 +873,7 @@ export type TradeJournalFilters = {
   query?: string;
   entry_type?: TradeJournalEntryType | "";
   status?: TradeJournalEntryStatus | "";
-  source?: "broker" | "manual" | "";
+  source?: "broker" | "manual" | "unlinked" | "";
   date_from?: string;
   date_to?: string;
   limit?: number;
