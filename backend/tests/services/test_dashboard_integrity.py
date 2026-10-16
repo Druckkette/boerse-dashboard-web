@@ -129,3 +129,44 @@ def test_standalone_review_is_not_a_zero_profit_closed_trade(monkeypatch):
     monkeypatch.setattr(trade_journal, "get_trade_journal_trades", lambda **kw: SimpleNamespace(trades=[summary]))
     result = trade_journal.get_trade_journal_analytics()
     assert result.closed_trades == 0 and result.hit_rate_pct is None and result.net_result is None
+
+
+def test_inconsistent_legacy_manual_sale_does_not_break_valid_journal_reads(monkeypatch):
+    common = dict(ticker="TEST", currency="EUR", trade_date=date(2025, 1, 3),
+        created_at=datetime(2025, 1, 3, tzinfo=UTC), stock_snapshot_json={}, market_snapshot_json={},
+        sell_assessment_json={}, portfolio_snapshot_json={}, questionnaire_json={}, stop_price=None)
+    buy = SimpleNamespace(**common, id="buy", entry_type="buy", price=100, shares=2)
+    sale = SimpleNamespace(**common, id="sale", entry_type="sell", price=120, shares=5,
+        linked_entry_id="buy", realized_pnl=None, source_transaction_id=None)
+    summary = trade_journal._trade_summary("legacy", [buy, sale], include_executions=False)
+    assert summary.realized_pnl is None
+    monkeypatch.setattr(trade_journal, "get_trade_journal_trades", lambda **kw: SimpleNamespace(trades=[summary]))
+    assert trade_journal.get_trade_journal_analytics().excluded_incomplete == 1
+    # The stricter write validator continues rejecting new inconsistent executions.
+    with pytest.raises(ValueError, match="Kaufmenge"):
+        trade_journal._manual_native_result(buy, price=120, shares=5, currency="EUR")
+
+
+def test_current_holdings_coverage_ignores_unmapped_old_executions():
+    event = dict(id="unknown", ticker="", date=date(2024, 1, 3), kind="buy", shares=5, net=-100, fees=0, tax=0, currency="USD")
+    book = PriceBook({"A": [bar("2025-01-02", 100), bar("2025-01-03", 110)]}, {"A": "USD"})
+    result = attribution({"events": [event], "cash_flows": []}, book, start=date(2025, 1, 2), end=date(2025, 1, 3), base="USD", positions=[SimpleNamespace(ticker="A", shares=5)])
+    assert result["model"] == "current_holdings" and result["result"] == 50
+    assert result["covered_count"] == result["total_count"] == 1
+
+
+def test_analysis_coalesces_parallel_reads_and_portfolio_changes_invalidate(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from app.services import portfolio_analysis as service, home
+    calls = []
+    monkeypatch.setattr(service, "_compute_analysis", lambda **kw: calls.append(kw) or {"generation": len(calls)})
+    service.invalidate_analysis_cache()
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            results = list(pool.map(lambda _: service.get_analysis(), range(3)))
+        assert all(result["generation"] == 1 for result in results) and len(calls) == 1
+        home.invalidate_home_dashboard_cache()
+        assert service.get_analysis()["generation"] == 2
+        assert service.get_analysis(sector_shock=-20)["generation"] == 3
+    finally:
+        service.invalidate_analysis_cache()

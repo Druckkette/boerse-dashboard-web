@@ -622,7 +622,11 @@ def _summary_from_row(row: Any) -> TradeJournalEntrySummary:
         linked_buy = getattr(row, "_linked_buy", None)
         if linked_buy is None and not hasattr(row, "_linked_buy") and row.linked_entry_id:
             linked_buy = journal_repository.get_entry(row.linked_entry_id)
-        native_result = _manual_native_result(linked_buy, price=row.price, shares=row.shares, currency=getattr(row, "currency", "USD"), fees=float(portfolio.get("fees") or 0), tax=float(portfolio.get("tax") or 0))
+        try:
+            native_result = _manual_native_result(linked_buy, price=row.price, shares=row.shares, currency=getattr(row, "currency", "USD"), fees=float(portfolio.get("fees") or 0), tax=float(portfolio.get("tax") or 0))
+        except ValueError:
+            native_result = None  # Invalid legacy executions remain visibly incomplete; never break the whole read.
+
     return TradeJournalEntrySummary(
         id=row.id,
         ticker=row.ticker,
@@ -766,8 +770,12 @@ def _trade_summary(trade_id: str, rows: list[Any], *, include_executions: bool =
         result = getattr(row, "realized_pnl", None)
         if result is None and not getattr(row, "source_transaction_id", None):
             portfolio = row.portfolio_snapshot_json or {}
-            result = _manual_native_result(by_id.get(row.linked_entry_id), price=row.price, shares=row.shares,
-                currency=getattr(row, "currency", "USD"), fees=float(portfolio.get("fees") or 0), tax=float(portfolio.get("tax") or 0))
+            try:
+                result = _manual_native_result(by_id.get(row.linked_entry_id), price=row.price, shares=row.shares,
+                    currency=getattr(row, "currency", "USD"), fees=float(portfolio.get("fees") or 0), tax=float(portfolio.get("tax") or 0))
+            except ValueError:
+                result = None  # Preserve bad historical rows, exclude their result, keep valid trades usable.
+
         results.append(result)
     realized_values = [float(value) for value in results if value is not None]
     incomplete = any(value is None for value in results) or len({getattr(row, "currency", "USD") for row in ordered}) > 1

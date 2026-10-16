@@ -357,6 +357,8 @@ def get_home_dashboard() -> dict[str, Any]:
 
 
 def invalidate_home_dashboard_cache() -> None:
+    from app.services.portfolio_analysis import invalidate_analysis_cache
+    invalidate_analysis_cache()
     global _home_cache
     with _home_cache_lock:
         _home_cache = None

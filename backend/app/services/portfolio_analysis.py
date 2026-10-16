@@ -1,5 +1,7 @@
 """Portfolio attribution and risk from saved executions and observed prices only."""
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
+from threading import RLock
+from time import monotonic
 from datetime import date, timedelta
 from math import isfinite
 from bisect import bisect_right
@@ -118,7 +120,7 @@ def attribution(ledger, book, *, start, end, base, positions):
             costs=rounded_money(money_sum(costs)), trading_and_interaction=rounded_money(residual) if residual is not None else None,
             opening_value=first, ending_value=last, status="missing" if missing else "available"))
     valid = [row for row in rows if row["result"] is not None]
-    unvalued = [event for event in events if not event.get("ticker") and normalize_transaction_type(event["kind"]) in SHARE_INCREASE_TYPES | SHARE_DECREASE_TYPES and abs(event.get("shares") or 0) > 1e-9]
+    unvalued = [event for event in events if model == "executions" and not event.get("ticker") and normalize_transaction_type(event["kind"]) in SHARE_INCREASE_TYPES | SHARE_DECREASE_TYPES and abs(event.get("shares") or 0) > 1e-9]
     complete = len(valid) == len(rows) and not unvalued
     cash_fx, other_cash, opening_cash_value, ending_cash_value, external_cash = 0.0, 0.0, None, None, 0.0
     if model == "executions":
@@ -171,7 +173,32 @@ def attribution(ledger, book, *, start, end, base, positions):
         decomposition="Kurs- und FX-Effekt beziehen sich auf den Anfangsbestand. Transaktionen und Wechselwirkungen sind separat ausgewiesen.")
 
 
+_analysis_cache = OrderedDict()
+_analysis_lock = RLock()
+
+
+def invalidate_analysis_cache():
+    with _analysis_lock:
+        _analysis_cache.clear()
+
+
 def get_analysis(*, sessions=21, sector_shock=-10.0, fx_shock=-5.0, shocked_sector="all"):
+    key = (sessions, sector_shock, fx_shock, shocked_sector)
+    # Coalesce simultaneous requests and avoid reloading the same stored history.
+    # Portfolio writes clear this cache; successful read results live at most 30s.
+    with _analysis_lock:
+        cached = _analysis_cache.get(key)
+        if cached and monotonic() - cached[0] < 30:
+            return cached[1]
+        result = _compute_analysis(sessions=sessions, sector_shock=sector_shock, fx_shock=fx_shock, shocked_sector=shocked_sector)
+        _analysis_cache[key] = (monotonic(), result)
+        _analysis_cache.move_to_end(key)
+        while len(_analysis_cache) > 8:
+            _analysis_cache.popitem(last=False)
+        return result
+
+
+def _compute_analysis(*, sessions=21, sector_shock=-10.0, fx_shock=-5.0, shocked_sector="all"):
     snapshot = get_portfolio_snapshot()
     positions = snapshot.positions
     base = snapshot.currency
@@ -189,7 +216,7 @@ def get_analysis(*, sessions=21, sector_shock=-10.0, fx_shock=-5.0, shocked_sect
     result = attribution(ledger, book, start=start, end=end, base=base, positions=positions)
     notes = []
     try:
-        members = list_group_members(TAXONOMY_VERSION)
+        members = list_group_members(TAXONOMY_VERSION, tickers=[position.ticker for position in positions])
     except Exception:
         members = []
         notes.append("Branchenzuordnungen derzeit nicht verfügbar.")

@@ -79,7 +79,7 @@ class SnapshotWrite:
     metadata_json: dict
 
 
-def list_group_members(taxonomy_version: str) -> list[GroupMemberRow]:
+def list_group_members(taxonomy_version: str, *, tickers: list[str] | None = None) -> list[GroupMemberRow]:
     try:
         with SessionLocal() as db:
             rows = db.execute(
@@ -94,6 +94,7 @@ def list_group_members(taxonomy_version: str) -> list[GroupMemberRow]:
                     IndustryGroup.active.is_(True),
                     IndustryGroupMembership.status == "classified",
                     IndustryGroupMembership.assignment_version == taxonomy_version,
+                    Instrument.ticker.in_(tickers) if tickers is not None else True,
                 )
                 .order_by(IndustryGroup.group_code.asc(), Instrument.ticker.asc())
             ).all()
