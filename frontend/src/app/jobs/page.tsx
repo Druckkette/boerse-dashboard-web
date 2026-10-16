@@ -5,6 +5,7 @@ import { CheckCircle2, CircleDashed, Play, RotateCw, Save, SearchCheck, WandSpar
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
+import { OperationStatus } from "@/components/ui/operation-status";
 import { ReportWorkStatus } from "@/components/ui/report-work-status";
 import { DataMaintenancePanel } from "@/features/settings/data-maintenance-panel";
 import { api } from "@/lib/api/client";
@@ -108,7 +109,7 @@ function UniverseStatusPanel({
   const disabled = blockedByOtherJob || universeRunning || starting;
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -117,24 +118,24 @@ function UniverseStatusPanel({
             <StatusChip tone={memberCount > 100 ? "good" : "neutral"}>{memberCount.toLocaleString("de-DE")} Ticker</StatusChip>
             {latestJob && <StatusChip tone={statusTone[latestJob.status]}>{jobStatusLabel(latestJob.status)}</StatusChip>}
           </div>
-          <div className="mt-1 text-sm text-[#a0a7b4]">
+          <div className="mt-1 text-sm text-[var(--muted)]">
             {updatedAt ? `Aktualisiert ${new Date(updatedAt).toLocaleString("de-DE")}` : "Noch kein gespeichertes Live-Universe."}
           </div>
-          <div className="mt-2 max-w-4xl text-xs leading-5 text-[#77808f]">
+          <div className="mt-2 max-w-4xl text-xs leading-5 text-[var(--muted)]">
             Dieser Button lädt nur die handelbare Aktienliste von Nasdaq Trader. Er lädt keine Kurse und berechnet keine
             Marktbreite; dafür danach Market Prices und Market Breadth starten.
           </div>
-          <div className="mt-2 max-w-4xl truncate text-xs text-[#697386]">
+          <div className="mt-2 max-w-4xl truncate text-xs text-[var(--muted)]">
             {sampleTickers.length ? sampleTickers.join(", ") : "Fallback-Starterliste wird verwendet."}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
           <button
-            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
             onClick={onRefresh}
           >
-            <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RotateCw size={15} className={isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Status
           </button>
           <button
@@ -149,38 +150,38 @@ function UniverseStatusPanel({
         </div>
       </div>
       {latestJob && (
-        <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+        <div className="mt-4 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="font-medium">Letzter Universe-Job</div>
-              <div className="mt-1 text-xs leading-5 text-[#77808f]">
+              <div className="mt-1 text-xs leading-5 text-[var(--muted)]">
                 {latestJob.current_step || latestJob.message || "Jobstatus wird aktualisiert."}
               </div>
             </div>
-            <div className="text-xs tabular-nums text-[#a0a7b4]">{formatDate(latestJob.created_at)}</div>
+            <div className="text-xs tabular-nums text-[var(--muted)]">{formatDate(latestJob.created_at)}</div>
           </div>
           {(latestJob.status === "queued" || latestJob.status === "running") && (
             <div className="mt-3">
-              <div className="h-2 overflow-hidden rounded bg-[#171a20]">
+              <div className="h-2 overflow-hidden rounded bg-[var(--panel)]">
                 <div className="h-2 rounded bg-emerald-300" style={{ width: `${latestJob.progress}%` }} />
               </div>
-              <div className="mt-1 text-right text-xs tabular-nums text-[#77808f]">{latestJob.progress}%</div>
+              <div className="mt-1 text-right text-xs tabular-nums text-[var(--muted)]">{latestJob.progress}%</div>
             </div>
           )}
           {latestJob.status === "failed" && latestJob.error_message && (
-            <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-xs leading-5 text-rose-100">
+            <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-xs leading-5 text-[var(--red)]">
               {latestJob.error_message}
             </div>
           )}
         </div>
       )}
       {blockedByOtherJob && activeJob && (
-        <div className="mt-3 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+        <div className="mt-3 rounded border border-amber-300/35 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
           Ein anderer Job läuft gerade: {activeJob.job_type}. Auf der NAS wird nur ein schwerer Job gleichzeitig gestartet.
         </div>
       )}
       {startError && (
-        <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+        <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           {startError}
         </div>
       )}
@@ -231,7 +232,7 @@ function UniverseSymbolMappingPanel({
   }
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -246,28 +247,28 @@ function UniverseSymbolMappingPanel({
               {(review?.ignored_count ?? 0).toLocaleString("de-DE")} ignoriert
             </StatusChip>
           </div>
-          <div className="mt-1 text-sm text-[#a0a7b4]">
+          <div className="mt-1 text-sm text-[var(--muted)]">
             Universe-Ticker bleiben stabil; nur der yfinance-Ladealias wird hier korrigiert.
           </div>
         </div>
         <button
-          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+          className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
           type="button"
           onClick={onRefresh}
         >
-          <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+          <RotateCw size={15} className={isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
           Mappings prüfen
         </button>
       </div>
 
       {failedTickers.length > 0 && (
-        <div className="mb-4 rounded border border-rose-300/30 bg-rose-300/10 p-3">
-          <div className="text-sm font-medium text-rose-100">Letzte Preisfehler</div>
+        <div className="mb-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3">
+          <div className="text-sm font-medium text-[var(--red)]">Letzte Preisfehler</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {failedTickers.map((ticker) => (
               <button
                 key={ticker}
-                className="rounded border border-rose-300/30 bg-[#111419] px-2 py-1 text-xs text-rose-100 transition hover:border-rose-200"
+                className="rounded border border-rose-300/30 bg-[var(--panel)] px-2 py-1 text-xs text-[var(--red)] transition hover:border-rose-200"
                 type="button"
                 onClick={() => fillTicker(ticker)}
               >
@@ -279,28 +280,28 @@ function UniverseSymbolMappingPanel({
       )}
 
       <div className="grid gap-3 xl:grid-cols-[160px_160px_140px_1fr_auto]">
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Universe-Ticker</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Universe-Ticker</span>
           <input
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
             placeholder="BRK-B"
             value={sourceTicker}
             onChange={(event) => setSourceTicker(event.target.value.toUpperCase())}
           />
         </label>
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Yahoo-Symbol</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Yahoo-Symbol</span>
           <input
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
             placeholder="BRK-B"
             value={yahooSymbol}
             onChange={(event) => setYahooSymbol(event.target.value.toUpperCase())}
           />
         </label>
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Status</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Status</span>
           <select
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
             value={status}
             onChange={(event) => setStatus(event.target.value as "active" | "ignored")}
           >
@@ -308,10 +309,10 @@ function UniverseSymbolMappingPanel({
             <option value="ignored">Ignorieren</option>
           </select>
         </label>
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Notiz</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Notiz</span>
           <input
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition placeholder:text-[#697386] focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-emerald-300/70"
             placeholder="z. B. Yahoo nutzt anderes Symbol"
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -327,24 +328,24 @@ function UniverseSymbolMappingPanel({
           {saving ? "Speichert" : "Speichern"}
         </button>
       </div>
-      {saveError && <div className="mt-3 text-sm text-rose-200">{saveError}</div>}
+      {saveError && <div className="mt-3 text-sm text-[var(--red)]">{saveError}</div>}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="text-sm font-medium">Aktive Overrides</div>
-            <div className="text-xs text-[#77808f]">
+            <div className="text-xs text-[var(--muted)]">
               {review ? `${review.member_count.toLocaleString("de-DE")} Universe-Ticker` : "lädt"}
             </div>
           </div>
           <div className="space-y-2">
             {mappedRows.length === 0 && (
-              <div className="text-sm text-[#77808f]">Noch keine manuellen Symbol-Mappings gespeichert.</div>
+              <div className="text-sm text-[var(--muted)]">Noch keine manuellen Symbol-Mappings gespeichert.</div>
             )}
             {mappedRows.map((row) => (
               <button
                 key={`${row.universe_key}-${row.source_ticker}`}
-                className="grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 rounded border border-[#2d333d] px-3 py-2 text-left text-sm transition hover:border-[#697386]"
+                className="grid w-full grid-cols-[1fr_1fr_auto] items-center gap-2 rounded border border-[var(--border)] px-3 py-2 text-left text-sm transition hover:border-[#697386]"
                 type="button"
                 onClick={() => {
                   setSourceTicker(row.source_ticker);
@@ -354,16 +355,16 @@ function UniverseSymbolMappingPanel({
                 }}
               >
                 <span className="font-medium">{row.source_ticker}</span>
-                <span className="text-[#a0a7b4]">{row.yahoo_symbol || "-"}</span>
+                <span className="text-[var(--muted)]">{row.yahoo_symbol || "-"}</span>
                 <StatusChip tone={row.status === "ignored" ? "warning" : "good"}>{row.status}</StatusChip>
               </button>
             ))}
           </div>
         </div>
-        <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="text-sm font-medium">Ungemappte Stichprobe</div>
-            <div className="text-xs text-[#77808f]">
+            <div className="text-xs text-[var(--muted)]">
               {(review?.unmapped_count ?? 0).toLocaleString("de-DE")} ohne Override
             </div>
           </div>
@@ -371,7 +372,7 @@ function UniverseSymbolMappingPanel({
             {unmappedSample.map((ticker) => (
               <button
                 key={ticker}
-                className="rounded border border-[#2d333d] px-2 py-1 text-xs text-[#d8dde6] transition hover:border-emerald-300/60"
+                className="rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--text)] transition hover:border-emerald-300/60"
                 type="button"
                 onClick={() => fillTicker(ticker)}
               >
@@ -379,7 +380,7 @@ function UniverseSymbolMappingPanel({
               </button>
             ))}
             {unmappedSample.length === 0 && (
-              <div className="text-sm text-[#77808f]">Keine ungemappten Ticker in der aktuellen Stichprobe.</div>
+              <div className="text-sm text-[var(--muted)]">Keine ungemappten Ticker in der aktuellen Stichprobe.</div>
             )}
           </div>
         </div>
@@ -432,7 +433,7 @@ function YahooDiagnosticsPanel({
     : { source: "dashboard", universe: "us_common_stocks", limit: 40, period: "1mo" };
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -444,14 +445,14 @@ function YahooDiagnosticsPanel({
               <StatusChip tone="neutral">Universe-Stichprobe</StatusChip>
             )}
           </div>
-          <div className="mt-1 max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+          <div className="mt-1 max-w-4xl text-sm leading-6 text-[var(--muted)]">
             Diagnose prüft nur Kandidaten und schreibt nichts. Auto-Rescue speichert nur Kandidaten, die echte
             Daily-Bars liefern; Kursdaten werden danach über den normalen Market-Prices-Job geladen.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled || startingType === "yahoo_symbol_diagnostics"}
             type="button"
             onClick={() => onStart("yahoo_symbol_diagnostics", probePayload)}
@@ -460,7 +461,7 @@ function YahooDiagnosticsPanel({
             {startingType === "yahoo_symbol_diagnostics" ? "Startet" : "Diagnose starten"}
           </button>
           <button
-            className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-3 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled || startingType === "yahoo_symbol_rescue"}
             type="button"
             onClick={() => onStart("yahoo_symbol_rescue", probePayload)}
@@ -472,17 +473,17 @@ function YahooDiagnosticsPanel({
       </div>
 
       {latestJob && (
-        <div className="mb-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+        <div className="mb-4 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="font-medium">Letzter Yahoo-Job: {latestJob.job_type}</div>
-              <div className="mt-1 text-xs leading-5 text-[#77808f]">{latestJob.message || latestJob.current_step}</div>
+              <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{latestJob.message || latestJob.current_step}</div>
             </div>
-            <div className="text-xs tabular-nums text-[#a0a7b4]">{formatDate(latestJob.created_at)}</div>
+            <div className="text-xs tabular-nums text-[var(--muted)]">{formatDate(latestJob.created_at)}</div>
           </div>
           {(latestJob.status === "queued" || latestJob.status === "running") && (
             <div className="mt-3">
-              <div className="h-2 overflow-hidden rounded bg-[#171a20]">
+              <div className="h-2 overflow-hidden rounded bg-[var(--panel)]">
                 <div className="h-2 rounded bg-emerald-300" style={{ width: `${latestJob.progress}%` }} />
               </div>
             </div>
@@ -491,9 +492,9 @@ function YahooDiagnosticsPanel({
       )}
 
       {items.length ? (
-        <div className="overflow-hidden rounded border border-[#2d333d]">
+        <div className="overflow-hidden rounded border border-[var(--border)]">
           <table className="w-full text-left text-sm">
-            <thead className="bg-[#111419] text-xs uppercase text-[#a0a7b4]">
+            <thead className="bg-[var(--panel)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-3 py-2">Ticker</th>
                 <th className="px-3 py-2">Status</th>
@@ -503,14 +504,14 @@ function YahooDiagnosticsPanel({
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.source_ticker} className="border-t border-[#2d333d]">
-                  <td className="px-3 py-2 font-medium text-emerald-100">{item.source_ticker}</td>
+                <tr key={item.source_ticker} className="border-t border-[var(--border)]">
+                  <td className="px-3 py-2 font-medium text-[var(--green)]">{item.source_ticker}</td>
                   <td className="px-3 py-2">
                     <StatusChip tone={toneForYahooStatus(item.status, item.mapping_applied)}>
                       {item.mapping_applied ? "mapping gespeichert" : item.status}
                     </StatusChip>
                   </td>
-                  <td className="px-3 py-2 text-[#d8dde6]">{item.best_candidate || "-"}</td>
+                  <td className="px-3 py-2 text-[var(--text)]">{item.best_candidate || "-"}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
                       {item.candidates.slice(0, 4).map((candidate) => (
@@ -519,8 +520,8 @@ function YahooDiagnosticsPanel({
                           className={[
                             "rounded border px-2 py-1 text-xs",
                             candidate.ok
-                              ? "border-emerald-300/35 bg-emerald-300/10 text-emerald-100"
-                              : "border-[#2d333d] bg-[#111419] text-[#a0a7b4]"
+                              ? "border-emerald-300/35 bg-[var(--green-soft)] text-[var(--green)]"
+                              : "border-[var(--border)] bg-[var(--panel)] text-[var(--muted)]"
                           ].join(" ")}
                         >
                           {candidate.symbol}
@@ -534,7 +535,7 @@ function YahooDiagnosticsPanel({
           </table>
         </div>
       ) : (
-        <div className="rounded border border-dashed border-[#2d333d] bg-[#111419] p-4 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-dashed border-[var(--border)] bg-[var(--panel)] p-4 text-sm text-[var(--muted)]">
           Noch keine Yahoo-Diagnose gelaufen. Starte zuerst eine Diagnose oder nutze Auto-Rescue nach einem fehlgeschlagenen Price-Refresh.
         </div>
       )}
@@ -632,12 +633,13 @@ export default function JobsPage() {
           type="button"
           onClick={() => refetch()}
         >
-          <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+          <RotateCw size={15} className={isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
           Aktualisieren
         </button>
       </div>
 
       <DataMaintenancePanel />
+      <OperationStatus />
       <ReportWorkStatus />
       <JobsSetupStatusPanel
         activeJob={activeJob}
@@ -664,8 +666,8 @@ export default function JobsPage() {
         startingType={startingType}
       />
 
-      <details className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <summary className="cursor-pointer text-base font-semibold text-[#d8dde6]">
+      <details className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
+        <summary className="cursor-pointer text-base font-semibold text-[var(--text)]">
           Expert-Werkzeuge: Universe, Yahoo-Mapping und Einzeljobs
         </summary>
         <div className="mt-4 space-y-5">
@@ -723,14 +725,14 @@ export default function JobsPage() {
         </div>
       </details>
 
-      <details className="rounded border border-[#2d333d] bg-[#171a20] p-5">
-        <summary className="cursor-pointer text-base font-semibold text-[#d8dde6]">
+      <details className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
+        <summary className="cursor-pointer text-base font-semibold text-[var(--text)]">
           Einzeljob manuell starten
         </summary>
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-base font-semibold">Job manuell starten</h2>
-            <div className="text-sm text-[#a0a7b4]">
+            <div className="text-sm text-[var(--muted)]">
               Expert-Modus mit festen Default-Einstellungen. Für die Erstbefüllung die Box „Marktdaten initial laden“
               oben verwenden.
             </div>
@@ -747,19 +749,19 @@ export default function JobsPage() {
                 className={[
                   "rounded border px-3 py-3 text-left text-sm transition",
                   selectedType === item.type
-                    ? "border-emerald-300/60 bg-emerald-300/10"
-                    : "border-[#2d333d] bg-[#111419] hover:border-[#697386]"
+                    ? "border-emerald-300/60 bg-[var(--green-soft)]"
+                    : "border-[var(--border)] bg-[var(--panel)] hover:border-[#697386]"
                 ].join(" ")}
                 type="button"
                 onClick={() => setSelectedType(item.type)}
               >
                 <div className="font-medium">{item.label}</div>
-                <div className="mt-1 text-xs text-[#a0a7b4]">{item.description}</div>
+                <div className="mt-1 text-xs text-[var(--muted)]">{item.description}</div>
               </button>
             ))}
           </div>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={Boolean(activeJob) || startMutation.isPending}
             type="button"
             onClick={() => startMutation.mutate({ type: selectedType, payload: defaultPayloadForJob(selectedType) })}
@@ -769,24 +771,24 @@ export default function JobsPage() {
           </button>
         </div>
         {selectedType === "refresh_sec13f" && (
-          <div className="mt-3 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-sm leading-6 text-amber-100">
+          <div className="mt-3 rounded border border-amber-300/30 bg-[var(--yellow-soft)] p-3 text-sm leading-6 text-[var(--yellow)]">
             13F/SEC benötigt einen SEC User-Agent im Setup/Security-Bereich, zum Beispiel
             `boerse-dashboard-web name@example.com`. Danach zieht Smart-Refresh fehlende 13F-Daten automatisch nach.
           </div>
         )}
-        <details className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
-          <summary className="cursor-pointer text-[#d8dde6]">Default-Einstellungen für diesen manuellen Start</summary>
-          <p className="mt-2 leading-6 text-[#a0a7b4]">
+        <details className="mt-3 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <summary className="cursor-pointer text-[var(--text)]">Default-Einstellungen für diesen manuellen Start</summary>
+          <p className="mt-2 leading-6 text-[var(--muted)]">
             Diese Werte sind unabhängig von den Hauptbuttons. Für Marktbreite und RS wird das volle gespeicherte
             US-Common-Stocks-Universum verwendet. 13F wird im Smart-Refresh nur bei fehlenden oder veralteten
             Quartalsdaten gestartet.
           </p>
-          <pre className="mt-3 max-h-44 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-3 text-xs text-[#d8dde6]">
+          <pre className="mt-3 max-h-44 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-xs text-[var(--text)]">
             {JSON.stringify(defaultPayloadForJob(selectedType), null, 2)}
           </pre>
         </details>
         {startMutation.isError && (
-          <div className="mt-3 text-sm text-rose-200">
+          <div className="mt-3 text-sm text-[var(--red)]">
             {startMutation.error instanceof Error ? startMutation.error.message : "Job konnte nicht gestartet werden."}
           </div>
         )}
@@ -796,7 +798,7 @@ export default function JobsPage() {
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-base font-semibold">Letzte Jobs</h2>
-            <p className="text-sm text-[#a0a7b4]">
+            <p className="text-sm text-[var(--muted)]">
               Aktive Jobs werden immer angezeigt, plus die letzten drei abgeschlossenen Einträge.
             </p>
           </div>
@@ -806,7 +808,7 @@ export default function JobsPage() {
           </div>
         </div>
         {jobs.length === 0 && (
-          <div className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+          <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
             Noch keine Jobs vorhanden. Das Frontend bleibt auch ohne laufenden Worker nutzbar.
           </div>
         )}
@@ -841,7 +843,7 @@ function JobsSetupStatusPanel({
   const nextStep = steps.find((step) => step.key === setupStatus?.next_step_key);
   const blockedByActiveJob = Boolean(activeJob);
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -851,17 +853,17 @@ function JobsSetupStatusPanel({
             </StatusChip>
             {activeJob ? <StatusChip tone="warning">läuft: {activeJob.job_type}</StatusChip> : null}
           </div>
-          <p className="max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+          <p className="max-w-4xl text-sm leading-6 text-[var(--muted)]">
             {setupStatus?.summary ?? "Prüfe System, Depot, Kursdaten, Marktbreite, RS-Ratings, 13F-Daten und Positionsmonitor."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <button
-            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
             onClick={onRefresh}
           >
-            <RotateCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RotateCw size={15} className={isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Status prüfen
           </button>
           {nextStep?.job_type ? (
@@ -884,7 +886,7 @@ function JobsSetupStatusPanel({
           ) : null}
           {activeJob ? (
             <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-amber-200/50 bg-[#111419] px-3 py-2 text-sm text-amber-100 transition hover:border-rose-200/70 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded border border-amber-200/50 bg-[var(--panel)] px-3 py-2 text-sm text-[var(--yellow)] transition hover:border-rose-200/70 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={cancellingJobId === activeJob.job_id}
               type="button"
               onClick={() => onCancel(activeJob.job_id)}
@@ -896,28 +898,28 @@ function JobsSetupStatusPanel({
         </div>
       </div>
       {activeJob ? (
-        <div className="mt-4 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+        <div className="mt-4 rounded border border-amber-300/35 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <div className="font-medium">Aktiver Job: {activeJob.job_type}</div>
-              <div className="mt-1 text-xs leading-5 text-amber-100/80">
+              <div className="mt-1 text-xs leading-5 text-[var(--yellow)]/80">
                 {activeJob.current_step || activeJob.message || "Der Worker hat noch keinen Detailstatus gemeldet."}
               </div>
-              <div className="mt-1 truncate text-xs text-amber-100/60">{activeJob.job_id}</div>
+              <div className="mt-1 truncate text-xs text-[var(--yellow)]/60">{activeJob.job_id}</div>
             </div>
-            <div className="text-xs tabular-nums text-amber-100/80">{activeJob.progress}%</div>
+            <div className="text-xs tabular-nums text-[var(--yellow)]/80">{activeJob.progress}%</div>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded bg-[#111419]">
+          <div className="mt-3 h-2 overflow-hidden rounded bg-[var(--panel)]">
             <div className="h-2 rounded bg-emerald-300" style={{ width: `${activeJob.progress}%` }} />
           </div>
         </div>
       ) : null}
       {nextStep ? (
-        <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+        <div className="mt-4 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="font-medium">Nächste Aktion: {nextStep.label}</div>
-              <div className="mt-1 text-xs leading-5 text-[#8e97a6]">{nextStep.detail}</div>
+              <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{nextStep.detail}</div>
             </div>
             <StatusChip tone={toneForSetupStep(nextStep.status)}>{shortSetupStatus(nextStep.status)}</StatusChip>
           </div>
@@ -926,12 +928,12 @@ function JobsSetupStatusPanel({
       {steps.length > 0 ? (
         <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-7">
           {steps.map((step) => (
-            <div key={step.key} className="rounded border border-[#242a33] bg-[#111419] p-3">
+            <div key={step.key} className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="truncate text-xs font-medium">{step.label}</span>
                 <StatusChip tone={toneForSetupStep(step.status)}>{shortSetupStatus(step.status)}</StatusChip>
               </div>
-              <div className="line-clamp-2 text-xs leading-5 text-[#77808f]">{step.detail}</div>
+              <div className="line-clamp-2 text-xs leading-5 text-[var(--muted)]">{step.detail}</div>
             </div>
           ))}
         </div>
@@ -962,7 +964,7 @@ function MarketDataAssistantPanel({
   const latestAssistantJob = newerJob(latestSmart, latestBootstrap);
 
   return (
-    <section className="rounded border border-emerald-300/25 bg-[#171a20] p-5">
+    <section className="rounded border border-emerald-300/25 bg-[var(--panel)] p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-4xl">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -970,13 +972,13 @@ function MarketDataAssistantPanel({
             <StatusChip tone={activeJob ? "warning" : "good"}>{activeJob ? `läuft: ${activeJob.job_type}` : "bereit"}</StatusChip>
             {latestAssistantJob && <StatusChip tone={statusTone[latestAssistantJob.status]}>{jobStatusLabel(latestAssistantJob.status)}</StatusChip>}
           </div>
-          <p className="text-sm leading-6 text-[#a0a7b4]">
+          <p className="text-sm leading-6 text-[var(--muted)]">
             Für die Marktampel braucht die App ein gespeichertes US-Aktienuniversum, Kursdaten, Marktbreite und RS-Ratings.
             Alles smart aktualisieren prüft zuerst die Datenlage und aktualisiert nur fehlende oder veraltete Teile,
             inklusive 13F/SEC-Trends, wenn sie fehlen oder veraltet sind.
             Geplante Smart-Refreshes laufen automatisch um 16:00 und 22:30 Uhr deutscher Zeit und erzwingen den Market-Refresh-Pfad.
           </p>
-          <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-4">
+          <div className="mt-3 grid gap-2 text-xs text-[var(--muted)] md:grid-cols-4">
             <span>Universe: US Common Stocks</span>
             <span>Limit: {config.storedUniverseLimit.toLocaleString("de-DE")} Ticker</span>
             <span>Initial: {config.priceRange}</span>
@@ -994,7 +996,7 @@ function MarketDataAssistantPanel({
             {startingType === "smart_refresh_market_data" ? "Prüft" : "Alles smart aktualisieren"}
           </button>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/50 bg-emerald-300/15 px-4 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/50 bg-[var(--green-soft)] px-4 py-3 text-sm font-medium text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled}
             type="button"
             onClick={() => onStart("bootstrap_market_data", initialPayload)}
@@ -1003,7 +1005,7 @@ function MarketDataAssistantPanel({
             {startingType === "bootstrap_market_data" ? "Startet" : "Alles initialisieren"}
           </button>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-3 text-sm text-[#d8dde6] transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--text)] transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled}
             type="button"
             onClick={() => onStart("bootstrap_market_data", updatePayload)}
@@ -1014,19 +1016,19 @@ function MarketDataAssistantPanel({
         </div>
       </div>
       {latestAssistantJob && (
-        <div className="mt-4 rounded border border-[#2d333d] bg-[#111419] p-4">
+        <div className="mt-4 rounded border border-[var(--border)] bg-[var(--panel)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium">{latestAssistantJob.current_step}</div>
-              <div className="mt-1 text-xs text-[#8e97a6]">{latestAssistantJob.message || "Noch keine Detailmeldung."}</div>
+              <div className="mt-1 text-xs text-[var(--muted)]">{latestAssistantJob.message || "Noch keine Detailmeldung."}</div>
             </div>
             <StatusChip tone={statusTone[latestAssistantJob.status]}>{latestAssistantJob.progress}%</StatusChip>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#242a33]">
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--teal-soft)]">
             <div className="h-full rounded-full bg-emerald-300" style={{ width: `${latestAssistantJob.progress}%` }} />
           </div>
           {latestAssistantJob.error_message ? (
-            <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+            <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
               {latestAssistantJob.error_message}
             </div>
           ) : null}
@@ -1056,11 +1058,11 @@ function RefreshSequence({
   const customPresetNeedsTickers = config.pricePreset === "custom" && customTickerCount === 0;
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-base font-semibold">Marktdaten initial laden</h2>
-          <div className="text-sm text-[#a0a7b4]">
+          <div className="text-sm text-[var(--muted)]">
             Ersetzt die curl-Befehle: Werte eintragen, Jobs nacheinander starten, Status bleibt sichtbar.
           </div>
         </div>
@@ -1069,10 +1071,10 @@ function RefreshSequence({
         </StatusChip>
       </div>
       <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_1fr] xl:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Price-Universum</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Price-Universum</span>
           <select
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
             value={config.pricePreset}
             onChange={(event) => onConfigChange({ pricePreset: event.target.value as PricePreset })}
           >
@@ -1084,10 +1086,10 @@ function RefreshSequence({
             <option value="custom">Eigene Tickerliste</option>
           </select>
         </label>
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Price Range</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Price Range</span>
           <select
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none transition focus:border-emerald-300/70"
             value={config.priceRange}
             onChange={(event) => onConfigChange({ priceRange: event.target.value as PriceRange })}
           >
@@ -1125,24 +1127,24 @@ function RefreshSequence({
         />
       </div>
       <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_220px]">
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">Eigene Tickerliste</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">Eigene Tickerliste</span>
           <input
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm outline-none transition placeholder:text-[#697386] focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-emerald-300/70"
             placeholder="Optional, z. B. SPY, QQQ, NVDA, MSFT"
             value={config.customTickers}
             onChange={(event) => onConfigChange({ customTickers: event.target.value })}
           />
-          <div className="mt-2 text-xs text-[#77808f]">
+          <div className="mt-2 text-xs text-[var(--muted)]">
             {customTickerCount > 0
               ? `${customTickerCount} Ticker werden für Custom-Jobs verwendet. Benchmark und Volatility-Ticker werden beim Price-Refresh mitgeladen.`
               : "Leer lassen für das vorbereitete Starter-Universum."}
           </div>
         </label>
-        <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-          <span className="text-xs uppercase text-[#77808f]">RS Benchmark</span>
+        <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+          <span className="text-xs uppercase text-[var(--muted)]">RS Benchmark</span>
           <input
-            className="mt-2 w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
+            className="mt-2 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm uppercase outline-none transition focus:border-emerald-300/70"
             value={config.rsBenchmarkTicker}
             onChange={(event) => onConfigChange({ rsBenchmarkTicker: event.target.value.toUpperCase() })}
           />
@@ -1150,7 +1152,7 @@ function RefreshSequence({
       </div>
       <BootstrapExplanation config={config} />
       {customPresetNeedsTickers && (
-        <div className="mb-4 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+        <div className="mb-4 rounded border border-amber-300/35 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
           Für das Custom-Universum bitte mindestens einen Ticker eintragen.
         </div>
       )}
@@ -1161,24 +1163,24 @@ function RefreshSequence({
           const running = latest?.status === "running" || latest?.status === "queued";
           const disabled = Boolean(activeJob) || startingType === step.type || running || step.disabled;
           return (
-            <div key={step.type} className="rounded border border-[#2d333d] bg-[#111419] p-4">
+            <div key={step.type} className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium">{step.label}</div>
-                  <div className="mt-1 text-xs leading-5 text-[#a0a7b4]">{step.description}</div>
+                  <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{step.description}</div>
                 </div>
-                {done ? <CheckCircle2 size={18} className="text-emerald-300" /> : <CircleDashed size={18} className="text-[#77808f]" />}
+                {done ? <CheckCircle2 size={18} className="text-[var(--green)]" /> : <CircleDashed size={18} className="text-[var(--muted)]" />}
               </div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <StatusChip tone={latest ? statusTone[latest.status] : "neutral"}>
                   {latest?.status ?? "nie gelaufen"}
                 </StatusChip>
                 {latest?.finished_at && (
-                  <span className="text-xs text-[#77808f]">{formatDate(latest.finished_at)}</span>
+                  <span className="text-xs text-[var(--muted)]">{formatDate(latest.finished_at)}</span>
                 )}
               </div>
               <button
-                className="inline-flex w-full items-center justify-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex w-full items-center justify-center gap-2 rounded border border-emerald-300/35 bg-[var(--green-soft)] px-3 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={disabled}
                 type="button"
                 onClick={() => onStart(step.type, step.payload)}
@@ -1186,10 +1188,10 @@ function RefreshSequence({
                 <Play size={15} />
                 {startingType === step.type ? "Startet" : running ? "aktiv" : "Starten"}
               </button>
-              <details className="mt-3 rounded border border-[#242a33] bg-[#171a20] p-3 text-xs">
-                <summary className="cursor-pointer text-[#a0a7b4]">Einstellungen anzeigen</summary>
-                <p className="mt-2 leading-5 text-[#77808f]">{step.settings}</p>
-                <pre className="mt-2 max-h-32 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-2 text-[#d8dde6]">
+              <details className="mt-3 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-xs">
+                <summary className="cursor-pointer text-[var(--muted)]">Einstellungen anzeigen</summary>
+                <p className="mt-2 leading-5 text-[var(--muted)]">{step.settings}</p>
+                <pre className="mt-2 max-h-32 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] p-2 text-[var(--text)]">
                   {JSON.stringify(step.payload, null, 2)}
                 </pre>
               </details>
@@ -1204,19 +1206,19 @@ function RefreshSequence({
 function BootstrapExplanation({ config }: { config: MarketDataBootstrapConfig }) {
   return (
     <div className="mb-4 grid gap-3 xl:grid-cols-2">
-      <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
         <h3 className="text-sm font-semibold">Was bedeutet Price-Universum?</h3>
-        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">{pricePresetHelp[config.pricePreset]}</p>
-        <div className="mt-3 grid gap-2 text-xs text-[#77808f] md:grid-cols-2">
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{pricePresetHelp[config.pricePreset]}</p>
+        <div className="mt-3 grid gap-2 text-xs text-[var(--muted)] md:grid-cols-2">
           <span>Range: {config.priceRange}</span>
           <span>Universe-Limit: {config.storedUniverseLimit.toLocaleString("de-DE")} Ticker</span>
           <span>Breadth: {config.breadthLookbackDays.toLocaleString("de-DE")} Tage</span>
           <span>RS: {config.rsLookbackDays.toLocaleString("de-DE")} Tage gegen {normalizeTicker(config.rsBenchmarkTicker) || "SPY"}</span>
         </div>
       </div>
-      <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
         <h3 className="text-sm font-semibold">Initialisierung auf der NAS</h3>
-        <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
           Für den ersten Start: Market Prices, danach Market Breadth, danach RS Ratings. Fundamentals und
           Positionsmonitor sind optional und können später laufen. Auf der DS220+ wird nur ein schwerer Job gleichzeitig
           gestartet.
@@ -1242,18 +1244,18 @@ function NumberField({
   value: number;
 }) {
   return (
-    <label className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm">
-      <span className="text-xs uppercase text-[#77808f]">{label}</span>
+    <label className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
+      <span className="text-xs uppercase text-[var(--muted)]">{label}</span>
       <div className="mt-2 flex items-center gap-2">
         <input
-          className="w-full rounded border border-[#2d333d] bg-[#171a20] px-3 py-2 text-sm tabular-nums outline-none transition focus:border-emerald-300/70"
+          className="w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm tabular-nums outline-none transition focus:border-emerald-300/70"
           max={max}
           min={min}
           type="number"
           value={value}
           onChange={(event) => onChange(clampNumber(event.currentTarget.valueAsNumber, min, max, value))}
         />
-        <span className="text-xs text-[#77808f]">{suffix}</span>
+        <span className="text-xs text-[var(--muted)]">{suffix}</span>
       </div>
     </label>
   );
@@ -1270,15 +1272,15 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
   });
   const detailedJob = detailQuery.data ?? job;
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">{job.job_type}</h2>
             <StatusChip tone={statusTone[job.status]}>{jobStatusLabel(job.status)}</StatusChip>
           </div>
-          <div className="mt-1 text-sm text-[#a0a7b4]">{job.current_step || job.message}</div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#77808f]">
+          <div className="mt-1 text-sm text-[var(--muted)]">{job.current_step || job.message}</div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
             <span>{job.job_id}</span>
             <span>requested by {job.requested_by}</span>
             <span>{formatDate(job.created_at)}</span>
@@ -1286,7 +1288,7 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
         </div>
         {canCancel && (
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-rose-300/60"
+            className="inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-rose-300/60"
             type="button"
             onClick={() => onCancel(job.job_id)}
           >
@@ -1296,19 +1298,19 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
         )}
       </div>
 
-      <div className="mt-4 h-2 overflow-hidden rounded bg-[#111419]">
+      <div className="mt-4 h-2 overflow-hidden rounded bg-[var(--panel)]">
         <div
           className={job.status === "failed" ? "h-2 rounded bg-rose-300" : "h-2 rounded bg-emerald-300"}
           style={{ width: `${job.progress}%` }}
         />
       </div>
-      <div className="mt-2 text-right text-xs tabular-nums text-[#a0a7b4]">{job.progress}%</div>
+      <div className="mt-2 text-right text-xs tabular-nums text-[var(--muted)]">{job.progress}%</div>
 
       <details
-        className="mt-3 rounded border border-[#242a33] bg-[#111419] p-3 text-sm"
+        className="mt-3 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm"
         onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
       >
-        <summary className="cursor-pointer text-[#d8dde6]">Details</summary>
+        <summary className="cursor-pointer text-[var(--text)]">Details</summary>
         {detailsOpen && detailQuery.isLoading ? (
           <div className="mt-3 text-sm text-[#687386]">Vollständige Details werden geladen...</div>
         ) : null}
@@ -1317,12 +1319,12 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
           <JsonBlock title="Result" value={detailedJob.result} />
         </div>
         {detailQuery.error ? (
-          <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-rose-100">
+          <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-[var(--red)]">
             Vollständige Jobdetails konnten nicht geladen werden.
           </div>
         ) : null}
         {detailedJob.error_message && (
-          <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-rose-100">
+          <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-[var(--red)]">
             {detailedJob.error_message}
           </div>
         )}
@@ -1334,8 +1336,8 @@ function JobRow({ job, onCancel }: { job: Job; onCancel: (jobId: string) => void
 function JsonBlock({ title, value }: { title: string; value: Record<string, unknown> }) {
   return (
     <div>
-      <div className="mb-1 text-xs uppercase text-[#a0a7b4]">{title}</div>
-      <pre className="max-h-44 overflow-auto rounded border border-[#242a33] bg-[#0f1115] p-3 text-xs text-[#d8dde6]">
+      <div className="mb-1 text-xs uppercase text-[var(--muted)]">{title}</div>
+      <pre className="max-h-44 overflow-auto rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-xs text-[var(--text)]">
         {JSON.stringify(value, null, 2)}
       </pre>
     </div>

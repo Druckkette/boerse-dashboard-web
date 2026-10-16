@@ -238,6 +238,7 @@ def _merge_market_helper_symbols(symbols: list) -> list:
     by_ticker = {str(symbol.source_ticker).upper(): symbol for symbol in symbols if str(symbol.source_ticker).strip()}
     helper_tickers = [
         *MARKET_CORE_PRICE_TICKERS,
+        "EURUSD=X", "GBPUSD=X", "CHFUSD=X", "CADUSD=X", "JPYUSD=X",
         MARKET_TREND_BENCHMARK,
         *MARKET_INDEX_FALLBACK_TICKERS.get(MARKET_TREND_BENCHMARK, []),
     ]

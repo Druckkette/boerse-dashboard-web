@@ -549,6 +549,12 @@ export type SystemReadiness = {
 };
 
 export type PortfolioPosition = {
+  position_id?: string;
+  base_currency?: string;
+  base_market_value?: number | null;
+  base_pnl_abs?: number | null;
+  fx_as_of?: string | null;
+  fx_source?: string;
   ticker: string;
   name: string;
   shares: number;
@@ -609,6 +615,8 @@ export type PortfolioAfterHours = {
 };
 
 export type PortfolioSnapshot = {
+  currency?: string;
+  cash_by_currency?: Record<string, number>;
   as_of: string;
   total_value: number;
   invested_value: number;
@@ -630,16 +638,21 @@ export type PortfolioSnapshot = {
 
 export type PortfolioCurvePoint = {
   date: string;
-  depot_value: number;
-  positions_value: number;
-  cash: number;
-  portfolio_index: number;
+  depot_value: number | null;
+  positions_value: number | null;
+  cash: number | null;
+  portfolio_index: number | null;
   portfolio_index_sma10?: number | null;
   portfolio_index_sma21?: number | null;
   sp500_index?: number | null;
 };
 
 export type PortfolioCurve = {
+  model?: "execution_history" | "current_holdings" | "unavailable";
+  currency?: string;
+  complete_points?: number;
+  total_points?: number;
+  cash_flow_timing?: string;
   as_of: string;
   source: "database" | "trade_republic_transactions" | "missing";
   data_status: "fresh" | "limited" | "stale" | "missing";
@@ -889,9 +902,16 @@ export type TradeJournalTradeSummary = {
 
 export type TradeJournalTradesResponse = { trades: TradeJournalTradeSummary[]; total: number };
 
+export type JournalGroup = { label: string; currency: string; count: number; net_result: number; average_win?: number | null; average_loss?: number | null; profit_factor?: number | null; hit_rate_pct?: number | null; average_r?: number | null; r_count: number; first_date?: string; last_date?: string };
 export type TradeJournalAnalytics = {
+  currency?: string | null;
+  by_currency?: JournalGroup[];
+  groups?: JournalGroup[];
+  group_by?: string;
+  context?: string;
+  notes?: string[];
   closed_trades: number;
-  net_result: number;
+  net_result: number | null;
   winners: number;
   losers: number;
   hit_rate_pct?: number | null;
@@ -906,6 +926,7 @@ export type TradeJournalEntryResponse = {
 };
 
 export type PortfolioPositionWriteRequest = {
+  create_only?: boolean;
   ticker: string;
   name?: string;
   shares: number;
@@ -1321,6 +1342,7 @@ export type StockEarningsWarning = {
 };
 
 export type StockAssessment = {
+  calculation?: { version: string; rules: string; configuration_hash: string; weights: Record<string, number> };
   data_quality?: Record<string, { status: string; label: string; as_of?: string | null; fetched_at?: string | null; expected?: string }>;
   ticker: string;
   as_of: string;
@@ -1350,6 +1372,8 @@ export type StockAssessment = {
 };
 
 export type StockAssessmentRankingItem = {
+  calculation?: { version: string; configuration_hash: string };
+  configuration_current?: boolean | null;
   ticker: string;
   name: string;
   as_of: string;
@@ -1388,6 +1412,7 @@ export type StockScreeningItem = StockAssessmentRankingItem & {
 };
 
 export type StockScreening = {
+  criterion_options?: { id: string; label: string }[];
   total_count: number;
   criteria: string[];
   summary: {
@@ -1552,6 +1577,10 @@ export type Sec13FMappingUpdate = {
 };
 
 export type SellRankingRow = {
+  decision_eligible?: boolean;
+  signal_current?: boolean;
+  decision_category?: "action" | "observe" | "data" | "hold";
+  eligibility_reason?: string;
   generated_at?: string | null;
   ticker: string;
   name: string;
@@ -1840,6 +1869,7 @@ export type JobType =
   | "backfill_trade_journal_contexts";
 
 export type AppSettings = {
+  calculation_refresh?: { status?: string; job_id?: string; detail?: string };
   atr_threshold: number;
   risk_per_position_pct: number;
   target_risk_contribution: number;
@@ -2176,6 +2206,7 @@ export type IndustryGroupStockRow = {
 };
 
 export type IndustryGroupRankingRow = {
+  rotation_history?: { date: string; rs_score: number | null; rank: number | null; ranked_group_count: number; is_ranked: boolean }[];
   id: string;
   code: string;
   name: string;
@@ -2218,6 +2249,7 @@ export type IndustryGroupRankingRow = {
 };
 
 export type IndustryGroupRankings = {
+  facets?: { sectors: string[]; families: string[] };
   as_of: string;
   taxonomy_version: string;
   algorithm_version: string;

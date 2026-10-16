@@ -22,10 +22,11 @@ export function HomeDashboard() {
     return () => window.clearInterval(timer);
   }, []);
   if (query.isLoading) return <HomeLoading />;
-  if (query.error) return <div className="dashboard-section" role="alert">Die Startseite konnte nicht geladen werden. <button type="button" className="font-semibold text-[#0f766e]" onClick={() => query.refetch()}>Erneut versuchen</button></div>;
+  if (query.error && !query.data) return <div className="dashboard-section" role="alert">Die Startseite konnte nicht geladen werden. <button type="button" className="font-semibold text-[#0f766e]" onClick={() => query.refetch()}>Erneut versuchen</button></div>;
   if (!query.data) return null;
   const data = query.data;
   return <div className="space-y-5">
+    {query.isError && <p role="alert" className="app-notice">Aktualisierung fehlgeschlagen. Angezeigt wird der letzte erfolgreich geladene Stand. <button type="button" onClick={() => query.refetch()}>Erneut versuchen</button></p>}
     <h1 className="sr-only">Startseite</h1>
     <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[#687386]">
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1">

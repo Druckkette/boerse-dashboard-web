@@ -40,12 +40,12 @@ export function MarketRiskSectionsPanel({
   });
 
   if (ampelQuery.isLoading || diagnosticsQuery.isLoading) {
-    return <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">Marktsignale laden...</section>;
+    return <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">Marktsignale laden...</section>;
   }
 
   if (ampelQuery.error || !ampelQuery.data) {
     return (
-      <section className="rounded border border-rose-400/40 bg-rose-400/10 p-5 text-sm text-rose-100">
+      <section className="rounded border border-rose-400/40 bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]">
         Frühwarnzeichen und Warnzeichen sind aktuell nicht erreichbar.
       </section>
     );
@@ -66,7 +66,7 @@ export function MarketRiskSectionsPanel({
         >
           <RotateCw
             size={15}
-            className={ampelQuery.isFetching || diagnosticsQuery.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"}
+            className={ampelQuery.isFetching || diagnosticsQuery.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"}
           />
           Aktualisieren
         </button>
@@ -125,19 +125,19 @@ export function MarketSentimentPositioningPanel({ ticker = "^GSPC" }: { ticker?:
     })) ?? [];
 
   if (volatilityQuery.isLoading || overviewQuery.isLoading) {
-    return <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">Stimmungsindikatoren laden...</section>;
+    return <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">Stimmungsindikatoren laden...</section>;
   }
 
   return (
     <section className="space-y-4">
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <StatusChip tone={overviewQuery.data ? toneForStatus(overviewQuery.data.data_status) : "neutral"}>
             {overviewQuery.data ? labelForStatus(overviewQuery.data.data_status) : "lädt"}
           </StatusChip>
         </div>
         <h3 className="text-xl font-semibold tracking-normal">Signalübersicht</h3>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-[#a0a7b4]">
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--muted)]">
           VIX, VXX und Margin Debt als ergänzende Stimmungs- und Positionierungsindikatoren.
         </p>
       </div>
@@ -270,7 +270,7 @@ function MovingAverageDistanceCard({ tiles }: { tiles: MarketAmpelDistanceTile[]
     <div className="rounded-[12px] border border-[#e3e8ef] bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]">
       <div className="mb-2.5 flex items-start justify-between gap-3">
         <div>
-          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">
+          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[var(--muted)] [overflow-wrap:anywhere]">
             Abstand Index zu gleitenden Durchschnitten
           </div>
           <div className="mt-1.5 text-xs leading-5 text-[#4b5565]">21-EMA, 10-SMA, 50-SMA und 200-SMA.</div>
@@ -279,12 +279,12 @@ function MovingAverageDistanceCard({ tiles }: { tiles: MarketAmpelDistanceTile[]
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {tiles.length ? tiles.map((tile) => (
-          <div key={tile.label} className="rounded border border-[#242a33] bg-[#111419] px-3 py-2">
-            <div className="text-xs text-[#77808f]">{tile.label}</div>
+          <div key={tile.label} className="rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2">
+            <div className="text-xs text-[var(--muted)]">{tile.label}</div>
             <div className={clsx("mt-1 text-sm font-semibold", toneText(tile.tone))}>{tile.value}</div>
-            <div className="text-xs text-[#a0a7b4]">{tile.indicator}</div>
+            <div className="text-xs text-[var(--muted)]">{tile.indicator}</div>
           </div>
-        )) : <div className="text-sm text-[#a0a7b4]">Keine MA-Abstände im Cache.</div>}
+        )) : <div className="text-sm text-[var(--muted)]">Keine MA-Abstände im Cache.</div>}
       </div>
     </div>
   );
@@ -428,20 +428,20 @@ function IntermarketDirectionCard({ items }: { items: MarketIntermarketItem[] })
     <div className={clsx("rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(!valid.length ? "neutral" : mixed ? "warning" : "good"))}>
       <div className="mb-2.5 flex items-start justify-between gap-3">
         <div>
-          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">
+          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[var(--muted)] [overflow-wrap:anywhere]">
             Intermarket-Divergenzen
           </div>
           <div className={clsx("mt-1.5 text-xl font-semibold", toneText(!valid.length ? "neutral" : mixed ? "warning" : "good"))}>{value}</div>
         </div>
         <StatusChip tone={!valid.length ? "neutral" : mixed ? "warning" : "good"}>{mixed ? "gemischt" : "Richtung"}</StatusChip>
       </div>
-      <p className="text-xs leading-5 text-[#d8dde6]">
+      <p className="text-xs leading-5 text-[var(--text)]">
         Prüft, ob S&P 500, Nasdaq, Dow Jones und Russell 2000 am Tag in die gleiche Richtung laufen.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {items.map((item) => (
-          <div key={item.ticker} className="rounded border border-[#242a33] bg-[#111419] px-3 py-2 text-xs">
-            <div className="font-medium text-[#d8dde6]">{item.name}</div>
+          <div key={item.ticker} className="rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs">
+            <div className="font-medium text-[var(--text)]">{item.name}</div>
             <div className={pctClass(item.day_pct)}>{formatPct(item.day_pct)}</div>
           </div>
         ))}
@@ -469,13 +469,13 @@ function SignalCard({
     <div className={clsx("rounded-[12px] border bg-white p-3.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)]", cardClass(tone))}>
       <div className="mb-2.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[#a0a7b4] [overflow-wrap:anywhere]">{title}</div>
+          <div className="break-words text-xs font-semibold uppercase tracking-normal text-[var(--muted)] [overflow-wrap:anywhere]">{title}</div>
           <div className={clsx("mt-1.5 break-words text-xl font-semibold leading-tight", toneText(tone))}>{value}</div>
         </div>
         <StatusChip tone={tone}>{passed === false ? "aktiv" : toneLabel(tone)}</StatusChip>
       </div>
-      <div className="text-xs leading-5 text-[#d8dde6]">{detail}</div>
-      {comment && <div className="mt-1.5 text-[11px] leading-4 text-[#a0a7b4]">{comment}</div>}
+      <div className="text-xs leading-5 text-[var(--text)]">{detail}</div>
+      {comment && <div className="mt-1.5 text-[11px] leading-4 text-[var(--muted)]">{comment}</div>}
     </div>
   );
 }
@@ -506,17 +506,17 @@ function volatilityTone(regime: string): Tone {
 }
 
 function cardClass(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/35 bg-emerald-300/10";
-  if (tone === "bad") return "border-rose-300/35 bg-rose-300/10";
-  if (tone === "warning") return "border-amber-300/35 bg-amber-300/10";
-  return "border-[#2d333d]";
+  if (tone === "good") return "border-emerald-300/35 bg-[var(--green-soft)]";
+  if (tone === "bad") return "border-rose-300/35 bg-[var(--red-soft)]";
+  if (tone === "warning") return "border-amber-300/35 bg-[var(--yellow-soft)]";
+  return "border-[var(--border)]";
 }
 
 function toneText(tone: Tone) {
-  if (tone === "good") return "text-emerald-200";
-  if (tone === "bad") return "text-rose-200";
-  if (tone === "warning") return "text-amber-100";
-  return "text-[#c9d0da]";
+  if (tone === "good") return "text-[var(--green)]";
+  if (tone === "bad") return "text-[var(--red)]";
+  if (tone === "warning") return "text-[var(--yellow)]";
+  return "text-[var(--text)]";
 }
 
 function toneLabel(tone: Tone) {
@@ -527,8 +527,8 @@ function toneLabel(tone: Tone) {
 }
 
 function pctClass(value?: number | null) {
-  if (value === null || value === undefined) return "text-[#77808f]";
-  return value >= 0 ? "text-emerald-200" : "text-rose-200";
+  if (value === null || value === undefined) return "text-[var(--muted)]";
+  return value >= 0 ? "text-[var(--green)]" : "text-[var(--red)]";
 }
 
 function formatPct(value?: number | null) {

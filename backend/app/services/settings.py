@@ -243,7 +243,7 @@ def get_app_settings() -> AppSettings:
 
 
 def update_app_settings(payload: SettingsPatch) -> AppSettings:
-    saved = get_app_settings()
+    saved = _settings_from_values(settings_repository.read_settings())
     current = saved.model_dump()
     updates = payload.model_dump(exclude_none=True)
     current.update(updates)
@@ -251,11 +251,21 @@ def update_app_settings(payload: SettingsPatch) -> AppSettings:
     try:
         persisted = settings_repository.write_settings(next_settings.model_dump())
     except SettingsRepositoryUnavailable:
-        return next_settings
+        # A successful response must mean the database committed the update.
+        raise
     if "sell_rule_setup" in updates and next_settings.sell_rule_setup != saved.sell_rule_setup:
         from app.repositories.sell_state import invalidate_ranking_snapshot
         invalidate_ranking_snapshot()
-    return _settings_from_values(persisted)
+    result = _settings_from_values(persisted)
+    if "assessment_score_weights" in updates and saved.assessment_score_weights != result.assessment_score_weights:
+        try:
+            from app.services.jobs import start_job
+            from app.schemas import JobCreateRequest
+            job = start_job(JobCreateRequest(type="refresh_stock_assessments", payload={"source": "settings_changed"}))
+            result.calculation_refresh = {"status": "queued", "job_id": job.job_id}
+        except Exception:
+            result.calculation_refresh = {"status": "required", "detail": "Gewichte gespeichert. Neuberechnung im Aktienranking starten; vorhandene Stände behalten ihre alte Version."}
+    return result
 
 
 def get_runtime_config() -> RuntimeConfigResponse:

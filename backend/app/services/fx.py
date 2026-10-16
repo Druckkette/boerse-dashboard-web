@@ -9,7 +9,6 @@ from app.repositories.prices import PriceBarWrite, PriceRepositoryUnavailable
 
 
 EUR_USD_TICKER = "EURUSD=X"
-EUR_USD_FALLBACK_RATE = 1.08
 FX_CACHE_TTL_SECONDS = 3600
 YAHOO_TICKER_CURRENCIES = {
     ".DE": "EUR",
@@ -51,7 +50,7 @@ def get_eur_usd_rate(*, force_refresh: bool = False) -> FxRate:
     if rate is None:
         rate = _fetch_eur_usd_rate()
     if rate is None:
-        rate = FxRate(pair="EUR/USD", rate=EUR_USD_FALLBACK_RATE, as_of=date.today(), source="fallback")
+        raise ValueError("Kein beobachteter EUR/USD-Wechselkurs verfügbar. Bitte Wechselkurse aktualisieren.")
 
     _cached_eur_usd = (now, rate)
     return rate

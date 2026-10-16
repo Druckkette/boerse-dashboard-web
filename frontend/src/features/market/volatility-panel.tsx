@@ -77,12 +77,12 @@ export function VolatilityPanel() {
 
       <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
         {(volatility?.status_cards ?? []).map((item) => (
-          <div key={item.title} className={["rounded border border-l-4 bg-[#171a20] p-4", cardClass(item.tone)].join(" ")}>
+          <div key={item.title} className={["rounded border border-l-4 bg-[var(--panel)] p-4", cardClass(item.tone)].join(" ")}>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-xs uppercase text-[#a0a7b4]">{item.title}</div>
+              <div className="text-xs uppercase text-[var(--muted)]">{item.title}</div>
               <StatusChip tone={item.tone}>{item.status}</StatusChip>
             </div>
-            <div className="text-sm leading-5 text-[#d8dde6]">{item.detail}</div>
+            <div className="text-sm leading-5 text-[var(--text)]">{item.detail}</div>
           </div>
         ))}
       </div>
@@ -91,8 +91,8 @@ export function VolatilityPanel() {
 }
 
 function cardClass(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/35 border-l-emerald-300 bg-emerald-300/10";
-  if (tone === "bad") return "border-rose-300/35 border-l-rose-300 bg-rose-300/10";
-  if (tone === "warning") return "border-amber-300/35 border-l-amber-300 bg-amber-300/10";
-  return "border-[#2d333d] border-l-[#586071]";
+  if (tone === "good") return "border-emerald-300/35 border-l-emerald-300 bg-[var(--green-soft)]";
+  if (tone === "bad") return "border-rose-300/35 border-l-rose-300 bg-[var(--red-soft)]";
+  if (tone === "warning") return "border-amber-300/35 border-l-amber-300 bg-[var(--yellow-soft)]";
+  return "border-[var(--border)] border-l-[#586071]";
 }

@@ -46,7 +46,11 @@ def read_data_quality_summary() -> dict:
 
 @router.patch("", response_model=AppSettings)
 def patch_settings(payload: SettingsPatch) -> AppSettings:
-    return update_app_settings(payload)
+    from app.repositories.settings import SettingsRepositoryUnavailable
+    try:
+        return update_app_settings(payload)
+    except SettingsRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Einstellungen konnten nicht gespeichert werden. Der Entwurf bleibt erhalten.") from exc
 
 
 @router.get("/runtime-config", response_model=RuntimeConfigResponse)

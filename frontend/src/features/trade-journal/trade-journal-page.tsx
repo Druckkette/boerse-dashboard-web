@@ -255,7 +255,7 @@ export function TradeJournalPage() {
       </section>
 
       {entriesQuery.isError && (
-        <section className="rounded border border-rose-300/30 bg-rose-400/10 p-4 text-sm text-rose-100">
+        <section className="rounded border border-rose-300/30 bg-[var(--red-soft)] p-4 text-sm text-[var(--red)]">
           Tagebucheinträge konnten nicht geladen werden: {(entriesQuery.error as Error).message}
         </section>
       )}
@@ -309,8 +309,8 @@ function ActionCard({
     <button
       className={clsx(
         "rounded border p-4 text-left transition",
-        active ? "border-emerald-300/50 bg-emerald-300/10" : "border-[#2d333d] bg-[#171a20] hover:border-[#46505d]",
-        disabled && "cursor-not-allowed opacity-55 hover:border-[#2d333d]"
+        active ? "border-emerald-300/50 bg-[var(--green-soft)]" : "border-[var(--border)] bg-[var(--panel)] hover:border-[#46505d]",
+        disabled && "cursor-not-allowed opacity-55 hover:border-[var(--border)]"
       )}
       type="button"
       disabled={disabled}
@@ -320,7 +320,7 @@ function ActionCard({
         <div className="text-base font-semibold">{entryLabels[type]} anlegen</div>
         <Plus className="size-4 text-[#8ea4c8]" />
       </div>
-      <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+      <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
         {detail ?? (type === "buy"
           ? "Setup, Marktphase, Stop, Risiko und Chartbilder einfrieren."
           : "Entscheidung, P&L, Stop-Abweichung und Verkaufsgrund dokumentieren.")}
@@ -360,14 +360,14 @@ function JournalForm({
   }
 
   return (
-    <form className="space-y-4 rounded border border-[#2d333d] bg-[#171a20] p-5" onSubmit={onSubmit}>
+    <form className="space-y-4 rounded border border-[var(--border)] bg-[var(--panel)] p-5" onSubmit={onSubmit}>
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-semibold">{editing ? "Eintrag bearbeiten" : `${entryLabels[draft.entry_type]} erfassen`}</h2>
             <StatusChip tone="neutral">{draft.ticker}</StatusChip>
           </div>
-          <p className="mt-2 text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
             Die Bewertung aus Stocks, Marktampel S&P 500 und Portfolio-Risikodaten werden beim Speichern übernommen.
           </p>
         </div>
@@ -414,7 +414,7 @@ function JournalForm({
           <Field label="Primäre Gründe für den Kauf">
             <textarea className="input-dark min-h-24" value={draft.primary_reasons} onChange={(event) => patch({ primary_reasons: event.target.value })} />
           </Field>
-          <label className="flex items-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3 text-sm text-[#c9d0da]">
+          <label className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm text-[var(--text)]">
             <input
               type="checkbox"
               checked={draft.alternative_entry}
@@ -440,7 +440,7 @@ function JournalForm({
           <Field label="Grund für den Verkauf">
             <textarea className="input-dark min-h-24" value={draft.sell_reason} onChange={(event) => patch({ sell_reason: event.target.value })} />
           </Field>
-          <label className="flex items-center gap-2 rounded border border-[#242a33] bg-[#111419] p-3 text-sm text-[#c9d0da]">
+          <label className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm text-[var(--text)]">
             <input
               type="checkbox"
               checked={draft.close_with_related_buy}
@@ -453,9 +453,9 @@ function JournalForm({
 
       {isExPost && (
         <div className="space-y-3">
-          <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+          <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
             <h3 className="text-base font-semibold">Ex-Post-Fragebogen</h3>
-            <p className="mt-1 text-sm text-[#a0a7b4]">
+            <p className="mt-1 text-sm text-[var(--muted)]">
               Checklistenpunkte aus dem Kauf-Snapshot werden im gespeicherten Eintrag darunter angezeigt.
             </p>
           </div>
@@ -491,13 +491,13 @@ function JournalForm({
       )}
 
       {Boolean(error) && (
-        <div className="rounded border border-rose-300/30 bg-rose-400/10 p-3 text-sm text-rose-100">
+        <div className="rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           Speichern fehlgeschlagen: {(error as Error).message}
         </div>
       )}
 
       <button
-        className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-10 items-center justify-center gap-2 rounded border border-emerald-300/35 bg-[var(--green-soft)] px-4 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
         type="submit"
         disabled={isSaving}
       >
@@ -522,39 +522,39 @@ function EntryList({
   onEdit: (entryId: string) => void;
 }) {
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">Bestehende Einträge</h2>
-          <p className="mt-1 text-sm text-[#a0a7b4]">Kauf, Verkauf und Ex-Post werden pro Ticker chronologisch gespeichert.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Kauf, Verkauf und Ex-Post werden pro Ticker chronologisch gespeichert.</p>
         </div>
         <StatusChip tone="neutral">{entries.length}</StatusChip>
       </div>
       {loading ? (
         <div className="space-y-2">
-          {[0, 1, 2].map((item) => <div key={item} className="h-20 animate-pulse rounded border border-[#242a33] bg-[#111419]" />)}
+          {[0, 1, 2].map((item) => <div key={item} className="h-20 animate-pulse rounded border border-[var(--border)] bg-[var(--panel)]" />)}
         </div>
       ) : entries.length === 0 ? (
-        <div className="rounded border border-[#242a33] bg-[#111419] p-4 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4 text-sm text-[var(--muted)]">
           Noch kein Tagebucheintrag für diesen Ticker.
         </div>
       ) : (
         <div className="space-y-2">
           {entries.map((entry) => (
-            <div key={entry.id} className="rounded border border-[#242a33] bg-[#111419] p-3">
+            <div key={entry.id} className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <button className="min-w-0 text-left" type="button" onClick={() => onView(entry.id)}>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold">{entry.title}</span>
                     <StatusChip tone={statusTones[entry.status]}>{entry.status}</StatusChip>
                   </div>
-                  <p className="mt-1 text-sm text-[#a0a7b4]">{entry.summary}</p>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{entry.summary}</p>
                 </button>
                 <div className="flex gap-2">
-                  <button className="rounded border border-[#2d333d] px-3 py-2 text-xs text-[#c9d0da] hover:border-[#46505d]" type="button" onClick={() => onView(entry.id)}>
+                  <button className="rounded border border-[var(--border)] px-3 py-2 text-xs text-[var(--text)] hover:border-[#46505d]" type="button" onClick={() => onView(entry.id)}>
                     {loadingEntryId === entry.id ? "Lädt..." : "Anzeigen"}
                   </button>
-                  <button className="inline-flex items-center gap-1 rounded border border-[#2d333d] px-3 py-2 text-xs text-[#c9d0da] hover:border-[#46505d]" type="button" onClick={() => onEdit(entry.id)}>
+                  <button className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-3 py-2 text-xs text-[var(--text)] hover:border-[#46505d]" type="button" onClick={() => onEdit(entry.id)}>
                     <Edit3 size={13} />
                     Edit
                   </button>
@@ -586,17 +586,17 @@ function JournalChecklist({
   const marketLabel = marketPhaseLabel(entry.market_snapshot);
   const portfolio = entry.portfolio_snapshot;
   return (
-    <article className="space-y-4 rounded border border-[#2d333d] bg-[#171a20] p-5 print:bg-white print:text-black" id="trade-journal-print">
+    <article className="space-y-4 rounded border border-[var(--border)] bg-[var(--panel)] p-5 print:bg-white print:text-black" id="trade-journal-print">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-semibold">{entry.title}</h2>
             <StatusChip tone={statusTones[entry.status]}>{entry.status}</StatusChip>
           </div>
-          <p className="mt-1 text-sm text-[#a0a7b4] print:text-gray-700">{entry.summary}</p>
+          <p className="mt-1 text-sm text-[var(--muted)] print:text-gray-700">{entry.summary}</p>
         </div>
         <div className="flex gap-2 print:hidden">
-          <button className="inline-flex items-center gap-2 rounded border border-[#2d333d] px-3 py-2 text-sm text-[#c9d0da] hover:border-[#46505d]" type="button" onClick={onEdit}>
+          <button className="inline-flex items-center gap-2 rounded border border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] hover:border-[#46505d]" type="button" onClick={onEdit}>
             <Edit3 size={15} />
             Editieren
           </button>
@@ -664,7 +664,7 @@ function JournalChecklist({
       ) : null}
 
       {Object.keys(entry.questionnaire).length > 0 && (
-        <div className="rounded border border-[#242a33] bg-[#111419] p-4 print:border-gray-300 print:bg-white">
+        <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4 print:border-gray-300 print:bg-white">
           <h3 className="text-base font-semibold">Ex-Post-Fragebogen</h3>
           <div className="mt-3 space-y-3">
             {exPostQuestions.map(([key, label]) => (
@@ -695,13 +695,13 @@ function TradeComparison({
   const buy = entry.entry_type === "buy" ? entry : counterpart?.entry_type === "buy" ? counterpart : null;
   const sell = entry.entry_type === "sell" ? entry : counterpart?.entry_type === "sell" ? counterpart : null;
   return (
-    <section className="rounded border border-[#242a33] bg-[#111419] p-4 print:border-gray-300 print:bg-white">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-4 print:border-gray-300 print:bg-white">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold">Gegenüberstellung Kauf / Verkauf</h3>
         <StatusChip tone={buy && sell ? "good" : "neutral"}>{loading ? "lädt" : buy && sell ? "vollständig" : "teilweise"}</StatusChip>
       </div>
       {loading ? (
-        <div className="text-sm text-[#a0a7b4]">Verknüpften Eintrag laden...</div>
+        <div className="text-sm text-[var(--muted)]">Verknüpften Eintrag laden...</div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           <ComparisonColumn label="Kauf" entry={buy} />
@@ -722,18 +722,18 @@ function TradeComparison({
 function ComparisonColumn({ entry, label }: { entry: TradeJournalEntryDetail | null; label: string }) {
   if (!entry) {
     return (
-      <div className="rounded border border-dashed border-[#343b47] p-3 text-sm text-[#a0a7b4]">
+      <div className="rounded border border-dashed border-[#343b47] p-3 text-sm text-[var(--muted)]">
         Kein {label}-Eintrag verknüpft.
       </div>
     );
   }
   return (
-    <div className="rounded border border-[#2d333d] p-3">
+    <div className="rounded border border-[var(--border)] p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="font-medium">{label}</div>
         <StatusChip tone={statusTones[entry.status]}>{entry.status}</StatusChip>
       </div>
-      <div className="grid gap-2 text-sm text-[#c9d0da]">
+      <div className="grid gap-2 text-sm text-[var(--text)]">
         <div>Datum: {entry.trade_date}</div>
         <div>Preis: {money(entry.price, entry.currency || "USD")}</div>
         <div>Stückzahl: {entry.shares ?? "-"}</div>
@@ -1151,7 +1151,7 @@ function RelativeStrengthSnapshot({ found, item }: { found: boolean; item: Recor
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase text-[#a0a7b4]">{label}</span>
+      <span className="mb-1 block text-xs uppercase text-[var(--muted)]">{label}</span>
       {children}
     </label>
   );
@@ -1184,27 +1184,27 @@ function ImageUpload({ label, value, onChange }: { label: string; value: string;
   }
 
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-sm font-medium">{label}</div>
         <ImagePlus className="size-4 text-[#8ea4c8]" />
       </div>
       {value ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img alt={label} className="mb-3 max-h-56 w-full rounded border border-[#2d333d] object-contain" src={value} />
+        <img alt={label} className="mb-3 max-h-56 w-full rounded border border-[var(--border)] object-contain" src={value} />
       ) : (
-        <div className="mb-3 flex h-32 items-center justify-center rounded border border-dashed border-[#2d333d] text-sm text-[#7f8794]">
+        <div className="mb-3 flex h-32 items-center justify-center rounded border border-dashed border-[var(--border)] text-sm text-[var(--muted)]">
           Noch kein Bild hochgeladen
         </div>
       )}
       <input
         accept="image/*"
-        className="block w-full text-sm text-[#a0a7b4] file:mr-3 file:rounded file:border-0 file:bg-[#26333a] file:px-3 file:py-2 file:text-sm file:text-emerald-100"
+        className="block w-full text-sm text-[var(--muted)] file:mr-3 file:rounded file:border-0 file:bg-[var(--teal-soft)] file:px-3 file:py-2 file:text-sm file:text-[var(--green)]"
         type="file"
         onChange={(event) => void handleFile(event.target.files?.[0])}
       />
       {value && (
-        <button className="mt-2 text-xs text-rose-200 hover:text-rose-100" type="button" onClick={() => onChange("")}>
+        <button className="mt-2 text-xs text-[var(--red)] hover:text-[var(--red)]" type="button" onClick={() => onChange("")}>
           Bild entfernen
         </button>
       )}
@@ -1214,13 +1214,13 @@ function ImageUpload({ label, value, onChange }: { label: string; value: string;
 
 function ChartImage({ label, src }: { label: string; src: string }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-3 print:border-gray-300 print:bg-white">
-      <div className="mb-2 text-xs uppercase text-[#a0a7b4] print:text-gray-600">{label}</div>
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 print:border-gray-300 print:bg-white">
+      <div className="mb-2 text-xs uppercase text-[var(--muted)] print:text-gray-600">{label}</div>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img alt={label} className="max-h-96 w-full rounded object-contain" src={src} />
       ) : (
-        <div className="rounded border border-dashed border-[#2d333d] p-8 text-center text-sm text-[#7f8794] print:text-gray-600">
+        <div className="rounded border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)] print:text-gray-600">
           Kein Chartbild gespeichert.
         </div>
       )}

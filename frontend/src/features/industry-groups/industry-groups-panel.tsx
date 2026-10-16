@@ -1,6 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useViewState } from "@/lib/view-state";
+import { SavedViews } from "@/components/ui/saved-views";
+import { IndustryRotation } from "./industry-rotation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { api } from "@/lib/api/client";
@@ -9,11 +12,13 @@ import type { IndustryGroupRankingRow } from "@/lib/types/api";
 type SortKey = "rank" | "rs_score" | "return_1m" | "return_3m" | "return_6m" | "return_12m" | "rank_change_5d" | "rank_change_20d" | "member_count";
 
 export function IndustryGroupsPanel() {
-  const [sector, setSector] = useState("");
-  const [family, setFamily] = useState("");
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("rank");
-  const [includeSmall, setIncludeSmall] = useState(true);
+  const [view, setView] = useViewState("industry", { sector: "", family: "", search: "", sort: "rank" as SortKey, includeSmall: true, rotationWindow: 5, selectedGroup: "" });
+  const { sector, family, search, sort, includeSmall } = view;
+  const setSector = (sector: string) => setView({ sector, family: "" });
+  const setFamily = (family: string) => setView({ family });
+  const setSearch = (search: string) => setView({ search });
+  const setSort = (sort: SortKey) => setView({ sort });
+  const setIncludeSmall = (includeSmall: boolean) => setView({ includeSmall });
 
   const query = useQuery({
     queryKey: ["industry-group-rankings", sector, family, includeSmall],
@@ -28,8 +33,8 @@ export function IndustryGroupsPanel() {
   });
 
   const rows = useMemo(() => query.data?.rows ?? [], [query.data?.rows]);
-  const sectors = useMemo(() => Array.from(new Set(rows.map((row) => row.sector))).sort(), [rows]);
-  const families = useMemo(() => Array.from(new Set(rows.map((row) => row.industry_family))).sort(), [rows]);
+  const sectors = query.data?.facets?.sectors ?? [];
+  const families = query.data?.facets?.families ?? [];
 
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -40,33 +45,35 @@ export function IndustryGroupsPanel() {
 
   return (
     <div className="space-y-4">
+      <SavedViews scope="industry" />
+      {query.data && <IndustryRotation rows={visible} asOf={query.data.as_of} benchmark={query.data.benchmark} window={view.rotationWindow === 20 ? 20 : 5} selected={view.selectedGroup || null} onWindow={rotationWindow => setView({ rotationWindow })} onSelect={selectedGroup => setView({ selectedGroup: selectedGroup || "" })} />}
       <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-[#172033]">Industry Group Relative Strength</h1>
+            <h1 className="text-xl font-semibold text-[#172033]">Relative Stärke der Branchen</h1>
             <p className="mt-1 text-sm text-[#687386]">
               {query.data ? `Stand ${query.data.as_of} · Benchmark ${query.data.benchmark} · Mindestgröße ${query.data.min_group_members_for_rs}` : "Gruppenranking wird geladen…"}
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-            <select className={control} value={sector} onChange={(event) => { setSector(event.target.value); setFamily(""); }}>
+            <select aria-label="Sektor filtern" className={control} value={sector} onChange={(event) => setSector(event.target.value)}>
               <option value="">Alle Sektoren</option>
               {sectors.map((item) => <option key={item}>{item}</option>)}
             </select>
-            <select className={control} value={family} onChange={(event) => setFamily(event.target.value)}>
-              <option value="">Alle Families</option>
+            <select aria-label="Branchenfamilie filtern" className={control} value={family} onChange={(event) => setFamily(event.target.value)}>
+              <option value="">Alle Branchenfamilien</option>
               {families.map((item) => <option key={item}>{item}</option>)}
             </select>
-            <input className={control} placeholder="Gruppe suchen" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <select className={control} value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
+            <input aria-label="Branche suchen" className={control} placeholder="Gruppe suchen" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <select aria-label="Branchen sortieren" className={control} value={sort} onChange={(event) => setSort(event.target.value as SortKey)}>
               <option value="rank">Rank</option>
               <option value="rs_score">RS</option>
               <option value="return_1m">1M</option>
               <option value="return_3m">3M</option>
               <option value="return_6m">6M</option>
               <option value="return_12m">12M</option>
-              <option value="rank_change_5d">5D Rank Δ</option>
-              <option value="rank_change_20d">20D Rank Δ</option>
+              <option value="rank_change_5d">Rang Δ 5 Stände</option>
+              <option value="rank_change_20d">Rang Δ 20 Stände</option>
               <option value="member_count">Mitglieder</option>
             </select>
             <label className="flex items-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 py-2 text-sm text-[#475569]">

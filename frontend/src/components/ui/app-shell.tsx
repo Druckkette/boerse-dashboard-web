@@ -17,20 +17,21 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { HeaderTools } from "@/components/ui/header-tools";
 
 const navItems = [
   { href: "/", label: "Startseite", icon: Home, exact: true },
   { href: "/market", label: "Marktübersicht", icon: Gauge },
   { href: "/sectors", label: "Sektoren", icon: Shield },
-  { href: "/industry-groups", label: "Industry Groups", icon: Layers3 },
+  { href: "/industry-groups", label: "Branchen", icon: Layers3 },
   { href: "/stocks", label: "Aktien", icon: Search },
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness, exact: true },
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/trade-journal", label: "Handelstagebuch", icon: NotebookPen },
   { href: "/sell-monitor", label: "Verkaufsmonitor", icon: ChartCandlestick },
-  { href: "/settings", label: "Settings", icon: Settings }
+  { href: "/research", label: "Forschung", icon: LineChart },
+  { href: "/settings", label: "Einstellungen", icon: Settings }
 ];
 
 const betaNavItems = [...navItems.slice(0, 5), { href: "/sell-check", label: "Aktie frei prüfen", icon: ChartCandlestick }];
@@ -51,6 +52,7 @@ const pageDescriptions: Record<string, string> = {
   "/trade-journal": "Kauf- und Verkaufsentscheidungen dokumentieren und später auswerten.",
   "/sell-monitor": "Verkaufsregeln, Tranchensignale und Positionszustand kontrollieren.",
   "/jobs": "Datenaktualisierung, Worker-Status und laufende Jobs überwachen.",
+  "/research": "Archivierte Auswertungen der Aktienauswahl und Verkaufsregeln mit ihren Grenzen.",
   "/settings": "Strategie, Risiko, Überwachung und Datenquellen konfigurieren."
 };
 
@@ -61,6 +63,14 @@ function isActive(pathname: string, href: string, exact = false) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const element = headerRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => document.documentElement.style.setProperty("--app-header-height", `${element.getBoundingClientRect().height}px`));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const beta = useBetaMode();
   const pathname = usePathname();
   const currentPageLabel = pathname === "/sell-check" ? "Aktie frei prüfen" : pageLabel(pathname);
@@ -70,6 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[268px_1fr]">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:bg-white focus:p-3">Zum Inhalt</a>
       <aside className="border-b border-[#e3e8ef] bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
         <div className="flex min-h-16 items-center gap-2.5 px-4">
           <div className="flex size-9 items-center justify-center rounded-[10px] bg-[#0f766e] text-white shadow-[0_6px_16px_rgba(15,118,110,0.18)]">
@@ -80,7 +91,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="mt-0.5 text-[11px] font-medium text-[#687386]">{beta ? "Beta · Markt- und Aktienanalyse" : "Regelbasiert. Ruhig. Verständlich."}</div>
           </div>
         </div>
-        <nav className="flex gap-1.5 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
+        <label className="block px-4 pb-3 text-xs font-medium text-[#687386] lg:hidden">Bereich öffnen
+          <select aria-label="Bereich öffnen" className="input-dark mt-1" value={(beta ? betaNavItems : navItems).find(item => isActive(pathname, item.href, item.exact))?.href ?? ""} onChange={event => { window.location.assign(event.target.value); }}>
+            <option value="" disabled>Bereich auswählen</option>{(beta ? betaNavItems : navItems).map(item => <option key={item.href} value={item.href}>{item.label}</option>)}
+          </select>
+        </label>
+        <nav aria-label="Hauptnavigation" className="hidden px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
           {(beta ? betaNavItems : navItems).map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href, item.exact);
@@ -88,6 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={clsx(
                   "group flex min-w-fit items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-sm font-medium transition",
                   active
@@ -111,8 +128,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
       </aside>
-      <main className="min-w-0">
-        <header className="sticky top-0 z-10 border-b border-[#e3e8ef] bg-white/92 px-4 py-3 backdrop-blur md:px-6">
+      <main id="main-content" tabIndex={-1} className="min-w-0">
+        <header ref={headerRef} className="sticky top-0 z-10 border-b border-[#e3e8ef] bg-white/92 px-4 py-3 backdrop-blur md:px-6">
           <div className="mx-auto flex max-w-[1680px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>

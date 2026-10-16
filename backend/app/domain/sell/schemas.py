@@ -209,6 +209,10 @@ class SellEvaluationResponse(BaseModel):
 
 
 class SellPositionRankingItem(BaseModel):
+    decision_eligible: bool = False
+    signal_current: bool = False
+    decision_category: Literal["action", "observe", "data", "hold"] = "data"
+    eligibility_reason: str = ""
     generated_at: datetime | None = None
     ticker: str
     name: str

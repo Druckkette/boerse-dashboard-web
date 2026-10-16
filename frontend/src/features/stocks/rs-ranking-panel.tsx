@@ -53,7 +53,7 @@ export function RsRankingPanel() {
         cell: ({ row }) => (
           <div>
             <div className="font-semibold">{row.original.ticker}</div>
-            <div className="max-w-48 truncate text-xs text-[#a0a7b4]">{row.original.name}</div>
+            <div className="max-w-48 truncate text-xs text-[var(--muted)]">{row.original.name}</div>
           </div>
         )
       },
@@ -125,28 +125,28 @@ export function RsRankingPanel() {
         </>
       }
     >
-      <div className="flex flex-col gap-3 border-b border-[#2d333d] p-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="mt-1 text-sm text-[#a0a7b4]">
+          <div className="mt-1 text-sm text-[var(--muted)]">
             {hasRanking
               ? `${rows.length} angezeigt von ${totalCount || rows.length} aktuellen RS-Ratings · Stand ${ranking?.as_of ?? "-"}`
               : "Noch keine gespeicherten RS-Ratings. Erst Prices aktualisieren, dann RS Ratings starten."}
-            <div className="mt-1 text-xs text-[#77808f]">
+            <div className="mt-1 text-xs text-[var(--muted)]">
               Das Limit ist {limit}; die Datenbank kann mehr Ratings enthalten.
             </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
             onClick={() => query.refetch()}
           >
-            <RefreshCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RefreshCw size={15} className={query.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Aktualisieren
           </button>
           {!beta && (<button
-            className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-3 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={startMutation.isPending}
             type="button"
             onClick={() => startMutation.mutate()}
@@ -158,37 +158,37 @@ export function RsRankingPanel() {
       </div>
 
       {query.isError && (
-        <div className="border-b border-[#2d333d] px-5 py-3 text-sm text-rose-200">
+        <div className="border-b border-[var(--border)] px-5 py-3 text-sm text-[var(--red)]">
           {query.error instanceof Error ? query.error.message : "RS-Ranking konnte nicht geladen werden."}
         </div>
       )}
       {startMutation.isError && (
-        <div className="border-b border-[#2d333d] px-5 py-3 text-sm text-amber-100">
+        <div className="border-b border-[var(--border)] px-5 py-3 text-sm text-[var(--yellow)]">
           {startMutation.error instanceof Error ? startMutation.error.message : "RS-Job konnte nicht gestartet werden."}
         </div>
       )}
 
       {query.isLoading ? (
-        <div className="p-5 text-sm text-[#a0a7b4]">Relative-Stärke-Ranking lädt...</div>
+        <div className="p-5 text-sm text-[var(--muted)]">Relative-Stärke-Ranking lädt...</div>
       ) : query.isError ? null : rows.length === 0 ? (
-        <div className="p-5 text-sm text-[#a0a7b4]">
+        <div className="p-5 text-sm text-[var(--muted)]">
           Die Tabelle wird gefüllt, sobald Prices und danach RS Ratings erfolgreich gelaufen sind.
         </div>
       ) : (
         <div className="max-h-[580px] overflow-auto">
           <table className="w-full min-w-[860px] border-collapse text-sm">
-            <thead className="sticky top-0 bg-[#1f242c] text-left text-xs uppercase text-[#a0a7b4]">
+            <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
-                    <th key={header.id} className="border-b border-[#2d333d] px-4 py-3 font-medium">
+                    <th key={header.id} className="border-b border-[var(--border)] px-4 py-3 font-medium">
                       <button
                         className="inline-flex items-center gap-1"
                         type="button"
                         onClick={header.column.getToggleSortingHandler()}
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
-                        <ArrowUpDown size={13} className="text-[#697386]" />
+                        <ArrowUpDown size={13} className="text-[var(--muted)]" />
                       </button>
                     </th>
                   ))}
@@ -199,7 +199,7 @@ export function RsRankingPanel() {
               {table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="cursor-pointer border-b border-[#242a33] transition hover:bg-[#20262f]"
+                  className="cursor-pointer border-b border-[var(--border)] transition hover:bg-[var(--panel)]"
                   onClick={() => router.push(`/stocks/${row.original.ticker}`)}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -213,7 +213,7 @@ export function RsRankingPanel() {
           </table>
         </div>
       )}
-      <div className="border-t border-[#2d333d] px-5 py-2 text-xs text-[#a0a7b4]">
+      <div className="border-t border-[var(--border)] px-5 py-2 text-xs text-[var(--muted)]">
         TanStack Table mit Sortierung; Virtualisierung kann bei großem Universe ergänzt werden.
       </div>
     </CollapsiblePanel>
@@ -222,9 +222,9 @@ export function RsRankingPanel() {
 
 function PctCell({ value }: { value?: number | null }) {
   if (typeof value !== "number" || Number.isNaN(value)) {
-    return <span className="text-[#697386]">-</span>;
+    return <span className="text-[var(--muted)]">-</span>;
   }
-  return <span className={value >= 0 ? "text-emerald-300" : "text-rose-300"}>{formatPct(value)}</span>;
+  return <span className={value >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}>{formatPct(value)}</span>;
 }
 
 function formatPct(value?: number | null) {

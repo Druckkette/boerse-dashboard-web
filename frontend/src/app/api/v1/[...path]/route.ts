@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { isAuthorized, unauthorizedResponse } from "@/lib/auth/basic-auth";
 import { betaAuthorized, betaDenied } from "@/lib/beta/auth";
+import { privateWriteOriginAllowed } from "@/lib/auth/write-policy";
 import { betaApiAllowed, betaWriteOriginAllowed, isBetaMode } from "@/lib/beta/policy";
 
 type RouteContext = {
@@ -50,9 +51,12 @@ async function forwardToBackend(request: NextRequest, context: RouteContext) {
     || (request.method === "POST" && !betaWriteOriginAllowed(request.headers, request.nextUrl.origin)))) {
     return Response.json({ detail: "In der Beta nicht verfügbar" }, { status: 403 });
   }
+  if (!beta && !["GET", "HEAD", "OPTIONS"].includes(request.method) && !privateWriteOriginAllowed(request.headers, request.nextUrl.origin)) {
+    return Response.json({ detail: "Schreibzugriff benötigt dieselbe Herkunft." }, { status: 403 });
+  }
   let body: ArrayBuffer | Uint8Array | undefined;
   if (!["GET", "HEAD"].includes(request.method)) {
-    if (beta) {
+    {
       const reader = request.body?.getReader();
       const parts: Uint8Array[] = [];
       let length = 0;
@@ -61,7 +65,7 @@ async function forwardToBackend(request: NextRequest, context: RouteContext) {
           const part = await reader.read();
           if (part.done) break;
           length += part.value.length;
-          if (length > 4096) {
+          if (length > (beta ? 4096 : 16 * 1024 * 1024)) {
             await reader.cancel();
             return Response.json({ detail: "Anfrage zu groß" }, { status: 413 });
           }
@@ -72,7 +76,7 @@ async function forwardToBackend(request: NextRequest, context: RouteContext) {
       let offset = 0;
       for (const part of parts) { bytes.set(part, offset); offset += part.length; }
       body = bytes;
-    } else body = await request.arrayBuffer();
+    }
   }
   const target = buildTargetUrl(path, request.nextUrl.search);
   let response: Response;

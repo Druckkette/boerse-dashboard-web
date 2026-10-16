@@ -189,6 +189,7 @@ def test_empty_portfolio_returns_empty_state_not_demo_positions(monkeypatch: pyt
 
 
 def test_buy_strength_overview_detects_recent_manual_and_imported_positions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(portfolio_service.portfolio_repository, "get_cash_balance", lambda: 0.0)
     today = date.today()
     rows = [
         PortfolioPositionRow(

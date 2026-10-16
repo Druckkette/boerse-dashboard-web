@@ -21,7 +21,7 @@ export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
 
   if (query.isLoading) {
     return (
-      <section className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+      <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
         Tiefenanalyse lädt...
       </section>
     );
@@ -29,7 +29,7 @@ export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
 
   if (query.error || !data) {
     return (
-      <section className="rounded border border-rose-400/40 bg-rose-400/10 p-5 text-sm text-rose-100">
+      <section className="rounded border border-rose-400/40 bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]">
         Tiefenanalyse ist aktuell nicht erreichbar.
       </section>
     );
@@ -37,7 +37,7 @@ export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
 
   return (
     <section className="space-y-4">
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -55,14 +55,14 @@ export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
               )}
             </div>
             <h2 className="text-xl font-semibold tracking-normal">Tiefenanalyse</h2>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-[#a0a7b4]">{data.message}</p>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--muted)]">{data.message}</p>
           </div>
           <button
-            className="inline-flex w-fit items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm text-[#d8dde6] transition hover:border-emerald-300/60"
+            className="inline-flex w-fit items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] transition hover:border-emerald-300/60"
             type="button"
             onClick={() => query.refetch()}
           >
-            <RotateCw size={15} className={query.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RotateCw size={15} className={query.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Aktualisieren
           </button>
         </div>
@@ -76,14 +76,14 @@ export function DeepAnalysisPanel({ ticker = "^GSPC" }: { ticker?: string }) {
         <DeepChecks checks={data.checks} />
       </div>
 
-      <details className="rounded border border-[#2d333d] bg-[#171a20]">
+      <details className="rounded border border-[var(--border)] bg-[var(--panel)]">
         <summary className="cursor-pointer list-none px-5 py-4">
           <span className="block text-base font-semibold">Kennzahlen der Tiefenanalyse erklärt</span>
-          <span className="mt-1 block text-sm leading-6 text-[#a0a7b4]">
+          <span className="mt-1 block text-sm leading-6 text-[var(--muted)]">
             McClellan, NH/NL, Prozentwerte über gleitenden Durchschnitten und Deemer Ratio entsprechen dem Streamlit-Bereich.
           </span>
         </summary>
-        <div className="grid gap-3 border-t border-[#2d333d] p-5 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 border-t border-[var(--border)] p-5 md:grid-cols-2 xl:grid-cols-5">
           <GlossaryCard title="McClellan Osc." text="A/D-Momentum aus Advancern minus Decliners; über 0 ist konstruktiv." />
           <GlossaryCard title="NH/NL Ratio" text="Neue Hochs geteilt durch neue Tiefs; über 1 signalisiert mehr Stärke als Schwäche." />
           <GlossaryCard title="% > 50-SMA" text="Kurz- bis mittelfristige Marktteilnahme; Streamlit-Schwelle für Stärke ist 70%." />
@@ -141,10 +141,10 @@ function MetaTile({
   value: string;
 }) {
   return (
-    <div className={["rounded border bg-[#111419] p-3", cardClass(tone)].join(" ")}>
-      <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
+    <div className={["rounded border bg-[var(--panel)] p-3", cardClass(tone)].join(" ")}>
+      <div className="text-xs uppercase text-[var(--muted)]">{label}</div>
       <div className={["mt-2 text-xl font-semibold tracking-normal tabular-nums", toneText(tone)].join(" ")}>{value}</div>
-      <div className="mt-1 text-xs leading-5 text-[#a0a7b4]">{detail}</div>
+      <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{detail}</div>
     </div>
   );
 }
@@ -152,7 +152,7 @@ function MetaTile({
 function MetricGrid({ metrics }: { metrics: MarketDeepAnalysisMetric[] }) {
   if (!metrics.length) {
     return (
-      <div className="rounded border border-[#2d333d] bg-[#171a20] p-4 text-sm text-[#a0a7b4]">
+      <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4 text-sm text-[var(--muted)]">
         Keine Tiefenanalyse-Kennzahlen im Cache.
       </div>
     );
@@ -160,15 +160,15 @@ function MetricGrid({ metrics }: { metrics: MarketDeepAnalysisMetric[] }) {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
       {metrics.map((metric) => (
-        <div key={metric.label} className={["rounded border bg-[#171a20] p-4", cardClass(metric.tone)].join(" ")}>
+        <div key={metric.label} className={["rounded border bg-[var(--panel)] p-4", cardClass(metric.tone)].join(" ")}>
           <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="text-xs uppercase text-[#a0a7b4]">{metric.label}</div>
+            <div className="text-xs uppercase text-[var(--muted)]">{metric.label}</div>
             <StatusChip tone={metric.tone}>{toneLabel(metric.tone)}</StatusChip>
           </div>
           <div className={["text-2xl font-semibold tracking-normal tabular-nums", toneText(metric.tone)].join(" ")}>
             {metric.value}
           </div>
-          <div className="mt-2 text-sm leading-5 text-[#d8dde6]">{metric.detail}</div>
+          <div className="mt-2 text-sm leading-5 text-[var(--text)]">{metric.detail}</div>
         </div>
       ))}
     </div>
@@ -253,26 +253,26 @@ function DeepCharts({ data }: { data: MarketDeepAnalysis }) {
 
 function DeepChecks({ checks }: { checks: MarketDeepAnalysisCheck[] }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#171a20] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold">Divergenzen und Bestätigung</h3>
-          <p className="text-sm text-[#a0a7b4]">Checks aus der Streamlit-Tiefenanalyse.</p>
+          <p className="text-sm text-[var(--muted)]">Checks aus der Streamlit-Tiefenanalyse.</p>
         </div>
         <StatusChip tone={warningTone(checks)}>{checks.filter((check) => !check.passed).length} offen</StatusChip>
       </div>
       <div className="space-y-3">
         {checks.map((check) => (
-          <div key={check.label} className={["rounded border bg-[#111419] p-3", cardClass(check.tone)].join(" ")}>
+          <div key={check.label} className={["rounded border bg-[var(--panel)] p-3", cardClass(check.tone)].join(" ")}>
             <div className="flex items-start gap-3">
               {check.passed ? (
-                <CircleCheck className="mt-0.5 shrink-0 text-emerald-300" size={18} />
+                <CircleCheck className="mt-0.5 shrink-0 text-[var(--green)]" size={18} />
               ) : (
-                <CircleAlert className="mt-0.5 shrink-0 text-amber-300" size={18} />
+                <CircleAlert className="mt-0.5 shrink-0 text-[var(--yellow)]" size={18} />
               )}
               <div className="min-w-0">
-                <div className="text-sm font-medium text-[#d8dde6]">{check.label}</div>
-                <div className="mt-1 text-xs leading-5 text-[#a0a7b4]">{check.detail}</div>
+                <div className="text-sm font-medium text-[var(--text)]">{check.label}</div>
+                <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{check.detail}</div>
               </div>
             </div>
           </div>
@@ -284,25 +284,25 @@ function DeepChecks({ checks }: { checks: MarketDeepAnalysisCheck[] }) {
 
 function GlossaryCard({ text, title }: { text: string; title: string }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
-      <div className="text-sm font-semibold text-[#d8dde6]">{title}</div>
-      <div className="mt-2 text-xs leading-5 text-[#a0a7b4]">{text}</div>
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
+      <div className="text-sm font-semibold text-[var(--text)]">{title}</div>
+      <div className="mt-2 text-xs leading-5 text-[var(--muted)]">{text}</div>
     </div>
   );
 }
 
 function cardClass(tone: Tone) {
-  if (tone === "good") return "border-emerald-300/35 bg-emerald-300/10";
-  if (tone === "bad") return "border-rose-300/35 bg-rose-300/10";
-  if (tone === "warning") return "border-amber-300/35 bg-amber-300/10";
-  return "border-[#2d333d]";
+  if (tone === "good") return "border-emerald-300/35 bg-[var(--green-soft)]";
+  if (tone === "bad") return "border-rose-300/35 bg-[var(--red-soft)]";
+  if (tone === "warning") return "border-amber-300/35 bg-[var(--yellow-soft)]";
+  return "border-[var(--border)]";
 }
 
 function toneText(tone: Tone) {
-  if (tone === "good") return "text-emerald-200";
-  if (tone === "bad") return "text-rose-200";
-  if (tone === "warning") return "text-amber-100";
-  return "text-[#c9d0da]";
+  if (tone === "good") return "text-[var(--green)]";
+  if (tone === "bad") return "text-[var(--red)]";
+  if (tone === "warning") return "text-[var(--yellow)]";
+  return "text-[var(--text)]";
 }
 
 function toneLabel(tone: Tone) {

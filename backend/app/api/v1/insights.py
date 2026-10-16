@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.repositories import settings as settings_repository
 from app.repositories.settings import SettingsRepositoryUnavailable
@@ -6,6 +6,15 @@ from app.schemas import PushoverDeliveryLogItem, PushoverDeliveryLogResponse
 
 
 router = APIRouter()
+
+
+@router.get("/research")
+def research() -> dict:
+    from app.services.research_results import research_results
+    try:
+        return research_results()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="Verifizierte Forschungsergebnisse derzeit nicht verfügbar.") from exc
 
 
 @router.get("/notifications", response_model=PushoverDeliveryLogResponse)

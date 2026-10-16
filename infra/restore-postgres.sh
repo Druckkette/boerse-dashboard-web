@@ -35,7 +35,23 @@ fi
 
 echo "Backup file:  ${BACKUP_FILE}"
 echo "== Stopping app services before restore =="
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" stop frontend backend worker report-worker monitor scheduler || true
+BETA_ACTIVE=""
+if [ -n "$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running -q frontend-beta)" ]; then
+  BETA_ACTIVE=beta
+fi
+compose() {
+  if [ "${BETA_ACTIVE}" = beta ]; then
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile beta "$@"
+  else
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
+  fi
+}
+compose stop frontend frontend-beta backend worker interactive-worker report-worker monitor scheduler
+# Never write into a database while an application service may still be running.
+if [ -n "$(compose ps --status running -q frontend frontend-beta backend worker interactive-worker report-worker monitor scheduler)" ]; then
+  echo "Application services are still running; restore aborted." >&2
+  exit 1
+fi
 
 echo "== Restoring database objects =="
 case "${BACKUP_FILE}" in
@@ -58,7 +74,7 @@ fi
 
 if [ "${START_SERVICES_AFTER_RESTORE}" = "1" ]; then
   echo "== Starting services =="
-  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d
+  compose up -d
 fi
 
 echo "== Restore complete =="

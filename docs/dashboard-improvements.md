@@ -1,0 +1,42 @@
+# Dashboard-Verbesserungen · 16. Oktober 2026
+
+Die Änderungen setzen die konkreten Befunde und die akzeptierten Erweiterungen der Dashboardanalyse um. Ein täglicher Prüfdurchlauf gehört nicht dazu. Originale Brokerbuchungen, Notizen und historische Bewertungsstände werden nicht nachträglich durch heutige Annahmen ersetzt.
+
+## Korrekturen
+
+- **F01/F02:** Positionen werden über einen Dialog mit tatsächlicher Stückzahl, Kaufpreis, Datum und Währung angelegt. Die Anlage darf vorhandene Bestände nicht überschreiben; eine Transaktionssperre schützt auch gleichzeitige Klicks. Ungültige oder leere Stopptexte senden keine Löschung. Dafür gibt es einen ausdrücklichen Entfernen-Knopf.
+- **F03/F04:** Geldsummen verwenden einen definierten Dezimal-/Rundungspfad. Verschiedene Positions- und Cashwährungen werden mit beobachteten Kursen in die ausgewiesene Basis umgerechnet. Fehlende FX-Daten liefern keinen erfundenen Wechselkurs. Journalergebnisse bleiben nach Originalwährung getrennt. Manuelle Verkäufe berücksichtigen anteilige Kaufgebühren, Verkaufsgebühren und Steuern. Teilverkäufe werden gegen die Kaufmenge gesperrt, auch bei Konkurrenz; widersprüchliche spätere Kaufänderungen werden abgelehnt. Brokerkäufe werden über ihre importierten Ausführungen dokumentiert. Fehlende Ausführungspreise werden nicht durch heutige Kurse ersetzt.
+- **F05/F06/F13:** Fehlgeschlagenes Speichern meldet einen Fehler. Eine nicht erreichbare Bestandsdatenbank ergibt keinen leeren Depotstand. Gemeinsame Lade-/Fehleranzeigen erlauben einen erneuten Abruf; bereits geladene Daten bleiben bei einem Aktualisierungsfehler erhalten.
+- **F07/F08:** Aktualisierungen folgen dem tatsächlichen Jobstatus statt einer festen Wartezeit. Der Aktiencontroller bleibt beim Tabwechsel erhalten; aktive Jobs werden in der Browsersitzung wiedergefunden. Startseite und Monitor verwenden dieselbe Zulässigkeitsprüfung für aktuelle, bestätigte und verlässliche Verkaufshinweise.
+- **F09:** Score-Snapshots enthalten Regelstand, Konfigurationshash und Gewichte. Geänderte Gewichte starten eine Neuberechnung; ein fehlgeschlagener Jobstart wird ausdrücklich angezeigt. Alte Stände bleiben als solche erkennbar. Veränderungen über einen Konfigurationswechsel werden nicht als reine Marktverbesserung interpretiert.
+- **F10–F12:** Journalübersichten laden Kontext, Metadaten und verknüpfte Käufe stapelweise; die Statistik baut keine Ausführungsdetails pro Zeile auf. Branchenfilter beziehen ihre Auswahllisten aus der vollständigen Taxonomie. Beide Aktiensuchen verwenden denselben Suchpfad, Tastaturbedienung und den aktuellen Eingabetext beim schnellen Enter.
+- **F14:** Die Depotkurve unterscheidet Ausführungshistorie und Simulation des heutigen Bestands. Fehlende Bewertungen bleiben offen. Zukünftige Kurse, heutiges FX für historische Lücken und fortgeschriebene Kaufpreise ersetzen keine beobachtete Historie. Ein unterbrochener Renditeindex wird nicht stillschweigend wieder verbunden. Cashbewegungen werden am Tagesende neutralisiert.
+- **F15/F16:** Restore stoppt auch interaktiven Worker und Beta, bricht bei Stoppfehlern ab und prüft verbliebene Dienste vor dem Datenbankschreiben. Images werden erst nach erfolgreicher Main-CI veröffentlicht. Die NAS-Aktualisierung verlangt den unveränderlichen Commit-SHA für beide Images; wechselnde `latest`-Tags werden nicht mehr veröffentlicht.
+- **F17:** Ein hoher Gewinn oder Verlust allein sperrt eine Position nicht mehr automatisch als Datenfehler. Fehlende oder widersprüchliche Grundlagen bleiben sichtbar.
+
+## Neue Ansichten
+
+- **Portfolio → Depotanalyse:** Ergebnisbeiträge nach Aktie, Kurs-/FX-/Kostenzerlegung, gesonderte Cash-FX-Effekte und externe Cashbewegungen. Bei unpassender oder fehlender Ausführungshistorie wird ausdrücklich eine Bestandssimulation angezeigt. Fehlende Kurs-/FX-Daten sperren die betreffende Gesamtsumme.
+- **Konzentration und Risiko:** Sektor-/Branchengewichte, größte Positionen, Cashquote, Stoppabstand und paarweise Korrelationen aus bis zu 126 gemeinsamen Tagesrenditen. Keine Füllung fehlender Renditebeobachtungen; mindestens 60 gemeinsame Beobachtungen. Statische Sektor- und FX-Szenarien einschließlich Fremdwährungs-Cash sind ausdrücklich unabhängige Annahmen.
+- **Earnings-Exposition:** Depotgewicht bekannter Termine in 7/14/30 Tagen; nicht abgedecktes Gewicht, Terminquelle und widersprüchliche Anbietertermine bleiben erkennbar.
+- **Handelstagebuch → Auswertung:** Auswertung vollständiger Positionszyklen nach dokumentiertem Einstieg, Marktphase, Sektor, Haltedauer und Regelabweichung. Kontextfilter trennen archiviert, rekonstruiert und unvollständig. R-Multiples benötigen einen dokumentierten ursprünglichen Stopp; unbekannte Gründe werden nicht geschätzt.
+- **Eigene Ansichten:** Versionierter URL-Zustand für Screening, Vergleich, Branchen, Journal und Depotanalyse. Privat können bis zu 40 benannte Ansichten dauerhaft gespeichert und gelöscht werden. Stabile Kriteriumskennungen halten Filter von ihrer Beschriftung unabhängig; unbekannte Versionen/Kriterien erhalten Hinweise.
+- **Branchenrotation:** Streudiagramm mit RS und eigener RS-Veränderung über 5/20 gespeicherte Stände, Gruppengröße und auswählbarer historischer Spur. Unvollständige Vergleichspaare werden nicht verbunden.
+- **Aktie → Scoreverlauf/Quellen:** Tatsächlich archivierte Stände, geänderte Kriterien und die Beiträge zur Scoreänderung. Lücken, Versions- und Abdeckungswechsel werden unterschieden. Quellenkarten trennen Berichtsperiode, Beobachtung, Veröffentlichung und Abruf. Fehlende 13F-Zuordnung bedeutet nicht null Halter.
+- **Aktien → Gewichtungsvergleich:** Hypothetische alternative Gesamtgewichte auf denselben gespeicherten Teilscores. Nur gleiche Berechnungsversionen sind vergleichbar; es werden weder Einstellungen gespeichert noch Strategieregeln geändert.
+- **Forschung:** Prüfsummengesicherte öffentliche Auswertungen unter `/research`, mit identischen Handelskosten für Aktie und SPY, offenen Horizonten und Stichprobengrenzen. Persönliche Journalexporte sind nicht Bestandteil des Repositorys oder Images.
+- **Jobs → Betrieb und Datenstand:** Letzter erfolgreicher Monitor, Warteschlangenalter, Job-Lebenszeichen, Bewertungsabdeckung, Positionskursstände, Anbieterabrufe und Backupnachweis. Technische Readiness und fachliche Aktualität bleiben getrennt.
+
+## Bedienung und Betrieb
+
+Die mobile Navigation bietet eine vollständige Bereichsauswahl. Kopf- und Tabpositionen berücksichtigen die tatsächliche Headerhöhe. Sprunglink, sichtbarer Fokus, Such-Combobox und beschriftete Eingaben ergänzen die Tastaturbedienung. Die alte Farb-Kompatibilitätsschicht wurde durch semantische Farbklassen ersetzt; gemeinsame Panel-, Feld-, Status- und Buttonstile bleiben erhalten.
+
+Private Browser-Schreibzugriffe prüfen Herkunft und Fetch-Metadaten. Der Proxy begrenzt private Request-Bodies auf 16 MiB; die strengere Beta-Grenze bleibt bestehen. Backend und Beta bleiben standardmäßig an Loopback gebunden. Externe Freigaben benötigen TLS und Anmeldebegrenzung im vorgeschalteten Reverse Proxy. Die vorhandene Docker-Dienststeuerung ist bereits auf Projekt/Dienstliste begrenzt; der Docker-Socket bleibt wegen der bestehenden Neustartfunktion eingebunden. Ein separater Steuerdienst und eine Mehrkontenarchitektur wären eigenständige Migrationen und werden nicht durch einen stillen Austausch der produktiven Infrastruktur vorgetäuscht.
+
+Backups werden mit restriktiven Dateirechten geschrieben, vor Annahme mit `pg_restore --list` geprüft und mit SHA256 erfasst. Die Betriebsansicht nennt diese Prüfung ausdrücklich Archivprüfung; sie ist kein behaupteter vollständiger Wiederherstellungstest.
+
+## Prüfung und Freigabe
+
+Regressionen prüfen insbesondere die Geld-/FX-Grenzen, Attribution gegen eine unabhängige Cash-/Vermögensidentität, manuelle Gebühren, gemischte Währungen, unterbrochene Kursreihen, Konfigurationswechsel, konkurrierende Positions-/Journalbuchungen und sichere Restore-Abbrüche. PostgreSQL und Redis laufen für die Integrationsprüfungen in separaten, wegwerfbaren lokalen Containern. Browsertests prüfen 1440/390 Pixel, fehlerhafte Stoppeingaben, explizite Löschung, schnelle Suche, URL-Zustand und die unveränderte Beta-Abschirmung.
+
+Der konkrete veröffentlichte Commit, die CI-/Image-Läufe, NAS-Backupadresse und Nachprüfungen werden im lokalen Deploymentprotokoll dokumentiert. Einschränkungen der historischen Daten bleiben auch nach der Veröffentlichung sichtbar; alte Einzelkriterien und fehlende Ausführungen werden nicht erfunden.

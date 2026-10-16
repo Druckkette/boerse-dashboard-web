@@ -18,6 +18,7 @@ from app.services.market_calendar import expected_us_market_session
 from app.services.stocks import _assessment_score_weights, _load_assessment_inputs, _to_ranking_item
 from app.schemas import StockScreeningFilters
 from app.services.assessment_quality import dependency_quality
+from app.services.assessment_version import calculation_identity, criterion_id
 from app.workers.tasks.common import raise_if_cancelled
 
 
@@ -115,7 +116,7 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
                         missing.append(ticker)
                         continue
                     item = _to_ranking_item(result, rs_row.name if rs_row else ticker).model_dump(mode="json")
-                    item["checks"] = [asdict(check) for check in result.checks]
+                    item["checks"] = [{**asdict(check), "id": criterion_id(check.label)} for check in result.checks]
                     item["fundamentals_available"] = result.fundamentals_available
                     item["rs_line_available"] = inputs["rs_context"].get("ema21") is not None
                     item["institutional_available"] = bool(inputs["institutional_context"])
@@ -135,6 +136,7 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
                 except (ValueError, TypeError, ArithmeticError) as exc:
                     errors.append({"ticker": ticker, "error": f"{type(exc).__name__}: {exc}"[:200]})
                     continue
+            item["calculation"] = calculation_identity(score_weights)
             item["prices_stale"] = item["as_of"] < expected_date
             if ticker in revision_keys:
                 item["_dependency_revision"] = revision_keys[ticker]
@@ -181,7 +183,13 @@ def screen_universe(*, source_job_id: str = "", only_tickers: list[str] | None =
 
 
 def get_screening(filters: StockScreeningFilters, *, export: bool = False) -> dict:
-    return stock_assessments.query_screening(filters, expected_date=expected_us_market_session().date, export=export)
+    result = stock_assessments.query_screening(filters, expected_date=expected_us_market_session().date, export=export)
+    identity = calculation_identity(_assessment_score_weights())
+    result["summary"]["calculation"] = identity
+    result["criterion_options"] = [{"id": criterion_id(label), "label": label} for label in result["criteria"]]
+    for row in result["rows"]:
+        row["configuration_current"] = (row.get("calculation") or {}).get("configuration_hash") == identity["configuration_hash"]
+    return result
 
 
 def screening_csv(filters: StockScreeningFilters) -> str:

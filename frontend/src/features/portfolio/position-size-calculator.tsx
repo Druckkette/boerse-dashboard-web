@@ -87,11 +87,11 @@ export function PositionSizeCalculator() {
   });
 
   return (
-    <details className="group rounded border border-[#2d333d] bg-[#171a20]">
+    <details className="group rounded border border-[var(--border)] bg-[var(--panel)]">
       <summary className="flex cursor-pointer list-none flex-col gap-3 p-5 marker:hidden md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-base font-semibold">Stückzahl- und Positionsgrößen-Rechner</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
             Berechnet die Stückzahl entweder aus einem festen Verlustbudget oder aus dem gewünschten Risikobeitrag der Aktie.
             Ticker-Metriken kommen aus dem gespeicherten Price- und Fundamental-Cache.
           </p>
@@ -100,13 +100,13 @@ export function PositionSizeCalculator() {
           <StatusChip tone={assessment.isPending ? "warning" : assessment.data ? "good" : "neutral"}>
             {assessment.isPending ? "lädt" : assessment.data ? "Ticker geladen" : "lokal"}
           </StatusChip>
-          <ChevronDown className="size-4 text-[#a0a7b4] transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-[var(--muted)] transition group-open:rotate-180" />
         </div>
       </summary>
 
-      <div className="grid gap-4 border-t border-[#2d333d] p-5 xl:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 border-t border-[var(--border)] p-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
-          <div className="grid gap-2 rounded border border-[#2d333d] bg-[#111419] p-2 sm:grid-cols-2">
+          <div className="grid gap-2 rounded border border-[var(--border)] bg-[var(--panel)] p-2 sm:grid-cols-2">
             <ModeButton
               active={mode === "loss_budget"}
               description="Maximaler Verlustbetrag bestimmt die Stückzahl."
@@ -155,7 +155,7 @@ export function PositionSizeCalculator() {
                   </select>
                 </div>
               </Field>
-              <div className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm leading-5 text-[#a0a7b4]">
+              <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm leading-5 text-[var(--muted)]">
                 Max. Verlust pro Aktie = Einstiegspreis x Stoppabstand. Die Stückzahl wird aus dem Verlustbudget geteilt durch diesen Betrag berechnet.
               </div>
             </div>
@@ -190,15 +190,15 @@ export function PositionSizeCalculator() {
                   />
                 </Field>
               </div>
-              <div className="rounded border border-[#2d333d] bg-[#111419] p-3 text-sm leading-6 text-[#a0a7b4]">
-                <span className="font-medium text-[#d8dde6]">Risikobeitrag:</span> 0,15 defensiver oder sehr diversifiziert · 0,20 Standard für 8-12 Positionen · 0,30 konzentrierter Stil mit mehr Einzeltitel-Risiko.
+              <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm leading-6 text-[var(--muted)]">
+                <span className="font-medium text-[var(--text)]">Risikobeitrag:</span> 0,15 defensiver oder sehr diversifiziert · 0,20 Standard für 8-12 Positionen · 0,30 konzentrierter Stil mit mehr Einzeltitel-Risiko.
               </div>
             </div>
           )}
 
           <div className="flex flex-wrap gap-3">
             <button
-              className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-4 py-2 text-sm hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!ticker.trim() || assessment.isPending}
               type="button"
               onClick={() => assessment.mutate()}
@@ -209,7 +209,7 @@ export function PositionSizeCalculator() {
           </div>
 
           {assessment.error && (
-            <div className="rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+            <div className="rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
               {assessment.error instanceof Error ? assessment.error.message : "Ticker-Metriken konnten nicht geladen werden."}
             </div>
           )}
@@ -223,13 +223,13 @@ export function PositionSizeCalculator() {
 
 function ResultCard({ mode, result }: { mode: CalculatorMode; result: PortfolioPositionSizeResult }) {
   return (
-    <div className="rounded border border-[#2d333d] bg-[#111419] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-sm text-[#a0a7b4]">Stückzahl</p>
+          <p className="text-sm text-[var(--muted)]">Stückzahl</p>
           <p className="text-3xl font-semibold tabular-nums">{result.recommended_max_shares}</p>
         </div>
-        <Calculator className="text-emerald-300" size={28} />
+        <Calculator className="text-[var(--green)]" size={28} />
       </div>
       {mode === "loss_budget" ? (
         <div className="space-y-3 text-sm">
@@ -249,7 +249,7 @@ function ResultCard({ mode, result }: { mode: CalculatorMode; result: PortfolioP
         </div>
       )}
       {result.warnings.length > 0 && (
-        <div className="mt-4 rounded border border-amber-300/30 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+        <div className="mt-4 rounded border border-amber-300/30 bg-[var(--yellow-soft)] p-3 text-xs leading-5 text-[var(--yellow)]">
           {result.warnings[0]}
         </div>
       )}
@@ -329,14 +329,14 @@ function ModeButton({
       className={[
         "rounded border p-3 text-left transition",
         active
-          ? "border-emerald-300/60 bg-emerald-300/10 text-emerald-100"
-          : "border-[#2d333d] bg-[#171a20] text-[#d8dde6] hover:border-[#4a5362]"
+          ? "border-emerald-300/60 bg-[var(--green-soft)] text-[var(--green)]"
+          : "border-[var(--border)] bg-[var(--panel)] text-[var(--text)] hover:border-[var(--border)]"
       ].join(" ")}
       type="button"
       onClick={onClick}
     >
       <span className="block text-sm font-semibold">{label}</span>
-      <span className="mt-1 block text-xs leading-5 text-[#a0a7b4]">{description}</span>
+      <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{description}</span>
     </button>
   );
 }
@@ -377,7 +377,7 @@ function formatPct(value?: number | null) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1 block text-[#a0a7b4]">{label}</span>
+      <span className="mb-1 block text-[var(--muted)]">{label}</span>
       {children}
     </label>
   );
@@ -385,8 +385,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-[#242a33] pb-2 last:border-b-0">
-      <span className="text-[#a0a7b4]">{label}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-2 last:border-b-0">
+      <span className="text-[var(--muted)]">{label}</span>
       <span className="text-right font-medium tabular-nums">{value}</span>
     </div>
   );

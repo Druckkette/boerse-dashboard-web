@@ -106,22 +106,22 @@ export function StockFundamentalsPanel({ ticker }: { ticker: string }) {
       </div>
 
       {query.isError && (
-        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-[var(--red)]">
           Fundamentals konnten nicht geladen werden.
         </div>
       )}
       {refreshMutation.isError && (
-        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-[var(--red)]">
           Fundamental-Refresh konnte nicht gestartet werden. Prüfe Backend, Worker und Job-Seite.
         </div>
       )}
       {refreshJob?.status === "failed" && (
-        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-[var(--red)]">
           {refreshJob.error_message || "Fundamental-Refresh ist fehlgeschlagen."}
         </div>
       )}
       {refreshMutation.isSuccess && (
-        <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100">
+        <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-[var(--green)]">
           {refreshRunning
             ? `${refreshJob?.current_step || "Fundamental-Refresh läuft"} · ${refreshJob?.progress ?? 0}%`
             : "Fundamental-Refresh wurde abgeschlossen. Die Detaildaten wurden neu geladen."}
@@ -830,8 +830,8 @@ function daysUntil(value: string) {
 }
 
 function toneText(tone: Tone) {
-  if (tone === "good") return "text-emerald-100";
-  if (tone === "warning") return "text-amber-100";
-  if (tone === "bad") return "text-rose-100";
+  if (tone === "good") return "text-[var(--green)]";
+  if (tone === "warning") return "text-[var(--yellow)]";
+  if (tone === "bad") return "text-[var(--red)]";
   return "text-[#172033]";
 }

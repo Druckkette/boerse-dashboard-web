@@ -105,8 +105,13 @@ def analytics(
     query: str | None = Query(default=None, max_length=120),
     date_from: date | None = None,
     date_to: date | None = None,
+    group_by: str = Query(default="setup", pattern="^(setup|market|sector|holding|deviation)$"),
+    context: str = Query(default="all", pattern="^(all|archived|reconstructed|partial|missing|pending|failed)$"),
 ) -> TradeJournalAnalyticsResponse:
-    return get_trade_journal_analytics(query=query, date_from=date_from, date_to=date_to)
+    try:
+        return get_trade_journal_analytics(query=query, date_from=date_from, date_to=date_to, group_by=group_by, context=context)
+    except TradeJournalRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Journal-Auswertung derzeit nicht verfügbar.") from exc
 
 
 @router.get("/coverage", response_model=TradeJournalCoverageResponse)

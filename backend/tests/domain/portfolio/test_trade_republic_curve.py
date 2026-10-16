@@ -79,6 +79,7 @@ def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
                 PriceRow(date=date(2025, 1, 2), close=5000),
                 PriceRow(date=date(2025, 1, 3), close=5050),
             ],
+            "EURUSD=X": [PriceRow(date(2025, 1, 1), 1), PriceRow(date(2025, 1, 2), 1), PriceRow(date(2025, 1, 3), 1), PriceRow(date(2025, 1, 6), 1), PriceRow(date(2025, 2, 3), 1), PriceRow(date(2025, 2, 4), 1)],
         }.get(ticker, []),
     )
 
@@ -86,10 +87,11 @@ def test_trade_republic_curve_uses_saved_transactions(monkeypatch) -> None:
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
-    assert curve.points[-1].depot_value >= 10100
-    assert curve.points[-1].portfolio_index > 100
-    assert curve.points[-1].sp500_index is not None
-    assert curve.points[-1].sp500_index > 100
+    assert next(point for point in curve.points if point.date == "2025-01-03").depot_value >= 10100
+    assert curve.points[-1].depot_value is None
+    assert next(point for point in curve.points if point.date == "2025-01-03").portfolio_index > 100
+    assert next(point for point in curve.points if point.date == "2025-01-03").sp500_index is not None
+    assert next(point for point in curve.points if point.date == "2025-01-03").sp500_index > 100
 
 
 def test_trade_republic_curve_keeps_dividends_as_performance_and_neutralizes_deposits(monkeypatch) -> None:
@@ -115,6 +117,7 @@ def test_trade_republic_curve_keeps_dividends_as_performance_and_neutralizes_dep
                 PriceRow(date=date(2025, 1, 3), close=5000),
                 PriceRow(date=date(2025, 1, 6), close=5000),
             ],
+            "EURUSD=X": [PriceRow(date(2025, 1, 1), 1), PriceRow(date(2025, 1, 2), 1), PriceRow(date(2025, 1, 3), 1), PriceRow(date(2025, 1, 6), 1), PriceRow(date(2025, 2, 3), 1), PriceRow(date(2025, 2, 4), 1)],
         }.get(ticker, []),
     )
 
@@ -147,6 +150,7 @@ def test_trade_republic_curve_neutralizes_security_transfers(monkeypatch) -> Non
                 PriceRow(date=date(2025, 1, 2), close=5000),
                 PriceRow(date=date(2025, 1, 3), close=5000),
             ],
+            "EURUSD=X": [PriceRow(date(2025, 1, 1), 1), PriceRow(date(2025, 1, 2), 1), PriceRow(date(2025, 1, 3), 1), PriceRow(date(2025, 1, 6), 1), PriceRow(date(2025, 2, 3), 1), PriceRow(date(2025, 2, 4), 1)],
         }.get(ticker, []),
     )
 
@@ -157,7 +161,7 @@ def test_trade_republic_curve_neutralizes_security_transfers(monkeypatch) -> Non
     assert by_date["2025-01-03"].portfolio_index == pytest.approx(100)
 
 
-def test_trade_republic_curve_values_derivatives_from_trade_prices_without_ticker(monkeypatch) -> None:
+def test_trade_republic_curve_keeps_missing_derivative_valuations_open(monkeypatch) -> None:
     transactions = [
         _tr_row(date(2025, 2, 3), "customer_inbound", 0, None, 100),
         _tr_row(
@@ -191,17 +195,19 @@ def test_trade_republic_curve_values_derivatives_from_trade_prices_without_ticke
                 PriceRow(date=date(2025, 2, 3), close=5000),
                 PriceRow(date=date(2025, 2, 4), close=5000),
             ],
+            "EURUSD=X": [PriceRow(date(2025, 1, 1), 1), PriceRow(date(2025, 1, 2), 1), PriceRow(date(2025, 1, 3), 1), PriceRow(date(2025, 1, 6), 1), PriceRow(date(2025, 2, 3), 1), PriceRow(date(2025, 2, 4), 1)],
         }.get(ticker, []),
     )
 
     curve = portfolio_service.get_portfolio_curve(days=2500)
     by_date = {point.date: point for point in curve.points}
 
-    assert by_date["2025-02-03"].positions_value == 100
+    assert by_date["2025-02-03"].positions_value is None
+    assert not by_date["2025-02-03"].valuation_complete
     assert by_date["2025-02-04"].positions_value == 0
     assert by_date["2025-02-04"].cash == 110
-    assert by_date["2025-02-04"].portfolio_index == pytest.approx(110)
-    assert "Trade-Price-Fallback für 1 Instrumente" in curve.message
+    assert by_date["2025-02-04"].portfolio_index is None
+    assert "Kursdaten fehlen für 1 Instrumente" in curve.message
 
 
 def test_trade_republic_curve_deduplicates_cached_price_dates(monkeypatch) -> None:
@@ -225,6 +231,7 @@ def test_trade_republic_curve_deduplicates_cached_price_dates(monkeypatch) -> No
                 PriceRow(date=date(2025, 1, 2), close=5010),
                 PriceRow(date=date(2025, 1, 3), close=5050),
             ],
+            "EURUSD=X": [PriceRow(date(2025, 1, 1), 1), PriceRow(date(2025, 1, 2), 1), PriceRow(date(2025, 1, 3), 1), PriceRow(date(2025, 1, 6), 1), PriceRow(date(2025, 2, 3), 1), PriceRow(date(2025, 2, 4), 1)],
         }.get(ticker, []),
     )
 
@@ -232,8 +239,8 @@ def test_trade_republic_curve_deduplicates_cached_price_dates(monkeypatch) -> No
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
-    assert curve.points[-1].portfolio_index > 100
-    assert curve.points[-1].sp500_index is not None
+    assert next(point for point in curve.points if point.date == "2025-01-03").portfolio_index > 100
+    assert next(point for point in curve.points if point.date == "2025-01-03").sp500_index is not None
 
 
 def test_trade_republic_curve_deduplicates_trade_price_fallback_dates(monkeypatch) -> None:
@@ -270,6 +277,7 @@ def test_trade_republic_curve_deduplicates_trade_price_fallback_dates(monkeypatc
                 PriceRow(date=date(2025, 2, 3), close=5000),
                 PriceRow(date=date(2025, 2, 4), close=5000),
             ],
+            "EURUSD=X": [PriceRow(date(2025, 1, 1), 1), PriceRow(date(2025, 1, 2), 1), PriceRow(date(2025, 1, 3), 1), PriceRow(date(2025, 1, 6), 1), PriceRow(date(2025, 2, 3), 1), PriceRow(date(2025, 2, 4), 1)],
         }.get(ticker, []),
     )
 
@@ -277,7 +285,7 @@ def test_trade_republic_curve_deduplicates_trade_price_fallback_dates(monkeypatc
 
     assert curve.source == "trade_republic_transactions"
     assert curve.points
-    assert "Trade-Price-Fallback für 1 Instrumente" in curve.message
+    assert "Kursdaten fehlen für 1 Instrumente" in curve.message
 
 
 def test_portfolio_curve_falls_back_to_missing_response_when_tr_curve_fails(monkeypatch) -> None:

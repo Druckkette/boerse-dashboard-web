@@ -15,6 +15,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def reset_sell_state(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_sell_engine_state()
+    monkeypatch.setattr(sell_service.portfolio_repository, "get_cash_balance", lambda: 0.0)
     monkeypatch.setattr(sell_service.portfolio_repository, "list_open_positions", fixture_positions)
     monkeypatch.setattr(sell_service.prices_repository, "list_price_bars", fixture_price_bars)
 

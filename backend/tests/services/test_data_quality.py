@@ -55,7 +55,7 @@ def test_position_quality_is_limited_for_stale_or_incomplete_metrics() -> None:
     assert "ATR oder Beta fehlt" in result["NVDA"]["detail"]
 
 
-def test_position_quality_blocks_implausible_position_values() -> None:
+def test_extreme_but_valid_return_is_not_automatically_a_data_error() -> None:
     today = date.today()
     result = assess_position_quality(
         [_position(current_price=900, market_value=9000, pnl_pct=800)],
@@ -64,8 +64,7 @@ def test_position_quality_blocks_implausible_position_values() -> None:
         today=today,
     )
 
-    assert result["NVDA"]["status"] == "blocked"
-    assert "plausibilitätskritisch" in result["NVDA"]["detail"]
+    assert result["NVDA"]["status"] == "trusted"
 
 
 def test_informational_dividend_does_not_create_warning_issue() -> None:

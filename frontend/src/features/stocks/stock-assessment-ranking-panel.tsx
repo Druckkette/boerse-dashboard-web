@@ -10,6 +10,8 @@ import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { ReportWorkOverview } from "@/components/ui/report-work-status";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { useViewState } from "@/lib/view-state";
+import { SavedViews } from "@/components/ui/saved-views";
 
 const control = "rounded-lg border border-[#d3dce6] bg-white px-3 py-2 text-sm text-[#172033] focus-visible:outline-2 focus-visible:outline-teal-700 disabled:opacity-40";
 const terminal = new Set(["done", "failed", "skipped", "cancelled"]);
@@ -21,15 +23,17 @@ export function StockAssessmentRankingPanel() {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [minScore, setMinScore] = useState(0);
-  const [minRs, setMinRs] = useState(0);
-  const [minFundamental, setMinFundamental] = useState(0);
-  const [maxWarnings, setMaxWarnings] = useState(100);
-  const [completeOnly, setCompleteOnly] = useState(false);
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<ScoreKey>("overall_score");
-  const [required, setRequired] = useState<string[]>([]);
+  const [view, setView] = useViewState("screening", { page: 0, minScore: 0, minRs: 0, minFundamental: 0, maxWarnings: 100, completeOnly: false, search: "", sort: "overall_score" as ScoreKey, required: [] as string[] });
+  const { page, minScore, minRs, minFundamental, maxWarnings, completeOnly, search, sort, required } = view;
+  const setPage = (page: number) => setView({ page });
+  const setMinScore = (minScore: number) => setView({ minScore });
+  const setMinRs = (minRs: number) => setView({ minRs });
+  const setMinFundamental = (minFundamental: number) => setView({ minFundamental });
+  const setMaxWarnings = (maxWarnings: number) => setView({ maxWarnings });
+  const setCompleteOnly = (completeOnly: boolean) => setView({ completeOnly });
+  const setSearch = (search: string) => setView({ search });
+  const setSort = (sort: ScoreKey) => setView({ sort });
+  const setRequired = (required: string[]) => setView({ required });
   const [criterion, setCriterion] = useState("");
   const params = new URLSearchParams({
     min_score: String(minScore), min_rs: String(minRs), min_fundamental: String(minFundamental),
@@ -63,7 +67,8 @@ export function StockAssessmentRankingPanel() {
       void client.invalidateQueries({ queryKey: ["stock-assessment-ranking"] });
     }
   }, [jobStatus, client]);
-  const criteria = query.data?.criteria ?? [];
+  const criteria = query.data?.criterion_options ?? query.data?.criteria.map(label => ({ id: label, label })) ?? [];
+  const unknownCriteria = required.filter(id => !criteria.some(criterion => criterion.id === id));
   const rows = query.data?.rows ?? [];
   const totalCount = query.data?.total_count ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalCount / 50));
@@ -80,6 +85,8 @@ export function StockAssessmentRankingPanel() {
     <CollapsiblePanel title="Aktienbewertung Ranking" open={open} onOpenChange={setOpen}
       summary={<StatusChip tone={running ? "warning" : "neutral"}>{running ? "Bewertung läuft" : summary?.records_written != null ? summary.records_written + " Aktien bewertet" : "Nicht geladen"}</StatusChip>}>
       <div className="space-y-4 p-4 text-[#172033]">
+        <SavedViews scope="screening" />
+        {!!unknownCriteria.length && query.data && <p role="status" className="app-notice">Einige gespeicherte Kriterien sind in diesem Datenstand nicht verfügbar. Filter entfernen oder eine neue Bewertung starten.</p>}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="text-base font-semibold">Bestenliste des Aktienuniversums</h3>
             <p className="mt-1 text-sm text-[#687386]">{summary?.universe_count != null ? summary.records_written + " von " + summary.universe_count + " Aktien bewertet" : "Noch keine vollständige Universumsbewertung"}
@@ -107,10 +114,10 @@ export function StockAssessmentRankingPanel() {
         {error && <p role="alert" className="text-sm text-red-700">{error instanceof Error ? error.message : "Bestenliste konnte nicht geladen werden."}</p>}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{filters.map((filter) => <label key={filter.label} className="grid gap-1 text-xs">{filter.label}<input className={control + " min-w-0 w-full"} type="number" min={0} max={filter.label.startsWith("RS") ? 99 : 100} value={filter.value} onChange={(event) => { filter.set(Math.max(0, Math.min(filter.label.startsWith("RS") ? 99 : 100, Number(event.target.value)))); setPage(0); }} /></label>)}</div>
         <div className="flex items-end gap-2">
-          <label className="grid min-w-0 flex-1 gap-1 text-xs">Pflichtkriterium<select className={control + " w-full"} value={criterion} onChange={(event) => setCriterion(event.target.value)}><option value="">Kriterium auswählen</option>{criteria.filter((label) => !required.includes(label)).map((label) => <option key={label}>{label}</option>)}</select></label>
+          <label className="grid min-w-0 flex-1 gap-1 text-xs">Pflichtkriterium<select className={control + " w-full"} value={criterion} onChange={(event) => setCriterion(event.target.value)}><option value="">Kriterium auswählen</option>{criteria.filter(item => !required.includes(item.id)).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           <button type="button" title="Pflichtkriterium hinzufügen" aria-label="Pflichtkriterium hinzufügen" className={control} disabled={!criterion} onClick={() => { setRequired([...required, criterion]); setCriterion(""); setPage(0); }}><Plus size={20} /></button>
         </div>
-        {!!required.length && <div className="flex flex-wrap gap-2">{required.map((label) => <span key={label} className="inline-flex max-w-full items-center gap-2 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900"><span>{label}</span><button type="button" aria-label={label + " entfernen"} onClick={() => setRequired(required.filter((value) => value !== label))}><X size={14} /></button></span>)}</div>}
+        {!!required.length && <div className="flex flex-wrap gap-2">{required.map((label) => <span key={label} className="inline-flex max-w-full items-center gap-2 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900"><span>{criteria.find(item => item.id === label)?.label ?? label}</span><button type="button" aria-label={label + " entfernen"} onClick={() => setRequired(required.filter((value) => value !== label))}><X size={14} /></button></span>)}</div>}
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="accent-teal-700" checked={completeOnly} onChange={(event) => { setCompleteOnly(event.target.checked); setPage(0); }} />Nur aktuelle Kurse mit Fundamentals, RS-Linie, RS-Rating und 13F</label>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e3e8ef] pt-3">
           <label className="flex flex-wrap items-center gap-2 text-sm">{totalCount} Treffer<input aria-label="Ticker oder Firmenname suchen" className={control + " max-w-52"} maxLength={100} placeholder="Ticker / Firma" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} /></label>
@@ -127,7 +134,7 @@ export function StockAssessmentRankingPanel() {
             <td className="px-3 py-3">{row.technical_score.toFixed(0)}</td><td className="px-3 py-3">{row.fundamentals_available ? row.fundamental_score.toFixed(0) : "Fehlen"}</td>
             <td className="px-3 py-3">{row.moving_average_score.toFixed(0)}</td><td className="px-3 py-3">{row.chart_behavior_score}</td><td className="px-3 py-3">{row.rs_rating ?? "Fehlt"}</td>
             <td className="px-3 py-3"><span title={row.top_warning}>{row.warnings_count}</span></td>
-            <td className="px-3 py-3 text-xs"><span className={row.prices_stale ? "text-amber-800" : "text-[#687386]"}>{row.as_of}{row.prices_stale ? " · veraltet" : ""}</span><div className="mt-1 text-amber-800">{[!row.fundamentals_available && "Fundamentals fehlen", !row.rs_line_available && "RS-Linie fehlt", !row.institutional_available && "13F fehlen"].filter(Boolean).join(" · ")}</div></td>
+            <td className="px-3 py-3 text-xs"><span className={row.prices_stale ? "text-amber-800" : "text-[#687386]"}>{row.as_of}{row.prices_stale ? " · veraltet" : ""}{row.configuration_current === false ? " · vorherige Berechnungsversion" : ""}</span><div className="mt-1 text-amber-800">{[!row.fundamentals_available && "Fundamentals fehlen", !row.rs_line_available && "RS-Linie fehlt", !row.institutional_available && "13F fehlen"].filter(Boolean).join(" · ")}</div></td>
           </tr>)}</tbody>
         </table>
       </div>

@@ -189,7 +189,7 @@ function SellStrategyPanel({ strategy }: { strategy?: SellStrategyResult }) {
         {(strategy?.recommendations ?? []).map((recommendation) => (
           <div
             key={recommendation.id}
-            className={`rounded border p-3 ${recommendation.active ? "border-amber-300/45 bg-amber-300/10" : "border-[#e3e8ef] bg-[#f9fbfd]"}`}
+            className={`rounded border p-3 ${recommendation.active ? "border-amber-300/45 bg-[var(--yellow-soft)]" : "border-[#e3e8ef] bg-[#f9fbfd]"}`}
           >
             <div className="mb-2 flex items-start justify-between gap-3">
               <div className="font-medium">{recommendation.label}</div>
@@ -249,9 +249,9 @@ function SellFeatureCard({ feature }: { feature: SellRuleFeature }) {
   const tone = toneForFeature(feature);
   const border =
     feature.active && feature.severity === "killer"
-      ? "border-rose-300/50 bg-rose-400/10"
+      ? "border-rose-300/50 bg-[var(--red-soft)]"
       : feature.active
-        ? "border-amber-300/45 bg-amber-300/10"
+        ? "border-amber-300/45 bg-[var(--yellow-soft)]"
         : "border-[#e3e8ef] bg-[#f9fbfd]";
   return (
     <div className={`rounded border p-3 ${border}`}>

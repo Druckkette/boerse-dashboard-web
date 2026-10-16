@@ -871,6 +871,9 @@ def list_rankings(
                 **_snapshot_payload(group, snapshot),
                 **_momentum_from_history(histories.get(group.id, [])),
                 "top_stock": (_top_members(ranked_members, limit=1) or [None])[0],
+                "rotation_history": [dict(date=point.snapshot_date.isoformat(), rs_score=point.rs_score,
+                    rank=point.rank, ranked_group_count=point.ranked_group_count, is_ranked=point.is_ranked)
+                    for point in reversed(histories.get(group.id, []))],
             }
         )
     return {
@@ -880,6 +883,8 @@ def list_rankings(
         "benchmark": pairs[0][1].benchmark_ticker if pairs else DEFAULT_BENCHMARK,
         "min_group_members_for_rs": MIN_GROUP_MEMBERS_FOR_RS,
         "weights": INDUSTRY_GROUP_RS_WEIGHTS,
+        "facets": {"sectors": sorted({group.sector for group, _ in pairs}),
+                   "families": sorted({group.industry_family for group, _ in pairs if not sector or group.sector == sector})},
         "rows": rows,
     }
 

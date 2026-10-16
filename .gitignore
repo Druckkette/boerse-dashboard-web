@@ -24,3 +24,8 @@ output/journal-exits-*/
 
 frontend/test-results/
 frontend/playwright-report/
+
+# Local deployment secrets and private analysis artifacts are never release inputs.
+infra/.env.*.before-*
+/output/
+/industry_group_analysis/

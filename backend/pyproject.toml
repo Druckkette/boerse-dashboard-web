@@ -53,4 +53,4 @@ include = ["app*"]
 exclude = ["alembic*"]
 
 [tool.setuptools.package-data]
-app = ["beta_api_policy.json"]
+app = ["beta_api_policy.json", "research/public/*.json", "research/public/*.csv"]

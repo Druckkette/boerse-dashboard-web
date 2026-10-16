@@ -92,11 +92,11 @@ export default function SetupPage() {
               {setup.data?.status ?? "lädt"}
             </StatusChip>
             <button
-              className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+              className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
               type="button"
               onClick={refresh}
             >
-              <RefreshCw size={15} className={setup.isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+              <RefreshCw size={15} className={setup.isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
               Status
             </button>
           </div>
@@ -108,12 +108,12 @@ export default function SetupPage() {
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <section className="space-y-4">
           {setup.isLoading && (
-            <div className="rounded border border-[#2d333d] bg-[#171a20] p-5 text-sm text-[#a0a7b4]">
+            <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
               Setup-Status lädt...
             </div>
           )}
           {setup.error && (
-            <div className="rounded border border-rose-300/30 bg-rose-300/10 p-5 text-sm text-rose-100">
+            <div className="rounded border border-rose-300/30 bg-[var(--red-soft)] p-5 text-sm text-[var(--red)]">
               {setup.error instanceof Error ? setup.error.message : "Setup-Status ist nicht erreichbar."}
             </div>
           )}
@@ -132,13 +132,13 @@ export default function SetupPage() {
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+          <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold">Nächste Aktion</h2>
-                <div className="mt-1 text-sm text-[#a0a7b4]">{setup.data?.summary ?? "Status wird geprüft."}</div>
+                <div className="mt-1 text-sm text-[var(--muted)]">{setup.data?.summary ?? "Status wird geprüft."}</div>
               </div>
-              <Activity className="text-emerald-300" size={20} />
+              <Activity className="text-[var(--green)]" size={20} />
             </div>
             {nextStep ? (
               <NextStepAction
@@ -148,27 +148,27 @@ export default function SetupPage() {
                 step={nextStep}
               />
             ) : (
-              <div className="rounded border border-emerald-300/30 bg-emerald-300/10 p-3 text-sm text-emerald-100">
+              <div className="rounded border border-emerald-300/30 bg-[var(--green-soft)] p-3 text-sm text-[var(--green)]">
                 Setup ist vollständig genug für den laufenden Betrieb.
               </div>
             )}
             {startMutation.error && (
-              <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+              <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
                 {startMutation.error instanceof Error ? startMutation.error.message : "Job konnte nicht gestartet werden."}
               </div>
             )}
             {activeJob && (
-              <div className="mt-3 rounded border border-amber-300/35 bg-amber-300/10 p-3 text-sm text-amber-100">
+              <div className="mt-3 rounded border border-amber-300/35 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="font-medium">Aktiver Worker-Job: {activeJob.job_type}</div>
-                    <div className="mt-1 text-xs leading-5 text-amber-100/80">
+                    <div className="mt-1 text-xs leading-5 text-[var(--yellow)]/80">
                       {activeJob.current_step || activeJob.message || "Der Worker hat noch keinen Detailstatus gemeldet."}
                     </div>
-                    <div className="mt-1 truncate text-xs text-amber-100/60">{activeJob.job_id}</div>
+                    <div className="mt-1 truncate text-xs text-[var(--yellow)]/60">{activeJob.job_id}</div>
                   </div>
                   <button
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded border border-amber-200/50 bg-[#111419] px-3 py-2 text-xs text-amber-100 transition hover:border-rose-200/70 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded border border-amber-200/50 bg-[var(--panel)] px-3 py-2 text-xs text-[var(--yellow)] transition hover:border-rose-200/70 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={cancelMutation.isPending}
                     type="button"
                     onClick={() => cancelMutation.mutate(activeJob.job_id)}
@@ -180,13 +180,13 @@ export default function SetupPage() {
               </div>
             )}
             {cancelMutation.error && (
-              <div className="mt-3 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+              <div className="mt-3 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
                 {cancelMutation.error instanceof Error ? cancelMutation.error.message : "Job konnte nicht abgebrochen werden."}
               </div>
             )}
           </section>
 
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+          <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
             <h2 className="text-base font-semibold">Persistenz</h2>
             <div className="mt-4 space-y-3 text-sm">
               <InfoRow label="Import" value="Website" tone="good" />
@@ -194,13 +194,13 @@ export default function SetupPage() {
               <InfoRow label="Refreshes" value="Worker" tone="neutral" />
               <InfoRow label="Wiederholung" value="nur bei Bedarf" tone="neutral" />
             </div>
-            <p className="mt-4 text-sm leading-6 text-[#a0a7b4]">
+            <p className="mt-4 text-sm leading-6 text-[var(--muted)]">
               Der Bootstrap muss nicht nach jedem Container-Neustart wiederholt werden. Die Daten liegen im
               Postgres-Volume; erneutes Laden ist nur nach leerer Datenbank, Reset oder bewusst geänderter Historie nötig.
             </p>
           </section>
 
-          <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+          <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
             <h2 className="text-base font-semibold">Direkte Ziele</h2>
             <div className="mt-4 grid gap-2">
               <QuickLink href="/portfolio/imports" icon={<Upload size={16} />} label="Depot importieren" />
@@ -242,20 +242,20 @@ function SetupStepCard({
 }) {
   const latestJobIsActive = step.latest_job?.status === "running" || step.latest_job?.status === "queued";
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded border border-[#2d333d] bg-[#111419] text-sm tabular-nums text-[#a0a7b4]">
+            <span className="flex size-8 items-center justify-center rounded border border-[var(--border)] bg-[var(--panel)] text-sm tabular-nums text-[var(--muted)]">
               {index + 1}
             </span>
             {renderStepIcon(step)}
             <h2 className="text-base font-semibold">{step.label}</h2>
             <StatusChip tone={toneForStep(step.status)}>{labelForStepStatus(step.status)}</StatusChip>
           </div>
-          <p className="mt-3 text-sm leading-6 text-[#a0a7b4]">{step.detail}</p>
+          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{step.detail}</p>
           {step.latest_job && (
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#77808f]">
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
               <span>letzter Job: {step.latest_job.status}</span>
               <span>{step.latest_job.finished_at ? formatDate(step.latest_job.finished_at) : formatDate(step.latest_job.created_at)}</span>
             </div>
@@ -265,18 +265,18 @@ function SetupStepCard({
       </div>
       {step.latest_job && latestJobIsActive && (
         <div className="mt-4">
-          <div className="h-2 overflow-hidden rounded bg-[#111419]">
+          <div className="h-2 overflow-hidden rounded bg-[var(--panel)]">
             <div className="h-2 rounded bg-emerald-300" style={{ width: `${step.latest_job.progress}%` }} />
           </div>
-          <div className="mt-2 flex flex-col gap-2 text-xs text-[#77808f] sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-2 flex flex-col gap-2 text-xs text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div>{step.latest_job.current_step || step.latest_job.message}</div>
-              <div className="mt-1 truncate text-[#697386]">{step.latest_job.job_id}</div>
+              <div className="mt-1 truncate text-[var(--muted)]">{step.latest_job.job_id}</div>
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <span className="tabular-nums">{step.latest_job.progress}%</span>
               <button
-                className="inline-flex items-center gap-1 rounded border border-[#2d333d] bg-[#111419] px-2 py-1 text-xs text-[#d8dde6] transition hover:border-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded border border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-xs text-[var(--text)] transition hover:border-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={cancellingJobId === step.latest_job.job_id}
                 type="button"
                 onClick={() => onCancel(step.latest_job!.job_id)}
@@ -304,11 +304,11 @@ function NextStepAction({
   step: SetupStep;
 }) {
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-3">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-medium">{step.label}</div>
-          <div className="mt-1 text-xs leading-5 text-[#77808f]">{step.detail}</div>
+          <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{step.detail}</div>
         </div>
         <StatusChip tone={toneForStep(step.status)}>{labelForStepStatus(step.status)}</StatusChip>
       </div>
@@ -346,7 +346,7 @@ function StepAction({
     return (
       <Link
         className={[
-          "inline-flex items-center justify-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60",
+          "inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60",
           compact ? "w-full" : "min-w-40"
         ].join(" ")}
         href={step.href}
@@ -359,7 +359,7 @@ function StepAction({
 
   if (!step.job_type) {
     return (
-      <div className={compact ? "text-sm text-[#77808f]" : "min-w-40 text-sm text-[#77808f]"}>
+      <div className={compact ? "text-sm text-[var(--muted)]" : "min-w-40 text-sm text-[var(--muted)]"}>
         Keine direkte Aktion
       </div>
     );
@@ -368,7 +368,7 @@ function StepAction({
   return (
     <button
       className={[
-        "inline-flex items-center justify-center gap-2 rounded border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded border border-emerald-300/35 bg-[var(--green-soft)] px-3 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50",
         compact ? "w-full" : "min-w-40"
       ].join(" ")}
       disabled={!canStartJob}
@@ -384,11 +384,11 @@ function StepAction({
 function QuickLink({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
   return (
     <Link
-      className="inline-flex items-center justify-between gap-3 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+      className="inline-flex items-center justify-between gap-3 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
       href={href}
     >
       <span>{label}</span>
-      <span className="text-emerald-300">{icon}</span>
+      <span className="text-[var(--green)]">{icon}</span>
     </Link>
   );
 }
@@ -403,8 +403,8 @@ function InfoRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-[#242a33] pb-3 last:border-b-0">
-      <span className="text-[#a0a7b4]">{label}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3 last:border-b-0">
+      <span className="text-[var(--muted)]">{label}</span>
       <StatusChip tone={tone}>{value}</StatusChip>
     </div>
   );
@@ -427,11 +427,11 @@ function JobFreshnessPanel({
 }) {
   const staleCount = services.filter((service) => service.status !== "fresh").length;
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Job Freshness</h2>
-          <p className="mt-1 text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
             Datenstand von Kursdaten, Marktanalyse, RS, 13F und Positionsmonitor.
           </p>
         </div>
@@ -443,20 +443,20 @@ function JobFreshnessPanel({
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <button
-          className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+          className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
           type="button"
           onClick={onToggle}
         >
-          <DatabaseZap size={15} className="text-emerald-300" />
+          <DatabaseZap size={15} className="text-[var(--green)]" />
           {isOpen ? "Job Freshness schließen" : "Job Freshness öffnen"}
         </button>
         {isOpen ? (
           <button
-            className="inline-flex items-center gap-2 rounded border border-[#2d333d] bg-[#111419] px-3 py-2 text-sm transition hover:border-emerald-300/60"
+            className="inline-flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm transition hover:border-emerald-300/60"
             type="button"
             onClick={onRefresh}
           >
-            <RefreshCw size={15} className={isFetching ? "animate-spin text-emerald-300" : "text-[#a0a7b4]"} />
+            <RefreshCw size={15} className={isFetching ? "animate-spin text-[var(--green)]" : "text-[var(--muted)]"} />
             Aktualisieren
           </button>
         ) : null}
@@ -464,16 +464,16 @@ function JobFreshnessPanel({
       {isOpen ? (
         <div className="mt-4 space-y-3">
           {isLoading ? (
-            <div className="text-sm text-[#a0a7b4]">Freshness lädt...</div>
+            <div className="text-sm text-[var(--muted)]">Freshness lädt...</div>
           ) : services.length === 0 ? (
-            <div className="text-sm text-[#a0a7b4]">Noch keine Freshness-Daten verfügbar.</div>
+            <div className="text-sm text-[var(--muted)]">Noch keine Freshness-Daten verfügbar.</div>
           ) : (
             services.map((service) => (
-              <div key={service.name} className="flex items-center justify-between gap-4 border-b border-[#242a33] pb-3 last:border-0 last:pb-0">
+              <div key={service.name} className="flex items-center justify-between gap-4 border-b border-[var(--border)] pb-3 last:border-0 last:pb-0">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{freshnessLabel(service.name)}</div>
-                  <div className="text-xs text-[#a0a7b4]">Stand {service.as_of || "n/a"}</div>
-                  {service.detail ? <div className="mt-1 text-xs leading-5 text-[#77808f]">{service.detail}</div> : null}
+                  <div className="text-xs text-[var(--muted)]">Stand {service.as_of || "n/a"}</div>
+                  {service.detail ? <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{service.detail}</div> : null}
                 </div>
                 <StatusChip tone={freshnessTone(service.status)}>{service.status}</StatusChip>
               </div>
@@ -507,7 +507,7 @@ function freshnessTone(status: ServiceFreshness["status"]) {
 }
 
 function renderStepIcon(step: SetupStep) {
-  const className = step.status === "complete" ? "text-emerald-300" : "text-[#a0a7b4]";
+  const className = step.status === "complete" ? "text-[var(--green)]" : "text-[var(--muted)]";
   if (step.status === "complete") return <CheckCircle2 size={19} className={className} />;
   if (step.status === "error" || step.status === "blocked") {
     return <CircleAlert size={19} className={className} />;

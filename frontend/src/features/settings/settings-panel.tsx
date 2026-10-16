@@ -187,6 +187,7 @@ export function SettingsPanel() {
       queryClient.invalidateQueries({ queryKey: ["sell-evaluation"] });
       queryClient.invalidateQueries({ queryKey: ["sell-metrics"] });
       queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
+      for (const key of ["stock-assessment", "stock-screening", "stock-assessment-ranking", "stock-assessment-compare", "top-daily-stocks", "jobs", "portfolio-analysis"]) void queryClient.invalidateQueries({ queryKey: [key] });
       setLocal(null);
     },
   });
@@ -286,6 +287,8 @@ export function SettingsPanel() {
 
   return (
     <div className="space-y-4 text-[#172033]">
+      {data?.calculation_refresh?.status === "required" && <p role="status" className="app-notice">Gewichte gespeichert. Bitte im Aktienranking neu berechnen. Ältere Bewertungen bleiben als solche gekennzeichnet.</p>}
+      {data?.calculation_refresh?.status === "queued" && <p role="status" className="app-notice">Gewichte gespeichert. Neuberechnung wurde eingereiht.</p>}
       <nav
         aria-label="Einstellungsbereiche"
         className="flex gap-1 overflow-x-auto rounded-[12px] border border-[#e3e8ef] bg-white p-1"

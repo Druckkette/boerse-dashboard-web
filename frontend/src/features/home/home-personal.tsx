@@ -39,7 +39,7 @@ export function HomeWatchlist({ data }: { data: HomeDashboard }) {
     <form className="mb-4 flex max-w-md gap-2" onSubmit={(event) => { event.preventDefault(); addTicker(); }}>
       <label htmlFor="watchlist-ticker" className="sr-only">Ticker zur Watchlist hinzufügen</label>
       <input id="watchlist-ticker" className="h-10 min-w-0 flex-1 rounded-lg border border-[#d8e1ea] bg-white px-3 text-sm uppercase outline-none focus:border-[#0f766e]" placeholder="Ticker hinzufügen, z. B. AAPL" maxLength={32} value={input} onChange={(event) => setInput(event.target.value)} />
-      <button type="submit" disabled={pending || !input.trim() || !canEdit} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0f766e] px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"><Plus size={14} />Hinzufügen</button>
+      <button type="submit" disabled={pending || !input.trim() || !canEdit} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0f766e] px-3 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"><Plus size={14} />Hinzufügen</button>
     </form>
     {(add.isError || remove.isError) && <p role="alert" className="mb-3 text-sm text-[#c2413b]">Die Watchlist konnte nicht gespeichert werden. Bitte erneut versuchen.</p>}
     {(workspace.isError || workspace.data?.source === "default") && <p role="alert" className="mb-3 text-xs text-[#b7791f]">Die Watchlist-Verwaltung ist derzeit nicht verfügbar. Der letzte gespeicherte Überblick bleibt sichtbar.</p>}

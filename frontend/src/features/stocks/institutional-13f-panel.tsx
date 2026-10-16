@@ -61,21 +61,21 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
   }, [clean, queryClient, refreshJob]);
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <Building2 className="size-5 text-[#8ea4c8]" />
             <h2 className="text-lg font-semibold">Institutionelle 13F-Trends</h2>
           </div>
-          <p className="mt-1 text-sm text-[#a0a7b4]">
+          <p className="mt-1 text-sm text-[var(--muted)]">
             {item ? `${item.previous_period ?? "-"} bis ${item.report_period}` : "Noch keine gespeicherten 13F-Trends."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={item ? toneForTrend(item.trend) : "warning"}>{item ? trendLabel(item.trend) : "Keine Daten"}</StatusChip>
           {!beta && (<button
-            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-sky-400/10 px-3 text-sm font-medium text-sky-100 transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded border border-sky-300/30 bg-[var(--blue-soft)] px-3 text-sm font-medium text-[var(--blue)] transition hover:bg-sky-400/15 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={refreshMutation.isPending || refreshRunning}
             type="button"
             onClick={() => refreshMutation.mutate()}
@@ -86,27 +86,27 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
         </div>
       </div>
 
-      {query.isLoading && <div className="text-sm text-[#a0a7b4]">Lädt...</div>}
-      {query.isError && <div className="text-sm text-rose-200">13F-Trend konnte nicht geladen werden.</div>}
+      {query.isLoading && <div className="text-sm text-[var(--muted)]">Lädt...</div>}
+      {query.isError && <div className="text-sm text-[var(--red)]">13F-Trend konnte nicht geladen werden.</div>}
       {refreshMutation.isError && (
-        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-[var(--red)]">
           13F-Refresh konnte nicht gestartet werden. Prüfe, ob bereits ein Worker-Job läuft.
         </div>
       )}
       {refreshJob?.status === "failed" && (
-        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-rose-100">
+        <div className="mb-4 rounded border border-rose-300/25 bg-rose-950/20 p-3 text-sm text-[var(--red)]">
           {refreshJob.error_message || "13F-Refresh ist fehlgeschlagen."}
         </div>
       )}
       {refreshJob && refreshJob.status !== "failed" ? (
-        <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-emerald-100">
+        <div className="mb-4 rounded border border-emerald-300/20 bg-emerald-950/20 p-3 text-sm text-[var(--green)]">
           {refreshRunning
             ? `${refreshJob.current_step || "13F-Refresh läuft"} · ${refreshJob.progress}%`
             : "13F-Refresh wurde abgeschlossen. Die Detaildaten wurden neu geladen."}
         </div>
       ) : null}
       {!query.isLoading && !query.isError && !item && (
-        <div className="rounded border border-dashed border-[#4b5563] bg-[#111419] p-5 text-sm text-[#a0a7b4]">
+        <div className="rounded border border-dashed border-[var(--border)] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">
           Lade 13F direkt für {clean}. Der Worker nutzt die offiziellen SEC-Datensätze und speichert danach
           aggregierte Ticker-Trends, sofern der Ticker im aktuellen 13F-Universum gefunden wird. 13F-Trends brauchen
           ein passendes SEC-CUSIP-Mapping und mindestens zwei vergleichbare Berichtsperioden.
@@ -138,13 +138,13 @@ function Metric({
   const positive = typeof trend === "number" && trend > 0;
   const negative = typeof trend === "number" && trend < 0;
   return (
-    <div className="rounded border border-[#242a33] bg-[#111419] p-4">
+    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-xs uppercase text-[#a0a7b4]">{label}</div>
-        {positive ? <TrendingUp className="size-4 text-emerald-300" /> : negative ? <TrendingDown className="size-4 text-rose-300" /> : null}
+        <div className="text-xs uppercase text-[var(--muted)]">{label}</div>
+        {positive ? <TrendingUp className="size-4 text-[var(--green)]" /> : negative ? <TrendingDown className="size-4 text-[var(--red)]" /> : null}
       </div>
       <div className="text-xl font-semibold tabular-nums">{value}</div>
-      <div className={negative ? "mt-1 text-xs text-rose-200" : positive ? "mt-1 text-xs text-emerald-200" : "mt-1 text-xs text-[#7f8794]"}>
+      <div className={negative ? "mt-1 text-xs text-[var(--red)]" : positive ? "mt-1 text-xs text-[var(--green)]" : "mt-1 text-xs text-[var(--muted)]"}>
         {detail}
       </div>
     </div>

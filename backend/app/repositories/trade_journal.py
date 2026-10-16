@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import and_, asc, desc, func, or_, select
+from sqlalchemy import and_, asc, desc, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import (
@@ -37,6 +37,7 @@ def list_entries(
     limit: int = 50,
     offset: int = 0,
     sort: str = "newest",
+    include_metadata: bool = True,
 ) -> tuple[list[TradeJournalEntry], int]:
     try:
         with SessionLocal() as db:
@@ -84,23 +85,65 @@ def list_entries(
             )
             statement = base.order_by(*ordering).offset(max(0, offset)).limit(max(1, min(200, limit)))
             rows = list(db.scalars(statement).unique().all())
+            _attach_summary_dependencies(db, rows, include_metadata=include_metadata)
             return rows, total
     except SQLAlchemyError as exc:
         raise TradeJournalRepositoryUnavailable(str(exc)) from exc
+
+
+def _attach_summary_dependencies(db, rows, *, include_metadata=True):
+    if not rows:
+        return
+    ids = [row.id for row in rows]
+    contexts = db.scalars(select(JournalContextVersion).where(
+        JournalContextVersion.journal_entry_id.in_(ids)
+    ).distinct(JournalContextVersion.journal_entry_id, JournalContextVersion.block_type).order_by(
+        JournalContextVersion.journal_entry_id, JournalContextVersion.block_type,
+        JournalContextVersion.generated_at.desc(), JournalContextVersion.id.desc()
+    )).all()
+    by_entry = {}
+    for context in contexts:
+        by_entry.setdefault(context.journal_entry_id, {})[context.block_type] = context
+    for row in rows:
+        row._latest_contexts = by_entry.get(row.id, {})
+    if not include_metadata:
+        return
+    linked_ids = {row.linked_entry_id for row in rows if row.linked_entry_id and not row.source_transaction_id}
+    linked_buys = {row.id: row for row in db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.id.in_(linked_ids))).all()} if linked_ids else {}
+    for row in rows:
+        row._linked_buy = linked_buys.get(row.linked_entry_id)
+    tx_ids = [row.source_transaction_id for row in rows if row.source_transaction_id]
+    transactions = {tx.id: tx for tx in db.scalars(select(Transaction).where(Transaction.id.in_(tx_ids))).all()} if tx_ids else {}
+    tickers = {row.ticker for row in rows}
+    instrument_ids = {tx.instrument_id for tx in transactions.values() if tx.instrument_id}
+    instruments = list(db.scalars(select(Instrument).where(or_(Instrument.ticker.in_(tickers), Instrument.id.in_(instrument_ids)))).all())
+    by_id = {item.id: item for item in instruments}
+    by_ticker = {item.ticker: item for item in instruments}
+    for row in rows:
+        tx = transactions.get(row.source_transaction_id)
+        instrument = (by_id.get(tx.instrument_id) if tx else None) or by_ticker.get(row.ticker)
+        raw = tx.raw_json or {} if tx else {}
+        row._execution_metadata = {
+            "instrument_name": instrument.name if instrument else str(raw.get("name") or ""),
+            "isin": instrument.isin if instrument else str(raw.get("isin") or raw.get("symbol") or ""),
+            "execution_at": str(raw.get("event_ts") or raw.get("datetime") or "") or None,
+            "fees": float(tx.fees) if tx else None, "tax": float(tx.tax) if tx else None,
+            "gross_amount": tx.gross_amount if tx else None, "net_amount": tx.net_amount if tx else None,
+        }
 
 
 def list_trade_entries(
     *, query: str | None = None, date_from: date | None = None, date_to: date | None = None
 ) -> list[TradeJournalEntry]:
     """Return all filtered executions for server-side trade aggregation."""
-    rows, _ = list_entries(query=query, date_from=date_from, date_to=date_to, limit=200, offset=0)
+    rows, _ = list_entries(query=query, date_from=date_from, date_to=date_to, limit=200, offset=0, include_metadata=False)
     if len(rows) < 200:
         return rows
     result = rows
     offset = 200
     while True:
         batch, _ = list_entries(
-            query=query, date_from=date_from, date_to=date_to, limit=200, offset=offset
+            query=query, date_from=date_from, date_to=date_to, limit=200, offset=offset, include_metadata=False
         )
         result.extend(batch)
         if len(batch) < 200:
@@ -238,6 +281,7 @@ def latest_sell_for_buy_entry(buy_entry_id: str) -> TradeJournalEntry | None:
 def create_entry(values: dict) -> TradeJournalEntry:
     try:
         with SessionLocal() as db:
+            _validate_manual_sale(db, values)
             entry = TradeJournalEntry(**values)
             db.add(entry)
             db.commit()
@@ -253,6 +297,14 @@ def update_entry(entry_id: str, values: dict) -> TradeJournalEntry | None:
             entry = db.get(TradeJournalEntry, entry_id)
             if entry is None:
                 return None
+            if not entry.source_transaction_id and entry.entry_type == "buy":
+                db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"journal-buy:{entry.id}"})
+                db.refresh(entry)
+                linked_sales = list(db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.entry_type == "sell", TradeJournalEntry.linked_entry_id == entry.id)).all())
+                if linked_sales and (float(values.get("shares", entry.shares) or 0) + 1e-8 < sum(float(sale.shares or 0) for sale in linked_sales) or values.get("ticker", entry.ticker) != entry.ticker or values.get("currency", entry.currency) != entry.currency or values.get("trade_date", entry.trade_date) > min(sale.trade_date for sale in linked_sales)):
+                    raise ValueError("Kaufänderung widerspricht bereits dokumentierten Teilverkäufen.")
+            if not entry.source_transaction_id:
+                _validate_manual_sale(db, {"entry_type": entry.entry_type, "linked_entry_id": entry.linked_entry_id, **values}, exclude_id=entry_id)
             for key, value in values.items():
                 setattr(entry, key, value)
             entry.updated_at = datetime.now(UTC)
@@ -261,6 +313,26 @@ def update_entry(entry_id: str, values: dict) -> TradeJournalEntry | None:
             return entry
     except SQLAlchemyError as exc:
         raise TradeJournalRepositoryUnavailable(str(exc)) from exc
+
+
+def _validate_manual_sale(db, values, *, exclude_id=None):
+    if values.get("entry_type") != "sell" or not values.get("linked_entry_id"):
+        return
+    buy_id = values["linked_entry_id"]
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"journal-buy:{buy_id}"})
+    buy = db.get(TradeJournalEntry, buy_id)
+    if buy is None or buy.entry_type != "buy" or buy.ticker != values.get("ticker"):
+        raise ValueError("Verknüpfter Kauf passt nicht zum Verkauf.")
+    if buy.source_transaction_id:
+        raise ValueError("Brokerkäufe über die importierten Ausführungen dokumentieren; keine manuellen Verkäufe daran anhängen.")
+    if buy.currency != values.get("currency") or values.get("trade_date", buy.trade_date) < buy.trade_date:
+        raise ValueError("Währung oder Datum des Verkaufs passt nicht zum Kauf.")
+    used = db.scalar(select(func.coalesce(func.sum(TradeJournalEntry.shares), 0)).where(
+        TradeJournalEntry.entry_type == "sell", TradeJournalEntry.linked_entry_id == buy_id,
+        TradeJournalEntry.id != exclude_id if exclude_id else True,
+    )) or 0
+    if float(used) + float(values.get("shares") or 0) > float(buy.shares or 0) + 1e-8:
+        raise ValueError("Die Teilverkäufe überschreiten die verknüpfte Kaufmenge.")
 
 
 def update_notes(entry_id: str, values: dict) -> TradeJournalEntry | None:

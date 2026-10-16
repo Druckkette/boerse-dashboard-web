@@ -1,9 +1,10 @@
 name: docker-publish
 
 on:
-  workflow_dispatch:
-  push:
+  workflow_run:
+    workflows: [ci]
     branches: [main]
+    types: [completed]
 
 permissions:
   contents: read
@@ -15,9 +16,17 @@ env:
 
 jobs:
   publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Resolve tested revision
+        run: echo "RELEASE_SHA=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_ENV"
 
       - name: Resolve lowercase owner
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
@@ -39,8 +48,7 @@ jobs:
           file: infra/Dockerfile.backend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/boerse-dashboard-web-backend:latest
-            ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/boerse-dashboard-web-backend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/boerse-dashboard-web-backend:${{ env.RELEASE_SHA }}
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
@@ -49,5 +57,10 @@ jobs:
           file: infra/Dockerfile.frontend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/boerse-dashboard-web-frontend:latest
-            ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/boerse-dashboard-web-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/boerse-dashboard-web-frontend:${{ env.RELEASE_SHA }}
+
+      - name: Verify immutable image pair
+        run: |
+          docker buildx imagetools inspect "${REGISTRY}/${OWNER_LC}/boerse-dashboard-web-backend:${RELEASE_SHA}"
+          docker buildx imagetools inspect "${REGISTRY}/${OWNER_LC}/boerse-dashboard-web-frontend:${RELEASE_SHA}"
+          printf 'Tested image pair: `%s`\n' "$RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"

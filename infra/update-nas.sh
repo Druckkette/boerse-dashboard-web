@@ -13,6 +13,12 @@ if [ ! -f "${ENV_FILE}" ]; then
   exit 1
 fi
 
+IMAGE_TAG_VALUE=$(sed -n 's/^IMAGE_TAG=//p' "${ENV_FILE}" | tail -n 1)
+if ! printf '%s' "${IMAGE_TAG_VALUE}" | grep -Eq '^[0-9a-f]{40}$'; then
+  echo "IMAGE_TAG must be the 40-character commit SHA of a successful CI release." >&2
+  exit 1
+fi
+
 # COMPOSE_PROFILES in --env-file is honored by Compose. Preserve an already
 # running beta even if its profile was not exported in this shell.
 BETA_ACTIVE=""

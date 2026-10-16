@@ -184,3 +184,11 @@ def test_relevant_improvement_and_decline_have_a_mixed_description():
     change = daily._relevant_home_change(history_row(score=74, rs=95), history_row(score=82, rs=85))
     assert change["summary"] == "Uneinheitliche Veränderungen"
     assert change["tone"] == "warning"
+
+
+def test_weight_change_cannot_be_reported_as_score_improvement():
+    old = {"overall_score": 60, "technical_score": 50, "rs_rating": 90, "signals_json": [], "calculation": {"configuration_hash": "previous"}}
+    row = ranked([item(calculation={"configuration_hash": "current"})], {"GOOD": old})[0]
+    assert row["details_json"]["overall_score_delta"] is None
+    assert row["details_json"]["new_signals"] == []
+    assert row["details_json"]["calculation"]["configuration_hash"] == "current"

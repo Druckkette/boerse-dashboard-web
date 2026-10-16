@@ -413,3 +413,26 @@ API_ACCESS_LOG_ENABLED=1
   run with complete local/SEC history should show zero FMP requests for those stocks; Yahoo and
   FMP are only used for gaps. The estimate/actual earnings columns remain optional and are not
   required for rankings or buy decisions.
+
+## Immutable releases and recovery checks
+
+Images are published only after the `ci` workflow succeeds for a push to `main`.
+Set `IMAGE_TAG` in `.env.nas` to that exact 40-character commit SHA and wait for
+both backend and frontend images from `docker-publish`. `update-nas.sh` rejects
+mutable tags such as `latest`. Preserve the previous SHA and configuration in a
+protected backup directory before updating. Do not replace private credentials,
+Beta settings or runtime configuration while changing the image revision.
+
+`backup-postgres.sh` uses restrictive file permissions, checks the custom archive
+catalogue and records its SHA256/check time for `/jobs`. An archive check is not a
+full restore test. `restore-postgres.sh` still requires explicit destructive
+restore confirmation, stops all eight application services and aborts if stopping
+fails or a service remains running. PostgreSQL and Redis volumes are preserved by
+normal updates. Test restores against a separate disposable database before an
+actual recovery.
+
+Private browser writes require the same public origin and have a 16 MiB request
+limit. If a reverse proxy rewrites the Host header, set `APP_PUBLIC_ORIGIN` in the
+private frontend environment to the exact public origin. Keep the backend port
+bound to loopback. Public access should terminate TLS and limit failed logins at
+the reverse proxy; do not expose the Docker socket or backend port externally.

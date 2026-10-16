@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
+import { positiveDecimalInput } from "@/lib/number-input";
 import { formatMoney, formatNumber, formatPercent, portfolioStatusLabel } from "@/lib/format";
 import type { PortfolioAfterHoursPosition, PortfolioPosition, Tone } from "@/lib/types/api";
 
@@ -74,7 +75,7 @@ export function PositionTable({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        const implausible = row.original.pnl_pct > 400 || row.original.pnl_pct < -75;
+        const implausible = row.original.entry_price <= 0 || row.original.current_price <= 0;
         return <StatusChip tone={implausible ? "bad" : statusTone[row.original.status]}>{implausible ? "Daten prüfen" : portfolioStatusLabel(row.original.status)}</StatusChip>;
       }
     }
@@ -151,7 +152,7 @@ export function PositionTable({
 }
 
 function MobilePositionCard({ position, quote }: { position: PortfolioPosition; quote?: PortfolioAfterHoursPosition }) {
-  const implausible = position.pnl_pct > 400 || position.pnl_pct < -75;
+  const implausible = position.entry_price <= 0 || position.current_price <= 0;
   return <div className="p-4">
     <div className="flex items-start justify-between gap-3">
       <div><Link className="inline-flex items-center gap-1.5 font-semibold text-[#172033]" href={`/sell-monitor/${position.ticker}`}>{position.ticker}<ExternalLink size={13} /></Link><div className="mt-0.5 text-xs text-[#687386]">{position.name}</div></div>
@@ -163,7 +164,7 @@ function MobilePositionCard({ position, quote }: { position: PortfolioPosition; 
       <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2"><div className="text-[10px] uppercase text-[#687386]">G/V zum Vortagsschluss</div><DailyChangeCell position={position} /></div>
       <MobileMetric label="Kurs" value={formatMoney(position.current_price, position.currency)} />
       <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2">
-        <div className="text-[10px] uppercase text-[#687386]">Stopp USD bearbeiten</div>
+        <div className="text-[10px] uppercase text-[#687386]">Stopp {position.currency} bearbeiten</div>
         <StopPriceCell
           key={`${position.ticker}-${position.stop_price ?? "none"}-mobile`}
           mobile
@@ -207,20 +208,24 @@ function StopPriceCell({ position, mobile = false }: { position: PortfolioPositi
     onSuccess: () => invalidatePortfolioTable(queryClient)
   });
   function save() {
-    const nextStop = parseEditableNumber(value);
+    const parsed = positiveDecimalInput(value);
+    if (parsed.kind !== "value") return;
+    const nextStop = parsed.value;
     const currentStop = typeof position.stop_price === "number" ? position.stop_price : null;
     if (numbersEqual(nextStop, currentStop) || mutation.isPending) return;
     mutation.mutate(nextStop);
   }
   const currentStop = typeof position.stop_price === "number" ? position.stop_price : null;
-  const isDirty = !numbersEqual(parseEditableNumber(value), currentStop);
+  const parsed = positiveDecimalInput(value);
+  const isDirty = parsed.kind === "value" && !numbersEqual(parsed.value, currentStop);
   return <div className={`flex items-center gap-2 ${mobile ? "mt-1" : ""}`} onClick={(event) => event.stopPropagation()}>
     <input
-      aria-label={`${position.ticker} Stopp USD`}
+      aria-label={`${position.ticker} Stopp ${position.currency}`}
+      aria-invalid={parsed.kind === "invalid" || (parsed.kind === "empty" && currentStop !== null)}
       className={`${mobile ? "h-9 min-w-0 flex-1" : "h-8 w-24"} rounded-[7px] border border-[#d8e1ea] bg-white px-2 text-right text-sm tabular-nums text-[#172033] outline-none focus:border-[#0f766e]`}
       inputMode="decimal" placeholder="–" value={value} disabled={mutation.isPending}
       onBlur={save} onChange={(event) => setValue(event.target.value)}
-      onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setValue(formatEditableNumber(position.stop_price)); event.currentTarget.blur(); } }}
+      onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); setValue(formatEditableNumber(position.stop_price)); } }}
     />
     {mobile ? (
       <button
@@ -234,6 +239,9 @@ function StopPriceCell({ position, mobile = false }: { position: PortfolioPositi
         <Check size={16} />
       </button>
     ) : null}
+    {currentStop !== null && <button type="button" className="text-xs underline" disabled={mutation.isPending} aria-label={`${position.ticker} Stopp entfernen`} onClick={() => mutation.mutate(null)}>Entfernen</button>}
+    {parsed.kind === "invalid" && <span role="alert" className="text-xs text-[#c2413b]">Positive Zahl eingeben</span>}
+    {parsed.kind === "empty" && currentStop !== null && <span className="text-xs text-[#687386]">Zum Löschen „Entfernen“ wählen</span>}
     {mutation.isPending ? <span className="text-xs text-[#687386]">speichert</span> : null}
     {mutation.isError ? <span className="text-xs text-[#c2413b]">Fehler</span> : null}
   </div>;
@@ -259,5 +267,4 @@ function invalidatePortfolioTable(queryClient: ReturnType<typeof useQueryClient>
 }
 
 function formatEditableNumber(value: number | null | undefined) { return typeof value === "number" && Number.isFinite(value) ? String(Number(value.toFixed(2))) : ""; }
-function parseEditableNumber(value: string) { const parsed = Number(value.trim().replace(",", ".")); return Number.isFinite(parsed) && parsed > 0 ? Number(parsed.toFixed(4)) : null; }
 function numbersEqual(left: number | null, right: number | null) { return left === null || right === null ? left === right : Math.abs(left - right) < 0.0001; }

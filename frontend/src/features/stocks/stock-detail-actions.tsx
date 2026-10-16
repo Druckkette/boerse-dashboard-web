@@ -4,15 +4,14 @@ import { useBetaMode } from "@/components/beta-mode-provider";
 import { BetaStockDetailActions } from "./beta-stock-detail-actions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookmarkPlus, BriefcaseBusiness, CheckCircle2, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { berlinDate } from "@/lib/date";
+import { CreatePositionDialog } from "@/features/portfolio/create-position-dialog";
 import type { Job, PriceHistory, StockAssessment, WorkspaceState } from "@/lib/types/api";
 
 const workspaceKey = ["workspace"];
-const portfolioSnapshotKey = ["portfolio-snapshot"];
-const portfolioPositionsKey = ["portfolio-positions"];
 
 export function StockDetailActions({ ticker }: { ticker: string }) {
   const beta = useBetaMode();
@@ -21,8 +20,12 @@ export function StockDetailActions({ ticker }: { ticker: string }) {
 function PrivateStockDetailActions({ ticker }: { ticker: string }) {
   const clean = normalizeTicker(ticker);
   const queryClient = useQueryClient();
-  const [positionSaved, setPositionSaved] = useState(false);
-  const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
+  const [positionDialog, setPositionDialog] = useState(false);
+  const [createdRefreshJobId, setRefreshJobId] = useState<string | null>(null);
+  const storedRefreshJobId = useSyncExternalStore(subscribeStoredJobs, () => {
+    try { return window.sessionStorage.getItem(`stock-active-refresh:${clean}`); } catch { return null; }
+  }, () => null);
+  const refreshJobId = createdRefreshJobId || storedRefreshJobId;
   const handledRefreshJobId = useRef<string | null>(null);
   const autoPriceRefreshKey = useRef<string | null>(null);
   const autoDetailRefreshKey = useRef<string | null>(null);
@@ -101,29 +104,6 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: workspaceKey })
   });
 
-  const savePositionMutation = useMutation({
-    mutationFn: () => {
-      if (!positionDefaults.price) throw new Error("Kein gespeicherter Kurs vorhanden.");
-      return api.upsertPortfolioPosition({
-        ticker: clean,
-        name: clean,
-        shares: 1,
-        entry_price: positionDefaults.price,
-        current_price: positionDefaults.price,
-        currency: positionDefaults.currency,
-        buy_date: positionDefaults.date,
-        pivot_tag: positionDefaults.date,
-        stop_pct: 7,
-        note: "Aus der Aktienbewertung vorgemerkt.",
-        record_transaction: false
-      });
-    },
-    onSuccess: () => {
-      setPositionSaved(true);
-      queryClient.invalidateQueries({ queryKey: portfolioSnapshotKey });
-      queryClient.invalidateQueries({ queryKey: portfolioPositionsKey });
-    }
-  });
   const refreshStockMutation = useMutation({
     mutationFn: (options?: { includePrices?: boolean; include13f?: boolean; auto?: boolean }) =>
       api.startJob({
@@ -146,6 +126,7 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
         window.sessionStorage.setItem(`stock-detail-refresh:${clean}:${berlinDate()}`, "1");
       }
       setRefreshJobId(job.job_id);
+      try { window.sessionStorage.setItem(`stock-active-refresh:${clean}`, job.job_id); } catch { /* Optional storage. */ }
       handledRefreshJobId.current = null;
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     }
@@ -188,7 +169,7 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
   }, [clean, priceQuery.data?.expected_as_of, priceQuery.isLoading, refreshPriceMutation]);
 
   const loadingPrice = assessmentQuery.isLoading || priceQuery.isLoading;
-  const canSavePosition = Boolean(clean && positionDefaults.price && !savePositionMutation.isPending);
+  const canSavePosition = Boolean(clean && positionDefaults.price && !positionDialog);
   const refreshJob = refreshJobQuery.data;
   const refreshRunning = Boolean(refreshJob && !isTerminalJob(refreshJob));
   const priceRefreshRunning = refreshPriceMutation.isPending;
@@ -224,7 +205,7 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
   ]);
 
   return (
-    <section className="rounded border border-[#2d333d] bg-[#171a20] p-5">
+    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -236,9 +217,9 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
             <StatusChip tone={!detailDataMissing ? "good" : refreshRunning ? "warning" : "neutral"}>
               {!detailDataMissing ? "Daten vollständig" : refreshRunning ? "Daten werden ergänzt" : "Daten fehlen"}
             </StatusChip>
-            {positionSaved ? <StatusChip tone="good">Position vorgemerkt</StatusChip> : null}
+            {positionDialog && positionDefaults.price ? <CreatePositionDialog ticker={clean} currency={positionDefaults.currency} price={positionDefaults.price} onClose={() => setPositionDialog(false)} /> : null}
           </div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#a0a7b4]">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
             Schnellaktionen aus der alten Aktienbewertung: Watchlist, Kursrefresh und Depot-Vormerkung laufen ohne Seitenreload.
           </p>
         </div>
@@ -254,10 +235,10 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
               {priceRefreshRunning ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw size={16} />}
               {priceRefreshRunning ? "yfinance prüft" : "Kursdaten aktualisieren"}
             </button>
-            <span className="text-xs leading-5 text-[#8e97a6]">{priceDataStatus(priceQuery.data, priceRefreshRunning)}</span>
+            <span className="text-xs leading-5 text-[var(--muted)]">{priceDataStatus(priceQuery.data, priceRefreshRunning)}</span>
           </div>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-emerald-300/10 px-4 py-2 text-sm text-emerald-100 hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-2 text-sm text-[var(--green)] hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!clean || addWatchlistMutation.isPending || isWatchlisted}
             type="button"
             onClick={() => addWatchlistMutation.mutate()}
@@ -266,16 +247,16 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
             {isWatchlisted ? "Auf Watchlist" : "Zur Watchlist"}
           </button>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-sky-300/40 bg-sky-300/10 px-4 py-2 text-sm text-sky-100 hover:border-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-sky-300/40 bg-[var(--blue-soft)] px-4 py-2 text-sm text-[var(--blue)] hover:border-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!canSavePosition}
             type="button"
-            onClick={() => savePositionMutation.mutate()}
+            onClick={() => setPositionDialog(true)}
           >
-            {savePositionMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <BriefcaseBusiness size={16} />}
-            Als Position merken
+            <BriefcaseBusiness size={16} />
+            Position anlegen
           </button>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded border border-amber-300/40 bg-amber-300/10 px-4 py-2 text-sm text-amber-100 hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded border border-amber-300/40 bg-[var(--yellow-soft)] px-4 py-2 text-sm text-[var(--yellow)] hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={!clean || refreshStockMutation.isPending || refreshRunning}
             type="button"
             onClick={() => refreshStockMutation.mutate({ includePrices: true, include13f: false })}
@@ -286,30 +267,30 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
         </div>
       </div>
 
-      {(addWatchlistMutation.error || savePositionMutation.error) && (
-        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+      {addWatchlistMutation.error && (
+        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          <span>{errorText(addWatchlistMutation.error ?? savePositionMutation.error)}</span>
+          <span>{errorText(addWatchlistMutation.error)}</span>
         </div>
       )}
       {refreshPriceMutation.error && (
-        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>{errorText(refreshPriceMutation.error)}</span>
         </div>
       )}
       {(refreshStockMutation.error || (refreshJob && refreshJob.status === "failed")) && (
-        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-rose-300/10 p-3 text-sm text-rose-100">
+        <div className="mt-4 flex gap-2 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>{refreshJob?.error_message || errorText(refreshStockMutation.error)}</span>
         </div>
       )}
       {refreshJob ? (
-        <div className="mt-4 rounded border border-[#242a33] bg-[#111419] p-3 text-sm">
+        <div className="mt-4 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="font-medium">{refreshJob.current_step || "Aktien-Datenrefresh"}</div>
-              <div className="mt-1 text-xs leading-5 text-[#8e97a6]">
+              <div className="mt-1 text-xs leading-5 text-[var(--muted)]">
                 {refreshJob.message || "Kurse, RS und Fundamentals werden für diese Aktie aktualisiert. 13F läuft über Smart Refresh."}
               </div>
             </div>
@@ -317,7 +298,7 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
               {refreshJob.progress}%
             </StatusChip>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded bg-[#242a33]">
+          <div className="mt-3 h-2 overflow-hidden rounded bg-[var(--teal-soft)]">
             <div className="h-full rounded bg-amber-300" style={{ width: `${refreshJob.progress}%` }} />
           </div>
         </div>
@@ -419,4 +400,9 @@ function errorText(error: unknown) {
 
 function isTerminalJob(job: Job) {
   return ["done", "failed", "skipped", "cancelled"].includes(job.status);
+}
+
+function subscribeStoredJobs(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
 }
