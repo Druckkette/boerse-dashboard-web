@@ -61,20 +61,29 @@ def refresh_portfolio_curve_prices() -> dict:
     result = {"ok": True, "listed": [], "issuers": [], "errors": []}
     try:
         today = datetime.now(ZoneInfo("Europe/Berlin")).date()
-        symbols, issuers = curve_price_requirements(portfolio.list_trade_republic_transactions(), today)
+        transactions = portfolio.list_trade_republic_transactions()
+        symbols, issuers = curve_price_requirements(transactions, today)
         start = date(today.year, 1, 1) - timedelta(days=10)
         cache = prices.list_price_bars_for_tickers(symbols, start_date=start)
-        required = []
+        first_needed = {ticker: date(today.year, 1, 1) for ticker in symbols}
+        for ticker in symbols:
+            executions = [row.date for row in transactions if row.ticker == ticker and row.date <= today]
+            if executions:
+                first_needed[ticker] = max(first_needed[ticker], min(executions))
+        required: dict[bool, list[PriceRefreshSymbol]] = {False: [], True: []}
         for ticker, last_needed in symbols.items():
             bars = cache.get(ticker, [])
-            if last_needed < today and bars and max(bar.date for bar in bars) >= last_needed:
+            full_history = not bars or min(bar.date for bar in bars) > first_needed[ticker]
+            if not full_history and last_needed < today and max(bar.date for bar in bars) >= last_needed:
                 continue
-            required.append(PriceRefreshSymbol(ticker=ticker))
-        if required:
-            # Full current-year coverage also refreshes Yahoo's split-adjusted
-            # history as a consistent vintage. This is a small portfolio batch.
-            result["listed"] = refresh_price_cache_for_symbols(required, range_key="1y", incremental=False,
-                timeout=20, batch_size=25)
+            required[not full_history].append(PriceRefreshSymbol(ticker=ticker))
+        for incremental, batch in required.items():
+            if batch:
+                # Mixed download vintages remain consistent because NAV
+                # restores split adjustments per observed bar. Retain the
+                # prior December basis, and only repair missing starts fully.
+                result["listed"].extend(refresh_price_cache_for_symbols(batch, range_key="1y", incremental=incremental,
+                    timeout=20, batch_size=25))
         if issuers:
             _refresh_issuers(sorted(issuers), today, result)
         result["ok"] = not result["errors"] and all(item.get("ok") for item in result["listed"])
