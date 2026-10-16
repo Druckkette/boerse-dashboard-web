@@ -1365,7 +1365,9 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if redemption.get("currency") != "EUR" or not math.isfinite(amount) or amount < 0 or not redemption.get("source_url"):
                 raise ValueError(f"Invalid fixed redemption evidence: {instrument_key}")
             quote_currency = "EUR"
-            fixed_days = calendar[(calendar.date > fixing_day) & (shares > 1e-9)]
+            # The curve is an end-of-day valuation. The issuer's final fixing
+            # therefore applies on its valuation date as well, after fixing.
+            fixed_days = calendar[(calendar.date >= fixing_day) & (shares > 1e-9)]
             cached_prices = cached_prices.reindex(cached_prices.index.union(fixed_days))
             cached_prices.loc[fixed_days] = amount
             for day in fixed_days:

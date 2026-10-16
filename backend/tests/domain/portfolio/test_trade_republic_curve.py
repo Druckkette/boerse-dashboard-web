@@ -500,7 +500,7 @@ def test_fixed_redemption_receivable_bridges_until_actual_broker_payment(monkeyp
         [SimpleNamespace(date=date(2026, 2, 6), close=3.85, source="vontobel:EUR:bid")] if ticker == isin else [PriceRow(date(2026, 2, day), 1) for day in [6, 9, 10, 11, 12, 13]]))
     result = portfolio_service.get_portfolio_curve(start_date=date(2026, 2, 6), model="execution_history")
     points = {point.date: point for point in result.points}
-    for day in ["2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12"]:
+    for day in ["2026-02-06", "2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12"]:
         assert points[day].positions_value == 10166
         assert points[day].cash == 0
         assert points[day].redemption_receivables == [isin]

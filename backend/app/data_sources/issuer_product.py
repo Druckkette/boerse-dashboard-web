@@ -49,5 +49,6 @@ def vontobel_redemption(isin: str, data: dict) -> dict | None:
     if repayment.get("currency") != "EUR" or not math.isfinite(amount) or amount < 0 or payment_day < fixing_day:
         raise ValueError("Invalid issuer repayment")
     return {"amount": amount, "currency": "EUR", "valuation_date": fixing_day.isoformat(),
+            "valuation_at": fixings[0]["occurrence"],
             "payment_date": payment_day.isoformat(), "source_url":
             f"https://markets.vontobel.com/de-de/produkte/hebel/faktor-optionsscheine/{isin}"}
