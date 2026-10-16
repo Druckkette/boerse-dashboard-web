@@ -285,7 +285,9 @@ def run(data, *, progress=None, lot_wise=False):
                     value, remaining, dates, fills = sale_value(sale, lots, key, end_at, terminal)
                     # In the equal-horizon model, unsold shares leave at the actual
                     # broker execution price. Extended residuals remain unliquidated.
-                    orders = len(dates | ({sale["trade_date"]} if horizon == "actual_sale" and remaining > 1e-8 else set()))
+                    # The actual-time terminal liquidation is a separate order,
+                    # even if a partial model exit already filled at that day's open.
+                    orders = len(dates) + int(horizon == "actual_sale" and remaining > 1e-8)
                     fees = actual_fee * orders
                     modeled_pnl = value - fees - basis
                     case_rows.append({"sale_id": sale["id"], "ticker": sale["ticker"], "sale_date": sale["trade_date"],

@@ -150,3 +150,20 @@ def test_pooled_exit_then_later_purchase_starts_a_new_cycle(monkeypatch):
         assert len(fills) == 2 and sum(f["pct"] for f in fills) == 100.
         assert fills[0]["signal_date"] > first["date"]
         assert fills[1]["signal_date"] > later["date"]
+
+
+def test_partial_open_fill_and_actual_time_liquidation_pay_two_order_fees(monkeypatch):
+    import app.research.journal_exit_backtest as module
+    data, stock, _ = fixture_data()
+    sold = stock.index[205]
+    data["sales"][0].update(trade_date=str(sold.date()),
+        execution_at=(session_times("TEST", sold)[0] + pd.Timedelta(minutes=30)).isoformat())
+    def first_tranche(payload, features, setup, sold_pct, state):
+        return {"pct": max(0., 25. - sold_pct), "state": {}, "target_pct": 25.}
+    monkeypatch.setattr(module, "native_exit", first_tranche)
+    result = run(data)
+    assert not result["exclusions"]
+    for row in result["rows"]:
+        if row["horizon"] == "actual_sale":
+            assert row["orders"] == 2
+            assert row["modeled_exit_fees_eur"] == 2.
