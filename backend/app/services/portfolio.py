@@ -1302,10 +1302,12 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
         shares = pd.Series(0.0, index=calendar)
         running = 0.0
         splits: list[tuple[date, float]] = []
+        split_bookings: list[tuple[date, float]] = []
         for row in sorted(instrument_transactions, key=_stored_transaction_sort_key):
             typ = normalize_transaction_type(row.transaction_type)
             if typ == "split":
                 updated = running + float((row.raw_json or {}).get("shares", row.shares) or 0)
+                split_bookings.append((row.date, updated - running))
                 if running > 0 and updated > 0:
                     splits.append((row.date, updated / running))
                 running = updated
@@ -1319,6 +1321,19 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
                 running = 0.0
             shares.loc[shares.index >= pd.Timestamp(row.date)] = running
 
+        provider_splits = [(date.fromisoformat(day), float(ratio)) for day, ratio in
+            instrument_metadata.get(ticker, {}).get("stock_splits", {}).items()]
+        if any(not math.isfinite(ratio) or ratio <= 0 for _, ratio in provider_splits):
+            raise ValueError(f"Invalid provider split evidence: {ticker}")
+        for booked_day, delta in split_bookings:
+            matches = [day for day, _ in provider_splits if abs((day - booked_day).days) <= 7]
+            if not matches:
+                continue
+            effective = min(matches, key=lambda day: abs((day - booked_day).days))
+            if effective < booked_day:
+                shares.loc[(calendar.date >= effective) & (calendar.date < booked_day)] += delta
+            elif booked_day < effective:
+                shares.loc[(calendar.date >= booked_day) & (calendar.date < effective)] -= delta
         for invalid_day in shares[shares < -1e-9].index:
             missing_by_day[invalid_day].append(f"Bestand:{label}")
         if not (shares.loc[calendar >= pd.Timestamp(curve_start_date)] > 1e-9).any():
@@ -1329,10 +1344,6 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if ticker
             else pd.Series(dtype=float)
         )
-        provider_splits = [(date.fromisoformat(day), float(ratio)) for day, ratio in
-            instrument_metadata.get(ticker, {}).get("stock_splits", {}).items()]
-        if any(not math.isfinite(ratio) or ratio <= 0 for _, ratio in provider_splits):
-            raise ValueError(f"Invalid provider split evidence: {ticker}")
         # Company actions also adjust old quotes after the investor has sold.
         # Broker bookings alone cannot describe these later price revisions.
         # TR may book a weekend ahead of the exchange ex-date; count it once.
@@ -1390,8 +1401,15 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             for missing_day in shares[shares > 0].index:
                 missing_by_day[missing_day].append(label)
             continue
-        exchange = "XHKG" if ticker.endswith(".HK") else "XETR" if ticker.endswith(".DE") or issuer_rows else "XLON" if ticker.endswith(".L") else "XNYS"
+        exchange = "XHKG" if ticker.endswith(".HK") else "XETR" if ticker.endswith(".DE") or (instrument_transactions[0].asset_class.upper() == "DERIVATIVE" and issuer_rows) else "XLON" if ticker.endswith(".L") else "XNYS"
         aligned_prices = _align_price_series_to_calendar(cached_prices, calendar, exchange=exchange)
+        if quote_splits:
+            # A split can be booked while the exchange is closed. Express the
+            # last observed quote in the same share units as the valuation day.
+            stamps = pd.Series(cached_prices.index, index=cached_prices.index).reindex(cached_prices.index.union(calendar)).sort_index().ffill().reindex(calendar)
+            for effective, ratio in quote_splits:
+                carried_across_split = (calendar >= pd.Timestamp(effective)) & (stamps < pd.Timestamp(effective))
+                aligned_prices.loc[carried_across_split] /= ratio
         aligned_prices = aligned_prices * rates(quote_currency)
         if ((shares > 0) & (calendar >= pd.Timestamp(curve_start_date)) & aligned_prices.isna()).any():
             incomplete_price_histories.append(label)

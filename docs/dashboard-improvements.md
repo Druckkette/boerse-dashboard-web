@@ -78,3 +78,6 @@ Eine vollständige Brokerhistorie ersetzt keine historischen Marktkurse. Bei nic
 
 
 Die Migration `0023_price_split_factor` ergänzt nur ein nullable Kurscache-Feld. Neue Kurse bewahren ihre eigene Bereinigungsbasis auch dann, wenn am selben Kalendertag vor und nach einem Split heruntergeladen wird. Spätere Unternehmensereignisse verändern damit frühere Jahresbewertungen nicht durch eine falsche Kombination aus historischen Stückzahlen und nachträglich bereinigten Preisen.
+
+
+Split-Gutschrift und Börsen-Ex-Tag können auseinanderfallen. Die Bewertung gleicht die gebuchte Stückänderung für den Zwischenzeitraum ab. Ein über einen Feiertag fortgeführter letzter Schlusskurs wird auf dieselbe Stückbasis gebracht. So kann eine am 01.01. gebuchte Split-Gutschrift die Januar-Basis weder vervielfachen noch später einen künstlichen Verlust auslösen. Frühere Buchungen und die gespeicherten Marktbeobachtungen bleiben dabei unverändert.

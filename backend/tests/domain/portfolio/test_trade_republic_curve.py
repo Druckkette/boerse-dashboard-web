@@ -627,3 +627,46 @@ def test_quote_snapshot_factor_overrides_download_date_guess_on_split_day(monkey
     curve = portfolio_service.get_portfolio_curve(start_date=date(2027, 1, 1), model="execution_history")
     assert {point.depot_value for point in curve.points} == {10000}
     assert {point.portfolio_index for point in curve.points} == {100}
+
+
+@pytest.mark.parametrize("provider_event_known", [False, True])
+def test_january_first_split_credit_does_not_multiply_the_holiday_basis(monkeypatch, provider_event_known):
+    from types import SimpleNamespace
+    from datetime import UTC, datetime
+    end = date(2027, 1, 4) if provider_event_known else date(2027, 1, 1)
+    monkeypatch.setattr(portfolio_service, "_portfolio_curve_today", lambda: end)
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: [
+        _tr_row(date(2026, 12, 31), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2026, 12, 31), "buy", 10, 100, -1000, ticker="TEST", isin="TEST"),
+        _tr_row(date(2027, 1, 1), "split", 90, None, 0, ticker="TEST", isin="TEST")])
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_instrument_metadata", lambda symbols: {
+        "TEST": {"stock_splits": {"2027-01-04": 10}}} if provider_event_known else {})
+    stock = [SimpleNamespace(date=date(2026,12,31),close=10 if provider_event_known else 100,
+        source="yfinance",fetched_at=datetime.combine(end,datetime.min.time(),UTC),
+        split_adjustment_factor=10 if provider_event_known else 1),
+        SimpleNamespace(date=date(2027,1,4),close=10,source="yfinance",fetched_at=datetime(2027,1,4,tzinfo=UTC),split_adjustment_factor=1)]
+    monkeypatch.setattr(portfolio_service.prices_repository,"list_price_bars",lambda ticker,**kw:
+        stock if ticker=="TEST" else [PriceRow(date(2026,12,31),1 if ticker=="EURUSD=X" else 5000),PriceRow(date(2027,1,4),1 if ticker=="EURUSD=X" else 5000)])
+    curve=portfolio_service.get_portfolio_curve(start_date=date(2027,1,1),model="execution_history")
+    assert curve.base_date=="2027-01-01"
+    assert {point.depot_value for point in curve.points}=={1000}
+    assert {point.portfolio_index for point in curve.points}=={100}
+
+
+def test_late_broker_split_booking_values_the_ex_date_without_false_negative_holdings(monkeypatch):
+    from types import SimpleNamespace
+    from datetime import UTC, datetime
+    monkeypatch.setattr(portfolio_service,"_portfolio_curve_today",lambda:date(2026,7,3))
+    monkeypatch.setattr(portfolio_repository,"list_trade_republic_transactions",lambda:[
+        _tr_row(date(2026,6,30),"customer_inbound",0,None,8000),
+        _tr_row(date(2026,6,30),"buy",20,400,-8000,ticker="TEST",isin="TEST"),
+        _tr_row(date(2026,7,2),"sell",40,100,4000,ticker="TEST",isin="TEST"),
+        _tr_row(date(2026,7,3),"split",60,None,0,ticker="TEST",isin="TEST")])
+    monkeypatch.setattr(portfolio_service.prices_repository,"list_instrument_metadata",lambda symbols:{"TEST":{"stock_splits":{"2026-07-02":4}}})
+    days=[date(2026,6,30),date(2026,7,1),date(2026,7,2),date(2026,7,3)]
+    stock=[SimpleNamespace(date=day,close=100,source="yfinance",fetched_at=datetime(2026,7,4,tzinfo=UTC),split_adjustment_factor=4 if day<date(2026,7,2) else 1) for day in days[:3]]
+    monkeypatch.setattr(portfolio_service.prices_repository,"list_price_bars",lambda ticker,**kw:stock if ticker=="TEST" else [PriceRow(day,1 if ticker=="EURUSD=X" else 5000) for day in days])
+    curve=portfolio_service.get_portfolio_curve(start_date=date(2026,6,30),model="execution_history")
+    assert {point.depot_value for point in curve.points}=={8000}
+    assert {point.portfolio_index for point in curve.points}=={100}
+    assert all(point.valuation_complete for point in curve.points)
