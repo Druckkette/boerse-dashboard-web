@@ -48,7 +48,7 @@ def native_exit(payload: dict, features: dict, setup: dict, sold: float, state: 
         sell_now=sell_now, has_killer=emergency, as_of_date=payload["as_of"],
         prior_state=state, confirmed_signal=key in {"rs_line", "rs_line_ema"}, ticker=ticker)
     return {"pct": sell_now if status == "scharf" else 0, "status": status,
-            "state": next_state, "raw_pct": sell_now}
+            "state": next_state, "raw_pct": sell_now, "target_pct": target}
 
 
 def price_frames(data: dict) -> dict[str, pd.DataFrame]:

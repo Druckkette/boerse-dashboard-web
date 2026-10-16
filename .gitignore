@@ -20,6 +20,7 @@ coverage/
 infra/backups/
 *.dump
 *.sha256
+output/journal-exits-*/
 
 frontend/test-results/
 frontend/playwright-report/
