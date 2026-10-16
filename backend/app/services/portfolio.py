@@ -1114,9 +1114,7 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
         except Exception as exc:
             return _missing_portfolio_curve(f"TR-Kurve konnte nicht berechnet werden: {exc}")
         if tr_curve is not None:
-            if model == "execution_history" or (sum(point.portfolio_index is not None for point in tr_curve.points) >= 2 and tr_curve.points[-1].portfolio_index is not None):
-                return tr_curve
-            tr_error = "Die TR-Ausführungen sind gespeichert, historische Kursbewertungen reichen jedoch nicht für eine Depot-Renditekurve. Angezeigt wird die Simulation des heutigen Bestands. "
+            return tr_curve
         elif model == "execution_history":
             return _missing_portfolio_curve("Keine gespeicherte TR-Ausführungshistorie verfügbar.")
 
@@ -1269,12 +1267,13 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     positions_value = pd.Series(0.0, index=calendar)
     missing_by_day = {day: [] for day in calendar}
     missing_price_instruments: list[str] = []
-    trade_price_fallbacks: list[str] = []
     incomplete_price_histories: list[str] = []
     fx_fallbacks: set[str] = set()
     fx_series: dict[str, pd.Series] = {}
     symbols = {row.ticker for row in transactions if row.ticker}
+    symbols.update(row.isin for row in transactions if row.asset_class.upper() == "DERIVATIVE" and row.isin)
     symbols.update(f"{row.currency.upper()}USD=X" for row in transactions if row.currency.upper() != "USD")
+    symbols.update(f"{yahoo_quote_currency(row.ticker)}USD=X" for row in transactions if row.ticker and yahoo_quote_currency(row.ticker) != "USD")
     symbols.update({"^GSPC", "SPY"})
     price_cache = prices_repository.list_price_bars_for_tickers(symbols, start_date=curve_start_date - timedelta(days=10))
 
@@ -1287,17 +1286,16 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             series = pd.Series(1.0, index=calendar)
             if clean != "USD":
                 history = cached_series(f"{clean}USD=X")
-                if not history.empty and history.index.max() < calendar.max():
-                    fx_fallbacks.add(clean)
                 series = _align_price_series_to_calendar(history, calendar)
-                if series.isna().any() or (series <= 0).any():
+                requested_rates = series.loc[calendar >= pd.Timestamp(curve_start_date)]
+                if requested_rates.isna().any() or (requested_rates <= 0).any():
                     fx_fallbacks.add(clean)
                 series = series.where(series > 0)
             fx_series[clean] = series
         return fx_series[clean]
 
     for instrument_key, instrument_transactions in _trade_republic_valuation_groups(transactions).items():
-        ticker = instrument_transactions[0].ticker
+        ticker = next((row.ticker for row in reversed(instrument_transactions) if row.ticker), "")
         label = ticker or instrument_key
         shares = pd.Series(0.0, index=calendar)
         running = 0.0
@@ -1321,17 +1319,24 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
             if ticker
             else pd.Series(dtype=float)
         )
+        quote_currency = yahoo_quote_currency(ticker)
+        issuer_rows = price_cache.get(instrument_key, [])
+        if instrument_transactions[0].asset_class.upper() == "DERIVATIVE" and issuer_rows:
+            # Issuer histories are stored by ISIN; their source records specify
+            # the quote currency and bid basis (never the underlying's price).
+            currencies = {str(row.source).split(":")[1] for row in issuer_rows if ":" in str(row.source)}
+            if len(currencies) == 1:
+                cached_prices = _cached_price_series(instrument_key, curve_start_date, rows=issuer_rows)
+                quote_currency = currencies.pop()
         if cached_prices.empty:
             missing_price_instruments.append(label)
             for missing_day in shares[shares > 0].index:
                 missing_by_day[missing_day].append(label)
             continue
         aligned_prices = _align_price_series_to_calendar(cached_prices, calendar)
-        if label not in trade_price_fallbacks:
-            held_dates = shares[shares > 0].index
-            if len(held_dates) and (cached_prices.index.min() > held_dates.min() or cached_prices.index.max() < held_dates.max()):
-                incomplete_price_histories.append(label)
-            aligned_prices = aligned_prices * rates(yahoo_quote_currency(ticker))
+        aligned_prices = aligned_prices * rates(quote_currency)
+        if ((shares > 0) & (calendar >= pd.Timestamp(curve_start_date)) & aligned_prices.isna()).any():
+            incomplete_price_histories.append(label)
         for missing_day in shares[(shares > 0) & aligned_prices.isna()].index:
             missing_by_day[missing_day].append(label)
         positions_value += (shares * aligned_prices).where(shares.abs() > 1e-9, 0).fillna(0)
@@ -1392,12 +1397,26 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     if first_valid is not None:
         index_values[first_valid] = 100.0
     external_values = curve["external_flow"].tolist()
+    previous_valid = first_valid
+    interrupted_by_flow = False
     for idx in range(first_valid + 1 if first_valid is not None else len(curve), len(curve)):
-        previous = float(depot_values[idx - 1])
         current = float(depot_values[idx])
         external = float(external_values[idx])
-        daily_return = (current - previous - external) / previous if previous > 0 and math.isfinite(previous) and math.isfinite(current) and math.isfinite(external) else float("nan")
-        index_values[idx] = index_values[idx - 1] * (1.0 + daily_return)
+        if not math.isfinite(current):
+            # With no external flows, the return between two observed NAVs is
+            # exact even if intermediate prices are missing. Keep the gap open.
+            # A flow during that gap prevents an exact time-weighted return.
+            interrupted_by_flow |= not math.isfinite(external) or abs(external) > 1e-9
+            continue
+        if interrupted_by_flow or previous_valid is None or not math.isfinite(external):
+            continue
+        previous = float(depot_values[previous_valid])
+        if previous <= 0:
+            interrupted_by_flow = True
+            continue
+        period_return = (current - previous - external) / previous
+        index_values[idx] = index_values[previous_valid] * (1.0 + period_return)
+        previous_valid = idx
     curve["portfolio_index"] = index_values
     first_index = _finite_float(curve["portfolio_index"].iloc[0])
     if first_index and first_index > 0:
@@ -1433,13 +1452,14 @@ def _get_trade_republic_curve(days: int, start_date: date) -> PortfolioCurveResp
     if not points:
         return None
     details = []
-    if trade_price_fallbacks:
-        details.append(f"Trade-Price-Fallback für {len(trade_price_fallbacks)} Instrumente")
     if missing_price_instruments:
         details.append(f"Kursdaten fehlen für {len(missing_price_instruments)} Instrumente")
     if incomplete_price_histories:
-        details.append(f"Lueckenhafte Kurshistorie / fortgeschriebene Ersatzkurse fuer {len(incomplete_price_histories)} Instrumente")
-    message = "Depotkurve aus gespeichertem Trade-Republic-Transaktionsexport, mit datumsspezifischen USD-Wechselkursen."
+        details.append(f"Lückenhafte Tageskurse im gewählten Zeitraum für {len(incomplete_price_histories)} Instrumente")
+    message = "Depotkurve aus dem Trade-Republic-Export: Bestand und Cash werden aus sämtlichen Buchungen bis zum jeweiligen Tag rekonstruiert. Tageskurse und historische USD-Wechselkurse bewerten den Bestand; Ein- und Auszahlungen werden renditeneutral berücksichtigt. Derivate werden mit ihren eigenen Emittenten-Geldkursen bewertet."
+    unpriced = sorted({item for day in points for item in day.missing_instruments})
+    if unpriced:
+        details.append("Bewertungslücken bleiben sichtbar: " + ", ".join(unpriced))
     if first_valid:
         details.append(f"Gemeinsame Indexbasis ab erstem vollständig bewertbaren Tag {base_date}; frühere Tage bleiben offen")
     if fx_fallbacks:
@@ -1496,7 +1516,7 @@ def _benchmark_index_series(calendar: pd.DatetimeIndex, *, price_cache=None) -> 
         return pd.Series(dtype=float)
     start = pd.Timestamp(calendar.min()).date()
     for ticker in ("^GSPC", "SPY"):
-        series = _cached_price_series(ticker, start, rows=price_cache.get(ticker, []) if price_cache is not None else None)
+        series = _cached_price_series(ticker, start - timedelta(days=10), rows=price_cache.get(ticker, []) if price_cache is not None else None)
         if not series.empty:
             aligned = _align_price_series_to_calendar(series, calendar)
             valid = aligned.dropna()

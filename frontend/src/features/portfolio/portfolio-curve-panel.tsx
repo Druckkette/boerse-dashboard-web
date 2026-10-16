@@ -43,7 +43,7 @@ export function PortfolioCurvePanel() {
         </label>
       </div>
       {curve && <p className="app-notice">{curve.model === "current_holdings" ? "Keine historische Depotperformance. " : "Cashbewegungen werden am Tagesende berücksichtigt. "}{curve.message} · Bewertbare Tage {curve.complete_points ?? "–"}/{curve.total_points ?? curve.points.length}. Lücken werden nicht durch zukünftige Kurse ersetzt.</p>}
-      {curve && !curve.points.some(point => point.portfolio_index != null) && <p role="status" className="app-notice">Für diese Auswahl fehlen vollständige Depotbewertungen. Die TR-Buchungen bleiben dokumentiert. Wähle „Heutiger Bestand als Simulation“, um die Kursentwicklung des aktuellen Bestands zu sehen.</p>}
+      {curve && !curve.points.some(point => point.portfolio_index != null) && <p role="status" className="app-notice">Für diese Auswahl fehlen vollständige Depotbewertungen. Die TR-Buchungen bleiben dokumentiert. Für die Depotkurve werden die historischen Tageskurse der damals gehaltenen Instrumente benötigt.</p>}
       <LineChartCard
         caption={
           curve?.points.length

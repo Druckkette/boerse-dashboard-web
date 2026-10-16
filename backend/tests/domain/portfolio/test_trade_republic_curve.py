@@ -339,7 +339,7 @@ def _tr_row(
     )
 
 
-def test_auto_curve_shows_labeled_current_holdings_when_history_has_no_valuations(monkeypatch):
+def test_auto_curve_never_substitutes_current_holdings_for_the_tr_ledger(monkeypatch):
     from types import SimpleNamespace
     from app.schemas import PortfolioCurvePoint, PortfolioCurveResponse
     empty_history = PortfolioCurveResponse(model="execution_history", as_of="2025-01-03",
@@ -352,10 +352,11 @@ def test_auto_curve_shows_labeled_current_holdings_when_history_has_no_valuation
     monkeypatch.setattr(portfolio_repository, "get_cash_balance", lambda: 0)
     monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: [PriceRow(date(2025, 1, 2), 100), PriceRow(date(2025, 1, 3), 110)])
     curve = portfolio_service.get_portfolio_curve(start_date=date(2025, 1, 2))
+    assert curve is empty_history
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2025, 1, 2), model="current_holdings")
     assert curve.model == "current_holdings", curve.message
     assert [p.portfolio_index for p in curve.points] == [100, 110]
     assert [p.sp500_index for p in curve.points] == [100, 110]
-    assert "TR-Ausführungen sind gespeichert" in curve.message
     assert "keine historische Depotperformance" in curve.message
     assert portfolio_service.get_portfolio_curve(model="execution_history") is empty_history
 
@@ -368,3 +369,65 @@ def test_missing_stock_symbol_also_prevents_fabricated_total_valuation(monkeypat
     curve = portfolio_service.get_portfolio_curve(start_date=date(2025, 1, 2), model="execution_history")
     assert curve.points[0].portfolio_index is None
     assert "UNKNOWN-STOCK" in curve.points[0].missing_instruments
+
+
+def test_tr_curve_reconstructs_january_basis_and_only_adds_later_purchase_on_execution(monkeypatch):
+    transactions = [
+        _tr_row(date(2025, 12, 30), "customer_inbound", 0, None, 1000),
+        _tr_row(date(2025, 12, 30), "buy", 2, 100, -200, ticker="NVDA", isin="NVDA-ISIN"),
+        _tr_row(date(2026, 6, 12), "buy", 3, 50, -150, ticker="SPCX", isin="SPCX-ISIN"),
+    ]
+    monkeypatch.setattr(portfolio_repository, "list_trade_republic_transactions", lambda: transactions)
+    monkeypatch.setattr(portfolio_repository, "list_open_positions", lambda: pytest.fail("Current holdings must never determine historical NAV"))
+    fx = [PriceRow(day.date(), 1) for day in portfolio_service.pd.date_range('2025-12-22', '2026-10-16', freq='B')]
+    prices = {
+        "NVDA": [PriceRow(date(2025, 12, 31), 100), PriceRow(date(2026, 1, 2), 110), PriceRow(date(2026, 6, 11), 110), PriceRow(date(2026, 6, 12), 110)],
+        "SPCX": [PriceRow(date(2026, 6, 12), 60)],
+        "EURUSD=X": fx,
+        "^GSPC": [PriceRow(date(2025, 12, 31), 5000), PriceRow(date(2026, 1, 2), 5050)],
+    }
+    monkeypatch.setattr(portfolio_service.prices_repository, "list_price_bars", lambda ticker, **kw: prices.get(ticker, []))
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2026, 1, 1))
+    points = {p.date: p for p in curve.points}
+    assert curve.model == 'execution_history'
+    assert curve.base_date == '2026-01-01'
+    assert points['2026-01-01'].portfolio_index == points['2026-01-01'].sp500_index == 100
+    assert points['2026-01-01'].cash == points['2026-06-11'].cash == 800
+    assert points['2026-01-01'].positions_value == 200
+    assert points['2026-01-02'].portfolio_index == 102
+    assert points['2026-01-02'].sp500_index == 101
+    assert points['2026-06-12'].cash == 650
+    assert points['2026-06-12'].positions_value == 400
+    assert points['2026-06-12'].portfolio_index == 105
+
+
+@pytest.mark.parametrize('deposit_during_gap', [False, True])
+def test_return_can_resume_after_quote_gap_only_without_intermediate_external_flows(monkeypatch, deposit_during_gap):
+    transactions = [_tr_row(date(2026, 1, 1), 'customer_inbound', 0, None, 100),
+                    _tr_row(date(2026, 1, 1), 'buy', 1, 100, -100, ticker='NVDA')]
+    if deposit_during_gap:
+        transactions.append(_tr_row(date(2026, 1, 7), 'customer_inbound', 0, None, 10))
+    monkeypatch.setattr(portfolio_repository, 'list_trade_republic_transactions', lambda: transactions)
+    fx = [PriceRow(day.date(), 1) for day in portfolio_service.pd.date_range('2026-01-01', '2026-01-15', freq='B')]
+    monkeypatch.setattr(portfolio_service.prices_repository, 'list_price_bars', lambda ticker, **kw: fx if ticker == 'EURUSD=X' else [PriceRow(date(2026, 1, 1), 100), PriceRow(date(2026, 1, 8), 120)])
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2026, 1, 1), model='execution_history')
+    points = {p.date: p for p in curve.points}
+    assert points['2026-01-06'].portfolio_index is None
+    assert points['2026-01-07'].portfolio_index is None
+    assert points['2026-01-08'].portfolio_index == (None if deposit_during_gap else 120)
+
+
+def test_derivative_uses_own_issuer_bid_and_daily_quote_currency(monkeypatch):
+    from types import SimpleNamespace
+    transactions = [_tr_row(date(2025, 12, 30), 'customer_inbound', 0, None, 100),
+                    _tr_row(date(2025, 12, 30), 'buy', 2, 20, -40, isin='DE000PRODUCT', asset_class='DERIVATIVE')]
+    monkeypatch.setattr(portfolio_repository, 'list_trade_republic_transactions', lambda: transactions)
+    prices = {'DE000PRODUCT': [SimpleNamespace(date=date(2025, 12, 31), close=25, source='vontobel:EUR:bid')],
+              'EURUSD=X': [PriceRow(date(2025, 12, 31), 1.2), PriceRow(date(2026, 1, 2), 1.3)],
+              '^GSPC': [PriceRow(date(2025, 12, 31), 5000)]}
+    monkeypatch.setattr(portfolio_service.prices_repository, 'list_price_bars', lambda ticker, **kw: prices.get(ticker, []))
+    curve = portfolio_service.get_portfolio_curve(start_date=date(2026, 1, 1), model='execution_history')
+    assert curve.base_date == '2026-01-01'
+    assert curve.points[0].depot_value == 132  # (60 actual cash + 2 * 25 issuer bid) * 1.2
+    assert curve.points[0].positions_value == 60
+    assert curve.points[1].portfolio_index == pytest.approx(1.3 / 1.2 * 100, abs=.01)

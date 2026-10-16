@@ -73,3 +73,20 @@ test("portfolio curve distinguishes a usable simulation from unavailable histori
   await page.getByRole("combobox", { name: "Darstellung", exact: true }).selectOption("current_holdings");
   await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(1);
 });
+
+test("automatic portfolio curve keeps the TR ledger and January basis", async ({ page }) => {
+  await page.route("**/api/v1/portfolio/snapshot", route => route.fulfill({ json: { positions: [position], kpis: [], cash: 0, cash_ratio_pct: 0, currency: "EUR", total_value: 750 } }));
+  const requests: string[] = [];
+  await page.route("**/api/v1/portfolio/curve?**", route => {
+    const params = new URL(route.request().url()).searchParams;
+    requests.push(params.get("start_date") || "");
+    return route.fulfill({ json: { model: "execution_history", source: "trade_republic_transactions", data_status: "limited", as_of: "2026-10-15", base_date: "2026-01-01", complete_points: 2, total_points: 2, message: "Bestand und Cash aus sämtlichen TR-Buchungen rekonstruiert.", points: ["2026-01-01", "2026-01-02"].map((date, index) => ({ date, portfolio_index: 100 + index, sp500_index: 100 + index, depot_value: 1000 + index * 10, positions_value: 200 + index * 10, cash: 800 })) } });
+  });
+  await page.goto("/portfolio");
+  await page.getByRole('textbox', { name: 'Startdatum', exact: true }).fill("2026-01-01");
+  await expect(page.getByRole("heading", { name: "Depotkurve aus Ausführungen", exact: true })).toBeVisible();
+  await expect(page.getByText("Basis 2026-01-01 · Stand 2026-10-15", { exact: true })).toBeVisible();
+  await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "Simulation des heutigen Bestands", exact: true })).toHaveCount(0);
+  expect(requests).toContain("2026-01-01");
+});

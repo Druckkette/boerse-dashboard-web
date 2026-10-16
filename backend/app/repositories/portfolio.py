@@ -521,6 +521,8 @@ def list_transactions(*, limit: int = 250) -> list[PortfolioTransactionRow]:
 
 
 def list_trade_republic_transactions() -> list[TradeRepublicStoredTransactionRow]:
+    from app.domain.portfolio.trade_republic import ISIN_TO_YAHOO
+
     try:
         with SessionLocal() as db:
             rows = db.scalars(
@@ -528,9 +530,11 @@ def list_trade_republic_transactions() -> list[TradeRepublicStoredTransactionRow
                 .where(Transaction.raw_json["source"].as_string() == "trade_republic_transactions")
                 .order_by(Transaction.date.asc(), Transaction.created_at.asc())
             ).all()
+            mappings = dict(ISIN_TO_YAHOO)
+            mappings.update({row.isin.upper(): row.ticker.upper() for row in db.scalars(select(IsinMapping)).all() if row.isin and row.ticker})
             return [
                 TradeRepublicStoredTransactionRow(
-                    ticker=row.ticker or "",
+                    ticker=row.ticker or mappings.get(str((row.raw_json or {}).get("isin") or "").upper().strip(), ""),
                     date=row.date,
                     transaction_type=row.transaction_type or "",
                     shares=float(row.shares or 0.0),
