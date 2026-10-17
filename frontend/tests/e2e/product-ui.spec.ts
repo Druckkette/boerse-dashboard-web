@@ -613,3 +613,35 @@ test("mobile stock assessment precedes details and uses a native area selector",
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("a desktop stop draft survives a fresh snapshot with a changed quote", async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await portfolio(page);
+  let snapshots = 0;
+  await page.route("**/api/v1/portfolio/snapshot", (route) => {
+    snapshots++;
+    return route.fulfill({
+      json: {
+        positions: [{ ...position, current_price: snapshots > 1 ? 16 : 15 }],
+        kpis: [],
+        currency: "EUR",
+        total_value: 1000,
+        cash: 0,
+      },
+    });
+  });
+  await page.goto("/portfolio");
+  const stop = page
+    .getByRole("textbox", { name: "TEST Stopp EUR", exact: true })
+    .filter({ visible: true });
+  await stop.fill("13.25");
+  await page.clock.runFor(60_000);
+  await expect.poll(() => snapshots).toBeGreaterThanOrEqual(2);
+  await expect(stop).toHaveValue("13.25");
+  await expect(
+    page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
+  ).toBeDisabled();
+});

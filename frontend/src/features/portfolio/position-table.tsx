@@ -71,7 +71,7 @@ export function PositionTable({
     { accessorKey: "atr_pct", header: "ATR", cell: ({ getValue }) => typeof getValue() === "number" ? formatPercent(Number(getValue()), 1, false) : "–" },
     { accessorKey: "beta_balancer_score", header: "Beta-Balancer", cell: ({ getValue }) => formatNumber(getValue() as number | null) },
     { accessorKey: "risk_contribution", header: "Risikobeitrag", cell: ({ getValue }) => formatNumber(getValue() as number | null) },
-    { accessorKey: "stop_price", header: "Stopp USD", cell: ({ row }) => <StopPriceCell key={`${row.original.ticker}-${row.original.stop_price ?? "none"}`} position={row.original} /> },
+    { accessorKey: "stop_price", header: "Stopp USD", cell: StopPriceColumn },
     { accessorKey: "position_loss_risk", header: "Verlustrisiko", cell: ({ row, getValue }) => typeof getValue() === "number" ? formatMoney(Number(getValue()), row.original.currency, 0) : "–" },
     {
       accessorKey: "status",
@@ -203,6 +203,11 @@ function DailyChangeCell({ position }: { position: PortfolioPosition }) {
 
 function SignedValue({ value, suffix, digits = 1 }: { value: number; suffix: string; digits?: number }) {
   return <span className={value >= 0 ? "font-medium text-[#138a57]" : "font-medium text-[#c2413b]"}>{value > 0 ? "+" : ""}{formatNumber(value, digits)}{suffix}</span>;
+}
+
+// Stable component identity keeps a draft through quote/after-hours updates.
+function StopPriceColumn({ row }: { row: { original: PortfolioPosition } }) {
+  return <StopPriceCell key={`${row.original.ticker}-${row.original.stop_price ?? "none"}`} position={row.original} />;
 }
 
 function StopPriceCell({ position, mobile = false }: { position: PortfolioPosition; mobile?: boolean }) {
