@@ -72,6 +72,12 @@ for (const width of [320, 390, 1440])
       name: "Trade-Republic-Import",
       exact: true,
     });
+    await expect(
+      panel.getByLabel("TR-CSV auswählen", { exact: true }),
+    ).toBeEnabled();
+    await expect(
+      panel.getByLabel("TR-CSV auswählen", { exact: true }),
+    ).toBeEnabled();
     await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({
       name: "Transaktionsexport-mit-einem-sehr-langen-Dateinamen.csv",
       mimeType: "text/csv",
@@ -187,6 +193,7 @@ test("ambiguous ticker is selectable and requires a fresh preview; new file clea
     mimeType: "text/csv",
     buffer: Buffer.from(csv),
   };
+  await expect(upload).toBeEnabled();
   await upload.setInputFiles(file);
   const save = panel.getByRole("button", {
     name: "TR-Import speichern",
@@ -201,6 +208,7 @@ test("ambiguous ticker is selectable and requires a fresh preview; new file clea
     .getByRole("button", { name: "Vorschau erneut prüfen", exact: true })
     .click();
   await expect(save).toBeEnabled();
+  await expect(upload).toBeEnabled();
   await upload.setInputFiles(file);
   await expect(
     panel.getByText("1 Zuordnungen offen", { exact: true }),
@@ -234,6 +242,9 @@ test("failed preview stays visible and allows retry", async ({ page }) => {
     name: "Trade-Republic-Import",
     exact: true,
   });
+  await expect(
+    panel.getByLabel("TR-CSV auswählen", { exact: true }),
+  ).toBeEnabled();
   await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({
     name: "test.csv",
     mimeType: "text/csv",
@@ -292,13 +303,14 @@ test("inline portfolio import also fits a narrow phone", async ({ page }) => {
     name: "Trade-Republic-Import",
     exact: true,
   });
-  await panel
-    .getByLabel("TR-CSV auswählen", { exact: true })
-    .setInputFiles({
-      name: "test.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from(csv),
-    });
+  await expect(
+    panel.getByLabel("TR-CSV auswählen", { exact: true }),
+  ).toBeEnabled();
+  await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({
+    name: "test.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
   await expect(
     panel.getByText("Alle zugeordnet", { exact: true }),
   ).toBeVisible();
@@ -329,13 +341,14 @@ test("new preview clears a previous save error", async ({ page }) => {
     name: "Trade-Republic-Import",
     exact: true,
   });
-  await panel
-    .getByLabel("TR-CSV auswählen", { exact: true })
-    .setInputFiles({
-      name: "test.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from(csv),
-    });
+  await expect(
+    panel.getByLabel("TR-CSV auswählen", { exact: true }),
+  ).toBeEnabled();
+  await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({
+    name: "test.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
   const save = panel.getByRole("button", {
     name: "TR-Import speichern",
     exact: true,
@@ -350,4 +363,41 @@ test("new preview clears a previous save error", async ({ page }) => {
     .click();
   await expect(save).toBeEnabled();
   await expect(panel.getByRole("alert")).toHaveCount(0);
+});
+
+test("upload waits for interactivity when mobile JavaScript is delayed", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/_next/static/**/*.js", async (route) => {
+    await ready;
+    await route.continue();
+  });
+  await page.route("**/api/v1/portfolio/isin-mappings", (route) =>
+    route.fulfill({ json: { mappings: [] } }),
+  );
+  await page.route("**/api/v1/portfolio/imports/tr-transactions", (route) =>
+    route.fulfill({ json: response }),
+  );
+  try {
+    await page.goto("/portfolio/imports", { waitUntil: "commit" });
+    const upload = page.getByLabel("TR-CSV auswählen", { exact: true });
+    await expect(upload).toBeDisabled();
+    release();
+    await expect(upload).toBeEnabled();
+    await upload.setInputFiles({
+      name: "test.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    });
+    await expect(
+      page.getByText("Alle zugeordnet", { exact: true }),
+    ).toBeVisible();
+  } finally {
+    release();
+  }
 });

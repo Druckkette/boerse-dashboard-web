@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileText, Save } from "lucide-react";
-import { useRef, useState, type DragEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type {
@@ -21,7 +21,16 @@ const sourceLabels: Record<string, string> = {
 const buttonClass =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded border border-[var(--border)] px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50";
 
+function subscribeToHydration() {
+  return () => {};
+}
+
 export function TradeRepublicTransactionImportPanel() {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   const client = useQueryClient();
   const [fileName, setFileName] = useState("");
   const [content, setContent] = useState("");
@@ -51,7 +60,7 @@ export function TradeRepublicTransactionImportPanel() {
       if (next.ok) invalidatePortfolio(client);
     },
   });
-  const busy = reading || preview.isPending || save.isPending;
+  const busy = !hydrated || reading || preview.isPending || save.isPending;
   function payload(
     dry_run: boolean,
     nextContent = content,
