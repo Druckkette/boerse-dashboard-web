@@ -96,7 +96,7 @@ class PortfolioPriceArchive(Base):
     """Immutable source evidence, independent of the mutable market cache."""
     __tablename__ = "portfolio_price_archive"
     __table_args__ = (
-        UniqueConstraint("instrument_key", "kind", "sha256", name="uq_portfolio_price_archive"),
+        UniqueConstraint("instrument_key", "kind", "sha256", "observed_at", name="uq_portfolio_price_archive"),
         Index("ix_portfolio_archive_key_date", "instrument_key", "price_date"),
     )
 

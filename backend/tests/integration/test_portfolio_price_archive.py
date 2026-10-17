@@ -33,11 +33,10 @@ def test_archive_is_idempotent_retains_corrections_and_restores_cache_without_pr
     evidence = {"amount": 2.1, "currency": "EUR", "valuation_date": "2026-10-16", "source_url": "https://issuer.example/terms"}
     prices.save_instrument_metadata(key, {"fixed_redemption": evidence})
     assert archive.archive_cached_inputs({key}) == 2
-    prices.upsert_price_bars(key, [first], source="vontobel:EUR:bid")
     assert archive.archive_cached_inputs({key}) == 0
     corrected = prices.PriceBarWrite(first.date, None, None, None, 2.05, None, None)
     prices.upsert_price_bars(key, [corrected], source="vontobel:EUR:bid")
-    assert archive.archive_cached_inputs({key}) == 1
+    assert archive.archive_cached_inputs({key}) == 2
     with sessions() as db:
         instrument = db.scalar(select(Instrument).where(Instrument.ticker == key))
         db.execute(delete(PriceBar).where(PriceBar.instrument_id == instrument.id))
@@ -56,7 +55,7 @@ def test_issuer_response_evidence_survives_loss_of_instrument(database):
     sessions, key = database
     item = archive.append_evidence(key, "issuer_response", {"isin": key, "currency": "EUR", "bid": 0.001}, source="hsbc:EUR:bid", source_url="https://issuer.example/quote")
     assert archive.save_evidence([item]) == 1
-    assert archive.save_evidence([archive.append_evidence(key, "issuer_response", {"bid": 0.001, "currency": "EUR", "isin": key}, source="hsbc:EUR:bid")]) == 0
+    assert archive.save_evidence([archive.append_evidence(key, "issuer_response", {"bid": 0.001, "currency": "EUR", "isin": key}, source="hsbc:EUR:bid", observed_at=item["observed_at"])]) == 0
     with sessions() as db:
         assert db.scalar(select(func.count()).select_from(PortfolioPriceArchive).where(PortfolioPriceArchive.instrument_key == key)) == 1
         row = db.scalar(select(PortfolioPriceArchive).where(PortfolioPriceArchive.instrument_key == key))
@@ -86,3 +85,16 @@ def test_legacy_download_vintage_is_not_changed_by_archive_recovery(database):
     archive.archive_cached_inputs({key})
     archive.restore_cached_inputs({key})
     assert prices.list_price_bars(key)[0].fetched_at == before_split
+
+
+def test_correction_can_return_to_an_earlier_price_without_losing_latest_state(database):
+    sessions, key = database
+    for value in [2.0, 2.05, 2.0]:
+        prices.upsert_price_bars(key, [prices.PriceBarWrite(date(2026, 10, 15), None, None, None, value, None, None)], source="hsbc:EUR:bid")
+        assert archive.archive_cached_inputs({key}) == 1
+    with sessions() as db:
+        instrument = db.scalar(select(Instrument).where(Instrument.ticker == key))
+        db.execute(delete(PriceBar).where(PriceBar.instrument_id == instrument.id))
+        db.commit()
+    assert archive.restore_cached_inputs({key}) == 1
+    assert prices.list_price_bars(key)[0].close == 2.0

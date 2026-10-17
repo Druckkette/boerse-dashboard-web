@@ -55,7 +55,9 @@ def archive_cached_inputs(tickers: set[str]) -> int:
             "stock_splits", "stock_splits_source", "fixed_redemption", "issuer_history_source", "issuer_final_bid"
         ) if name in values}
         if stable:
-            items.append(append_evidence(key, "instrument_metadata", stable, source="database"))
+            checked = values.get("issuer_checked_at") or values.get("price_checked_at")
+            items.append(append_evidence(key, "instrument_metadata", stable, source="database",
+                observed_at=datetime.fromisoformat(checked) if checked else None))
     for key, rows in bars.items():
         for row in rows:
             if row.close is None:
@@ -67,10 +69,10 @@ def archive_cached_inputs(tickers: set[str]) -> int:
                 # Legacy split restoration depends on the download vintage.
                 # Never turn such a quote into a freshly downloaded quote.
                 payload["legacy_fetched_at"] = row.fetched_at.isoformat() if row.fetched_at else None
-            # Fetch time is provenance, not part of the price identity: an
-            # unchanged retry must not duplicate the same observation.
+            # Keep distinct retrievals, including a correction that returns to
+            # an earlier price. Re-archiving the same retrieval is idempotent.
             items.append(append_evidence(key, "price_bar", payload, source=row.source,
-                price_date=row.date, observed_at=row.fetched_at))
+                price_date=row.date, observed_at=row.fetched_at or row.created_at))
     return save_evidence(items)
 
 

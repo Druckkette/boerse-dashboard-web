@@ -21,7 +21,7 @@ def upgrade() -> None:
         sa.Column("sha256", sa.String(64), nullable=False),
         sa.Column("payload_gzip", sa.LargeBinary(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.UniqueConstraint("instrument_key", "kind", "sha256", name="uq_portfolio_price_archive"))
+        sa.UniqueConstraint("instrument_key", "kind", "sha256", "observed_at", name="uq_portfolio_price_archive"))
     op.create_index("ix_portfolio_archive_key_date", "portfolio_price_archive", ["instrument_key", "price_date"])
 
 
