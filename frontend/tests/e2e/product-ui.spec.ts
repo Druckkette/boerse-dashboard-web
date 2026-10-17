@@ -625,7 +625,7 @@ test("a desktop stop draft survives a fresh snapshot with a changed quote", asyn
     snapshots++;
     return route.fulfill({
       json: {
-        positions: [{ ...position, current_price: snapshots > 1 ? 16 : 15 }],
+        positions: [{ ...position, current_price: 15 + snapshots }],
         kpis: [],
         currency: "EUR",
         total_value: 1000,
@@ -638,8 +638,9 @@ test("a desktop stop draft survives a fresh snapshot with a changed quote", asyn
     .getByRole("textbox", { name: "TEST Stopp EUR", exact: true })
     .filter({ visible: true });
   await stop.fill("13.25");
+  const snapshotsBeforeRefresh = snapshots;
   await page.clock.runFor(60_000);
-  await expect.poll(() => snapshots).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => snapshots).toBeGreaterThan(snapshotsBeforeRefresh);
   await expect(stop).toHaveValue("13.25");
   await expect(
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
