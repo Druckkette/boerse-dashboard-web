@@ -24,6 +24,26 @@ from app.schemas import (
 client = TestClient(app)
 
 
+def test_committed_tr_import_starts_independent_quote_capture(monkeypatch):
+    from types import SimpleNamespace
+    from app.api.v1 import portfolio as api
+    from app.services import jobs
+    from app.schemas import TradeRepublicTransactionImportResponse
+    monkeypatch.setattr(api, "import_trade_republic_transaction_export", lambda payload:
+        TradeRepublicTransactionImportResponse(ok=True, dry_run=False, import_id="test-import", rows_total=2,
+            rows_imported=1, transactions_total=2, cash_balance_estimate=0, positions=[], mappings=[]))
+    dispatched = []
+    def start(payload):
+        dispatched.append(payload)
+        return SimpleNamespace(status="queued")
+    monkeypatch.setattr(jobs, "start_job", start)
+    response = client.post("/api/v1/portfolio/imports/tr-transactions", json={"content":"test", "dry_run":False})
+    assert response.status_code == 200 and response.json()["ok"]
+    assert dispatched[0].type == "archive_portfolio_prices"
+    assert dispatched[0].payload["import_id"] == "test-import"
+    assert "Bekanntwerden" in response.json()["warnings"][0]
+
+
 def test_health() -> None:
     response = client.get("/api/v1/health")
     assert response.status_code == 200

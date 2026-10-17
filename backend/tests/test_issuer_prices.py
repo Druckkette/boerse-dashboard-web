@@ -13,6 +13,36 @@ def test_issuer_history_uses_product_bid_not_underlying_and_accepts_zero():
     assert bars[0].high is None and bars[0].volume is None
 
 
+def test_hsbc_snapshot_preserves_own_quote_date_and_rejects_underlying_or_wrong_product():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.data_sources.issuer_product import hsbc_snapshot
+    isin = "DE000HS12345"
+    text = "ISIN: DE000HS12345\nWKN: HS1234\nGeldkurs*\t0,73 EUR\nBriefkurs*\t0,98 EUR\nDatum/Zeit\t16.10.2026 21:59:57\nSouthern Copper\nMittelkurs\t200,55 USD\nDatum/Zeit\t16.10.2026 22:00:24"
+    now = datetime(2026, 10, 17, 6, tzinfo=ZoneInfo("Europe/Berlin"))
+    bars, claim = hsbc_snapshot(isin, {"text":text}, now=now)
+    assert not claim and bars[0].date == date(2026, 10, 16) and bars[0].close == .73
+    assert hsbc_snapshot(isin, {"text":text}, now=now.replace(day=16, hour=21, minute=59, second=58)) == ([], None)
+    with pytest.raises(ValueError, match="identity"):
+        hsbc_snapshot("DE000HS99999", {"text":text}, now=now)
+    with pytest.raises(ValueError, match="quote"):
+        hsbc_snapshot(isin, {"text":text.replace("Geldkurs*", "Mittelkurs")}, now=now)
+
+
+def test_hsbc_product_specific_knockout_becomes_claim_without_invented_price_bar():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.data_sources.issuer_product import hsbc_snapshot
+    now = datetime(2026, 10, 17, 6, tzinfo=ZoneInfo("Europe/Berlin"))
+    payload = {"knockouts":[{"wkn":"HS1234", "amount":"0,001 EUR", "timestamp":"16.10.26 - 20:55:32"}]}
+    bars, claim = hsbc_snapshot("DE000HS12345", payload, now=now)
+    assert not bars and claim["amount"] == .001 and claim["valuation_date"] == "2026-10-16"
+    with pytest.raises(ValueError, match="Invalid"):
+        hsbc_snapshot("DE000HS12345", payload, now=now.replace(day=16,hour=20))
+    with pytest.raises(ValueError, match="identity"):
+        hsbc_snapshot("DE000HS99999", payload, now=now)
+
+
 def test_vontobel_history_rejects_underlying_series_and_wrong_product():
     with pytest.raises(ValueError, match='matching issuer product'):
         parse_issuer_history('TEST', {'payload': {'series': [{'priceIdentifier': 'OTHER', 'isProduct': False, 'points': []}]}})

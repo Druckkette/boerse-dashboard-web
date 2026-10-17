@@ -1855,6 +1855,7 @@ export type JobType =
   | "smart_refresh_market_data"
   | "bootstrap_market_data"
   | "refresh_prices"
+  | "archive_portfolio_prices"
   | "refresh_breadth"
   | "refresh_relative_strength"
   | "refresh_stock_assessments"

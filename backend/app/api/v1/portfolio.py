@@ -241,6 +241,15 @@ def import_trade_republic_transactions(
 ) -> TradeRepublicTransactionImportResponse:
     try:
         response = import_trade_republic_transaction_export(payload)
+        if response.ok and not response.dry_run:
+            from app.services.jobs import start_job
+            from app.schemas import JobCreateRequest
+            job = start_job(JobCreateRequest(type="archive_portfolio_prices",
+                payload={"source": "tr_import", "import_id": response.import_id}))
+            response.warnings.append(
+                "Kurssicherung konnte nicht gestartet werden. Bitte Aufträge prüfen."
+                if job.status == "failed" else
+                "Kurssicherung wurde gestartet. Tageskurse können erst ab Bekanntwerden des Produkts gesichert werden; bitte den Kursauftrag auf fehlende Quellen prüfen.")
         invalidate_home_dashboard_cache()
         return response
     except PortfolioRepositoryUnavailable as exc:

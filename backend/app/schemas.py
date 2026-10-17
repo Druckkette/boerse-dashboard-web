@@ -1708,6 +1708,7 @@ class SellEvaluateResponse(BaseModel):
 
 JobStatus = Literal["queued", "running", "done", "failed", "skipped", "cancelled"]
 JobType = Literal[
+    "archive_portfolio_prices",
     "smart_refresh_market_data",
     "bootstrap_market_data",
     "refresh_prices",

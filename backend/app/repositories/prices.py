@@ -50,12 +50,17 @@ def list_instrument_metadata(tickers: Iterable[str]) -> dict[str, dict]:
         raise PriceRepositoryUnavailable(str(exc)) from exc
 
 
-def save_instrument_metadata(ticker: str, values: dict) -> None:
+def save_instrument_metadata(ticker: str, values: dict, *, create_issuer: bool = False) -> None:
     try:
         with SessionLocal() as db:
             instrument = db.scalar(select(Instrument).where(Instrument.ticker == ticker.upper()))
             if instrument is None:
-                raise ValueError(f"No cached instrument: {ticker}")
+                if not create_issuer:
+                    raise ValueError(f"No cached instrument: {ticker}")
+                instrument = Instrument(ticker=ticker.upper(), name=ticker.upper(), yahoo_symbol="")
+                db.add(instrument)
+            if create_issuer:
+                instrument.isin, instrument.currency, instrument.asset_class = ticker.upper(), "EUR", "derivative"
             instrument.metadata_json = {**(instrument.metadata_json or {}), **values}
             db.commit()
     except SQLAlchemyError as exc:

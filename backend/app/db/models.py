@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -89,6 +90,26 @@ class PriceBar(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     instrument: Mapped[Instrument] = relationship(back_populates="price_bars")
+
+
+class PortfolioPriceArchive(Base):
+    """Immutable source evidence, independent of the mutable market cache."""
+    __tablename__ = "portfolio_price_archive"
+    __table_args__ = (
+        UniqueConstraint("instrument_key", "kind", "sha256", name="uq_portfolio_price_archive"),
+        Index("ix_portfolio_archive_key_date", "instrument_key", "price_date"),
+    )
+
+    id: Mapped[str] = uuid_pk()
+    instrument_key: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(64))
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    price_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sha256: Mapped[str] = mapped_column(String(64))
+    payload_gzip: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Universe(Base):

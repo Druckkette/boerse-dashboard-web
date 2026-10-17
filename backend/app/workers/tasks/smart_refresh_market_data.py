@@ -747,6 +747,8 @@ def _refresh_prices(
 
     price_result["ok"] = price_result["success_count"] > 0 and price_result["failure_count"] == 0
     price_result["partial"] = price_result["success_count"] > 0 and price_result["failure_count"] > 0
+    if not price_result.get("portfolio_curve_prices", {}).get("ok", True):
+        price_result["partial"] = True
     if price_result["success_count"] == 0:
         raise RuntimeError("Smart Refresh konnte keine Kursdaten aktualisieren.")
     freshness = get_freshness()

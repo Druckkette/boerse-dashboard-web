@@ -147,6 +147,8 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
 
         result["ok"] = result["failure_count"] == 0 and result["success_count"] > 0
         result["partial"] = result["success_count"] > 0 and result["failure_count"] > 0
+        if not result.get("portfolio_curve_prices", {}).get("ok", True):
+            result["partial"] = True
         if result["success_count"] == 0:
             job_repository.mark_failed(
                 job.job_id,
@@ -156,8 +158,9 @@ def refresh_prices(self, job_id: str | None = None, payload: dict | None = None)
             return result
 
         message = "Price-Cache aktualisiert."
-        if result["failure_count"]:
-            message = f"Price-Cache teilweise aktualisiert; {result['failure_count']} Ticker fehlgeschlagen."
+        if result["partial"]:
+            message = (f"Price-Cache teilweise aktualisiert; {result['failure_count']} Ticker fehlgeschlagen."
+                if result["failure_count"] else "Marktkurse aktualisiert; Depotkurse oder Quellenarchiv unvollständig. Details prüfen.")
         job_repository.mark_done(job.job_id, result=result, message=message)
         return result
     except JobCancelled:

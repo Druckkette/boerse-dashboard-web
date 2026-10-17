@@ -13,6 +13,16 @@ def test_celery_beat_uses_german_market_update_timezone() -> None:
     assert celery_app.conf.timezone == "Europe/Berlin"
 
 
+def test_daily_portfolio_capture_is_independent_and_rechecks_friday_on_saturday():
+    schedule = get_beat_schedule()
+    close = schedule["archive-portfolio-prices-after-close"]
+    morning = schedule["archive-portfolio-prices-next-morning"]
+    assert close["task"] == morning["task"] == "archive_portfolio_prices"
+    assert (close["schedule"]._orig_hour, close["schedule"]._orig_minute, close["schedule"]._orig_day_of_week) == (22, 40, "1-5")
+    assert (morning["schedule"]._orig_hour, morning["schedule"]._orig_minute, morning["schedule"]._orig_day_of_week) == (6, 15, "2-6")
+    assert celery_app.amqp.router.route({}, "archive_portfolio_prices", (), {})["queue"].name == "interactive"
+
+
 def test_report_work_uses_default_queue_until_dedicated_worker_is_enabled() -> None:
     schedule = get_beat_schedule()["report-work-dispatch"]
     route = celery_app.amqp.router.route({}, "refresh_report_data", (), {})

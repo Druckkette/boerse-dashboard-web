@@ -10,6 +10,7 @@ from app.services.portfolio_curve_prices import curve_price_requirements
 def fixed_refresh_year(monkeypatch):
     from app.services import portfolio_curve_prices as service
     monkeypatch.setattr(service, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 16, tzinfo=tz)))
+    monkeypatch.setattr(service.archive, "archive_cached_inputs", lambda keys: 0)
 
 
 def transaction(day, kind, quantity, ticker="TEST", isin="TEST", asset="STOCK"):
@@ -59,3 +60,17 @@ def test_complete_closed_position_needs_no_repeated_download(monkeypatch):
     monkeypatch.setattr(service.prices, "list_price_bars_for_tickers", lambda *a, **k: {"TEST": [SimpleNamespace(date=date(2026, 1, 2)), SimpleNamespace(date=date(2026, 6, 1))]})
     monkeypatch.setattr(service, "refresh_price_cache_for_symbols", lambda *a, **k: pytest.fail("Closed history is already covered"))
     assert service.refresh_portfolio_curve_prices()["ok"]
+
+
+def test_archive_write_errors_remain_explicit_even_if_prices_are_current(monkeypatch):
+    from app.services import portfolio_curve_prices as service
+    monkeypatch.setattr(service.portfolio, "list_trade_republic_transactions", lambda: [])
+    monkeypatch.setattr(service, "curve_price_requirements", lambda rows, today: ({"TEST": today}, set()))
+    monkeypatch.setattr(service.prices, "list_price_bars_for_tickers", lambda *a, **k: {})
+    monkeypatch.setattr(service, "refresh_price_cache_for_symbols", lambda *a, **k: [{"ok":True}])
+    def broken(keys):
+        raise RuntimeError("archive offline")
+    monkeypatch.setattr(service.archive, "archive_cached_inputs", broken)
+    result = service.refresh_portfolio_curve_prices()
+    assert not result["ok"] and not result["archive_ok"]
+    assert all(error.startswith("Archive:") for error in result["errors"])

@@ -40,6 +40,7 @@ celery_app.conf.update(
         "position_atr_monitor": {"queue": "monitor"},
         "pushover_test": {"queue": "monitor"},
         "refresh_stock_detail": {"queue": "interactive"},
+        "archive_portfolio_prices": {"queue": "interactive"},
     },
     imports=(
         "app.workers.tasks.refresh_report_data",
@@ -48,6 +49,7 @@ celery_app.conf.update(
         "app.workers.tasks.smart_refresh_market_data",
         "app.workers.tasks.bootstrap_market_data",
         "app.workers.tasks.refresh_prices",
+        "app.workers.tasks.archive_portfolio_prices",
         "app.workers.tasks.refresh_breadth",
         "app.workers.tasks.refresh_relative_strength",
         "app.workers.tasks.refresh_stock_assessments",

@@ -13,6 +13,7 @@ class JobConflictError(RuntimeError):
 
 
 LIGHTWEIGHT_JOB_QUEUES = {
+    "archive_portfolio_prices": "interactive",
     "position_atr_monitor": "monitor",
     "pushover_test": "monitor",
     "refresh_stock_detail": "interactive",

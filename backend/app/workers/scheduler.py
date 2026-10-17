@@ -42,6 +42,18 @@ def get_beat_schedule() -> dict:
     in Smart Refresh and also run monthly as a backup because SEC artefacts are large.
     """
     return {
+        "archive-portfolio-prices-after-close": {
+            "task": "archive_portfolio_prices",
+            "schedule": crontab(hour=22, minute=40, day_of_week="1-5"),
+            "args": (None, {"source": "scheduler", "window": "after_close"}),
+            "options": {"expires": 6 * 60 * 60},
+        },
+        "archive-portfolio-prices-next-morning": {
+            "task": "archive_portfolio_prices",
+            "schedule": crontab(hour=6, minute=15, day_of_week="2-6"),
+            "args": (None, {"source": "scheduler", "window": "next_morning"}),
+            "options": {"expires": 6 * 60 * 60},
+        },
         "refresh-sec-companyfacts-bulk-daily": {
             "task": "refresh_sec_companyfacts_bulk",
             "schedule": crontab(hour=10, minute=30),
