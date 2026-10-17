@@ -91,3 +91,9 @@ Die Sicherung kann ein Produkt erst erfassen, wenn es durch einen Import bekannt
 
 
 Split-Gutschrift und Börsen-Ex-Tag können auseinanderfallen. Die Bewertung gleicht die gebuchte Stückänderung für den Zwischenzeitraum ab. Ein über einen Feiertag fortgeführter letzter Schlusskurs wird auf dieselbe Stückbasis gebracht. So kann eine am 01.01. gebuchte Split-Gutschrift die Januar-Basis weder vervielfachen noch später einen künstlichen Verlust auslösen. Frühere Buchungen und die gespeicherten Marktbeobachtungen bleiben dabei unverändert.
+
+### Automatische Wertpapierzuordnung und mobiler TR-Import
+
+Unbekannte Aktien-/Fonds-ISINs werden während der Importvorschau über eine exakte Yahoo-Suche aufgelöst. Eigene und gespeicherte Zuordnungen haben Vorrang. Nur ein eindeutiger Treffer der passenden Wertpapierart wird automatisch übernommen; mehrere Börsenplätze bleiben auswählbar. Ungültige ISINs und Derivate werden nicht als Aktien gesucht. Ein Ausfall der Suche verhindert die Vorschau nicht; offene Zuordnungen bleiben sichtbar. Vier parallele Suchanfragen und ein Zeitbudget von 20 Sekunden begrenzen die Wartezeit. Suchergebnisse werden kurz zwischengespeichert; beim tatsächlichen Import werden Zuordnungen gemeinsam mit den Buchungen dauerhaft gespeichert.
+
+Portfolio und Importseite verwenden denselben Ablauf: Datei wählen → Vorschau prüfen → speichern. Offene Zuordnungen stehen oben; erkannte Wertpapiere, Details und CSV-Optionen sind aufklappbar. Karten ersetzen breite Tabellen und verschachtelte Scrollbereiche. Auf der mobilen Importseite scrollt der Seitenkopf mit, damit er keine Eingaben verdeckt. Änderungen an Zuordnungen verlangen eine erneute Vorschau; eine neue Datei übernimmt keine Eingaben des vorherigen Exports.

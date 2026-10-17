@@ -1266,12 +1266,20 @@ class PortfolioImportResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class TradeRepublicTickerCandidate(BaseModel):
+    ticker: str
+    name: str
+    exchange: str = ""
+
+
 class TradeRepublicIsinMappingItem(BaseModel):
     isin: str
     name: str
     asset_class: str
     ticker: str = ""
-    source: Literal["manual", "saved", "static", "missing"] = "missing"
+    source: Literal["manual", "saved", "static", "automatic", "missing"] = "missing"
+    candidates: list[TradeRepublicTickerCandidate] = Field(default_factory=list)
+    message: str = ""
 
 
 class TradeRepublicSkippedPosition(BaseModel):

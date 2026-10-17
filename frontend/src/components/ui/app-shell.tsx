@@ -48,6 +48,7 @@ const pageDescriptions: Record<string, string> = {
   "/industry-groups": "Industry-Group-RS, Rangdynamik und die stärksten Aktien innerhalb jeder Gruppe.",
   "/stocks": "Aktien suchen, bewerten und technische sowie fundamentale Signale prüfen.",
   "/portfolio": "Depot, Risiko, Stopps und Positionsgrößen im Blick behalten.",
+  "/portfolio/imports": "Trade-Republic-Export hochladen, Wertpapiere automatisch zuordnen und Depot aktualisieren.",
   "/portfolio/buy-strength": "Frische Käufe systematisch gegen die Stärke-nach-Kauf-Regeln prüfen.",
   "/trade-journal": "Kauf- und Verkaufsentscheidungen dokumentieren und später auswerten.",
   "/sell-monitor": "Verkaufsregeln, Tranchensignale und Positionszustand kontrollieren.",
@@ -129,7 +130,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </aside>
       <main id="main-content" tabIndex={-1} className="min-w-0">
-        <header ref={headerRef} className="sticky top-0 z-10 border-b border-[#e3e8ef] bg-white/92 px-4 py-3 backdrop-blur md:px-6">
+        <header ref={headerRef} className={clsx(pathname === "/portfolio/imports" ? "relative lg:sticky" : "sticky", "top-0 z-10 border-b border-[#e3e8ef] bg-white/92 px-4 py-3 backdrop-blur md:px-6")}>
           <div className="mx-auto flex max-w-[1680px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>

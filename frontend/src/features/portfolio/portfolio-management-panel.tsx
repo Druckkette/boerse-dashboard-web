@@ -15,7 +15,7 @@ import {
 
 export function PortfolioManagementPanel({ positions }: { positions: PortfolioPosition[] }) {
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <PositionSizeCalculator />
       <CollapsibleSection
         title="Positionen, Verkäufe und Cashflows"
@@ -24,7 +24,7 @@ export function PortfolioManagementPanel({ positions }: { positions: PortfolioPo
       >
         <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
           <PositionEditor positions={positions} />
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <SellBooking positions={positions} />
             <CashFlowPanel />
           </div>
@@ -35,7 +35,7 @@ export function PortfolioManagementPanel({ positions }: { positions: PortfolioPo
         description="TR-CSV direkt im Portfolio hochladen. Gespeicherte ISIN-Zuordnungen bleiben dauerhaft nutzbar."
         badge="eingeklappt"
       >
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <TradeRepublicTransactionImportPanel />
           <IsinMappingMaintenancePanel />
         </div>
@@ -57,17 +57,17 @@ function CollapsibleSection({
 }) {
   return (
     <details className="group rounded border border-[var(--border)] bg-[var(--panel)]">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 marker:hidden">
-        <div>
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-2 p-3 sm:p-5 marker:hidden">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">{title}</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <StatusChip tone="neutral">{badge}</StatusChip>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden sm:inline"><StatusChip tone="neutral">{badge}</StatusChip></span>
           <ChevronDown className="size-4 text-[var(--muted)] transition group-open:rotate-180" />
         </div>
       </summary>
-      <div className="border-t border-[var(--border)] p-5">{children}</div>
+      <div className="min-w-0 border-t border-[var(--border)] p-2 sm:p-5">{children}</div>
     </details>
   );
 }

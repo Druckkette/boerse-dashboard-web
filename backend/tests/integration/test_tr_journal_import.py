@@ -262,3 +262,46 @@ def test_industry_score_projection_preserves_order_and_values_without_full_paylo
     assert all(row.item_json == values for row in compact)
     assert [(r.overall_score, r.technical_score) for r in compact] == [(r.overall_score, r.technical_score) for r in full]
     assert all("full_assessment_detail" in row.item_json for row in full)
+
+
+def test_discovered_mapping_is_saved_atomically_and_reused_on_next_import(setup_import, monkeypatch):
+    from app.db.models import IsinMapping
+    from app.repositories import portfolio as repository
+    from app.services import portfolio as service, tr_import_mapping
+    from app.schemas import TradeRepublicTransactionImportRequest
+    from app.services.fx import FxRate
+    from datetime import date
+
+    sessions, ticker, run = setup_import
+    # Start with fully documented executions whose Yahoo symbol was unknown.
+    run([(2, "BUY", 3, 100, 0, "buy")], mapped=False)
+    with sessions() as db:
+        execution = db.scalar(select(Transaction).where(Transaction.external_id == f"tr:{ticker[1:].lower()}-buy"))
+        isin = execution.raw_json["isin"]
+        execution_id = execution.id
+    monkeypatch.setattr(repository, "SessionLocal", sessions)
+    # Isolate this synthetic broker account from other integration fixtures.
+    original_merge = tr_import.merged_rows
+    monkeypatch.setattr(tr_import, "merged_rows", lambda rows: [row for row in original_merge(rows) if row.isin == isin])
+    monkeypatch.setattr(service, "get_eur_usd_rate", lambda: FxRate(pair="EUR/USD", rate=1, as_of=date(2026, 1, 1), source="test"))
+    lookups = []
+    def search(value, asset_class):
+        lookups.append(value)
+        return {"ticker": ticker, "candidates": [], "message": "Automatically found"}
+    monkeypatch.setattr(tr_import_mapping, "search_isin", search)
+    content = f"date,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax,transaction_id\n2025-01-02,BUY,STOCK,Test,{isin},3,100,EUR,-300,0,0,{ticker[1:].lower()}-buy\n"
+    first = service.import_trade_republic_transaction_export(TradeRepublicTransactionImportRequest(content=content, dry_run=True))
+    assert first.mappings[0].source == "automatic"
+    with sessions() as db:
+        assert db.scalar(select(IsinMapping).where(IsinMapping.isin == isin)) is None
+        assert db.get(Transaction, execution_id).ticker == ""
+    saved = service.import_trade_republic_transaction_export(TradeRepublicTransactionImportRequest(content=content, dry_run=False))
+    assert saved.ok
+    with sessions() as db:
+        assert db.scalar(select(IsinMapping).where(IsinMapping.isin == isin)).ticker == ticker
+        assert db.get(Transaction, execution_id).ticker == ticker
+        assert db.get(Transaction, execution_id).shares == 3
+    lookups.clear()
+    repeated = service.import_trade_republic_transaction_export(TradeRepublicTransactionImportRequest(content=content, dry_run=True))
+    assert repeated.ok and repeated.mappings[0].source == "saved"
+    assert lookups == []

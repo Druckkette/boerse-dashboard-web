@@ -26,6 +26,7 @@ REFERENCE_TR_EXPORT = next(
 @pytest.fixture(autouse=True)
 def fixed_fx_rate(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.repositories import tr_import
+    monkeypatch.setattr("app.services.tr_import_mapping.search_isin", lambda *args: {"ticker": "", "candidates": [], "message": "Test: kein Treffer"})
     monkeypatch.setattr(tr_import, "merged_rows", lambda rows: rows)
     monkeypatch.setattr(
         portfolio_service,

@@ -1040,7 +1040,9 @@ export type TradeRepublicIsinMappingItem = {
   name: string;
   asset_class: string;
   ticker: string;
-  source: "manual" | "saved" | "static" | "missing";
+  source: "manual" | "saved" | "static" | "automatic" | "missing";
+  candidates?: Array<{ ticker: string; name: string; exchange: string }>;
+  message?: string;
 };
 
 export type TradeRepublicSkippedPosition = {

@@ -2,246 +2,459 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FileText, Save } from "lucide-react";
-import { useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type {
   PortfolioImportRow,
   TradeRepublicTransactionImportRequest,
-  TradeRepublicTransactionImportResponse
+  TradeRepublicTransactionImportResponse,
 } from "@/lib/types/api";
 
-const tradeRepublicCsvPlaceholder = `date,datetime,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax
-2025-01-02,2025-01-02T10:00:00Z,BUY,STOCK,NVIDIA,US67066G1040,10,100,USD,-1000,-1,0
-2025-01-10,2025-01-10T10:00:00Z,SELL,STOCK,NVIDIA,US67066G1040,2,120,USD,240,-1,-10
-`;
+const sourceLabels: Record<string, string> = {
+  automatic: "Automatisch gefunden",
+  manual: "Eigene Zuordnung",
+  saved: "Gespeichert",
+  static: "Bekannte ISIN",
+  missing: "Zuordnung offen",
+};
+const buttonClass =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded border border-[var(--border)] px-4 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-50";
 
 export function TradeRepublicTransactionImportPanel() {
-  const queryClient = useQueryClient();
+  const client = useQueryClient();
   const [fileName, setFileName] = useState("");
   const [content, setContent] = useState("");
-  const [replaceOpenPositions, setReplaceOpenPositions] = useState(true);
+  const [replace, setReplace] = useState(true);
   const [dragActive, setDragActive] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [fileError, setFileError] = useState("");
   const [overrides, setOverrides] = useState<Record<string, string>>({});
-  const [lastResult, setLastResult] = useState<TradeRepublicTransactionImportResponse | null>(null);
-
-  const previewMutation = useMutation({
-    mutationFn: (payload: TradeRepublicTransactionImportRequest) => api.importTradeRepublicTransactions(payload),
-    onSuccess: (result) => {
-      setLastResult(result);
-      setOverrides((current) => {
-        const next = { ...current };
-        for (const mapping of result.mappings) {
-          if (mapping.ticker && !next[mapping.isin]) next[mapping.isin] = mapping.ticker;
-        }
-        return next;
-      });
-    }
+  const [edited, setEdited] = useState(false);
+  const [showRecognized, setShowRecognized] = useState(false);
+  const [result, setResult] =
+    useState<TradeRepublicTransactionImportResponse | null>(null);
+  const fileVersion = useRef(0);
+  const preview = useMutation({
+    mutationFn: (payload: TradeRepublicTransactionImportRequest) =>
+      api.importTradeRepublicTransactions(payload),
+    onSuccess: (next) => {
+      setResult(next);
+      setEdited(false);
+    },
   });
-
-  const saveMutation = useMutation({
-    mutationFn: (payload: TradeRepublicTransactionImportRequest) => api.importTradeRepublicTransactions(payload),
-    onSuccess: (result) => {
-      setLastResult(result);
-      invalidatePortfolio(queryClient);
-    }
+  const save = useMutation({
+    mutationFn: (payload: TradeRepublicTransactionImportRequest) =>
+      api.importTradeRepublicTransactions(payload),
+    onSuccess: (next) => {
+      setResult(next);
+      if (next.ok) invalidatePortfolio(client);
+    },
   });
-
-  function payload({
-    dryRun,
+  const busy = reading || preview.isPending || save.isPending;
+  function payload(
+    dry_run: boolean,
     nextContent = content,
-    nextFileName = fileName
-  }: {
-    dryRun: boolean;
-    nextContent?: string;
-    nextFileName?: string;
-  }): TradeRepublicTransactionImportRequest {
+    nextName = fileName,
+    nextOverrides = overrides,
+  ): TradeRepublicTransactionImportRequest {
     return {
-      file_name: nextFileName || "trade-republic-transactions.csv",
       content: nextContent,
-      dry_run: dryRun,
-      replace_open_positions: replaceOpenPositions,
-      isin_overrides: overrides
+      file_name: nextName || "trade-republic-transactions.csv",
+      dry_run,
+      replace_open_positions: replace,
+      isin_overrides: nextOverrides,
     };
   }
-
   async function handleFile(file: File | null) {
-    if (!file) return;
-    const nextContent = await file.text();
-    setFileName(file.name);
-    setContent(nextContent);
-    setLastResult(null);
-    previewMutation.mutate(payload({ dryRun: true, nextContent, nextFileName: file.name }));
+    if (!file || busy) return;
+    const version = ++fileVersion.current;
+    setReading(true);
+    setFileError("");
+    setResult(null);
+    setOverrides({});
+    setEdited(false);
+    setShowRecognized(false);
+    preview.reset();
+    save.reset();
+    try {
+      const text = await file.text();
+      if (version !== fileVersion.current) return;
+      setFileName(file.name);
+      setContent(text);
+      preview.mutate(payload(true, text, file.name, {}));
+    } catch {
+      setContent("");
+      setFileError(
+        "Datei konnte nicht gelesen werden. Bitte erneut auswählen.",
+      );
+    } finally {
+      setReading(false);
+    }
   }
-
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
     setDragActive(false);
-    handleFile(event.dataTransfer.files?.[0] ?? null);
+    void handleFile(event.dataTransfer.files?.[0] ?? null);
   }
-
-  const result = lastResult;
-  const missingMappingCount = result?.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length ?? 0;
-  const canSave = Boolean(
+  const missing =
+    result?.mappings.filter(
+      (row) => !(overrides[row.isin] ?? row.ticker).trim(),
+    ).length ?? 0;
+  const canSave =
     result?.ok &&
-      result.dry_run &&
-      result.transactions_total > 0 &&
-      content.trim() &&
-      !(replaceOpenPositions && missingMappingCount > 0)
-  );
-  const saveHint = !result
-    ? "CSV hochladen oder einfügen. Nach Upload wird automatisch geprüft."
-    : !result.ok
-      ? "Vorschau enthält Fehler."
-      : !result.dry_run
-        ? "Dieser Import wurde gespeichert."
-      : result.transactions_total === 0
-          ? "Keine Buchungen erkannt."
-          : missingMappingCount > 0 && replaceOpenPositions
-            ? `${missingMappingCount} offene ISINs ohne Yahoo-Ticker. Bitte Zuordnung ergänzen, damit der Depotbestand sicher synchronisiert werden kann.`
-            : missingMappingCount > 0
-              ? `${missingMappingCount} ISINs ohne Yahoo-Ticker. Speichern ist im Anhänge-Modus möglich; diese offenen Positionen werden übersprungen, bis die Zuordnung ergänzt ist.`
-              : replaceOpenPositions
-                ? "Synchronisiert dein Depot: nicht mehr enthaltene offene Positionen werden geschlossen, vorhandene Positionen aktualisiert."
-                : "Anhänge-Modus: neue/erkannte Positionen werden aktualisiert, nicht mehr enthaltene Positionen bleiben offen.";
-  const cashLabel = result
-    ? result.cash_balance_estimate.toLocaleString("de-DE", { maximumFractionDigits: 2, style: "currency", currency: "EUR" })
-    : "-";
-
+    result.dry_run &&
+    result.transactions_total > 0 &&
+    !edited &&
+    !(replace && missing > 0);
+  const error = preview.error ?? save.error;
   return (
-    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
-      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Trade-Republic-Transaktionsexport</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-            CSV direkt im Portfolio hochladen. Die Vorschau startet automatisch; danach werden offene Positionen,
-            Transaktionen und Cashflows gespeichert.
+    <section
+      aria-label="Trade-Republic-Import"
+      aria-busy={busy}
+      className="min-w-0 space-y-5 rounded border border-[var(--border)] bg-[var(--panel)] p-3 sm:p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-60">
+          <h2 className="text-lg font-semibold">
+            Trade-Republic-Transaktionsexport
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+            Datei auswählen, automatisch erkannte Wertpapiere prüfen und den
+            Import speichern.
           </p>
         </div>
         <StatusChip tone={result?.ok ? "good" : result ? "bad" : "neutral"}>
-          {result?.ok ? (result.dry_run ? "Vorschau ok" : "Importiert") : result ? "Fehler" : "bereit"}
+          {busy
+            ? "Wird geprüft …"
+            : result?.ok
+              ? result.dry_run
+                ? "Vorschau bereit"
+                : "Importiert"
+              : "Datei auswählen"}
         </StatusChip>
       </div>
-
-      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.25fr]">
-        <div>
-          <label
-            className={[
-              "block rounded border border-dashed bg-[var(--panel)] p-5 text-center text-sm transition",
-              dragActive ? "border-emerald-300 bg-[var(--green-soft)]" : "border-[var(--border)] hover:border-emerald-300/50"
-            ].join(" ")}
-            onDragEnter={(event) => {
-              event.preventDefault();
-              setDragActive(true);
-            }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={handleDrop}
+      <ol
+        aria-label="Importschritte"
+        className="grid grid-cols-3 gap-2 text-xs sm:text-sm"
+      >
+        {["Datei wählen", "Vorschau prüfen", "Speichern"].map((step, index) => (
+          <li
+            key={step}
+            aria-current={
+              (result?.ok && !result.dry_run ? 2 : result ? 1 : 0) === index
+                ? "step"
+                : undefined
+            }
+            className="min-w-0 rounded border border-[var(--border)] p-2 aria-[current=step]:border-emerald-500 aria-[current=step]:bg-[var(--green-soft)]"
           >
-            <input
-              accept=".csv,text/csv,text/plain"
-              className="sr-only"
-              type="file"
-              onChange={(event) => handleFile(event.target.files?.[0] ?? null)}
-            />
-            <FileText className="mx-auto mb-3 text-[var(--muted)]" />
-            <span className="font-medium">TR-CSV auswählen oder hier ablegen</span>
+            <span className="mr-1 font-semibold">{index + 1}.</span>
+            {step}
+          </li>
+        ))}
+      </ol>
+      <label
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!busy) setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={handleDrop}
+        className={`block min-w-0 cursor-pointer rounded border border-dashed p-5 text-center text-sm ${dragActive ? "border-emerald-500" : "border-[var(--border)]"} ${busy ? "opacity-60" : ""}`}
+      >
+        <input
+          aria-label="TR-CSV auswählen"
+          accept=".csv,text/csv,text/plain"
+          className="sr-only"
+          type="file"
+          disabled={busy}
+          onChange={(event) => {
+            void handleFile(event.target.files?.[0] ?? null);
+            event.target.value = "";
+          }}
+        />
+        <FileText className="mx-auto mb-2 text-[var(--muted)]" />
+        <span className="font-semibold">TR-CSV auswählen</span>
+        <span className="mt-1 block break-all text-xs text-[var(--muted)]">
+          {fileName ||
+            "Antippen oder Datei hier ablegen. Die Prüfung startet automatisch."}
+        </span>
+      </label>
+      <details className="min-w-0 rounded border border-[var(--border)] p-3">
+        <summary className="cursor-pointer text-sm">
+          CSV einfügen und Importoptionen
+        </summary>
+        <label className="mt-3 block text-sm">
+          CSV-Inhalt
+          <textarea
+            className="input-dark mt-1 min-h-32 w-full font-mono text-base sm:text-xs"
+            value={content}
+            disabled={busy}
+            onChange={(event) => {
+              setContent(event.target.value);
+              setResult(null);
+              setOverrides({});
+              preview.reset();
+              save.reset();
+            }}
+          />
+        </label>
+        <label className="mt-3 flex items-start gap-3 text-sm">
+          <input
+            className="mt-1 size-4 shrink-0"
+            type="checkbox"
+            checked={replace}
+            disabled={busy}
+            onChange={(event) => {
+              setReplace(event.target.checked);
+              setEdited(true);
+            }}
+          />
+          <span>
+            Depotbestand synchronisieren
             <span className="mt-1 block text-xs text-[var(--muted)]">
-              {fileName || "Upload prüft automatisch eine Vorschau."}
+              Bereits verkaufte Positionen werden geschlossen. Deaktiviert:
+              bestehende offene Positionen bleiben erhalten.
             </span>
-          </label>
-
-          <label className="mt-4 block text-sm">
-            <span className="mb-1 block text-[var(--muted)]">CSV Inhalt</span>
-            <textarea
-              className="min-h-56 w-full rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 font-mono text-xs leading-5"
-              placeholder={tradeRepublicCsvPlaceholder}
-              value={content}
-              onChange={(event) => {
-                setContent(event.target.value);
-                setLastResult(null);
-              }}
+          </span>
+        </label>
+      </details>
+      {(fileError || error) && (
+        <p
+          role="alert"
+          className="break-words rounded bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]"
+        >
+          {fileError ||
+            (error instanceof Error ? error.message : "Import fehlgeschlagen.")}
+        </p>
+      )}
+      <div
+        role="status"
+        aria-live="polite"
+        className="text-sm text-[var(--muted)]"
+      >
+        {busy
+          ? "CSV wird geprüft und unbekannte ISINs werden automatisch gesucht …"
+          : result && !result.dry_run && result.ok
+            ? "Import gespeichert. Hinweise zur Aktualisierung der Kurshistorie stehen unten."
+            : edited
+              ? "Zuordnungen oder Optionen geändert. Bitte Vorschau erneut prüfen."
+              : result
+                ? "Vorschau prüfen und anschließend speichern."
+                : "Die Vorschau verändert dein Depot noch nicht."}
+      </div>
+      {result && (
+        <div className="min-w-0 space-y-4">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <MiniStat label="Buchungen" value={String(result.rows_total)} />
+            <MiniStat
+              label="Offene Positionen"
+              value={String(result.positions.length)}
             />
-          </label>
-
-          <label className="mt-4 flex items-center justify-between gap-3 rounded border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm">
-            <span>
-              <span className="block font-medium">Depotbestand synchronisieren</span>
-              <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">
-                Aktiv: Positionen, die im neuen TR-Export nicht mehr offen sind, werden geschlossen.
-              </span>
-            </span>
-            <input
-              checked={replaceOpenPositions}
-              className="size-4 accent-emerald-300"
-              type="checkbox"
-              onChange={(event) => setReplaceOpenPositions(event.target.checked)}
+            <MiniStat
+              label="Cash-Schätzung"
+              value={result.cash_balance_estimate.toLocaleString("de-DE", {
+                style: "currency",
+                currency: "EUR",
+              })}
             />
-          </label>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm transition hover:border-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={previewMutation.isPending || saveMutation.isPending || !content.trim()}
-              type="button"
-              onClick={() => previewMutation.mutate(payload({ dryRun: true }))}
-            >
-              <CheckCircle2 size={16} />
-              {previewMutation.isPending ? "Prüft" : "TR-Vorschau prüfen"}
-            </button>
-            <button
-              className="inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canSave || saveMutation.isPending}
-              type="button"
-              onClick={() => saveMutation.mutate(payload({ dryRun: false }))}
-            >
-              <Save size={16} />
-              {saveMutation.isPending ? "Speichert" : "TR-Import speichern"}
-            </button>
           </div>
-          <div className="mt-3 rounded border border-[var(--border)] bg-[var(--panel)] p-3 text-xs leading-5 text-[var(--muted)]">
-            {saveHint}
-          </div>
-
-          {(previewMutation.error || saveMutation.error) && (
-            <div className="mt-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
-              {(previewMutation.error ?? saveMutation.error) instanceof Error
-                ? (previewMutation.error ?? saveMutation.error)?.message
-                : "TR-Import fehlgeschlagen."}
+          {result.errors.map((message) => (
+            <p
+              role="alert"
+              key={message}
+              className="break-words rounded bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]"
+            >
+              {message}
+            </p>
+          ))}
+          {result.mappings.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-semibold">Wertpapiere zuordnen</h3>
+                <StatusChip tone={missing ? "warning" : "good"}>
+                  {missing ? `${missing} Zuordnungen offen` : "Alle zugeordnet"}
+                </StatusChip>
+              </div>
+              <p className="text-sm text-[var(--muted)]">
+                Eindeutige ISIN-Treffer werden automatisch übernommen und beim
+                Speichern für künftige Importe hinterlegt.
+              </p>
+              {result.mappings.some((row) => row.ticker) && (
+                <button
+                  type="button"
+                  className="min-h-11 text-sm text-[var(--teal)] underline"
+                  onClick={() => setShowRecognized(!showRecognized)}
+                >
+                  {showRecognized
+                    ? "Erkannte Zuordnungen ausblenden"
+                    : `Erkannte Zuordnungen anzeigen (${result.mappings.filter((row) => row.ticker).length})`}
+                </button>
+              )}
+              {[...result.mappings]
+                .filter((row) => showRecognized || !row.ticker)
+                .sort(
+                  (a, b) =>
+                    Number(Boolean(a.ticker)) - Number(Boolean(b.ticker)),
+                )
+                .map((row) => (
+                  <div
+                    key={row.isin}
+                    className="grid min-w-0 gap-3 rounded border border-[var(--border)] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,12rem)]"
+                  >
+                    <div className="min-w-0">
+                      <div className="break-words font-medium">
+                        {row.name || row.isin}
+                      </div>
+                      <div className="mt-1 break-all font-mono text-xs text-[var(--muted)]">
+                        {row.isin}
+                      </div>
+                      <div className="mt-1 text-xs text-[var(--muted)]">
+                        {overrides[row.isin] !== undefined
+                          ? "Eigene Zuordnung"
+                          : sourceLabels[row.source]}
+                      </div>
+                      {row.message && (
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          {row.message}
+                        </p>
+                      )}
+                    </div>
+                    <label className="min-w-0 text-sm">
+                      <span className="mb-1 block text-[var(--muted)]">
+                        Ticker für {row.name || row.isin}
+                      </span>
+                      <input
+                        aria-label={`Ticker für ${row.isin}`}
+                        className="input-dark min-h-11 min-w-0 text-base sm:text-sm"
+                        value={overrides[row.isin] ?? row.ticker}
+                        disabled={busy || !result.dry_run}
+                        placeholder="Yahoo-Ticker"
+                        autoCapitalize="characters"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        onChange={(event) => {
+                          setOverrides({
+                            ...overrides,
+                            [row.isin]: event.target.value.toUpperCase().trim(),
+                          });
+                          setEdited(true);
+                        }}
+                      />
+                      {!row.ticker && Boolean(row.candidates?.length) && (
+                        <select
+                          aria-label={`Börsenplatz für ${row.isin}`}
+                          className="input-dark mt-2 min-h-11 min-w-0 text-base sm:text-sm"
+                          disabled={busy || !result.dry_run}
+                          value={overrides[row.isin] || ""}
+                          onChange={(event) => {
+                            setOverrides({
+                              ...overrides,
+                              [row.isin]: event.target.value,
+                            });
+                            setEdited(true);
+                          }}
+                        >
+                          <option value="">Börsenplatz auswählen</option>
+                          {row.candidates?.map((candidate) => (
+                            <option
+                              key={candidate.ticker}
+                              value={candidate.ticker}
+                            >
+                              {candidate.ticker} · {candidate.exchange} ·{" "}
+                              {candidate.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </label>
+                  </div>
+                ))}
             </div>
+          )}
+          {result.positions.length > 0 && (
+            <details className="min-w-0 rounded border border-[var(--border)] p-3">
+              <summary className="cursor-pointer text-sm font-semibold">
+                {result.positions.length} offene Positionen ansehen
+              </summary>
+              <div className="mt-3">
+                <ImportPreviewTable rows={result.positions} />
+              </div>
+            </details>
+          )}
+          {result.skipped_positions.length > 0 && (
+            <details className="min-w-0 rounded border border-[var(--border)] p-3">
+              <summary className="cursor-pointer text-sm">
+                {result.skipped_positions.length} Positionen außerhalb der
+                Aktien-/Fondsübersicht
+              </summary>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Alle Buchungen werden gespeichert. Derivate werden für die
+                Depotkurve separat über ihre ISIN bewertet.
+              </p>
+              <ul className="mt-2 space-y-2 text-xs">
+                {result.skipped_positions.map((row) => (
+                  <li className="break-words" key={row.isin}>
+                    {row.name} · {row.isin}: {row.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {result.warnings.length > 0 && (
+            <details className="min-w-0 rounded border border-amber-300/40 p-3">
+              <summary className="cursor-pointer text-sm">
+                {result.warnings.length} Hinweise zum Import
+              </summary>
+              <ul className="mt-2 space-y-2 text-sm text-[var(--muted)]">
+                {result.warnings.map((message) => (
+                  <li className="break-words" key={message}>
+                    {message}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
-
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-3">
-            <MiniStat label="Buchungen" value={result ? String(result.rows_total) : "-"} />
-            <MiniStat label="Offene Positionen" value={result ? String(result.positions.length) : "-"} />
-            <MiniStat label="Cash-Schätzung" value={cashLabel} />
-          </div>
-
-          {result?.errors.map((error) => (
-            <div key={error} className="rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
-              {error}
-            </div>
-          ))}
-          {result?.warnings.map((warning) => (
-            <div key={warning} className="rounded border border-amber-300/30 bg-[var(--yellow-soft)] p-3 text-sm text-[var(--yellow)]">
-              {warning}
-            </div>
-          ))}
-
-          <MappingEditor result={result} overrides={overrides} onChange={setOverrides} />
-
-          {result?.positions.length ? (
-            <ImportPreviewTable rows={result.positions} />
-          ) : (
-            <div className="rounded border border-dashed border-[var(--border)] bg-[var(--panel)] p-8 text-center text-sm text-[var(--muted)]">
-              TR-CSV einfügen oder Datei auswählen und Vorschau prüfen.
-            </div>
-          )}
+      )}
+      <div className="space-y-3 border-t border-[var(--border)] pt-4">
+        {result?.dry_run && missing > 0 && (
+          <p className="text-sm text-[var(--yellow)]">
+            {replace
+              ? "Zum Synchronisieren bitte die offenen Zuordnungen ergänzen und erneut prüfen."
+              : "Offene Positionen ohne Zuordnung werden in der Positionsübersicht übersprungen. Alle Buchungen bleiben erhalten."}
+          </p>
+        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            className={buttonClass}
+            disabled={busy || !content.trim()}
+            onClick={() => preview.mutate(payload(true))}
+            type="button"
+          >
+            <CheckCircle2 size={16} />
+            {preview.isPending ? "Prüft …" : "Vorschau erneut prüfen"}
+          </button>
+          <button
+            className={`${buttonClass} border-emerald-300/40 bg-[var(--green-soft)] text-[var(--green)]`}
+            disabled={busy || !canSave}
+            type="button"
+            onClick={() =>
+              save.mutate(
+                payload(false, content, fileName, {
+                  ...Object.fromEntries(
+                    result?.mappings
+                      .filter((row) => row.ticker)
+                      .map((row) => [row.isin, row.ticker]) ?? [],
+                  ),
+                  ...overrides,
+                }),
+              )
+            }
+          >
+            <Save size={16} />
+            {save.isPending ? "Speichert …" : "TR-Import speichern"}
+          </button>
         </div>
       </div>
     </section>
@@ -249,214 +462,178 @@ export function TradeRepublicTransactionImportPanel() {
 }
 
 export function IsinMappingMaintenancePanel() {
-  const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ["isin-mappings"], queryFn: api.isinMappings, staleTime: 60_000 });
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: ["isin-mappings"],
+    queryFn: api.isinMappings,
+    staleTime: 60_000,
+  });
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [newIsin, setNewIsin] = useState("");
   const [newTicker, setNewTicker] = useState("");
   const rows = query.data?.mappings ?? [];
-  const saveMutation = useMutation({
+  const save = useMutation({
     mutationFn: () =>
       api.patchIsinMappings({
         mappings: [
-          ...rows.map((row) => ({ isin: row.isin, ticker: draft[row.isin] ?? row.ticker })),
+          ...rows.map((row) => ({
+            isin: row.isin,
+            ticker: draft[row.isin] ?? row.ticker,
+          })),
           ...(newIsin.trim() && newTicker.trim()
-            ? [{ isin: newIsin.trim().toUpperCase(), ticker: newTicker.trim().toUpperCase() }]
-            : [])
-        ]
+            ? [{ isin: newIsin.trim(), ticker: newTicker.trim() }]
+            : []),
+        ],
       }),
     onSuccess: (result) => {
-      queryClient.setQueryData(["isin-mappings"], result);
+      client.setQueryData(["isin-mappings"], result);
       setDraft({});
       setNewIsin("");
       setNewTicker("");
-    }
+    },
   });
-
   return (
-    <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
-      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Gespeicherte ISIN-Zuordnungen</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-            Permanentes Wörterbuch für Trade-Republic-ISINs. Was hier gespeichert ist, muss beim nächsten TR-Import
-            nicht erneut eingetragen werden.
-          </p>
-        </div>
-        <StatusChip tone={saveMutation.isPending ? "warning" : "neutral"}>
-          {saveMutation.isPending ? "speichert" : `${rows.length} Mappings`}
-        </StatusChip>
-      </div>
-
-      <div className="overflow-hidden rounded border border-[var(--border)]">
-        <div className="max-h-80 overflow-auto">
-          <table className="w-full min-w-[680px] border-collapse text-sm">
-            <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
-              <tr>
-                <th className="border-b border-[var(--border)] px-4 py-3">ISIN</th>
-                <th className="border-b border-[var(--border)] px-4 py-3">Yahoo-Ticker</th>
-                <th className="border-b border-[var(--border)] px-4 py-3">Quelle</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={`${row.isin}-${row.source}`} className="border-b border-[var(--border)]">
-                  <td className="px-4 py-3 font-mono text-xs">{row.isin}</td>
-                  <td className="px-4 py-3">
-                    <input
-                      className="input-dark max-w-48"
-                      value={draft[row.isin] ?? row.ticker}
-                      onChange={(event) => setDraft({ ...draft, [row.isin]: event.target.value.toUpperCase() })}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[var(--muted)]">{row.source}</td>
-                </tr>
-              ))}
-              <tr className="border-b border-[var(--border)]">
-                <td className="px-4 py-3">
-                  <input
-                    className="input-dark font-mono text-xs"
-                    placeholder="US67066G1040"
-                    value={newIsin}
-                    onChange={(event) => setNewIsin(event.target.value.toUpperCase())}
-                  />
-                </td>
-                <td className="px-4 py-3">
-                  <input
-                    className="input-dark max-w-48"
-                    placeholder="NVDA"
-                    value={newTicker}
-                    onChange={(event) => setNewTicker(event.target.value.toUpperCase())}
-                  />
-                </td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">neu</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <button
-        className="mt-4 inline-flex items-center justify-center gap-2 rounded border border-emerald-300/40 bg-[var(--green-soft)] px-4 py-2 text-sm text-[var(--green)] transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={saveMutation.isPending || query.isLoading}
-        type="button"
-        onClick={() => saveMutation.mutate()}
-      >
-        <Save size={16} />
-        Mappings speichern
-      </button>
-      {saveMutation.error && (
-        <div className="mt-4 rounded border border-rose-300/30 bg-[var(--red-soft)] p-3 text-sm text-[var(--red)]">
-          {saveMutation.error instanceof Error ? saveMutation.error.message : "Mappings konnten nicht gespeichert werden."}
-        </div>
+    <details className="min-w-0 rounded border border-[var(--border)] bg-[var(--panel)] p-3 sm:p-5">
+      <summary className="cursor-pointer font-semibold">
+        Gespeicherte ISIN-Zuordnungen ({rows.length})
+      </summary>
+      <p className="my-3 text-sm text-[var(--muted)]">
+        Automatisch erkannte und eigene Zuordnungen werden beim nächsten Import
+        wiederverwendet.
+      </p>
+      {query.error && (
+        <p role="alert" className="mb-3 text-sm text-[var(--red)]">
+          Zuordnungen konnten nicht geladen werden.
+        </p>
       )}
-    </section>
-  );
-}
-
-function MappingEditor({
-  result,
-  overrides,
-  onChange
-}: {
-  result: TradeRepublicTransactionImportResponse | null;
-  overrides: Record<string, string>;
-  onChange: (value: Record<string, string>) => void;
-}) {
-  if (!result?.mappings.length) return null;
-  const missingCount = result.mappings.filter((mapping) => !mapping.ticker && !(overrides[mapping.isin] || "").trim()).length;
-  const recognizedCount = result.mappings.length - missingCount;
-  return (
-    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
-      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h3 className="font-semibold">ISIN zu Yahoo-Ticker</h3>
-          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-            Erkannte Zuordnungen werden beim Speichern dauerhaft übernommen und beim nächsten Import automatisch genutzt.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <StatusChip tone={recognizedCount > 0 ? "good" : "neutral"}>{recognizedCount} erkannt</StatusChip>
-          <StatusChip tone={missingCount > 0 ? "warning" : "good"}>{missingCount} offen</StatusChip>
-        </div>
-      </div>
-      <div className="max-h-72 space-y-2 overflow-auto pr-1">
-        {result.mappings.map((mapping) => (
-          <label key={mapping.isin} className="grid gap-2 rounded border border-[var(--border)] p-3 text-sm md:grid-cols-[1fr_160px]">
-            <span>
-              <span className="flex flex-wrap items-center gap-2">
-                <span className="block font-medium">{mapping.name || mapping.isin}</span>
-                <StatusChip tone={(overrides[mapping.isin] || mapping.ticker) ? "good" : "warning"}>
-                  {(overrides[mapping.isin] || mapping.ticker) ? "importfähig" : "Ticker fehlt"}
-                </StatusChip>
-              </span>
-              <span className="text-xs text-[var(--muted)]">
-                {mapping.isin} · {mapping.asset_class} · {mapping.source}
-              </span>
+      <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map((row) => (
+          <label
+            className="min-w-0 rounded border border-[var(--border)] p-3 text-sm"
+            key={row.isin}
+          >
+            <span className="mb-2 block break-all font-mono text-xs">
+              {row.isin} · {sourceLabels[row.source]}
             </span>
             <input
-              className="input-dark"
-              placeholder="NVDA"
-              value={overrides[mapping.isin] ?? mapping.ticker}
-              onChange={(event) => onChange({ ...overrides, [mapping.isin]: event.target.value.toUpperCase() })}
+              aria-label={`Gespeicherter Ticker für ${row.isin}`}
+              className="input-dark min-h-11 text-base sm:text-sm"
+              disabled={save.isPending}
+              value={draft[row.isin] ?? row.ticker}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  [row.isin]: event.target.value.toUpperCase(),
+                })
+              }
             />
           </label>
         ))}
       </div>
-    </div>
-  );
-}
-
-function ImportPreviewTable({ rows }: { rows: PortfolioImportRow[] }) {
-  return (
-    <div className="overflow-hidden rounded border border-[var(--border)]">
-      <div className="max-h-[420px] overflow-auto">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
-          <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
-            <tr>
-              <th className="border-b border-[var(--border)] px-4 py-3">Ticker</th>
-              <th className="border-b border-[var(--border)] px-4 py-3">Stück</th>
-              <th className="border-b border-[var(--border)] px-4 py-3">Einstand</th>
-              <th className="border-b border-[var(--border)] px-4 py-3">Kaufdatum</th>
-              <th className="border-b border-[var(--border)] px-4 py-3">Hinweise</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={`${row.ticker}-${row.account}`} className="border-b border-[var(--border)]">
-                <td className="px-4 py-3">
-                  <div className="font-semibold">{row.ticker}</div>
-                  <div className="text-xs text-[var(--muted)]">{row.name}</div>
-                </td>
-                <td className="px-4 py-3 tabular-nums">{row.shares.toLocaleString("de-DE")}</td>
-                <td className="px-4 py-3 tabular-nums">{row.entry_price.toFixed(2)}</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{row.buy_date ?? "-"}</td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">{row.warnings.join(" ") || "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="min-w-0 text-sm">
+          Neue ISIN
+          <input
+            className="input-dark mt-1 min-h-11 text-base sm:text-sm"
+            disabled={save.isPending}
+            placeholder="US67066G1040"
+            value={newIsin}
+            onChange={(event) => setNewIsin(event.target.value.toUpperCase())}
+          />
+        </label>
+        <label className="min-w-0 text-sm">
+          Neuer Ticker
+          <input
+            className="input-dark mt-1 min-h-11 text-base sm:text-sm"
+            disabled={save.isPending}
+            placeholder="NVDA"
+            value={newTicker}
+            onChange={(event) => setNewTicker(event.target.value.toUpperCase())}
+          />
+        </label>
       </div>
-    </div>
+      <button
+        className={`${buttonClass} mt-4 w-full sm:w-auto`}
+        disabled={
+          save.isPending ||
+          !query.data ||
+          (!Object.keys(draft).length && !(newIsin.trim() && newTicker.trim()))
+        }
+        type="button"
+        onClick={() => save.mutate()}
+      >
+        <Save size={16} />
+        Zuordnungen speichern
+      </button>
+      {save.error && (
+        <p role="alert" className="mt-3 break-words text-sm text-[var(--red)]">
+          {save.error.message}
+        </p>
+      )}
+    </details>
   );
 }
 
+export function ImportPreviewTable({ rows }: { rows: PortfolioImportRow[] }) {
+  return (
+    <ul className="grid min-w-0 gap-3 md:grid-cols-2">
+      {rows.map((row) => (
+        <li
+          key={`${row.ticker}-${row.account}`}
+          className="min-w-0 rounded border border-[var(--border)] p-3 text-sm"
+        >
+          <div className="break-words font-semibold">
+            {row.ticker} · {row.name}
+          </div>
+          <dl className="mt-2 grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <dt className="text-[var(--muted)]">Stück</dt>
+              <dd>{row.shares.toLocaleString("de-DE")}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--muted)]">Einstand</dt>
+              <dd>
+                {row.entry_price.toFixed(2)} {row.currency}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--muted)]">Kaufdatum</dt>
+              <dd>{row.buy_date ?? "–"}</dd>
+            </div>
+          </dl>
+          {row.warnings.length > 0 && (
+            <p className="mt-2 break-words text-xs text-[var(--muted)]">
+              {row.warnings.join(" ")}
+            </p>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-3">
-      <div className="text-xs uppercase text-[var(--muted)]">{label}</div>
-      <div className="mt-1 font-semibold tabular-nums">{value}</div>
+    <div className="min-w-0 rounded border border-[var(--border)] p-3">
+      <div className="text-xs text-[var(--muted)]">{label}</div>
+      <div className="mt-1 break-words font-semibold tabular-nums">{value}</div>
     </div>
   );
 }
-
-function invalidatePortfolio(queryClient: ReturnType<typeof useQueryClient>) {
-  queryClient.invalidateQueries({ queryKey: ["portfolio-snapshot"] });
-  queryClient.invalidateQueries({ queryKey: ["portfolio-positions"] });
-  queryClient.invalidateQueries({ queryKey: ["portfolio-curve"] });
-  queryClient.invalidateQueries({ queryKey: ["portfolio-transactions"] });
-  queryClient.invalidateQueries({ queryKey: ["portfolio-cash-flows"] });
-  queryClient.invalidateQueries({ queryKey: ["portfolio-import-history"] });
-  queryClient.invalidateQueries({ queryKey: ["portfolio-buy-strength"] });
-  queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
+function invalidatePortfolio(client: ReturnType<typeof useQueryClient>) {
+  for (const key of [
+    "home-dashboard",
+    "portfolio-snapshot",
+    "portfolio-positions",
+    "portfolio-curve",
+    "portfolio-transactions",
+    "portfolio-cash-flows",
+    "portfolio-import-history",
+    "portfolio-buy-strength",
+    "sell-ranking",
+    "isin-mappings",
+    "trade-journal",
+    "trade-journal-entry",
+    "trade-journal-analytics",
+  ])
+    void client.invalidateQueries({ queryKey: [key] });
 }

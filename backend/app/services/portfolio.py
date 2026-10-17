@@ -1962,12 +1962,6 @@ def import_trade_republic_transaction_export(
         saved_mappings = portfolio_repository.list_isin_mappings()
     except PortfolioRepositoryUnavailable:
         saved_mappings = {}
-    diagnostics = resolve_isin_mappings(rows, saved_mappings=saved_mappings, overrides=payload.isin_overrides)
-    ticker_by_isin = {
-        str(item["isin"]).upper(): str(item["ticker"]).upper()
-        for item in diagnostics
-        if str(item.get("ticker") or "").strip()
-    }
     from app.repositories.tr_import import merged_rows
     from sqlalchemy.exc import SQLAlchemyError
     try:
@@ -1976,6 +1970,13 @@ def import_trade_republic_transaction_export(
         if not payload.dry_run:
             raise PortfolioRepositoryUnavailable("Gespeicherte TR-Historie nicht erreichbar; Import abgebrochen.")
         projection_rows = rows
+    # Resolve the merged history too: a partial follow-up export must retain
+    # mappings of holdings purchased in earlier reports.
+    diagnostics = resolve_isin_mappings(projection_rows, saved_mappings=saved_mappings, overrides=payload.isin_overrides)
+    from app.services.tr_import_mapping import complete_mappings
+    open_for_lookup, _ = reconstruct_open_positions(projection_rows, {item["isin"]: item["isin"] for item in diagnostics})
+    diagnostics = complete_mappings(diagnostics, open_isins={item.isin for item in open_for_lookup})
+    ticker_by_isin = {item["isin"]: item["ticker"] for item in diagnostics if item.get("ticker")}
     reconstructed, skipped = reconstruct_open_positions(projection_rows, ticker_by_isin)
     fx_rate = get_eur_usd_rate()
     normalized_reconstructed = _trade_republic_positions_to_usd(reconstructed, fx_rate)
@@ -2010,6 +2011,8 @@ def import_trade_republic_transaction_export(
             asset_class=str(item["asset_class"]),
             ticker=str(item["ticker"] or ""),
             source=item["source"],
+            candidates=item.get("candidates", []),
+            message=item.get("message", ""),
         )
         for item in response_diagnostics
     ]
