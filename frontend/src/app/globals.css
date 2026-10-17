@@ -224,3 +224,5 @@ html[data-ui="product"] .stock-export-details { max-width: 100%; }
 html[data-ui="product"] [class~="min-w-[235px]"] { min-width: 0; }
 html[data-ui="product"] .product-market-jumps { top: var(--app-header-height, 88px); }
 @media(max-width:1023px) { html[data-ui="product"] .product-market-jumps { position: relative; top: auto; flex-wrap: wrap; overflow: visible; } }
+html[data-ui="product"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]), select) { min-height: 44px; }
+html[data-ui="product"] label:has(input[type="checkbox"]) { min-height: 44px; }
