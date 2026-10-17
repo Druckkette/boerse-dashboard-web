@@ -79,8 +79,10 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
             matches = match_executions(transactions, stored)
             existing = {row.id: row for row in stored}
             by_external = {row.external_id: row for row in stored}
+            instruments_by_isin = {}
             for isin, ticker in mappings.items():
                 instrument = _get_or_create_instrument(db, ticker=ticker, name=ticker, currency="EUR")
+                instruments_by_isin[isin] = instrument
                 mapping = db.scalar(select(IsinMapping).where(IsinMapping.isin == isin, IsinMapping.source == "trade_republic"))
                 if mapping is None:
                     db.add(IsinMapping(isin=isin, ticker=ticker, instrument_id=instrument.id, source="trade_republic", confidence=1, metadata_json={}))
@@ -92,9 +94,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
                 if target is None and row.raw.get("transaction_id"):
                     target = by_external.get(row.external_id)
                 if target is not None:
-                    # Execution facts already imported remain immutable; only fill an absent ticker mapping.
-                    if not target.ticker and mappings.get(row.isin):
-                        target.ticker = mappings[row.isin]
+                    # Execution facts already imported remain immutable.
                     continue
                 ticker = mappings.get(row.isin, "")
                 instrument = _get_or_create_instrument(db, ticker=ticker, name=row.name or ticker, currency=row.currency) if ticker else None
@@ -109,6 +109,13 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
                 stored.append(target)
                 by_external[row.external_id] = target
                 inserted += 1
+            # A discovered identity also belongs to earlier unmapped executions
+            # outside a partial follow-up report. Financial facts stay unchanged.
+            for target in stored:
+                isin = transaction_row(target).isin
+                if not target.ticker and mappings.get(isin):
+                    target.ticker = mappings[isin]
+                    target.instrument_id = instruments_by_isin[isin].id
             # Rebuild from the stored union, not just the latest (possibly partial) CSV.
             stored.sort(key=lambda row: (transaction_row(row).event_ts, row.raw_json.get("import_order", 0), row.created_at, row.id))
             full_rows = [transaction_row(row) for row in stored]

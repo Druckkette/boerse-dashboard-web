@@ -289,7 +289,7 @@ def test_discovered_mapping_is_saved_atomically_and_reused_on_next_import(setup_
         lookups.append(value)
         return {"ticker": ticker, "candidates": [], "message": "Automatically found"}
     monkeypatch.setattr(tr_import_mapping, "search_isin", search)
-    content = f"date,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax,transaction_id\n2025-01-02,BUY,STOCK,Test,{isin},3,100,EUR,-300,0,0,{ticker[1:].lower()}-buy\n"
+    content = f"date,type,asset_class,name,symbol,shares,price,currency,amount,fee,tax,transaction_id\n2025-01-03,DIVIDEND,STOCK,Test,{isin},0,0,EUR,5,0,0,{ticker[1:].lower()}-div\n"
     first = service.import_trade_republic_transaction_export(TradeRepublicTransactionImportRequest(content=content, dry_run=True))
     assert first.mappings[0].source == "automatic"
     with sessions() as db:

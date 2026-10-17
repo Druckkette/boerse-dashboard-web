@@ -125,13 +125,17 @@ export function TradeRepublicTransactionImportPanel() {
           </p>
         </div>
         <StatusChip tone={result?.ok ? "good" : result ? "bad" : "neutral"}>
-          {busy
-            ? "Wird geprüft …"
-            : result?.ok
-              ? result.dry_run
-                ? "Vorschau bereit"
-                : "Importiert"
-              : "Datei auswählen"}
+          {save.isPending
+            ? "Speichert …"
+            : busy
+              ? "Wird geprüft …"
+              : result?.ok
+                ? result.dry_run
+                  ? "Vorschau bereit"
+                  : "Importiert"
+                : result
+                  ? "Fehler"
+                  : "Datei auswählen"}
         </StatusChip>
       </div>
       <ol
@@ -191,6 +195,7 @@ export function TradeRepublicTransactionImportPanel() {
             value={content}
             disabled={busy}
             onChange={(event) => {
+              setFileError("");
               setContent(event.target.value);
               setResult(null);
               setOverrides({});
@@ -429,7 +434,10 @@ export function TradeRepublicTransactionImportPanel() {
           <button
             className={buttonClass}
             disabled={busy || !content.trim()}
-            onClick={() => preview.mutate(payload(true))}
+            onClick={() => {
+              save.reset();
+              preview.mutate(payload(true));
+            }}
             type="button"
           >
             <CheckCircle2 size={16} />
@@ -510,7 +518,7 @@ export function IsinMappingMaintenancePanel() {
         {rows.map((row) => (
           <label
             className="min-w-0 rounded border border-[var(--border)] p-3 text-sm"
-            key={row.isin}
+            key={`${row.isin}-${row.source}-${row.ticker}`}
           >
             <span className="mb-2 block break-all font-mono text-xs">
               {row.isin} · {sourceLabels[row.source]}

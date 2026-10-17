@@ -72,13 +72,11 @@ for (const width of [320, 390, 1440])
       name: "Trade-Republic-Import",
       exact: true,
     });
-    await panel
-      .getByLabel("TR-CSV auswählen", { exact: true })
-      .setInputFiles({
-        name: "Transaktionsexport-mit-einem-sehr-langen-Dateinamen.csv",
-        mimeType: "text/csv",
-        buffer: Buffer.from(csv),
-      });
+    await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({
+      name: "Transaktionsexport-mit-einem-sehr-langen-Dateinamen.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    });
     await expect(
       panel.getByText("Alle zugeordnet", { exact: true }),
     ).toBeVisible();
@@ -132,7 +130,8 @@ for (const width of [320, 390, 1440])
           Array.from(element.querySelectorAll("*")).filter(
             (item) =>
               item.getBoundingClientRect().width &&
-              item.tagName !== "TEXTAREA" && item.scrollWidth > item.clientWidth &&
+              item.tagName !== "TEXTAREA" &&
+              item.scrollWidth > item.clientWidth &&
               getComputedStyle(item).overflowX === "auto",
           ).length,
       ),
@@ -235,13 +234,11 @@ test("failed preview stays visible and allows retry", async ({ page }) => {
     name: "Trade-Republic-Import",
     exact: true,
   });
-  await panel
-    .getByLabel("TR-CSV auswählen", { exact: true })
-    .setInputFiles({
-      name: "test.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from(csv),
-    });
+  await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({
+    name: "test.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(csv),
+  });
   await expect(panel.getByRole("alert")).toContainText(
     "Suche vorübergehend nicht erreichbar",
   );
@@ -258,21 +255,99 @@ test("failed preview stays visible and allows retry", async ({ page }) => {
 
 test("inline portfolio import also fits a narrow phone", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 844 });
-  await page.route("**/api/v1/portfolio/**", async route => {
+  await page.route("**/api/v1/portfolio/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/snapshot")) return route.fulfill({ json: { positions: [], kpis: [], total_value: 0, cash: 0, currency: "EUR" } });
-    if (path.endsWith("/tr-transactions")) return route.fulfill({ json: response });
-    if (path.endsWith("/isin-mappings")) return route.fulfill({ json: { mappings: [] } });
-    if (path.endsWith("/cash-flows")) return route.fulfill({ json: { cash_flows: [], cash_balance: 0 } });
-    return route.fulfill({ json: { points: [], positions: [], kpis: [], data_status: "missing", source: "missing" } });
+    if (path.endsWith("/snapshot"))
+      return route.fulfill({
+        json: {
+          positions: [],
+          kpis: [],
+          total_value: 0,
+          cash: 0,
+          currency: "EUR",
+        },
+      });
+    if (path.endsWith("/tr-transactions"))
+      return route.fulfill({ json: response });
+    if (path.endsWith("/isin-mappings"))
+      return route.fulfill({ json: { mappings: [] } });
+    if (path.endsWith("/cash-flows"))
+      return route.fulfill({ json: { cash_flows: [], cash_balance: 0 } });
+    return route.fulfill({
+      json: {
+        points: [],
+        positions: [],
+        kpis: [],
+        data_status: "missing",
+        source: "missing",
+      },
+    });
   });
   await page.goto("/portfolio");
-  await page.locator("summary").filter({ hasText: /^Trade-Republic-Import und ISIN-Zuordnungen/ }).click();
-  const panel = page.getByRole("region", { name: "Trade-Republic-Import", exact: true });
-  await panel.getByLabel("TR-CSV auswählen", { exact: true }).setInputFiles({ name: "test.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
-  await expect(panel.getByText("Alle zugeordnet", { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .locator("summary")
+    .filter({ hasText: /^Trade-Republic-Import und ISIN-Zuordnungen/ })
+    .click();
+  const panel = page.getByRole("region", {
+    name: "Trade-Republic-Import",
+    exact: true,
+  });
+  await panel
+    .getByLabel("TR-CSV auswählen", { exact: true })
+    .setInputFiles({
+      name: "test.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    });
+  await expect(
+    panel.getByText("Alle zugeordnet", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
   const bounds = await panel.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+});
+
+test("new preview clears a previous save error", async ({ page }) => {
+  await page.route("**/api/v1/portfolio/isin-mappings", (route) =>
+    route.fulfill({ json: { mappings: [] } }),
+  );
+  await page.route("**/api/v1/portfolio/imports/tr-transactions", (route) =>
+    route.request().postDataJSON().dry_run
+      ? route.fulfill({ json: response })
+      : route.fulfill({
+          status: 503,
+          json: { detail: "Speichern vorübergehend nicht möglich" },
+        }),
+  );
+  await page.goto("/portfolio/imports");
+  const panel = page.getByRole("region", {
+    name: "Trade-Republic-Import",
+    exact: true,
+  });
+  await panel
+    .getByLabel("TR-CSV auswählen", { exact: true })
+    .setInputFiles({
+      name: "test.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    });
+  const save = panel.getByRole("button", {
+    name: "TR-Import speichern",
+    exact: true,
+  });
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(panel.getByRole("alert")).toContainText(
+    "Speichern vorübergehend nicht möglich",
+  );
+  await panel
+    .getByRole("button", { name: "Vorschau erneut prüfen", exact: true })
+    .click();
+  await expect(save).toBeEnabled();
+  await expect(panel.getByRole("alert")).toHaveCount(0);
 });
