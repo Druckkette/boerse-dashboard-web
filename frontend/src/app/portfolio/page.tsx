@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { useProductUi } from "@/components/ui/ui-mode-provider";
+import { ProductDetails } from "@/components/ui/product-details";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -12,6 +15,8 @@ import { QueryState } from "@/components/ui/query-state";
 import { PortfolioAnalysisPanel } from "@/features/portfolio/portfolio-analysis-panel";
 
 export default function PortfolioPage() {
+  const product = useProductUi();
+  const primaryLabels = ["Depotwert", "Gewinn/Verlust zum Vortagsschluss", "Stop-Abdeckung"];
   const query = useQuery({ queryKey: ["portfolio-snapshot"], queryFn: api.portfolioSnapshot, refetchInterval: 60_000 });
   const { data } = query;
   const afterHoursMutation = useMutation({ mutationFn: api.portfolioAfterHours });
@@ -20,11 +25,14 @@ export default function PortfolioPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className={product ? "flex flex-col gap-4" : "space-y-4"}>
       <QueryState loading={query.isLoading} error={query.error} hasData={Boolean(data)} onRetry={() => query.refetch()} />
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-        {data?.kpis.map((item) => <KpiCard key={item.label} item={item} />)}
+      {product && <div className="flex flex-wrap items-center justify-between gap-2"><h1 className="text-lg font-semibold">Mein Depot</h1><Link href="/portfolio/imports" className="inline-flex min-h-11 items-center rounded-lg bg-[#0f766e] px-3 text-sm font-semibold !text-white">TR-Export importieren</Link></div>}
+      <div className={product ? "grid grid-cols-2 gap-2.5 md:grid-cols-3" : "grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7"}>
+        {data?.kpis.filter(item => !product || primaryLabels.includes(item.label)).map((item) => <KpiCard key={item.label} item={item} />)}
       </div>
+      <div className={product ? "order-5" : ""}><ProductDetails title="Weitere Kennzahlen & After Market">
+      {product && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{data?.kpis.filter(item => !primaryLabels.includes(item.label)).map(item => <KpiCard key={item.label} item={item} />)}</div>}
       <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -71,14 +79,15 @@ export default function PortfolioPage() {
               : "After-Market-Kurse konnten nicht geladen werden."}
           </div>
         ) : null}
-      </section>
+      </section></ProductDetails></div>
       {data ? (
         <>
           <PortfolioCurvePanel />
-          <PortfolioAnalysisPanel />
-          <BuyStrengthPanel />
-          <PositionTable afterHoursByTicker={afterHoursByTicker} positions={data.positions} />
-          <PortfolioManagementPanel positions={data.positions} />
+          {product && <PositionTable afterHoursByTicker={afterHoursByTicker} positions={data.positions} />}
+          <div className={product ? "order-3" : ""}><PortfolioAnalysisPanel /></div>
+          <div className={product ? "order-4" : ""}><ProductDetails title="Stärke nach Kauf"><BuyStrengthPanel /></ProductDetails></div>
+          {!product && <PositionTable afterHoursByTicker={afterHoursByTicker} positions={data.positions} />}
+          <div className={product ? "order-6" : ""}><PortfolioManagementPanel positions={data.positions} /></div>
         </>
       ) : (
         null

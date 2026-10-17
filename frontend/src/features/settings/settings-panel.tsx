@@ -1,5 +1,6 @@
 "use client";
 
+import { useProductUi, useUiDraft } from "@/components/ui/ui-mode-provider";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -145,6 +146,7 @@ const monitorReferenceDescriptions: Record<
 };
 
 export function SettingsPanel() {
+  const product = useProductUi();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["settings"],
@@ -272,6 +274,7 @@ export function SettingsPanel() {
     );
   }
 
+  useUiDraft(dirty || stockRulesDirty);
   const invalidRisk =
     settings.max_depot_loss_lower_pct >= settings.max_depot_loss_upper_pct;
   if (isLoading) return <p role="status">Einstellungen werden geladen…</p>;
@@ -289,9 +292,10 @@ export function SettingsPanel() {
     <div className="space-y-4 text-[#172033]">
       {data?.calculation_refresh?.status === "required" && <p role="status" className="app-notice">Gewichte gespeichert. Bitte im Aktienranking neu berechnen. Ältere Bewertungen bleiben als solche gekennzeichnet.</p>}
       {data?.calculation_refresh?.status === "queued" && <p role="status" className="app-notice">Gewichte gespeichert. Neuberechnung wurde eingereiht.</p>}
+      {product && <label className="block lg:hidden text-sm font-medium">Einstellungsbereich<select className="input-dark mt-1" value={tab} disabled={stockRulesDirty} onChange={event => setTab(event.target.value)}>{[["investment", "Investmentmodell"], ["risk", "Portfolio & Risiko"], ["alerts", "Überwachung & Alerts"], ["system", "Daten & System"]].map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
       <nav
         aria-label="Einstellungsbereiche"
-        className="flex gap-1 overflow-x-auto rounded-[12px] border border-[#e3e8ef] bg-white p-1"
+        className={`${product ? "hidden lg:flex" : "flex"} gap-1 overflow-x-auto rounded-[12px] border border-[#e3e8ef] bg-white p-1`}
       >
         {[
           ["investment", "Investmentmodell"],
@@ -853,7 +857,7 @@ export function SettingsPanel() {
           </section>
         )}
       </fieldset>
-      <div className="sticky bottom-4 z-20 rounded-[12px] border border-[#d8e1ea] bg-white p-4 shadow-lg">
+      {(!product || dirty || stockRulesDirty || mutation.isPending || mutation.isError) && <div className={`${product ? "product-save-bar" : "bottom-4"} sticky z-20 rounded-[12px] border border-[#d8e1ea] bg-white p-4 shadow-lg`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span role="status" className="text-sm">
             {mutation.isPending
@@ -903,7 +907,8 @@ export function SettingsPanel() {
               : "Änderungen konnten nicht gespeichert werden."}
           </p>
         )}
-      </div>
+      </div>}
+      {product && mutation.isSuccess && !dirty && <p role="status" className="text-sm text-[#0f766e]">Änderungen gespeichert.</p>}
     </div>
   );
 }

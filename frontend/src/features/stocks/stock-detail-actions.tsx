@@ -220,7 +220,7 @@ function PrivateStockDetailActions({ ticker }: { ticker: string }) {
             {positionDialog && positionDefaults.price ? <CreatePositionDialog ticker={clean} currency={positionDefaults.currency} price={positionDefaults.price} onClose={() => setPositionDialog(false)} /> : null}
           </div>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-            Schnellaktionen aus der alten Aktienbewertung: Watchlist, Kursrefresh und Depot-Vormerkung laufen ohne Seitenreload.
+            Aktie auf die Watchlist setzen, Kursdaten aktualisieren oder eine Position vormerken.
           </p>
         </div>
 

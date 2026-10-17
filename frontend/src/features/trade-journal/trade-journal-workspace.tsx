@@ -1,5 +1,7 @@
 "use client";
 
+import { useProductUi, useUiDraft } from "@/components/ui/ui-mode-provider";
+import { JournalFilterDialog } from "./journal-filter-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
@@ -50,12 +52,26 @@ const contextTone: Record<TradeJournalEntrySummary["context_status"], Tone> = {
 };
 
 export function TradeJournalWorkspace() {
+  const product = useProductUi();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [view] = useViewState("journal", { tab: searchParams.get("tab") || "executions", query: searchParams.get("query") || "", type: searchParams.get("type") || "", status: searchParams.get("status") || "", source: searchParams.get("source") || "", from: searchParams.get("from") || "", to: searchParams.get("to") || "", sort: searchParams.get("sort") || "newest", offset: Number(searchParams.get("offset") || 0), group_by: "setup", context: "all" });
   const tab = parseTab(view.tab);
   const selectedId = searchParams.get("entry");
+  const detailReturn = useRef<{ element: HTMLElement | null; scroll: number } | null>(null);
+  useEffect(() => {
+    if (selectedId || !detailReturn.current) return;
+    const previous = detailReturn.current;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo({ top: previous.scroll, behavior: "instant" });
+      previous.element?.focus({ preventScroll: true });
+    });
+    detailReturn.current = null;
+    return () => cancelAnimationFrame(frame);
+  }, [selectedId]);
+
   const filters: TradeJournalFilters = {
     query: view.query, entry_type: view.type as TradeJournalEntryType | "", status: view.status as TradeJournalEntryStatus | "", source: view.source as TradeJournalFilters["source"], date_from: view.from, date_to: view.to,
     sort: view.sort === "oldest" ? "oldest" : "newest", limit: PAGE_SIZE, offset: Math.max(0, view.offset || 0)
@@ -121,9 +137,11 @@ export function TradeJournalWorkspace() {
   const backfillRunning = backfillMutation.isPending || ["queued", "running"].includes(backfillJob.data?.status ?? backfillMutation.data?.status ?? "");
 
   const entries = entriesQuery.data?.entries ?? [];
+  const activeFilterCount = [filters.query, filters.entry_type, filters.status, filters.source, filters.date_from, filters.date_to].filter(Boolean).length;
   const hasFilters = Boolean(filters.query || filters.entry_type || filters.status || filters.source || filters.date_from || filters.date_to);
 
   function navigate(changes: Record<string, string | number | null | undefined>) {
+    if (changes.entry && !selectedId) detailReturn.current = { element: document.activeElement instanceof HTMLElement ? document.activeElement : null, scroll: window.scrollY };
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(changes)) {
       if (value === null || value === undefined || value === "" || value === 0) params.delete(key);
@@ -155,8 +173,8 @@ export function TradeJournalWorkspace() {
       <section className="rounded-[18px] border border-[#dfe6ed] bg-white p-5 shadow-[0_8px_28px_rgba(15,23,42,0.05)] md:p-6">
         <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-center 2xl:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-[#172033]">Alle Handelsentscheidungen an einem Ort</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#687386]">
+            <h1 className={`${product ? "text-lg" : "text-2xl"} font-semibold tracking-tight text-[#172033]`}>{product ? "Handelstagebuch" : "Alle Handelsentscheidungen an einem Ort"}</h1>
+            <p className={`${product ? "hidden" : ""} mt-2 max-w-3xl text-sm leading-6 text-[#687386]`}>
               Broker-Ausführungen bilden die verlässliche Basis. Historische Bewertungen zeigen sichtbar, ob Daten archiviert, rekonstruiert, teilweise vorhanden oder noch nicht verfügbar sind.
             </p>
           </div>
@@ -171,7 +189,7 @@ export function TradeJournalWorkspace() {
         </div>
         {backfillMutation.data && <p className="mt-3 text-sm text-[#0f766e]">{backfillJob.data?.status === "done" ? "Historie ergänzt. Die Ansichten wurden aktualisiert." : backfillJob.data?.status === "failed" ? `Historie konnte nicht ergänzt werden: ${backfillJob.data.error_message || backfillJob.data.message}` : backfillJob.data?.message || "Hintergrundjob gestartet. Fortschritt ist unter Jobs sichtbar."}</p>}
         {backfillMutation.isError && <p className="mt-3 text-sm text-rose-700">Historische Ergänzung konnte nicht gestartet werden: {(backfillMutation.error as Error).message}</p>}
-        <div className="mt-5 grid gap-3 border-t border-[#edf1f5] pt-4 sm:grid-cols-3">
+        <div className={`${product ? "mt-3 grid-cols-3" : "mt-5"} grid gap-3 border-t border-[#edf1f5] pt-4 sm:grid-cols-3`}>
           <HeaderStat label="Ausführungen" value={String(entriesQuery.data?.total ?? 0)} detail="im aktuellen Filter" />
           <HeaderStat label="Brokerdaten" value={String(entries.filter((entry) => entry.source === "trade_republic").length)} detail="auf dieser Seite" />
           <HeaderStat label="Kontext offen" value={String(entries.filter((entry) => ["missing", "pending", "failed"].includes(entry.context_status)).length)} detail="auf dieser Seite" />
@@ -187,7 +205,8 @@ export function TradeJournalWorkspace() {
           ))}
         </nav>
 
-        <form className="grid gap-3 border-b border-[#e8edf2] p-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={applySearch}>
+        {product && <form className="flex flex-wrap gap-2 border-b border-[#e8edf2] p-3" onSubmit={applySearch}><label className="min-w-0 flex-1"><span className="sr-only">Aktie, Ticker oder ISIN suchen</span><input className="input-dark" value={searchInput} placeholder="Aktie, Ticker oder ISIN" onChange={event => setSearchInput(event.target.value)} /></label><button type="submit" className="rounded-lg border px-3 text-sm">Suchen</button><button type="button" aria-haspopup="dialog" className="rounded-lg border px-3 text-sm font-semibold" onClick={()=>setFiltersOpen(true)}>Filter ({activeFilterCount})</button></form>}
+        {!product && <form className="grid gap-3 border-b border-[#e8edf2] p-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={applySearch}>
           <label className="relative xl:col-span-2">
             <span className="sr-only">Aktie, Ticker oder ISIN suchen</span>
             <Search className="absolute left-3 top-2.5 size-4 text-[#8a96a8]" />
@@ -200,7 +219,7 @@ export function TradeJournalWorkspace() {
           <input aria-label="Zeitraum bis" className="h-9 rounded-[9px] border border-[#d8e1ea] px-2 text-sm" type="date" value={filters.date_to ?? ""} onChange={(event) => navigate({ to: event.target.value, offset: null, entry: null })} />
           <FilterSelect label="Sortierung" value={filters.sort ?? "newest"} onChange={(value) => navigate({ sort: value === "newest" ? null : value, offset: null })} options={[["newest", "Neueste zuerst"], ["oldest", "Älteste zuerst"]]} />
           <button className="inline-flex h-9 items-center justify-center gap-2 rounded-[9px] bg-[#172033] px-3 text-sm font-semibold !text-white" type="submit"><SlidersHorizontal size={14} /> Anwenden</button>
-        </form>
+        </form>}
         {hasFilters && <div className="flex justify-end px-4 pt-3"><button className="inline-flex items-center gap-1 text-sm font-medium text-[#0f766e] hover:underline" type="button" onClick={resetFilters}><FilterX size={14} /> Filter zurücksetzen</button></div>}
 
         {tab === "executions" && <Pagination total={entriesQuery.data?.total ?? 0} offset={filters.offset ?? 0} loading={entriesQuery.isLoading} onPage={(offset) => navigate({ offset, entry: null })} />}
@@ -215,9 +234,10 @@ export function TradeJournalWorkspace() {
 
       {entriesQuery.isError && <ErrorPanel>Ausführungen konnten nicht geladen werden: {(entriesQuery.error as Error).message}</ErrorPanel>}
 
-      {selectedId && <DetailWindow entryId={selectedId} onClose={() => { if (dialog) setDialog(null); else navigate({ entry: null }); }}>
-        {selectedQuery.isLoading ? <LoadingRows /> : selectedQuery.data?.entry ? <EntryDetail entry={selectedQuery.data.entry} onView={(id) => navigate({ entry: id })} onEdit={() => openEdit(selectedQuery.data.entry)} /> : <ErrorPanel>Der Eintrag konnte nicht geladen werden: {selectedQuery.error instanceof Error ? selectedQuery.error.message : "Nicht gefunden"}</ErrorPanel>}
-        {dialog && <EntryDialog dialog={dialog} pending={saveMutation.isPending} error={saveMutation.error} onClose={() => setDialog(null)} onChange={(draft) => setDialog({ ...dialog, draft })} onSave={() => saveMutation.mutate(dialog)} />}
+      {filtersOpen && <JournalFilterDialog filters={filters} onClose={()=>setFiltersOpen(false)} onApply={changes=>{ setSearchInput(changes.query); navigate({...changes, offset:null, entry:null}); setFiltersOpen(false); }} />}
+      {selectedId && <DetailWindow entryId={selectedId} onClose={() => { if (saveMutation.isPending) return; if (dialog) setDialog(null); else navigate({ entry: null }); }}>
+        {(!product || !dialog) && (selectedQuery.isLoading ? <LoadingRows /> : selectedQuery.data?.entry ? <EntryDetail entry={selectedQuery.data.entry} onView={(id) => navigate({ entry: id })} onEdit={() => openEdit(selectedQuery.data.entry)} /> : <ErrorPanel>Der Eintrag konnte nicht geladen werden: {selectedQuery.error instanceof Error ? selectedQuery.error.message : "Nicht gefunden"}</ErrorPanel>)}
+        {dialog && <EntryDialog embedded={product} dialog={dialog} pending={saveMutation.isPending} error={saveMutation.error} onClose={() => setDialog(null)} onChange={(draft) => setDialog({ ...dialog, draft })} onSave={() => saveMutation.mutate(dialog)} />}
       </DetailWindow>}
       {dialog && !selectedId && <EntryDialog dialog={dialog} pending={saveMutation.isPending} error={saveMutation.error} onClose={() => setDialog(null)} onChange={(draft) => setDialog({ ...dialog, draft })} onSave={() => saveMutation.mutate(dialog)} />}
 
@@ -243,6 +263,7 @@ function ExecutionTable({ entries, loading, onView }: { entries: TradeJournalEnt
 
 
 function DetailWindow({ children, onClose, entryId }: { children: ReactNode; onClose: () => void; entryId: string }) {
+  const product=useProductUi();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -252,7 +273,7 @@ function DetailWindow({ children, onClose, entryId }: { children: ReactNode; onC
     return () => { dialog?.close(); document.body.style.overflow = previous; };
   }, []);
   useEffect(() => { ref.current?.scrollTo({ top: 0 }); }, [entryId]);
-  return <dialog ref={ref} aria-label="Handelsdetails" onCancel={(event) => { event.preventDefault(); onClose(); }} className="fixed inset-0 m-auto max-h-[94dvh] w-[min(1200px,96vw)] overflow-y-auto rounded-[18px] bg-[#f5f7fa] p-0 shadow-2xl backdrop:bg-[#0f172a]/60">
+  return <dialog ref={ref} aria-label="Handelsdetails" onCancel={(event) => { event.preventDefault(); onClose(); }} className={`${product ? "product-dialog" : ""} fixed inset-0 m-auto max-h-[94dvh] w-[min(1200px,96vw)] overflow-y-auto rounded-[18px] bg-[#f5f7fa] p-0 shadow-2xl backdrop:bg-[#0f172a]/60`}>
     <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#dfe6ed] bg-white px-5 py-3"><button type="button" className="inline-flex items-center gap-2 text-sm font-semibold text-[#0f766e]" onClick={onClose}><ArrowLeft size={16} /> Zur Übersicht</button><button type="button" aria-label="Details schließen" className="rounded-full p-2 hover:bg-slate-100" onClick={onClose}><X size={20} /></button></div>
     <div className="p-3 md:p-5">{children}</div>
   </dialog>;
@@ -279,7 +300,7 @@ function EntryDetail({ entry, onEdit, onView }: { entry: TradeJournalEntryDetail
   const priceCurrency = text(stock.quote_currency) || "USD";
   const notice = text(stock.context_notice) || text(market.context_notice);
   return <article className="space-y-6 rounded-[18px] border border-[#dfe6ed] bg-white p-5 md:p-6">
-    <div className="flex flex-col gap-4 border-b border-[#e8edf2] pb-5 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-semibold text-[#172033]">{entry.instrument_name || entry.ticker}</h2><StatusChip tone="neutral">{entry.ticker}</StatusChip><ExecutionLabel entry={entry} /></div><p className="mt-2 text-sm text-[#687386]">{dateTime(entry)} · {quantity(entry.shares)} Stück zu {money(entry.price, entry.currency)} · {entry.source === "trade_republic" ? "Trade Republic" : "Altaufzeichnung ohne Broker-Verknüpfung"}</p><div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#687386]"><StatusChip tone={contextTone[entry.context_status]}>{entry.context_label}</StatusChip><span>Kursdaten bis {formatDate(text(stock.data_as_of))}</span></div>{notice && <p className="mt-3 text-sm text-amber-900">{notice}</p>}</div><button className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 py-2 text-sm font-semibold text-[#304052]" type="button" onClick={onEdit}><NotebookPen size={15} /> {entry.has_note ? "Notiz bearbeiten" : "Notiz ergänzen"}</button></div>
+    <div className="flex flex-col gap-4 border-b border-[#e8edf2] pb-5 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-semibold text-[#172033]">{entry.instrument_name || entry.ticker}</h2><StatusChip tone="neutral">{entry.ticker}</StatusChip><ExecutionLabel entry={entry} /></div><p className="mt-2 text-sm text-[#687386]">{dateTime(entry)} · {quantity(entry.shares)} Stück zu {money(entry.price, entry.currency)} · {entry.source === "trade_republic" ? "Trade Republic" : "Altaufzeichnung ohne Broker-Verknüpfung"}</p><div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#687386]"><StatusChip tone={contextTone[entry.context_status]}>{entry.context_label}</StatusChip><span>Kursdaten bis {formatDate(text(stock.data_as_of))}</span></div>{notice && <p className="mt-3 text-sm text-amber-900">{notice}</p>}</div><button className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 py-2 text-sm font-semibold text-[#304052]" type="button" data-note-edit="true" onClick={onEdit}><NotebookPen size={15} /> {entry.has_note ? "Notiz bearbeiten" : "Notiz ergänzen"}</button></div>
     <section><SectionTitle>Überblick</SectionTitle><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Ausführungspreis" value={money(entry.price, entry.currency)} detail={`${quantity(entry.shares)} Stück`} /><Metric label="Bruttobetrag" value={money(Math.abs(entry.gross_amount ?? gross(entry) ?? 0), entry.currency)} detail={`Gebühren ${money(Math.abs(entry.fees ?? 0), entry.currency)} · Steuern ${money(Math.abs(entry.tax ?? 0), entry.currency)}`} /><Metric label="Realisiertes Ergebnis" value={money(entry.realized_pnl, entry.currency)} detail={entry.realized_pnl == null ? "Noch kein zugeordnetes Verkaufsergebnis" : entry.entry_type === "buy" ? "Ergebnis der zugeordneten Verkäufe" : `${number(entry.realized_pnl_pct)} %`} tone={entry.realized_pnl == null ? "neutral" : entry.realized_pnl >= 0 ? "good" : "bad"} /><Metric label={entry.entry_type === "buy" ? "Bestand dieses Kauflots" : "Status der Ausführung"} value={entry.entry_type === "buy" ? `${quantity(numeric(portfolio.remaining_shares))} Stück` : statusText(entry.status)} detail={entry.entry_type === "buy" ? "Nach zugeordneten Verkäufen" : "Status der Ausführung"} /></div></section>
     <nav aria-label="Bereiche der Handelsdetails" className="flex flex-wrap gap-2">{[["historical-chart", "Chart"], ["historical-signals", "Warnzeichen"], ["historical-scores", "Score-Details"], ["historical-market", "Markt"]].map(([id, title]) => <button type="button" key={id} className="rounded-lg border px-3 py-2 text-sm font-semibold text-teal-800" onClick={() => document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" })}>{title}</button>)}</nav>
     <div id="historical-chart" className="scroll-mt-20"><HistoricalTradeChart key={entry.id} entry={entry} /></div>
@@ -343,20 +364,23 @@ function reasonTexts(value: Record<string, unknown>): string[] { const reasons =
 function percent(value: unknown): string { return numeric(value) == null ? "—" : `${number(numeric(value))} %`; }
 function formatDate(value: string): string { if (!value) return "Nicht belegt"; const date = new Date(`${value.slice(0, 10)}T12:00:00`); return Number.isNaN(date.valueOf()) ? "Nicht belegt" : new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "Europe/Berlin" }).format(date); }
 
-function EntryDialog({ dialog, pending, error, onClose, onChange, onSave }: { dialog: { draft: Draft; entry: TradeJournalEntryDetail }; pending: boolean; error: unknown; onClose: () => void; onChange: (draft: Draft) => void; onSave: () => void }) {
+function EntryDialog({ embedded = false, dialog, pending, error, onClose, onChange, onSave }: { embedded?: boolean; dialog: { draft: Draft; entry: TradeJournalEntryDetail }; pending: boolean; error: unknown; onClose: () => void; onChange: (draft: Draft) => void; onSave: () => void }) {
+  const ref=useRef<HTMLDivElement>(null);
+  useEffect(()=>{ const previous=document.activeElement as HTMLElement | null; ref.current?.querySelector<HTMLSelectElement>("select")?.focus(); return ()=>{ requestAnimationFrame(()=>{ if(embedded || !previous?.isConnected || previous === document.body) document.querySelector<HTMLButtonElement>("[data-note-edit]")?.focus(); else previous.focus(); }); }; },[embedded]);
+  useUiDraft(JSON.stringify(dialog.draft) !== JSON.stringify(entryDraft(dialog.entry)));
   const draft = dialog.draft;
   const broker = dialog.entry.source === "trade_republic";
   const patch = (value: Partial<Draft>) => onChange({ ...draft, ...value });
   function submit(event: FormEvent) { event.preventDefault(); onSave(); }
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/55 p-3 backdrop-blur-sm md:p-8" role="dialog" aria-modal="true" aria-label="Notiz bearbeiten">
+  return <div ref={ref} className={embedded ? "min-w-0" : "fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/55 p-3 backdrop-blur-sm md:p-8"} role={embedded ? undefined : "dialog"} aria-modal={embedded ? undefined : true} aria-label="Notiz bearbeiten">
     <form className="mx-auto max-w-4xl rounded-[18px] bg-white shadow-2xl" onSubmit={submit}>
       <div className="flex items-center justify-between border-b border-[#e8edf2] px-5 py-4">
         <div><h2 className="text-xl font-semibold text-[#172033]">{broker ? "Notiz zur Broker-Ausführung" : "Notiz zur Altaufzeichnung"}</h2><p className="mt-1 text-sm text-[#687386]">{broker ? "Ausführungsdaten und FIFO-Ergebnis bleiben unverändert." : "Ohne Broker-Verknüpfung zählt dieser Eintrag nicht als zusätzliche Ausführung."}</p></div>
-        <button aria-label="Dialog schließen" className="rounded-full p-2 text-[#687386] hover:bg-[#f0f3f6]" type="button" onClick={onClose}><X size={20} /></button>
+        <button aria-label="Dialog schließen" disabled={pending} className="rounded-full p-2 text-[#687386] hover:bg-[#f0f3f6]" type="button" onClick={onClose}><X size={20} /></button>
       </div>
       <div className="space-y-5 p-5"><div className="grid gap-3 sm:grid-cols-2"><Field label="Dokumentierter Einstiegsgrund"><select className="input-light" value={draft.setup} onChange={event => patch({ setup: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["breakout", "Ausbruch"], ["pullback", "Rücksetzer"], ["trend", "Trendfolge"], ["fundamental", "Fundamental"], ["other", "Sonstiger Grund"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><Field label="Regelbezug"><select className="input-light" value={draft.rule_deviation} onChange={event => patch({ rule_deviation: event.target.value })}>{[["unknown", "Nicht dokumentiert"], ["followed", "Regel befolgt"], ["deviated", "Bewusst abgewichen"]].map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div><Field label={dialog.entry.entry_type === "sell" ? "Verkaufsgrund / Notiz" : "Entscheidungsgrund / Notiz"}><textarea className="input-light min-h-36" value={draft.note} onChange={(event) => patch({ note: event.target.value })} /></Field>
         {Boolean(error) && <ErrorPanel>Speichern fehlgeschlagen: {(error as Error).message}</ErrorPanel>}
-        <div className="flex justify-end gap-2"><button className="rounded-[9px] border border-[#d8e1ea] px-4 py-2 text-sm font-semibold text-[#526174]" type="button" onClick={onClose}>Abbrechen</button><button className="rounded-[9px] bg-[#0f766e] px-4 py-2 text-sm font-semibold !text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "Speichert…" : "Speichern"}</button></div>
+        <div className="flex justify-end gap-2"><button className="rounded-[9px] border border-[#d8e1ea] px-4 py-2 text-sm font-semibold text-[#526174]" type="button" disabled={pending} onClick={onClose}>Abbrechen</button><button className="rounded-[9px] bg-[#0f766e] px-4 py-2 text-sm font-semibold !text-white disabled:opacity-50" disabled={pending} type="submit">{pending ? "Speichert…" : "Speichern"}</button></div>
       </div>
     </form>
   </div>;

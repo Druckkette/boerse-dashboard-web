@@ -94,7 +94,7 @@ jobs:
           BETA_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       - run: npm ci
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
         working-directory: frontend
       - run: npm run build
         working-directory: frontend

@@ -1,5 +1,6 @@
 "use client";
 
+import { useProductUi } from "@/components/ui/ui-mode-provider";
 import { useQuery } from "@tanstack/react-query";
 import { BriefcaseBusiness, Clock3, Layers3, LineChart, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -8,12 +9,14 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { HomeDashboard as HomeData, Tone } from "@/lib/types/api";
+import { powerTrendPresentation } from "../market/powertrend-card";
 import { IndexCard } from "./home-index-card";
 import { HomeSystemStatus, HomeWatchlist } from "./home-personal";
 import { HomeChanges, HomeEarnings, PortfolioAlerts } from "./home-sections";
 import { Empty, marketTone, number, Panel, shortDate, signedPercent, TextLink } from "./home-ui";
 
 export function HomeDashboard() {
+  const product = useProductUi();
   const query = useQuery({ queryKey: ["home-dashboard"], queryFn: api.home, staleTime: 30_000, refetchInterval: 60_000 });
   const [now, setNow] = useState(() => new Date());
   const [systemOpen, setSystemOpen] = useState(false);
@@ -37,7 +40,8 @@ export function HomeDashboard() {
       <a href="#systemstatus" onClick={() => setSystemOpen(true)} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0f766e]">Daten & Meldungen</a>
     </div>
 
-    <MarketOverview data={data} />
+    {product && <section aria-label="Im Blick behalten" className="flex flex-wrap items-center gap-3 rounded-xl border border-[#d8e1ea] bg-white px-4 py-3 text-sm"><span className="font-semibold">Im Blick behalten</span><TextLink href="/sell-monitor">{data.review_positions_count} Positionen prüfen</TextLink>{(data.portfolio.stop_coverage_total || 0) > (data.portfolio.stop_coverage_count || 0) && <TextLink href="/portfolio#positionen">{(data.portfolio.stop_coverage_total || 0) - (data.portfolio.stop_coverage_count || 0)} Stopps fehlen</TextLink>}<TextLink href="/portfolio">Depotergebnis ansehen</TextLink></section>}
+    {product ? <CompactMarketOverview data={data} /> : <MarketOverview data={data} />}
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <PortfolioOverview data={data} />
       <HomeEarnings calendar={data.earnings} />
@@ -53,6 +57,20 @@ export function HomeDashboard() {
     <HomeSystemStatus open={systemOpen} onOpenChange={setSystemOpen} />
     {!!data.errors.length && <p role="status" className="text-xs leading-5 text-[#687386]">Einige Bereiche konnten nicht vollständig geladen werden: {data.errors.map((key) => ({ market: "Markt", workspace: "Watchlist", data_quality: "Datenqualität", opportunities: "Tagesauswahl", portfolio: "Depot", sell: "Verkaufsmonitor", watchlist_assessments: "Watchlist-Bewertungen", industry_groups: "Branchen", earnings: "Earnings", changes: "Veränderungen" }[key] || "weitere Daten")).join(", ")}.</p>}
   </div>;
+}
+
+function CompactMarketOverview({ data }: { data: HomeData }) {
+ return <Panel icon={LineChart} title="Marktlage" action={<StatusChip tone={marketTone(data.market.phase)}>{data.market.phase_label || "Marktstand fehlt"}</StatusChip>}>
+  <div className="grid grid-cols-3 gap-2">{data.market.indices.map(index => <Link href={`/market?ticker=${encodeURIComponent(index.ticker)}`} key={index.ticker} className="min-w-0 rounded-xl bg-[#f7f9fb] p-2.5">
+   <div className="break-words text-xs font-medium text-[#687386]">{index.label || index.ticker}</div>
+   <div className="mt-2 text-sm font-semibold tabular-nums">{number(index.close, 0)}</div>
+   <div className={`mt-1 text-xs tabular-nums ${index.change_pct == null ? "text-[#687386]" : index.change_pct < 0 ? "text-[#c2413b]" : "text-[#138a57]"}`}>{signedPercent(index.change_pct, 1)}</div>
+   {index.phase_status === "available" && index.powertrend?.enabled && <p className={`mt-2 break-words text-[11px] ${index.powertrend.state === "on" ? "text-[#138a57]" : index.powertrend.state === "under_pressure" ? "text-[#9a650f]" : "text-[#687386]"}`}>{powerTrendPresentation(index.powertrend.state).label}</p>}
+   <div className="mt-2 break-words text-xs font-medium">{index.phase_status === "available" ? index.phase_label : "Ampelstand prüfen"}</div>
+   <div className="mt-1 text-[11px] text-[#687386]">{shortDate(index.as_of)}</div>
+  </Link>)}</div>
+  <details className="mt-3 border-t border-[#e3e8ef] pt-2"><summary className="cursor-pointer text-sm font-medium">Indexdetails, Marktbreite & VIX</summary><div className="mt-3 grid gap-3 md:grid-cols-3">{data.market.indices.map(index=><IndexCard key={index.ticker} index={index}/>)}</div><p className="mt-3 text-xs text-[#687386]">Marktbreite: {number(data.market.breadth?.pct_above_50sma,1)} % über 50-SMA · VIX {number(data.market.volatility?.close,1)}</p></details>
+ </Panel>;
 }
 
 export function MarketOverview({ data }: { data: Pick<HomeData, "market"> }) {

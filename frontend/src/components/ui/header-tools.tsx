@@ -9,12 +9,12 @@ import { FormEvent, useEffect, useId, useState } from "react";
 import { api } from "@/lib/api/client";
 import { qualityLabel } from "@/lib/format";
 
-export function HeaderTools() {
+export function HeaderTools({ compact = false }: { compact?: boolean }) {
   const beta = useBetaMode();
   return (
-    <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto">
+    <div className={compact ? "header-tools-compact flex min-w-0 flex-1 items-center gap-2" : "flex w-full flex-col gap-2 sm:flex-row xl:w-auto"}>
       <GlobalStockSearch />
-      {!beta && <DataQualityLink />}
+      {!beta && <DataQualityLink compact={compact} />}
     </div>
   );
 }
@@ -106,7 +106,7 @@ export function GlobalStockSearch({ label = "Aktie global suchen" }: { label?: s
   );
 }
 
-function DataQualityLink() {
+function DataQualityLink({ compact }: { compact: boolean }) {
   const diagnostics = useQuery({
     queryKey: ["data-quality-header"],
     queryFn: api.dataQualitySummary,
@@ -123,11 +123,12 @@ function DataQualityLink() {
   return (
     <Link
       className={`inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-[10px] border px-3 text-sm font-semibold transition hover:brightness-[0.98] ${tone}`}
+      aria-label={compact ? `Daten & System: ${status ? qualityLabel(status) : "Status wird geprüft"}` : undefined}
       href="/jobs#data-quality"
       title={diagnostics.isError ? "Aktueller Systemstatus konnte nicht geladen werden." : diagnostics.data?.summary ?? "Datenqualität wird geprüft"}
     >
       {diagnostics.isLoading ? <Database className="size-4 animate-pulse" /> : <Icon className="size-4" />}
-      {diagnostics.isLoading ? "Daten prüfen" : diagnostics.isError ? "Status nicht verfügbar" : status === "trusted" ? "OK" : status ? qualityLabel(status) : "Status unbekannt"}
+      {compact ? <span className="hidden sm:inline">Daten & System</span> : diagnostics.isLoading ? "Daten prüfen" : diagnostics.isError ? "Status nicht verfügbar" : status === "trusted" ? "OK" : status ? qualityLabel(status) : "Status unbekannt"}
     </Link>
   );
 }

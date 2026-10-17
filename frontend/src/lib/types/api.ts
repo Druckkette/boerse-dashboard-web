@@ -637,6 +637,9 @@ export type PortfolioSnapshot = {
 };
 
 export type PortfolioCurvePoint = {
+  valuation_complete?: boolean;
+  missing_instruments?: string[];
+  redemption_receivables?: string[];
   date: string;
   depot_value: number | null;
   positions_value: number | null;

@@ -1,5 +1,6 @@
 "use client";
 
+import { useProductUi } from "./ui-mode-provider";
 import { Eye, EyeOff, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
@@ -119,6 +120,9 @@ export function LineChartCard({
   hideTextHeader = false,
   showPreviousCloseChange = false
 }: LineChartCardProps) {
+  const product = useProductUi();
+  const [interact, setInteract] = useState(false);
+  const [tableOpen, setTableOpen] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -163,6 +167,11 @@ export function LineChartCard({
     ],
     [series, subSeries, volumeSeries]
   );
+
+  const tableSeries = useMemo(() => [...new Map([
+    ...(chartMode === "candlestick" ? [{ key: "open", label: "Eröffnung" }, { key: "high", label: "Hoch" }, { key: "low", label: "Tief" }, { key: "close", label: "Schlusskurs" }] : []),
+    ...series, ...subSeries, ...volumeSeries, ...(volumeKey ? [{key: volumeKey, label: volumeLabel}] : [])
+  ].map(item => [item.key, item])).values()], [chartMode, series, subSeries, volumeSeries, volumeKey, volumeLabel]);
 
   const isZoomed = points.length > 0 && (normalizedRange.start > 0 || normalizedRange.end < points.length - 1);
   const hasSubChart = subSeries.length > 0;
@@ -245,6 +254,7 @@ export function LineChartCard({
     if (!chart || points.length <= 1) return;
 
     const handleWheel = (event: WheelEvent) => {
+      if (product && !interact && !event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       const rect = chart.getBoundingClientRect();
       if (!rect.width) return;
@@ -265,7 +275,7 @@ export function LineChartCard({
 
     chart.addEventListener("wheel", handleWheel, { passive: false });
     return () => chart.removeEventListener("wheel", handleWheel);
-  }, [canvasWidth, normalizedRange, plotRight, points.length]);
+  }, [canvasWidth, normalizedRange, plotRight, points.length, product, interact]);
 
   useEffect(() => {
     const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === cardRef.current);
@@ -294,12 +304,14 @@ export function LineChartCard({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (product && event.pointerType === "touch" && !interact) return;
     if (points.length <= MIN_VISIBLE_POINTS) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { pointerId: event.pointerId, clientX: event.clientX, range: normalizedRange };
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (product && event.pointerType === "touch" && !interact) return;
     const rect = chartRef.current?.getBoundingClientRect();
     if (!rect?.width || !rect.height) return;
     const index = indexAtClientX(event.clientX, rect, visiblePoints.length, canvasWidth, plotRight);
@@ -357,7 +369,8 @@ export function LineChartCard({
             <p className="mt-0.5 text-sm leading-5 text-[var(--muted)]">{caption}</p>
           </div>
         )}
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {product && <button type="button" className="rounded-lg border px-3 text-xs font-medium" aria-pressed={interact} onClick={() => { setInteract(value => !value); setHover(null); dragRef.current = null; }}>{interact ? "Scrollen erlauben" : "Werte ablesen & verschieben"}</button>}
           <div className="inline-flex overflow-hidden rounded-md border border-[var(--border)] bg-[var(--panel-soft)] shadow-sm">
             <ChartToolButton disabled={!canZoomIn} label="In den Chart hineinzoomen" onClick={() => zoomBy(0.72)}><Plus size={13} /></ChartToolButton>
             <ChartToolButton disabled={!canZoomOut} label="Aus dem Chart herauszoomen" onClick={() => zoomBy(1.38)}><Minus size={13} /></ChartToolButton>
@@ -373,10 +386,11 @@ export function LineChartCard({
       <div
         ref={chartRef}
         className={[
-          "relative touch-none select-none overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--panel)]",
+          `relative ${product && !interact ? "touch-pan-y" : "touch-none"} select-none overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--panel)]`,
           isFullscreen ? "min-h-0 flex-1" : "h-[430px] sm:h-[470px]",
           isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"
         ].join(" ")}
+        data-chart-surface="true"
         onPointerCancel={handlePointerEnd}
         onPointerDown={handlePointerDown}
         onPointerLeave={(event) => {
@@ -396,7 +410,7 @@ export function LineChartCard({
 
         {!isLoading && !hasError && !empty && (
           <svg className="size-full" preserveAspectRatio="none" role="img" viewBox={`0 0 ${canvasWidth} ${HEIGHT}`}>
-            <title>{`${title}: interaktiver Chart. Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück.`}</title>
+            <title>{product ? `${title}: Chart. Zum Ablesen und Verschieben den Interaktionsmodus aktivieren. Die Datentabelle bietet sämtliche Werte per Tastatur.` : `${title}: interaktiver Chart. Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück.`}</title>
             <rect fill="var(--panel)" height={HEIGHT} width={canvasWidth} />
 
             {showHorizontalGrid && priceScale.ticks.map((tick) => {
@@ -581,6 +595,7 @@ export function LineChartCard({
           ))}
         </div>
       )}
+      {product && <details className="mt-3 border-t border-[var(--border)] pt-2" onToggle={event => setTableOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm font-medium">Chartwerte als Tabelle</summary>{tableOpen && <div role="region" aria-label={`${title}: Datentabelle`} tabIndex={0} className="mt-3 max-h-80 overflow-auto"><table className="w-full text-right text-sm tabular-nums"><caption className="sr-only">{title}. Fehlende Werte werden ausdrücklich ausgewiesen.</caption><thead><tr><th scope="col" className="p-2 text-left">Datum</th>{tableSeries.map(item => <th scope="col" className="p-2" key={item.key}>{item.label}</th>)}</tr></thead><tbody>{points.map((point, index) => <tr key={`${point.date}-${index}`}><th scope="row" className="whitespace-nowrap p-2 text-left font-normal">{formatLongDate(point.date)}</th>{tableSeries.map(item => <td className="whitespace-nowrap p-2" key={item.key}>{toNumber(point[item.key]) === null ? (item.key === "portfolio_index" ? "Nicht bewertet" : "Nicht verfügbar") : formatNumber(toNumber(point[item.key]), 2)}</td>)}</tr>)}</tbody></table></div>}</details>}
     </section>
   );
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { ProductDetails } from "@/components/ui/product-details";
+import { useProductUi } from "@/components/ui/ui-mode-provider";
+import { curveGaps } from "./curve-gaps";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
@@ -7,6 +10,7 @@ import { api } from "@/lib/api/client";
 import { nextPortfolioYearCheck, portfolioYearStart } from "./portfolio-year";
 
 export function PortfolioCurvePanel() {
+  const product = useProductUi();
   const [defaultStartDate, setDefaultStartDate] = useState("");
   const [selectedStartDate, setSelectedStartDate] = useState<string | null>(null);
   const startDate = selectedStartDate ?? defaultStartDate;
@@ -43,6 +47,7 @@ export function PortfolioCurvePanel() {
             Depot und S&P 500 werden ab dem Basistag gemeinsam auf 100 gesetzt. Standard ist der 01.01. des laufenden Jahres.
           </p>
         </div>
+        <ProductDetails title="Darstellung & Zeitraum ändern"><div className="flex flex-col gap-3 md:flex-row">
         <label className="w-full text-sm md:w-64">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Darstellung</span>
           <select className="input-dark" value={model} onChange={event => setModel(event.target.value as typeof model)}>
@@ -60,8 +65,10 @@ export function PortfolioCurvePanel() {
             onChange={(event) => setSelectedStartDate(event.target.value || null)}
           />
         </label>
+        </div></ProductDetails>
       </div>
-      {curve && <p className="app-notice">{curve.model === "current_holdings" ? "Keine historische Depotperformance. " : "Cashbewegungen werden am Tagesende berücksichtigt. "}{curve.message} · Bewertbare Tage {curve.complete_points ?? "–"}/{curve.total_points ?? curve.points.length}. Lücken werden nicht durch zukünftige Kurse ersetzt.</p>}
+      {product && curve && <details className="dashboard-section"><summary className="cursor-pointer text-sm font-semibold">{curve.complete_points ?? "–"} von {curve.total_points ?? curve.points.length} Tagen bewertet · Lücken & Berechnungsgrundlage</summary><div className="mt-3 space-y-2 text-sm"><p>{curve.message}</p><p>{curve.model === "current_holdings" ? "Simulation des heutigen Bestands, keine historische Depotperformance." : "Basis: importierte TR-Ausführungen und historische Tageskurse. Cashbewegungen am Tagesende."}</p>{curveGaps(curve.points).map(gap => <p key={gap.from}>Fehlende Depotbewertung: {gap.from} bis {gap.to} · {gap.count} {gap.count === 1 ? "Tag" : "Tage"}{gap.instruments.length > 0 && <> · Betroffene Instrumente: {gap.instruments.join(", ")}</>}</p>)}<p>Lücken bleiben sichtbar. Es werden keine zukünftigen Kurse oder erfundenen Bewertungen ergänzt.</p></div></details>}
+      {!product && curve && <p className="app-notice">{curve.model === "current_holdings" ? "Keine historische Depotperformance. " : "Cashbewegungen werden am Tagesende berücksichtigt. "}{curve.message} · Bewertbare Tage {curve.complete_points ?? "–"}/{curve.total_points ?? curve.points.length}. Lücken werden nicht durch zukünftige Kurse ersetzt.</p>}
       {curve && !curve.points.some(point => point.portfolio_index != null) && <p role="status" className="app-notice">Für diese Auswahl fehlen vollständige Depotbewertungen. Die TR-Buchungen bleiben dokumentiert. Für die Depotkurve werden die historischen Tageskurse der damals gehaltenen Instrumente benötigt.</p>}
       <LineChartCard
         caption={
@@ -72,31 +79,31 @@ export function PortfolioCurvePanel() {
         dateTickMode="weekly"
         error={query.error}
         isLoading={query.isLoading}
-        points={curve?.points ?? []}
+        points={(curve?.points ?? []).map(point => ({ date: point.date, portfolio_index: point.portfolio_index, portfolio_index_sma10: point.portfolio_index_sma10, portfolio_index_sma21: point.portfolio_index_sma21, sp500_index: point.sp500_index }))}
         series={[
           {
             key: "portfolio_index",
             label: "Depotindex",
             color: "#34d399",
-            formatter: (value) => value.toFixed(2)
+            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           },
           {
             key: "portfolio_index_sma10",
             label: "SMA 10",
             color: "#60a5fa",
-            formatter: (value) => value.toFixed(2)
+            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           },
           {
             key: "portfolio_index_sma21",
             label: "SMA 21",
             color: "#fbbf24",
-            formatter: (value) => value.toFixed(2)
+            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           },
           {
             key: "sp500_index",
             label: "S&P 500",
             color: "#f472b6",
-            formatter: (value) => value.toFixed(2)
+            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           }
         ]}
         title="Depotkurve"

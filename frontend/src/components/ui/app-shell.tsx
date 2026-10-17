@@ -1,5 +1,7 @@
 "use client";
 
+import { useProductUi, UiModeSwitch } from "./ui-mode-provider";
+import { ProductSidebar, ProductBottomNav } from "./product-navigation";
 import clsx from "clsx";
 import { useBetaMode } from "@/components/beta-mode-provider";
 import {
@@ -64,6 +66,7 @@ function isActive(pathname: string, href: string, exact = false) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const product = useProductUi();
   const headerRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const element = headerRef.current;
@@ -71,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const observer = new ResizeObserver(() => document.documentElement.style.setProperty("--app-header-height", `${element.getBoundingClientRect().height}px`));
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [product]);
   const beta = useBetaMode();
   const pathname = usePathname();
   const currentPageLabel = pathname === "/sell-check" ? "Aktie frei prüfen" : pageLabel(pathname);
@@ -80,9 +83,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     : pageDescription(pathname);
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[268px_1fr]">
+    <div className={product ? "product-shell min-h-screen lg:grid lg:grid-cols-[232px_minmax(0,1fr)]" : "min-h-screen lg:grid lg:grid-cols-[268px_1fr]"}>
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:bg-white focus:p-3">Zum Inhalt</a>
-      <aside className="border-b border-[#e3e8ef] bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+      {product ? <ProductSidebar /> : <aside className="border-b border-[#e3e8ef] bg-white lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
         <div className="flex min-h-16 items-center gap-2.5 px-4">
           <div className="flex size-9 items-center justify-center rounded-[10px] bg-[#0f766e] text-white shadow-[0_6px_16px_rgba(15,118,110,0.18)]">
             <LineChart size={18} strokeWidth={2.2} />
@@ -128,19 +131,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-      </aside>
+      </aside>}
       <main id="main-content" tabIndex={-1} className="min-w-0">
         <header ref={headerRef} className={clsx(pathname === "/portfolio/imports" ? "relative lg:sticky" : "sticky", "top-0 z-10 border-b border-[#e3e8ef] bg-white/92 px-4 py-3 backdrop-blur md:px-6")}>
           <div className="mx-auto flex max-w-[1680px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0">
+            <div className="shell-page-heading min-w-0">
               <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>
               <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386] sm:text-sm">{currentPageDescription}</p>
             </div>
-            <HeaderTools />
+            <div className="shell-tools flex flex-wrap items-center gap-2"><UiModeSwitch /><HeaderTools compact={product} /></div>
           </div>
         </header>
         <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">{children}</div>
       </main>
+      {product && <ProductBottomNav />}
     </div>
   );
 }

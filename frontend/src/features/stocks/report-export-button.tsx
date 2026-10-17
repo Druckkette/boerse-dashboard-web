@@ -1,9 +1,11 @@
 "use client";
 
+import { useProductUi } from "@/components/ui/ui-mode-provider";
 import { useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 
 export function ReportExportButton({ ticker, tradeId }: { ticker: string; tradeId?: string }) {
+  const product = useProductUi();
   const [includeAppendix, setIncludeAppendix] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,9 @@ export function ReportExportButton({ ticker, tradeId }: { ticker: string; tradeI
   }
 
   return (
-    <div className="flex flex-col items-start gap-2">
+    <details open={product ? undefined : true} className="stock-export-details">
+      <summary className={product ? "cursor-pointer rounded-lg border px-3 py-2 text-sm font-medium" : "hidden"}>Weitere Aktionen · PDF</summary>
+    <div className="flex flex-col items-start gap-2 py-2">
       <button type="button" onClick={() => void download()} disabled={pending} aria-busy={pending}
         className="inline-flex items-center gap-2 rounded-[10px] border border-[#0f766e]/30 bg-[#e6f5f2] px-3 py-2 text-sm font-medium text-[#0f766e] hover:bg-[#d5eee8] disabled:cursor-wait disabled:opacity-60">
         {pending ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
@@ -58,6 +62,6 @@ export function ReportExportButton({ ticker, tradeId }: { ticker: string; tradeI
       </button>
       <label className="flex items-center gap-2 text-xs text-[#687386]"><input type="checkbox" checked={includeAppendix} disabled={pending} onChange={(event) => setIncludeAppendix(event.target.checked)} />Technischen Anhang einschließen</label>
       {error ? <p role="alert" className="max-w-sm text-sm text-[#c2413b]">{error}</p> : null}
-    </div>
+    </div></details>
   );
 }

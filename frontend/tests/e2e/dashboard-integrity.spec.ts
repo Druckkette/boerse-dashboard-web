@@ -3,7 +3,8 @@ import { test, expect } from "@playwright/test";
 test.use({ baseURL: "http://127.0.0.1:18300", httpCredentials: { username: "owner", password: "test-only-private-password" } });
 const position = { ticker: "TEST", name: "Test holding", shares: 50, entry_price: 10, current_price: 15, currency: "EUR", market_value: 750, pnl_abs: 250, pnl_pct: 50, weight_pct: 75, status: "ok", stop_price: 12, price_as_of: "2026-10-15", atr_pct: null, risk_contribution: null, beta_balancer_score: null, position_loss_risk: 150, position_loss_risk_pct: 15 };
 
-for (const width of [1440, 390]) test(`stop validation and transparent portfolio analysis at ${width}px`, async ({ page }) => {
+for (const mode of ["product", "classic"]) for (const width of [1440, 390]) test(`stop validation and transparent portfolio analysis at ${width}px (${mode})`, async ({ page }) => {
+  await page.context().addCookies([{name:"dashboard-ui",value:mode,url:"http://127.0.0.1:18300"}]);
   await page.setViewportSize({ width, height: 1000 });
   const writes: unknown[] = [], errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -30,7 +31,7 @@ for (const width of [1440, 390]) test(`stop validation and transparent portfolio
   await page.getByRole("button", { name: "Szenarien", exact: true }).click();
   await expect(page).toHaveURL(/portfolio=/);
   await expect(page.getByText("Statische Szenarien", { exact: true })).toBeVisible();
-  if (width === 390) await expect(page.getByRole("combobox", { name: "Bereich öffnen" })).toBeVisible();
+  if (width === 390) await expect(mode === "classic" ? page.getByRole("combobox", { name: "Bereich öffnen" }) : page.getByRole("navigation", { name: "Mobile Hauptnavigation" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   expect(errors).toEqual([]);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -67,6 +68,7 @@ test("portfolio curve distinguishes a usable simulation from unavailable histori
   await page.goto("/portfolio");
   await expect(page.getByRole("heading", { name: "Simulation des heutigen Bestands", exact: true })).toBeVisible();
   await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(1);
+  await page.getByText("Darstellung & Zeitraum ändern", {exact:true}).click();
   await page.getByRole("combobox", { name: "Darstellung", exact: true }).selectOption("execution_history");
   await expect(page.getByRole("status").filter({ hasText: "Für diese Auswahl fehlen vollständige Depotbewertungen" })).toBeVisible();
   await expect(page.locator('path[stroke="#34d399"]')).toHaveCount(0);
@@ -83,6 +85,7 @@ test("automatic portfolio curve keeps the TR ledger and January basis", async ({
     return route.fulfill({ json: { model: "execution_history", source: "trade_republic_transactions", data_status: "limited", as_of: "2026-10-15", base_date: "2026-01-01", complete_points: 2, total_points: 2, message: "Bestand und Cash aus sämtlichen TR-Buchungen rekonstruiert.", points: ["2026-01-01", "2026-01-02"].map((date, index) => ({ date, portfolio_index: 100 + index, sp500_index: 100 + index, depot_value: 1000 + index * 10, positions_value: 200 + index * 10, cash: 800 })) } });
   });
   await page.goto("/portfolio");
+  await page.getByText("Darstellung & Zeitraum ändern", {exact:true}).click();
   await page.getByRole('textbox', { name: 'Startdatum', exact: true }).fill("2026-01-01");
   await expect(page.getByRole("heading", { name: "Depotkurve aus Ausführungen", exact: true })).toBeVisible();
   await expect(page.getByText("Basis 2026-01-01 · Stand 2026-10-15", { exact: true })).toBeVisible();
@@ -99,6 +102,7 @@ test("open portfolio rolls over at Berlin midnight and renders the shared single
     return route.fulfill({ json: { model: "execution_history", source: "trade_republic_transactions", data_status: "fresh", as_of: start, base_date: start, complete_points: 1, total_points: 1, message: "TR-Jahresanfang", points: [{ date: start, portfolio_index: 100, sp500_index: 100, depot_value: 1000, positions_value: 500, cash: 500 }] } });
   });
   await page.goto("/portfolio");
+  await page.getByText("Darstellung & Zeitraum ändern", {exact:true}).click();
   const input = page.getByRole("textbox", { name: "Startdatum", exact: true });
   await expect(input).toHaveValue("2026-01-01");
   await page.clock.runFor(1000);

@@ -1,5 +1,6 @@
 "use client";
 
+import { useProductUi, useUiDraft } from "@/components/ui/ui-mode-provider";
 import {
   ColumnDef,
   VisibilityState,
@@ -37,6 +38,7 @@ export function PositionTable({
   positions: PortfolioPosition[];
   afterHoursByTicker?: Map<string, PortfolioAfterHoursPosition>;
 }) {
+  const product = useProductUi();
   const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([{ id: "market_value", desc: true }]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
@@ -44,10 +46,10 @@ export function PositionTable({
 
   useEffect(() => {
     setSorting(readStoredState<SortingState>(SORT_KEY, [{ id: "market_value", desc: true }]));
-    setColumnVisibility(readStoredState<VisibilityState>(VISIBILITY_KEY, {}));
-  }, []);
+    setColumnVisibility(readStoredState<VisibilityState>(product ? `${VISIBILITY_KEY}-product` : VISIBILITY_KEY, product ? { atr_pct: false, beta_balancer_score: false, risk_contribution: false, position_loss_risk: false, pnl_abs: false, current_price: false, weight_pct: false } : {}));
+  }, [product]);
   useEffect(() => { window.localStorage.setItem(SORT_KEY, JSON.stringify(sorting)); }, [sorting]);
-  useEffect(() => { window.localStorage.setItem(VISIBILITY_KEY, JSON.stringify(columnVisibility)); }, [columnVisibility]);
+  useEffect(() => { window.localStorage.setItem(product ? `${VISIBILITY_KEY}-product` : VISIBILITY_KEY, JSON.stringify(columnVisibility)); }, [columnVisibility, product]);
 
   const columns = useMemo<ColumnDef<PortfolioPosition>[]>(() => [
     {
@@ -105,7 +107,8 @@ export function PositionTable({
     <section id="positionen" className="overflow-hidden rounded-[14px] border border-[#e3e8ef] bg-white shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
       <div className="flex items-center justify-between gap-3 border-b border-[#e8edf2] px-4 py-3">
         <div><h2 className="text-sm font-semibold text-[#172033]">Positionen</h2><p className="mt-0.5 text-xs text-[#687386]">Sortierung und sichtbare Spalten werden in diesem Browser gespeichert.</p></div>
-        <details className="relative">
+        {product && <label className="shrink-0 text-xs md:hidden">Sortierung<select className="input-dark mt-1 !w-auto" value={`${sorting[0]?.id || "market_value"}:${sorting[0]?.desc ? "desc" : "asc"}`} onChange={event=>{ const [id,direction]=event.target.value.split(":"); setSorting([{id,desc:direction === "desc"}]); }}><option value="market_value:desc">Wert ↓</option><option value="daily_pnl_abs:asc">Tagesverlust zuerst</option><option value="ticker:asc">Ticker A–Z</option></select></label>}
+        <details className={product ? "relative hidden md:block" : "relative"}>
           <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-[9px] border border-[#d8e1ea] px-3 text-sm font-medium text-[#172033]"><Columns3 size={15} /> Spalten</summary>
           <div className="absolute right-0 z-20 mt-2 w-56 rounded-[10px] border border-[#d8e1ea] bg-white p-2 shadow-[0_14px_32px_rgba(15,23,42,0.14)]">
             {table.getAllLeafColumns().filter((column) => column.getCanHide()).map((column) => (
@@ -123,7 +126,7 @@ export function PositionTable({
       </div>
 
       <div ref={scrollParentRef} className="hidden max-h-[520px] overflow-auto md:block">
-        <table className="w-full min-w-[1320px] border-collapse text-sm">
+        <table className={`w-full ${product ? "min-w-[780px]" : "min-w-[1320px]"} border-collapse text-sm`}>
           <thead className="sticky top-0 z-10 bg-[#f6f8fb] text-left text-[10px] uppercase tracking-[0.06em] text-[#687386]">
             {table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => (
               <th key={header.id} className="border-b border-[#e3e8ef] px-3 py-3 font-semibold">
@@ -152,6 +155,7 @@ export function PositionTable({
 }
 
 function MobilePositionCard({ position, quote }: { position: PortfolioPosition; quote?: PortfolioAfterHoursPosition }) {
+  const product = useProductUi();
   const implausible = position.entry_price <= 0 || position.current_price <= 0;
   return <div className="p-4">
     <div className="flex items-start justify-between gap-3">
@@ -160,10 +164,10 @@ function MobilePositionCard({ position, quote }: { position: PortfolioPosition; 
     </div>
     <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
       <MobileMetric label="Wert" value={formatMoney(position.market_value, position.currency, 0)} />
-      <MobileMetric label="P&L" value={formatPercent(position.pnl_pct)} tone={position.pnl_pct >= 0 ? "good" : "bad"} />
+      {!product && <MobileMetric label="P&L" value={formatPercent(position.pnl_pct)} tone={position.pnl_pct >= 0 ? "good" : "bad"} />}
       <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2"><div className="text-[10px] uppercase text-[#687386]">G/V zum Vortagsschluss</div><DailyChangeCell position={position} /></div>
-      <MobileMetric label="Kurs" value={formatMoney(position.current_price, position.currency)} />
-      <div className="rounded-[8px] bg-[#f7f9fb] px-2.5 py-2">
+      {!product && <MobileMetric label="Kurs" value={formatMoney(position.current_price, position.currency)} />}
+      <div className={`${product ? "col-span-2" : ""} rounded-[8px] bg-[#f7f9fb] px-2.5 py-2`}>
         <div className="text-[10px] uppercase text-[#687386]">Stopp {position.currency} bearbeiten</div>
         <StopPriceCell
           key={`${position.ticker}-${position.stop_price ?? "none"}-mobile`}
@@ -173,6 +177,7 @@ function MobilePositionCard({ position, quote }: { position: PortfolioPosition; 
       </div>
       {quote?.available ? <MobileMetric label="After Market" value={formatPercent(quote.after_hours_change_pct)} tone={(quote.after_hours_change_pct ?? 0) >= 0 ? "good" : "bad"} /> : null}
     </div>
+    {product && <details className="mt-2"><summary className="cursor-pointer text-sm font-medium text-[#526174]">Positionsdetails</summary><dl className="grid grid-cols-2 gap-3 py-3 text-sm"><div><dt>Gesamtergebnis</dt><dd>{formatPercent(position.pnl_pct)}</dd></div><div><dt>Gewichtung</dt><dd>{formatPercent(position.weight_pct, 1, false)}</dd></div><div><dt>Kurs</dt><dd>{formatMoney(position.current_price, position.currency)}</dd></div><div><dt>Kursstand</dt><dd>{position.price_as_of}</dd></div></dl></details>}
   </div>;
 }
 
@@ -201,8 +206,10 @@ function SignedValue({ value, suffix, digits = 1 }: { value: number; suffix: str
 }
 
 function StopPriceCell({ position, mobile = false }: { position: PortfolioPosition; mobile?: boolean }) {
+  const product = useProductUi();
   const queryClient = useQueryClient();
   const [value, setValue] = useState(formatEditableNumber(position.stop_price));
+  useUiDraft(value !== formatEditableNumber(position.stop_price));
   const mutation = useMutation({
     mutationFn: (stopPrice: number | null) => api.updatePortfolioStop(position.ticker, stopPrice),
     onSuccess: () => invalidatePortfolioTable(queryClient)
@@ -218,25 +225,25 @@ function StopPriceCell({ position, mobile = false }: { position: PortfolioPositi
   const currentStop = typeof position.stop_price === "number" ? position.stop_price : null;
   const parsed = positiveDecimalInput(value);
   const isDirty = parsed.kind === "value" && !numbersEqual(parsed.value, currentStop);
-  return <div className={`flex items-center gap-2 ${mobile ? "mt-1" : ""}`} onClick={(event) => event.stopPropagation()}>
+  return <div className={`flex flex-wrap items-center gap-2 ${mobile ? "mt-1" : ""}`} onClick={(event) => event.stopPropagation()}>
     <input
       aria-label={`${position.ticker} Stopp ${position.currency}`}
       aria-invalid={parsed.kind === "invalid" || (parsed.kind === "empty" && currentStop !== null)}
       className={`${mobile ? "h-9 min-w-0 flex-1" : "h-8 w-24"} rounded-[7px] border border-[#d8e1ea] bg-white px-2 text-right text-sm tabular-nums text-[#172033] outline-none focus:border-[#0f766e]`}
       inputMode="decimal" placeholder="–" value={value} disabled={mutation.isPending}
-      onBlur={save} onChange={(event) => setValue(event.target.value)}
-      onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { event.preventDefault(); setValue(formatEditableNumber(position.stop_price)); } }}
+      onBlur={product ? undefined : save} onChange={(event) => setValue(event.target.value)}
+      onKeyDown={(event) => { if (event.key === "Enter") { if (product) save(); else event.currentTarget.blur(); } if (event.key === "Escape") { event.preventDefault(); setValue(formatEditableNumber(position.stop_price)); } }}
     />
-    {mobile ? (
+    {mobile || product ? (
       <button
         aria-label={`${position.ticker} Stopp speichern`}
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[7px] bg-[#0f766e] text-white transition hover:bg-[#0b5f59] disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-9 shrink-0 px-3 items-center justify-center rounded-[7px] bg-[#0f766e] text-white transition hover:bg-[#0b5f59] disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!isDirty || mutation.isPending}
         title="Stopp speichern"
         type="button"
         onClick={save}
       >
-        <Check size={16} />
+        {product ? "Speichern" : <Check size={16} />}
       </button>
     ) : null}
     {currentStop !== null && <button type="button" className="text-xs underline" disabled={mutation.isPending} aria-label={`${position.ticker} Stopp entfernen`} onClick={() => mutation.mutate(null)}>Entfernen</button>}

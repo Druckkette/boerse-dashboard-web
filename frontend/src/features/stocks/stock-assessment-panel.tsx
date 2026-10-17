@@ -1,4 +1,5 @@
 "use client";
+import { ProductDetails } from "@/components/ui/product-details";
 import { useBetaMode } from "@/components/beta-mode-provider";
 
 import { AlertTriangle, CalendarClock, CheckCircle2, Gauge, TrendingUp, XCircle } from "lucide-react";
@@ -91,6 +92,7 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
         </div>
       </div>
 
+      <ProductDetails title="Teilbewertungen & Kennzahlen">
       <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
         <ScoreCard label="Technical" value={assessment.scores.technical} detail="RS Leadership, Dynamics, Rating, Highs und Akkumulation" />
         <ScoreCard
@@ -117,6 +119,7 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
         )}
       </div>
 
+      </ProductDetails>
       {assessment.earnings && (
         <div className={earningsBoxClass(assessment.earnings.tone)}>
           <CalendarClock className="mt-0.5 size-4 shrink-0" />
@@ -130,7 +133,7 @@ function AssessmentContent({ assessment, mode }: { assessment: StockAssessment; 
       </div>
       </> : null}
 
-      <AssessmentV2Breakdown assessment={assessment} mode={mode} />
+      <ProductDetails title="Bewertung nachvollziehen · Kriterien & Gewichte"><AssessmentV2Breakdown assessment={assessment} mode={mode} /></ProductDetails>
 
       {mode !== "overview" ?
       <div className="flex flex-col gap-4">
