@@ -14,7 +14,6 @@ import { StockDetailActions } from "@/features/stocks/stock-detail-actions";
 import { StockFundamentalsPanel } from "@/features/stocks/stock-fundamentals-panel";
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { StockRsPanel } from "@/features/stocks/stock-rs-panel";
-import { StockInsights } from "./stock-insights";
 import { StockSignalChangesPanel } from "@/features/stocks/stock-signal-changes-panel";
 
 const tabs = [
@@ -41,7 +40,7 @@ export function StockDetailTabs({ ticker }: { ticker: string }) {
       {tabs.map((tab) => { const Icon = tab.icon; const selected = active === tab.key; return <button key={tab.key} aria-current={selected ? "page" : undefined} className={`inline-flex h-9 min-w-fit items-center gap-2 rounded-[9px] px-3 text-sm font-semibold transition ${selected ? "bg-[#0f766e] text-white" : "text-[#687386] hover:bg-[#f3f6f8] hover:text-[#172033]"}`} type="button" onClick={() => setActive(tab.key)}><Icon size={15} />{tab.label}</button>; })}
     </nav>
     {!beta && !product && <StockDetailActions key={ticker} ticker={ticker} />}
-    {active === "overview" ? <>{!product && <IndustryGroupPanel ticker={ticker} />}<StockAssessmentPanel ticker={ticker} mode="overview" />{product && <><StockPricePanel ticker={ticker} title="Kurs und Relative Stärke" /><ProductDetails title="Branche & Einordnung"><IndustryGroupPanel ticker={ticker} /></ProductDetails></>}<StockSignalChangesPanel ticker={ticker} /><StockInsights ticker={ticker} /></> : null}
+    {active === "overview" ? <>{!product && <IndustryGroupPanel ticker={ticker} />}<StockAssessmentPanel ticker={ticker} mode="overview" />{product && <><StockPricePanel ticker={ticker} title="Kurs und Relative Stärke" /><ProductDetails title="Branche & Einordnung"><IndustryGroupPanel ticker={ticker} /></ProductDetails></>}<StockSignalChangesPanel ticker={ticker} /></> : null}
     {active === "technical" ? <><StockAssessmentPanel ticker={ticker} mode="technical" /><StockRsPanel ticker={ticker} /></> : null}
     {active === "fundamental" ? <StockFundamentalsPanel ticker={ticker} /> : null}
     {active === "chart" ? <StockPricePanel ticker={ticker} title="Kurs und Relative Stärke" /> : null}

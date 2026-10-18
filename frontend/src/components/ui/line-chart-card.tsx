@@ -122,7 +122,6 @@ export function LineChartCard({
 }: LineChartCardProps) {
   const product = useProductUi();
   const [interact, setInteract] = useState(false);
-  const [tableOpen, setTableOpen] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -167,11 +166,6 @@ export function LineChartCard({
     ],
     [series, subSeries, volumeSeries]
   );
-
-  const tableSeries = useMemo(() => [...new Map([
-    ...(chartMode === "candlestick" ? [{ key: "open", label: "Eröffnung" }, { key: "high", label: "Hoch" }, { key: "low", label: "Tief" }, { key: "close", label: "Schlusskurs" }] : []),
-    ...series, ...subSeries, ...volumeSeries, ...(volumeKey ? [{key: volumeKey, label: volumeLabel}] : [])
-  ].map(item => [item.key, item])).values()], [chartMode, series, subSeries, volumeSeries, volumeKey, volumeLabel]);
 
   const isZoomed = points.length > 0 && (normalizedRange.start > 0 || normalizedRange.end < points.length - 1);
   const hasSubChart = subSeries.length > 0;
@@ -410,7 +404,7 @@ export function LineChartCard({
 
         {!isLoading && !hasError && !empty && (
           <svg className="size-full" preserveAspectRatio="none" role="img" viewBox={`0 0 ${canvasWidth} ${HEIGHT}`}>
-            <title>{product ? `${title}: Chart. Zum Ablesen und Verschieben den Interaktionsmodus aktivieren. Die Datentabelle bietet sämtliche Werte per Tastatur.` : `${title}: interaktiver Chart. Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück.`}</title>
+            <title>{product ? `${title}: Chart. Zum Ablesen und Verschieben den Interaktionsmodus aktivieren.` : `${title}: interaktiver Chart. Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück.`}</title>
             <rect fill="var(--panel)" height={HEIGHT} width={canvasWidth} />
 
             {showHorizontalGrid && priceScale.ticks.map((tick) => {
@@ -595,7 +589,6 @@ export function LineChartCard({
           ))}
         </div>
       )}
-      {product && <details className="mt-3 border-t border-[var(--border)] pt-2" onToggle={event => setTableOpen(event.currentTarget.open)}><summary className="cursor-pointer text-sm font-medium">Chartwerte als Tabelle</summary>{tableOpen && <div role="region" aria-label={`${title}: Datentabelle`} tabIndex={0} className="mt-3 max-h-80 overflow-auto"><table className="w-full text-right text-sm tabular-nums"><caption className="sr-only">{title}. Fehlende Werte werden ausdrücklich ausgewiesen.</caption><thead><tr><th scope="col" className="p-2 text-left">Datum</th>{tableSeries.map(item => <th scope="col" className="p-2" key={item.key}>{item.label}</th>)}</tr></thead><tbody>{points.map((point, index) => <tr key={`${point.date}-${index}`}><th scope="row" className="whitespace-nowrap p-2 text-left font-normal">{formatLongDate(point.date)}</th>{tableSeries.map(item => <td className="whitespace-nowrap p-2" key={item.key}>{toNumber(point[item.key]) === null ? (item.key === "portfolio_index" ? "Nicht bewertet" : "Nicht verfügbar") : formatNumber(toNumber(point[item.key]), 2)}</td>)}</tr>)}</tbody></table></div>}</details>}
     </section>
   );
 }

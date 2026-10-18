@@ -193,7 +193,7 @@ test("stop draft survives focus changes, blocks view switching and saves only ex
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
   ).toBeEnabled();
 });
-test("chart defaults to scrolling, exposes true gaps, offers deliberate touch mode and a keyboard-readable table", async ({
+test("chart defaults to scrolling, exposes true gaps, offers deliberate touch mode without a redundant data table", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -217,16 +217,8 @@ test("chart defaults to scrolling, exposes true gaps, offers deliberate touch mo
       { exact: true },
     ),
   ).toBeVisible();
-  await chart.getByText("Chartwerte als Tabelle", { exact: true }).click();
-  await expect(chart.getByRole("table")).toBeVisible();
-  const missingRow = chart.getByRole("row").filter({
-    has: page.getByRole("rowheader", { name: "05.01.2026", exact: true }),
-  });
-  await expect(missingRow.getByRole("cell").first()).toHaveText(
-    "Nicht bewertet",
-  );
-  await expect(missingRow.getByRole("cell").last()).toHaveText("102");
-  await expect(chart.getByRole("row")).toHaveCount(31);
+  await expect(chart.getByText("Chartwerte als Tabelle", { exact: true })).toHaveCount(0);
+  await expect(chart.getByRole("table")).toHaveCount(0);
   await chart
     .getByRole("button", { name: "In den Chart hineinzoomen" })
     .click();
