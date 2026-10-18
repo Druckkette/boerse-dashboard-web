@@ -490,9 +490,11 @@ def _institutional_13f_freshness(
         "required_report_period": required_period.isoformat(),
         "next_report_period": next_period.isoformat(),
         "next_due_date": next_due_date.isoformat(),
+        "report_period_current": bool(latest_period and latest_period >= required_period),
     }
     if coverage is not None:
         metadata.update(coverage)
+        metadata["coverage_complete"] = coverage["current_count"] == coverage["expected_count"]
         detail += f" Aktuelles 13F für {coverage['current_count']} von {coverage['expected_count']} Aktien im aktiven Universum; {coverage['missing_count']} fehlen, {coverage['stale_count']} sind veraltet."
     if latest_period is None:
         return _missing("institutional_13f", detail=detail, metadata=metadata)

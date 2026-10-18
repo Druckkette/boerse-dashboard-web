@@ -327,8 +327,8 @@ def _institutional_13f_step(
     payload = {
         "mode": "incremental",
         "source": "setup",
-        "universe": "open_positions",
-        "limit_universe": 500,
+        "universe": "us_common_stocks",
+        "limit_universe": 10000,
         "dataset_count": 2,
     }
     if _is_active(latest_job):
@@ -353,11 +353,20 @@ def _institutional_13f_step(
             action_label="13F laden",
         )
     if freshness.status == "stale":
+        metadata = freshness.metadata or {}
+        required = metadata.get("required_report_period", "")
+        period_current = bool(required and freshness.as_of and freshness.as_of >= required)
+        detail = (f"Berichtsperiode {freshness.as_of} ist fristgerecht aktuell. "
+                  f"Die Abdeckung ist unvollständig: {metadata.get('missing_count', 0)} Aktien ohne Daten, "
+                  f"{metadata.get('stale_count', 0)} mit älteren Daten."
+                  if period_current else f"13F-Berichtsperiode {freshness.as_of} ist veraltet; erwartet wird {required or 'eine neuere Periode'}.")
+        if metadata.get("next_due_date"):
+            detail += f" Nächste SEC-Frist: {metadata['next_due_date']}."
         return _job_step(
             key="institutional_13f",
             label="13F/SEC",
             status="warning",
-            detail=f"13F-Trends sind vorhanden, aber veraltet ({freshness.as_of}).",
+            detail=detail,
             job_type="refresh_sec13f",
             job_payload=payload,
             latest_job=latest_job,

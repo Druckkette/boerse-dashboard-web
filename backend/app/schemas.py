@@ -1004,11 +1004,21 @@ class Institutional13FTrendItem(BaseModel):
     source_url: str = ""
 
 
+class Preliminary13FReport(BaseModel):
+    report_period: str
+    holder_count: int
+    total_shares: float
+    total_value_usd: float
+    latest_filing_date: str | None = None
+
+
 class Institutional13FTrendResponse(BaseModel):
     ticker: str
     source: Literal["database", "missing"]
     as_of: str
     item: Institutional13FTrendItem | None = None
+    source_status: dict = Field(default_factory=dict)
+    preliminary: Preliminary13FReport | None = None
 
 
 class Institutional13FRankingResponse(BaseModel):

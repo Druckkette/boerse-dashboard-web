@@ -79,6 +79,13 @@ def refresh_institutional_13f_from_sec(
     *,
     progress_callback: ProgressCallback | None = None,
 ) -> dict:
+    with sec13f_repository.refresh_lock():
+        return _refresh_institutional_13f_from_sec(payload, progress_callback=progress_callback)
+
+
+def _refresh_institutional_13f_from_sec(
+    payload: dict[str, Any], *, progress_callback: ProgressCallback | None = None,
+) -> dict:
     universe = _resolve_universe(payload)
     manual_overrides = _load_manual_overrides()
     try:
@@ -104,6 +111,9 @@ def refresh_institutional_13f_from_sec(
         known_cusip_mappings=known_mappings,
     )
     known_overrides = {**known_mappings, **load_default_overrides(set(universe)), **manual_overrides}
+    if build_result.metadata.get("source_status"):
+        sec13f_repository.save_source_status(build_result.metadata["source_status"],
+                                             build_result.payload.get("preliminary_reports", {}), universe)
     revision = build_result.metadata.get("artifact_revision")
     try:
         checkpoint = _read_json_setting("sec13f_ingested_artifact")
@@ -173,13 +183,22 @@ def get_institutional_13f_for_ticker(ticker: str) -> Institutional13FTrendRespon
         row = sec13f_repository.get_latest_trend_for_ticker(clean)
     except Sec13FRepositoryUnavailable:
         row = None
+    try:
+        source_status, preliminary = sec13f_repository.source_status_for_ticker(clean)
+    except Sec13FRepositoryUnavailable:
+        source_status, preliminary = {}, None
+    if preliminary and row and preliminary["report_period"] <= row.report_period.isoformat():
+        preliminary = None
     if row is None:
-        return Institutional13FTrendResponse(ticker=clean, source="missing", as_of=date.today().isoformat(), item=None)
+        return Institutional13FTrendResponse(ticker=clean, source="missing", as_of=date.today().isoformat(),
+                                            item=None, source_status=source_status, preliminary=preliminary)
     return Institutional13FTrendResponse(
         ticker=clean,
         source="database",
         as_of=row.report_period.isoformat(),
         item=_row_to_item(row),
+        source_status=source_status,
+        preliminary=preliminary,
     )
 
 

@@ -48,6 +48,8 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
     }
   });
   const item = query.data?.item;
+  const preliminary = query.data?.preliminary;
+  const sourceStatus = query.data?.source_status;
   const refreshJob = refreshJobQuery.data;
   const refreshRunning = Boolean(refreshJob && !isTerminalJob(refreshJob));
 
@@ -119,6 +121,30 @@ export function Institutional13FPanel({ ticker }: { ticker: string }) {
           <Metric label="Marktwert" value={usd(item.total_value_usd)} detail={pct(item.total_value_delta_pct)} trend={item.total_value_delta_pct} />
           <Metric label="Aktien" value={compact(item.total_shares)} detail={pct(item.total_shares_delta_pct)} trend={item.total_shares_delta_pct} />
         </div>
+      )}
+      {preliminary && (
+        <div className="mt-4 rounded border border-sky-300/25 bg-[var(--blue-soft)] p-4 text-sm">
+          <div className="font-semibold">Neue Meldungen zum {preliminary.report_period} · vorläufig</div>
+          <p className="mt-1 text-[var(--muted)]">
+            Bisher melden {number(preliminary.holder_count)} Institutionen Bestände in {clean}:
+            {" "}{compact(preliminary.total_shares)} Aktien im Wert von {usd(preliminary.total_value_usd)}.
+            Das Quartal ist noch unvollständig. Diese Teilmenge wird deshalb nicht mit den gesamten
+            Halterzahlen des Vorquartals verglichen und fließt nicht in den Trend-Score ein.
+          </p>
+        </div>
+      )}
+      {sourceStatus?.checked_at && (
+        <p className="mt-4 text-xs text-[var(--muted)]">
+          SEC geprüft: {new Date(sourceStatus.checked_at).toLocaleString("de-DE")}.
+          {sourceStatus.latest_filing_date ? ` Neueste geladene Einreichung: ${sourceStatus.latest_filing_date}.` : ""}
+          {" "}Berichtsperiode und Veröffentlichungsdatum sind unterschiedliche Zeitpunkte.
+        </p>
+      )}
+      {Boolean(sourceStatus?.excluded_filings_count) && (
+        <p className="mt-2 text-xs text-[var(--yellow)]" role="status">
+          {sourceStatus?.excluded_filings_count} SEC-Meldung(en) enthalten widersprüchliche Quelldaten und
+          wurden separat archiviert. Sie ersetzen keine geprüften Bestände.
+        </p>
       )}
     </section>
   );

@@ -1548,6 +1548,21 @@ export type Institutional13FTrend = {
   source: "database" | "missing";
   as_of: string;
   item?: Institutional13FTrendItem | null;
+  source_status?: {
+    checked_at?: string;
+    latest_filing_date?: string;
+    latest_report_period?: string;
+    loaded_count?: number;
+    preliminary_filings_count?: number;
+    excluded_filings_count?: number;
+  };
+  preliminary?: {
+    report_period: string;
+    holder_count: number;
+    total_shares: number;
+    total_value_usd: number;
+    latest_filing_date?: string | null;
+  } | null;
 };
 
 export type Sec13FMappingItem = {

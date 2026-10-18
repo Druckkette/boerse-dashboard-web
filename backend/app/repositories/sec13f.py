@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.models import Institutional13FTrend, Instrument, Sec13fCusipMapping
-from app.db.session import SessionLocal
+from app.db.models import AppSetting, Institutional13FTrend, Instrument, Sec13fCusipMapping
+from app.db.session import SessionLocal, engine
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,56 @@ class Sec13FMappingRow:
 
 class Sec13FRepositoryUnavailable(RuntimeError):
     pass
+
+
+@contextmanager
+def refresh_lock():
+    from sqlalchemy import text
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        acquired = connection.scalar(text("SELECT pg_try_advisory_lock(7341503, 13)"))
+        if not acquired:
+            raise RuntimeError("Ein 13F-Quellenabgleich läuft bereits; bitte später erneut versuchen.")
+        try:
+            yield
+        finally:
+            connection.execute(text("SELECT pg_advisory_unlock(7341503, 13)"))
+
+
+def save_source_status(status: dict, preliminary: dict[str, dict], universe: list[str]) -> None:
+    from sqlalchemy import delete
+    from sqlalchemy.dialects.postgresql import insert
+    try:
+        with SessionLocal() as db:
+            # A restatement can remove the last reported position in a stock.
+            # Clear obsolete previews in this refresh's scope, never other stocks.
+            obsolete = [f"sec13f_preliminary:{ticker}" for ticker in universe if ticker not in preliminary]
+            for start in range(0, len(obsolete), 500):
+                db.execute(delete(AppSetting).where(AppSetting.key.in_(obsolete[start:start + 500])))
+            rows = [{"key": "sec13f_source_status", "value_json": status, "description": "EDGAR 13F source verification"}]
+            rows.extend({"key": f"sec13f_preliminary:{ticker}", "value_json": value,
+                         "description": "Incomplete 13F quarter; excluded from broad trend scores"}
+                        for ticker, value in preliminary.items())
+            for start in range(0, len(rows), 500):
+                statement = insert(AppSetting).values(rows[start:start + 500])
+                db.execute(statement.on_conflict_do_update(index_elements=["key"], set_={
+                    "value_json": statement.excluded.value_json, "updated_at": func.now()}))
+            db.commit()
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
+
+
+def source_status_for_ticker(ticker: str) -> tuple[dict, dict | None]:
+    try:
+        with SessionLocal() as db:
+            status = db.get(AppSetting, "sec13f_source_status")
+            early = db.get(AppSetting, f"sec13f_preliminary:{ticker}")
+            source = dict(status.value_json) if status else {}
+            preliminary = dict(early.value_json) if early else None
+            if preliminary and preliminary["report_period"] <= source.get("baseline_report_period", ""):
+                preliminary = None
+            return source, preliminary
+    except SQLAlchemyError as exc:
+        raise Sec13FRepositoryUnavailable(str(exc)) from exc
 
 
 def list_known_cusip_mappings(tickers: list[str]) -> dict[str, str]:

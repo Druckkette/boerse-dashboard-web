@@ -152,8 +152,10 @@ def test_13f_universe_is_not_truncated_to_5000():
 
 
 def test_unchanged_13f_artifacts_are_not_written_again(monkeypatch):
+    from contextlib import nullcontext
     from app.services import sec13f
     from app.data_sources.sec13f_client import Sec13FBuildResult
+    monkeypatch.setattr(sec13f.sec13f_repository, "refresh_lock", nullcontext)
     monkeypatch.setattr(sec13f, "_resolve_universe", lambda payload: ["NVDA"])
     monkeypatch.setattr(sec13f, "_load_manual_overrides", lambda: {})
     monkeypatch.setattr(sec13f, "get_runtime_config_value", lambda key: "test")

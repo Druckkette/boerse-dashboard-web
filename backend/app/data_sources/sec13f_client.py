@@ -9,7 +9,7 @@ import hashlib
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, asdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -167,6 +167,25 @@ def build_institutional_13f_payload(
         {"dataset_count": len(dataset_links)},
     )
     zip_paths = [download_dataset(link, cache_dir, sec_user_agent=sec_user_agent) for link in dataset_links]
+    submission_indexes = [load_submission_index(path) for path in zip_paths]
+    bulk_submissions = pd.concat(submission_indexes, ignore_index=True)
+    periods = sorted({day.isoformat() for day in bulk_submissions["period_date"]}, reverse=True)
+    if len(periods) < 2:
+        raise RuntimeError("Not enough 13F reporting periods found for a trend comparison.")
+    from app.data_sources.sec13f_live import build_live_dataset, bulk_comparison_periods
+    from calendar import monthrange
+    end_year, end_month, end_day = dataset_links[0].sort_key
+    latest_dataset_end = date(end_year, end_month, min(end_day, monthrange(end_year, end_month)[1]))
+    current_period, previous_period = bulk_comparison_periods(latest_dataset_end)
+    if current_period not in periods or previous_period not in periods:
+        raise RuntimeError("SEC bulk datasets do not contain the expected comparison quarters.")
+    live_path, source_status = build_live_dataset(
+        since=latest_dataset_end + timedelta(days=1), baseline=current_period,
+        previous=previous_period, cache_dir=cache_dir, user_agent=sec_headers(sec_user_agent)["User-Agent"],
+        progress=progress,
+    )
+    zip_paths.append(live_path)
+    submission_indexes.append(load_submission_index(live_path))
     records = fetch_sec_company_symbol_records(tickers, sec_user_agent=sec_user_agent)
     records.extend(record for record in (symbol_aliases or []) if record.ticker in tickers)
     fingerprint = hashlib.sha256(json.dumps({
@@ -176,6 +195,7 @@ def build_institutional_13f_payload(
         "symbols": [asdict(record) for record in records],
         "minimum_value": large_holder_min_value_usd,
         "engine": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "live_engine": hashlib.sha256(Path(__file__).with_name("sec13f_live.py").read_bytes()).hexdigest(),
     }, sort_keys=True).encode()).hexdigest()
     result_cache = cache_dir / "latest-aggregation.json"
     try:
@@ -183,20 +203,19 @@ def build_institutional_13f_payload(
         if cached.get("fingerprint") == fingerprint:
             result = Sec13FBuildResult(**cached["result"])
             result.metadata["aggregation_reused"] = True
+            result.metadata["source_status"] = source_status
             return result
     except (OSError, ValueError, KeyError, TypeError):
         pass
 
     _emit(progress, 28, "Submission-Index lesen", "13F-HR-Submissions werden gefiltert.", {})
-    submission_indexes = [load_submission_index(path) for path in zip_paths]
     all_submissions = pd.concat(submission_indexes, ignore_index=True)
     period_counts = (
         all_submissions.groupby("period_date")["ACCESSION_NUMBER"].nunique().sort_index(ascending=False)
     )
-    periods = [period.isoformat() for period in period_counts.index.tolist()]
-    if len(periods) < 2:
-        raise RuntimeError("Not enough 13F reporting periods found for a trend comparison.")
-    current_period, previous_period = periods[0], periods[1]
+    # Early individual filings must not promote an incomplete quarter to the
+    # universe-wide baseline. Retain it separately as an explicitly partial view.
+    early_periods = {period.isoformat() for period in period_counts.index if period.isoformat() > current_period}
 
     _emit(
         progress,
@@ -208,7 +227,7 @@ def build_institutional_13f_payload(
     holdings, cusip_meta = process_holdings(
         zip_paths=zip_paths,
         submission_indexes=submission_indexes,
-        target_periods={current_period, previous_period},
+        target_periods={current_period, previous_period, *early_periods},
         large_holder_min_value_usd=large_holder_min_value_usd,
         chunksize=chunksize,
     )
@@ -246,7 +265,15 @@ def build_institutional_13f_payload(
         "current_cusip_mapping_coverage": float(len(mapped_current_cusips) / max(len(current_cusips), 1)),
         "matched_tickers": int(ticker_agg["ticker"].nunique()) if not ticker_agg.empty else 0,
         "manager_names_included": False,
+        "source_status": source_status,
     }
+    preliminary_reports = {}
+    if early_periods:
+        latest_early = max(early_periods)
+        for row in _dataframe_records(ticker_agg[ticker_agg["period"] == latest_early]):
+            preliminary_reports[row["ticker"]] = {"report_period": latest_early,
+                "holder_count": row["holder_count"], "total_shares": row["total_shares"],
+                "total_value_usd": row["total_value_usd"], "latest_filing_date": source_status["latest_filing_date"]}
     payload, rows = build_outputs(ticker_agg, mapping, holdings, current_period, previous_period, metadata)
     unmatched_enriched = enrich_unmatched_cusips(unmatched, holdings, current_period)
     _emit(
@@ -257,6 +284,7 @@ def build_institutional_13f_payload(
         {"records_seen": len(rows), "matched_tickers": metadata["matched_tickers"]},
     )
     metadata["artifact_revision"] = fingerprint
+    payload["preliminary_reports"] = preliminary_reports
     result = Sec13FBuildResult(
         payload=payload,
         mapping_rows=_dataframe_records(mapping),
@@ -421,6 +449,11 @@ def load_submission_index(zip_path: Path) -> pd.DataFrame:
                 dtype=str,
                 usecols=["ACCESSION_NUMBER", "FILING_DATE", "SUBMISSIONTYPE", "CIK", "PERIODOFREPORT"],
             )
+        if "COVERPAGE.tsv" in zf.namelist():
+            with zf.open("COVERPAGE.tsv") as handle:
+                cover = pd.read_csv(handle, sep="\t", dtype=str,
+                                    usecols=lambda name: name in {"ACCESSION_NUMBER", "AMENDMENTTYPE", "AMENDMENTNO"}).fillna("")
+            df = df.merge(cover, on="ACCESSION_NUMBER", how="left")
     df["period_date"] = df["PERIODOFREPORT"].map(parse_sec_date)
     df["filing_date"] = df["FILING_DATE"].map(parse_sec_date)
     cik_digits = df["CIK"].astype(str).str.replace(r"\D", "", regex=True)
@@ -446,9 +479,13 @@ def process_holdings(
     large_holder_min_value_usd: float,
     chunksize: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    from app.data_sources.sec13f_live import effective_submissions
+    effective = effective_submissions([
+        frame[frame["period_date"].map(lambda day: day.isoformat()).isin(target_periods)]
+        for frame in submission_indexes])
     accession_to_period: dict[str, str] = {}
     accession_to_cik: dict[str, str] = {}
-    for df in submission_indexes:
+    for df in [effective]:
         target_rows = df[df["period_date"].map(lambda d: d.isoformat()).isin(target_periods)]
         for _, row in target_rows.iterrows():
             accession = str(row["ACCESSION_NUMBER"])
