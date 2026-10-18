@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import AppSetting, Institutional13FTrend, Instrument, Sec13fCusipMapping
@@ -158,6 +158,15 @@ def upsert_aggregate_trends(rows: list[Institutional13FTrendWrite]) -> int:
                     )
                     db.add(mapping)
 
+                # A repaired representative CUSIP must not leave an obsolete
+                # aggregate for the same ticker and quarter shadowing this one.
+                db.execute(delete(Institutional13FTrend).where(
+                    Institutional13FTrend.ticker == ticker,
+                    Institutional13FTrend.manager_cik == "AGGREGATE",
+                    Institutional13FTrend.report_period == item.report_period,
+                    Institutional13FTrend.cusip != cusip,
+                ))
+
                 row = db.scalars(
                     select(Institutional13FTrend).where(
                         Institutional13FTrend.cusip == cusip,
@@ -199,7 +208,8 @@ def get_latest_trend_for_ticker(ticker: str) -> Institutional13FTrendRow | None:
         with SessionLocal() as db:
             row = db.scalars(
                 select(Institutional13FTrend)
-                .where(Institutional13FTrend.ticker == clean)
+                .where(Institutional13FTrend.ticker == clean,
+                       Institutional13FTrend.manager_cik == "AGGREGATE")
                 .order_by(Institutional13FTrend.report_period.desc())
                 .limit(1)
             ).first()

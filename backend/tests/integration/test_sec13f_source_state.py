@@ -4,11 +4,12 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, select
+from datetime import date
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import AppSetting
+from app.db.models import AppSetting, Institutional13FTrend, Instrument, Sec13fCusipMapping
 from app.repositories import sec13f
 
 
@@ -25,6 +26,9 @@ def database(monkeypatch):
     keys = ["T" + uuid4().hex[:10].upper() for _ in range(2)]
     yield keys
     with sessions() as db:
+        db.execute(delete(Institutional13FTrend).where(Institutional13FTrend.ticker.in_(keys)))
+        db.execute(delete(Sec13fCusipMapping).where(Sec13fCusipMapping.ticker.in_(keys)))
+        db.execute(delete(Instrument).where(Instrument.ticker.in_(keys)))
         db.execute(
             delete(AppSetting).where(
                 AppSetting.key.in_(
@@ -60,3 +64,43 @@ def test_parallel_refresh_cannot_overwrite_a_newer_snapshot(database):
                 pytest.fail("Concurrent refresh admitted")
     with sec13f.refresh_lock():
         pass
+
+
+def test_cusip_repair_replaces_obsolete_aggregate_but_preserves_history_and_manager_rows(database):
+    ticker = database[0]
+    old, new = "D" + uuid4().hex[:8].upper(), "E" + uuid4().hex[:8].upper()
+    period = date(2026, 6, 30)
+
+    def write(cusip, report_period, shares):
+        return sec13f.Institutional13FTrendWrite(
+            ticker=ticker,
+            cusip=cusip,
+            report_period=report_period,
+            filing_date=None,
+            shares=shares,
+            market_value_usd=shares * 100,
+            shares_change_pct=None,
+            holders_count=1,
+            source_url="https://www.sec.gov",
+            raw_json={"total_shares": shares},
+        )
+
+    sec13f.upsert_aggregate_trends([write(old, period, 999)])
+    sec13f.upsert_aggregate_trends([write(old, date(2026, 3, 31), 10)])
+    with sec13f.SessionLocal() as db:
+        db.add(
+            Institutional13FTrend(
+                ticker=ticker, cusip=old, report_period=period, manager_cik="INDIVIDUAL", shares=123
+            )
+        )
+        db.commit()
+    sec13f.upsert_aggregate_trends([write(new, period, 20)])
+    assert sec13f.get_latest_trend_for_ticker(ticker).shares == 20
+    assert sec13f.get_latest_trends_for_tickers([ticker])[ticker].cusip == new
+    with sec13f.SessionLocal() as db:
+        rows = list(
+            db.scalars(select(Institutional13FTrend).where(Institutional13FTrend.ticker == ticker))
+        )
+    assert len(rows) == 3
+    assert any(row.report_period == date(2026, 3, 31) and row.shares == 10 for row in rows)
+    assert any(row.manager_cik == "INDIVIDUAL" and row.shares == 123 for row in rows)
