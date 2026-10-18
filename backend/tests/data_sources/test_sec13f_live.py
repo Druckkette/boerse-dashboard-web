@@ -307,3 +307,38 @@ def test_setup_distinguishes_coverage_from_stale_reporting_period():
     assert "10 Aktien ohne Daten" in step.detail
     assert "11-16" in step.detail
     assert step.job_payload["universe"] == "us_common_stocks"
+
+
+def test_historical_thousand_dollar_units_and_modern_dollar_units_are_preserved(tmp_path):
+    path = tmp_path / "units.zip"
+    submissions = [
+        {
+            "ACCESSION_NUMBER": str(n),
+            "CIK": "1",
+            "PERIODOFREPORT": period,
+            "FILING_DATE": "2023-05-01",
+            "SUBMISSIONTYPE": "13F-HR",
+        }
+        for n, period in enumerate(["2022-12-31", "2023-03-31"], 1)
+    ]
+    holdings = [
+        {
+            "ACCESSION_NUMBER": str(n),
+            "NAMEOFISSUER": "Apple Inc",
+            "TITLEOFCLASS": "COM",
+            "CUSIP": "037833100",
+            "VALUE": "10",
+            "SSHPRNAMT": "2",
+            "SSHPRNAMTTYPE": "SH",
+            "PUTCALL": "",
+        }
+        for n in (1, 2)
+    ]
+    write_zip(path, submissions, holdings)
+    result, _ = bulk.process_holdings(
+        [path], [bulk.load_submission_index(path)], {"2022-12-31", "2023-03-31"}, 10000000, 1
+    )
+    assert result.set_index("period")["value_usd"].to_dict() == {
+        "2022-12-31": 10000,
+        "2023-03-31": 10,
+    }

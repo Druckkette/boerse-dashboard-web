@@ -497,6 +497,7 @@ def process_holdings(
 
     holder_groups: list[pd.DataFrame] = []
     meta_groups: list[pd.DataFrame] = []
+    period_multipliers = {period: value_multiplier_for_period(period) for period in target_periods}
     usecols = [
         "ACCESSION_NUMBER",
         "NAMEOFISSUER",
@@ -538,7 +539,7 @@ def process_holdings(
                     chunk["period"] = chunk["ACCESSION_NUMBER"].map(accession_to_period)
                     chunk["CIK"] = chunk["ACCESSION_NUMBER"].map(accession_to_cik)
                     values = pd.to_numeric(chunk["VALUE"], errors="coerce").fillna(0)
-                    multipliers = chunk["period"].map(value_multiplier_for_period).astype(float)
+                    multipliers = chunk["period"].map(period_multipliers).astype(float)
                     chunk["value_usd"] = values * multipliers
                     chunk["shares"] = pd.to_numeric(chunk["SSHPRNAMT"], errors="coerce").fillna(0)
 
