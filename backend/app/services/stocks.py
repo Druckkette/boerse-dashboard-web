@@ -141,6 +141,8 @@ def _assessment_changes(
         changes.append(
             StockSignalChange(
                 kind="resolved" if check.passed else "new",
+                source="rule",
+                effect="improvement" if check.passed else "deterioration",
                 category=check.category,
                 label=check.label,
                 detail=_signal_transition_detail(old.detail, check.detail),
@@ -153,6 +155,10 @@ def _assessment_changes(
             state = current.chart_signal_states.get(signal.label)
             changes.append(StockSignalChange(
                 kind="new",
+                source="chart_signal",
+                effect={"positive": "improvement", "negative": "deterioration"}.get(
+                    signal.category, "neutral"
+                ),
                 category=signal.category,
                 label=signal.label,
                 detail=state.detail if state is not None else signal.detail,
@@ -164,6 +170,10 @@ def _assessment_changes(
                 continue
             changes.append(StockSignalChange(
                 kind="resolved",
+                source="chart_signal",
+                effect={"positive": "deterioration", "negative": "improvement"}.get(
+                    signal.category, "neutral"
+                ),
                 category=signal.category,
                 label=signal.label,
                 detail=_signal_transition_detail(

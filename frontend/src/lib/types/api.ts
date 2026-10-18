@@ -2064,6 +2064,8 @@ export type StockSearchResponse = {
 
 export type StockSignalChange = {
   kind: "new" | "resolved" | "unchanged";
+  source: "rule" | "chart_signal";
+  effect: "improvement" | "deterioration" | "neutral";
   category: string;
   label: string;
   detail: string;

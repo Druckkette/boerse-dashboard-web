@@ -111,6 +111,8 @@ def test_stock_signal_changes_contract(monkeypatch) -> None:
             changes=[
                 StockSignalChange(
                     kind="new",
+                    source="rule",
+                    effect="deterioration",
                     category="trend",
                     label="21-EMA unterschritten",
                     detail="Schlusskurs unter der Linie.",
@@ -123,3 +125,5 @@ def test_stock_signal_changes_contract(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["changes"][0]["kind"] == "new"
+    assert response.json()["changes"][0]["effect"] == "deterioration"
+    assert response.json()["changes"][0]["source"] == "rule"

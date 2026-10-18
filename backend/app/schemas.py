@@ -1863,7 +1863,10 @@ class StockSearchResponse(BaseModel):
 
 
 class StockSignalChange(BaseModel):
+    # Presence/absence and market impact are separate: lost strength is adverse.
     kind: Literal["new", "resolved", "unchanged"]
+    source: Literal["rule", "chart_signal"]
+    effect: Literal["improvement", "deterioration", "neutral"]
     category: str
     label: str
     detail: str = ""
