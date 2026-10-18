@@ -209,10 +209,13 @@ def load_filing(filing: dict, directory: Path, *, user_agent: str) -> dict:
         _atomic_write(path, gzip.compress(content, mtime=0))
         _atomic_write(digest_path, hashlib.sha256(content).hexdigest().encode())
         return {**parsed, "source_sha256": hashlib.sha256(content).hexdigest()}
-    return {
-        **parse_submission(content, filing),
-        "source_sha256": hashlib.sha256(content).hexdigest(),
-    }
+    try:
+        parsed = parse_submission(content, filing)
+    except ValueError as exc:
+        # A stricter parser can also discover a problem in an earlier archive.
+        _atomic_write(path.with_suffix(".rejected.gz"), gzip.compress(content, mtime=0))
+        return {**filing, "validation_error": str(exc), "holdings": []}
+    return {**parsed, "source_sha256": hashlib.sha256(content).hexdigest()}
 
 
 def build_live_dataset(

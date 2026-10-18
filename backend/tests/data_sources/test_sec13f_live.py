@@ -78,6 +78,27 @@ def test_inconsistent_filing_is_archived_without_entering_aggregate(tmp_path, mo
     assert not list(tmp_path.glob("*.txt.gz"))
 
 
+def test_revalidation_can_quarantine_previously_cached_document(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        live,
+        "sec_get",
+        lambda *a, **kw: SimpleNamespace(content=submission(), raise_for_status=lambda: None),
+    )
+    live.load_filing(filing(), tmp_path, user_agent="test")
+    monkeypatch.setattr(
+        live, "sec_get", lambda *a, **kw: pytest.fail("Cached source fetched again")
+    )
+
+    def reject(*args):
+        raise ValueError("New validation rule")
+
+    monkeypatch.setattr(live, "parse_submission", reject)
+    result = live.load_filing(filing(), tmp_path, user_agent="test")
+    assert result["validation_error"] == "New validation rule"
+    assert result["holdings"] == []
+    assert list(tmp_path.glob("*.rejected.gz"))
+
+
 def test_all_zero_placeholder_is_an_empty_restatement():
     content = submission(count=0, amendment="RESTATEMENT", shares=0).replace(
         b"<cusip>037833100</cusip><value>4000</value>", b"<cusip>000000000</cusip><value>0</value>"
