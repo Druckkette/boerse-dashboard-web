@@ -160,12 +160,15 @@ def upsert_aggregate_trends(rows: list[Institutional13FTrendWrite]) -> int:
 
                 # A repaired representative CUSIP must not leave an obsolete
                 # aggregate for the same ticker and quarter shadowing this one.
+                # Obsolete CUSIP rows have not been loaded into this session.
+                # Avoid evaluating every previous dirty aggregate for each
+                # delete; that turns a full-universe import into quadratic work.
                 db.execute(delete(Institutional13FTrend).where(
                     Institutional13FTrend.ticker == ticker,
                     Institutional13FTrend.manager_cik == "AGGREGATE",
                     Institutional13FTrend.report_period == item.report_period,
                     Institutional13FTrend.cusip != cusip,
-                ))
+                ).execution_options(synchronize_session=False))
 
                 row = db.scalars(
                     select(Institutional13FTrend).where(
