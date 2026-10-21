@@ -33,7 +33,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -48,7 +48,11 @@ services:
     profiles: ["migrate"]
     env_file:
       - .env.hetzner
+    environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
     command: ["alembic", "upgrade", "head"]
+    volumes:
+      - backend_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,9 +63,11 @@ services:
     env_file:
       - .env.hetzner
     environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
       APP_ENV: hetzner
       BACKEND_CACHE_DIR: /app/.cache
     volumes:
+      - backend_runtime:/app/runtime
       - backend_cache:/app/.cache
     depends_on:
       postgres:
@@ -80,11 +86,13 @@ services:
     env_file:
       - .env.hetzner
     environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
       APP_ENV: hetzner
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       BACKEND_CACHE_DIR: /app/.cache
     command: ["sh", "-c", "celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --concurrency=$${WORKER_CONCURRENCY:-1} -Q default,reports"]
     volumes:
+      - backend_runtime:/app/runtime
       - backend_cache:/app/.cache
       - worker_logs:/app/logs
     depends_on:
@@ -99,11 +107,33 @@ services:
     env_file:
       - .env.hetzner
     environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
       APP_ENV: hetzner
       BACKEND_CACHE_DIR: /app/.cache
     command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--hostname=interactive@%h", "-Q", "interactive"]
     volumes:
+      - backend_runtime:/app/runtime
       - backend_cache:/app/.cache
+      - worker_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  monitor:
+    image: ghcr.io/${GHCR_OWNER:-druckkette}/boerse-dashboard-web-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env.hetzner
+    environment:
+      APP_ENV: hetzner
+      BACKEND_CACHE_DIR: /app/.cache
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
+    command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--hostname=atr-monitor@%h", "-Q", "monitor"]
+    volumes:
+      - backend_cache:/app/.cache
+      - backend_runtime:/app/runtime
       - worker_logs:/app/logs
     depends_on:
       postgres:
@@ -117,8 +147,11 @@ services:
     env_file:
       - .env.hetzner
     environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
       APP_ENV: hetzner
     command: ["celery", "-A", "app.workers.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    volumes:
+      - backend_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,8 +164,11 @@ services:
     env_file:
       - .env.hetzner
     environment:
+      APP_RUNTIME_ENV_FILE: /app/runtime/runtime.env
       API_INTERNAL_BASE_URL: ${API_INTERNAL_BASE_URL:-http://backend:8000}
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
+    volumes:
+      - backend_runtime:/app/runtime:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -143,4 +179,5 @@ volumes:
   postgres_data:
   redis_data:
   backend_cache:
+  backend_runtime:
   worker_logs:

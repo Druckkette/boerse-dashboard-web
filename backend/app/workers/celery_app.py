@@ -6,6 +6,7 @@ from celery import Celery
 
 from app.core_config import get_settings
 from app.workers.scheduler import get_beat_schedule
+from app.workers import queue_health
 
 
 settings = get_settings()
@@ -69,3 +70,5 @@ celery_app.conf.update(
 
 if settings.scheduler_enabled:
     celery_app.conf.beat_schedule = get_beat_schedule()
+
+queue_health.install()

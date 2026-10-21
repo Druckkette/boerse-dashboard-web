@@ -23,6 +23,7 @@ cd /opt/boerse-dashboard-web
 # copy the infra directory from this repo to the server
 cd infra
 cp .env.hetzner.example .env.hetzner
+# Replace IMAGE_TAG with the full 40-character SHA from a successful docker-publish run.
 vi .env.hetzner
 docker compose --env-file .env.hetzner -f docker-compose.hetzner.yml pull
 docker compose --env-file .env.hetzner -f docker-compose.hetzner.yml --profile migrate run --rm migrate
@@ -67,7 +68,7 @@ RESTORE_CONFIRM=I_UNDERSTAND_THIS_OVERWRITES_DATABASE \
 
 ## Rollback
 
-Images are tagged with `latest` and commit SHA. Set `IMAGE_TAG=<commit-sha>` in `.env.hetzner`,
+Images are tagged only with the full commit SHA of a successful CI release. Set `IMAGE_TAG=<commit-sha>` in `.env.hetzner`,
 restore a matching DB backup when needed, then pull and restart:
 
 ```bash

@@ -79,6 +79,7 @@ def test_restore_aborts_before_database_write_when_stopping_services_fails(tmp_p
     docker.write_text('''#!/bin/sh
 printf '%s\\n' "$*" >> "$TRACE"
 case "$*" in *" stop "*) exit 1;; esac
+case "$*" in *"config --services"*) printf 'postgres\\nredis\\nbackend\\nworker\\ninteractive-worker\\nreport-worker\\nmonitor\\nscheduler\\nfrontend\\nfrontend-beta\\n';; esac
 exit 0
 ''')
     docker.chmod(0o755)

@@ -13,6 +13,7 @@ from app.schemas import (
     SettingsPatch,
 )
 from app.services.settings import (
+    RuntimeEnvUnavailable,
     get_database_target,
     get_app_settings,
     get_data_diagnostics,
@@ -60,7 +61,13 @@ def read_runtime_config() -> RuntimeConfigResponse:
 
 @router.patch("/runtime-config", response_model=RuntimeConfigResponse)
 def patch_runtime_config(payload: RuntimeConfigPatch) -> RuntimeConfigResponse:
-    return update_runtime_config(payload)
+    from app.repositories.settings import SettingsRepositoryUnavailable
+    try:
+        return update_runtime_config(payload)
+    except SettingsRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Konfiguration konnte nicht gespeichert werden. Der Entwurf bleibt erhalten.") from exc
+    except RuntimeEnvUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/runtime-config/test", response_model=RuntimeConfigTestResponse)
@@ -75,10 +82,13 @@ def read_database_target() -> DatabaseTargetResponse:
 
 @router.post("/database-target", response_model=DatabaseTargetResponse)
 def switch_database_target_value(payload: DatabaseTargetSwitchRequest) -> DatabaseTargetResponse:
+    from app.repositories.settings import SettingsRepositoryUnavailable
     try:
         return switch_database_target(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (SettingsRepositoryUnavailable, RuntimeEnvUnavailable) as exc:
+        raise HTTPException(status_code=503, detail="Datenbankziel nicht vollständig gespeichert. Dienste nicht neu starten; Konfiguration erneut speichern.") from exc
 
 
 @router.post("/runtime-services/restart", response_model=RuntimeServicesRestartResponse)

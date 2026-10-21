@@ -45,7 +45,8 @@ Backend:
 cd backend
 python -m venv .venv
 source .venv/bin/activate
-pip install ".[dev]"
+pip install --require-hashes -r requirements-dev.lock
+pip install --no-deps -e .
 uvicorn app.main:app --reload
 ```
 
@@ -77,14 +78,15 @@ celery -A app.workers.celery_app.celery_app beat --loglevel=INFO
 
 `infra/docker-compose.nas.yml` is prepared for GHCR images:
 
-- `ghcr.io/druckkette/boerse-dashboard-web-backend:latest`
-- `ghcr.io/druckkette/boerse-dashboard-web-frontend:latest`
+- `ghcr.io/druckkette/boerse-dashboard-web-backend:<release-sha>`
+- `ghcr.io/druckkette/boerse-dashboard-web-frontend:<release-sha>`
 
 Main worker, parallel report worker, bounded interactive stock worker, dedicated ATR monitor, scheduler and migrations use the same backend image. Copy `infra/.env.nas.example` to
 `infra/.env.nas`, set secrets and run:
 
 ```bash
 cd infra
+# Set IMAGE_TAG in .env.nas to the full SHA of a successful docker-publish run.
 ./update-nas.sh
 ```
 
@@ -358,9 +360,9 @@ show a realistic valuation before the next yfinance refresh.
 
 `.github/workflows/docker-publish.yml` publishes on push to `main`:
 
-- `ghcr.io/<owner>/boerse-dashboard-web-backend:latest`
+- `ghcr.io/<owner>/boerse-dashboard-web-backend:<release-sha>`
 - `ghcr.io/<owner>/boerse-dashboard-web-backend:<commit-sha>`
-- `ghcr.io/<owner>/boerse-dashboard-web-frontend:latest`
+- `ghcr.io/<owner>/boerse-dashboard-web-frontend:<release-sha>`
 - `ghcr.io/<owner>/boerse-dashboard-web-frontend:<commit-sha>`
 
 Repository settings required:

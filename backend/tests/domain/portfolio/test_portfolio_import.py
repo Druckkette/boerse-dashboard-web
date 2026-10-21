@@ -75,7 +75,7 @@ def test_portfolio_import_uses_repository_on_save(monkeypatch: pytest.MonkeyPatc
     result = portfolio_service.import_portfolio_positions(
         PortfolioImportRequest(
             file_name="website-upload.csv",
-            content="Ticker,Shares,Entry_Price,Current_Price\nAAPL,3,100,130\n",
+            content="Ticker,Shares,Entry_Price,Current_Price,Currency\nAAPL,3,100,130,USD\n",
             dry_run=False,
             replace_open_positions=True,
         )
@@ -451,6 +451,8 @@ def test_beta_fallback_keeps_valid_negative_beta() -> None:
 def test_after_hours_portfolio_converts_yahoo_quote_currency_to_usd(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from app.services.money import Conversion
+    monkeypatch.setattr(portfolio_service, "conversion", lambda *a: Conversion(1.1, date(2026, 7, 23)))
     row = PortfolioPositionRow(
         ticker="SIE.DE",
         name="Siemens",

@@ -11,6 +11,7 @@ from app.db.models import ImportBatch, IsinMapping, Position, Transaction, Trade
 from app.db.session import SessionLocal
 from app.domain.portfolio.trade_ledger import allocate_trades
 from app.domain.portfolio.trade_republic import TradeRepublicTransactionRow, reconstruct_open_positions
+from app.repositories.portfolio_lock import lock_positions
 
 
 def transaction_row(row):
@@ -66,6 +67,7 @@ def import_transactions(*, transactions, positions, mappings, file_name, replace
     from app.repositories.portfolio import PortfolioRepositoryUnavailable, TradeRepublicImportResult, _get_or_create_instrument
     try:
         with SessionLocal() as db:
+            lock_positions(db)
             # Report imports for this one broker/account are serialized, including ledger replay.
             db.execute(text("SELECT pg_advisory_xact_lock(hashtext('trade_republic_import'))"))
             batch = ImportBatch(source="trade_republic_transactions", file_name=file_name,

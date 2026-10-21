@@ -153,7 +153,9 @@ def _deduplicated_price_bars(rows: list[Any]) -> list[Any]:
 
 
 def _portfolio_summary() -> dict[str, Any]:
+    from app.services.portfolio import _normalize_position_quote
     rows = portfolio_repository.list_open_positions()
+    rows = [_normalize_position_quote(row) for row in rows]
     prices_by_ticker = price_repository.list_price_bars_for_tickers(
         [row.ticker for row in rows], start_date=date.today() - timedelta(days=14)
     )

@@ -13,11 +13,12 @@ RUN apt-get update \
 COPY backend /app
 COPY frontend/src/lib/beta/api-policy.json /app/app/beta_api_policy.json
 RUN pip install --upgrade pip \
-    && pip install "." \
+    && pip install --require-hashes -r requirements.lock \
+    && pip install --no-deps "." \
     && python -m playwright install --with-deps --only-shell chromium \
     && chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

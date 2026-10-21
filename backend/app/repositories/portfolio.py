@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
+import math
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import CashFlow, ImportBatch, Instrument, IsinMapping, Position, PriceBar, Transaction
 from app.db.session import SessionLocal
 from app.domain.portfolio.trade_republic import TradeRepublicPosition, TradeRepublicTransactionRow
 from app.schemas import PortfolioImportRow
+from app.repositories.portfolio_lock import lock_positions
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,7 @@ class PortfolioPositionRow:
     note: str = ""
     current_price_source: str = ""
     position_id: str = ""
+    current_price_currency: str = ""
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,8 @@ class PortfolioPositionWrite:
     note: str
     record_transaction: bool
     create_only: bool = False
+    stop_mode: str | None = None
+    quote_currency: str = ""
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,7 @@ class PortfolioSellWrite:
     fees: float
     tax: float
     note: str
+    booking_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +170,17 @@ _STOP_PRICE_MIGRATION_MESSAGE = (
 )
 
 
+def _quote_unit(source: str, explicit: str | None, position_currency: str) -> str:
+    if explicit:
+        return explicit
+    if source == "portfolio_import":
+        return position_currency
+    parts = source.split(":")
+    if len(parts) == 3 and parts[0] in {"vontobel", "societe_generale"}:
+        return parts[1]
+    return ""
+
+
 def list_isin_mappings() -> dict[str, str]:
     try:
         with SessionLocal() as db:
@@ -231,12 +250,12 @@ def list_open_positions() -> list[PortfolioPositionRow]:
     try:
         with SessionLocal() as db:
             latest_price = (
-                select(PriceBar.close)
+                select(func.jsonb_build_object("close", PriceBar.close, "source", PriceBar.source, "currency", PriceBar.quote_currency))
                 .where(
                     PriceBar.instrument_id == Position.instrument_id,
                     PriceBar.close.is_not(None),
                 )
-                .order_by(PriceBar.date.desc())
+                .order_by(PriceBar.date.desc(), (PriceBar.source != "portfolio_import").desc(), PriceBar.fetched_at.desc().nulls_last(), PriceBar.id.desc())
                 .limit(1)
                 .correlate(Position)
                 .scalar_subquery()
@@ -248,7 +267,8 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                 .order_by(Position.ticker.asc())
             ).all()
             rows: list[PortfolioPositionRow] = []
-            for position, instrument, latest_close in position_rows:
+            for position, instrument, quote in position_rows:
+                latest_close = quote["close"] if quote else None
                 current_price_source = "price_cache" if latest_close is not None else "position_entry"
 
                 rows.append(
@@ -268,6 +288,7 @@ def list_open_positions() -> list[PortfolioPositionRow]:
                         note=position.note or "",
                         current_price_source=current_price_source,
                         position_id=position.id,
+                        current_price_currency=_quote_unit(quote["source"], quote.get("currency"), position.currency) if quote else position.currency,
                     )
                 )
             return rows
@@ -344,7 +365,7 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
 
     try:
         with SessionLocal() as db:
-            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"position:{clean}"})
+            lock_positions(db)
             instrument = _get_or_create_instrument(
                 db,
                 ticker=clean,
@@ -388,8 +409,15 @@ def upsert_position(write: PortfolioPositionWrite) -> PortfolioPositionRow:
                 position.account = write.account
                 position.note = write.note
 
+            if write.stop_mode == "pct":
+                position.stop_price = None
+            elif write.stop_mode == "none":
+                position.stop_price = position.stop_pct = None
+            elif write.stop_mode == "price":
+                position.stop_pct = None
+
             if write.current_price is not None and write.current_price > 0:
-                _upsert_import_price_bar(db, instrument.id, write.current_price)
+                _upsert_import_price_bar(db, instrument.id, write.current_price, write.quote_currency or write.currency)
 
             delta_shares = max(float(write.shares) - previous_shares, 0.0)
             if write.record_transaction and delta_shares > 0:
@@ -421,6 +449,7 @@ def update_position_stop_price(ticker: str, stop_price: float | None) -> Portfol
         raise PortfolioRepositoryUnavailable("Ticker must not be empty")
     try:
         with SessionLocal() as db:
+            lock_positions(db)
             position = db.scalars(
                 select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
             ).first()
@@ -440,6 +469,7 @@ def close_position(ticker: str) -> bool:
     clean = ticker.strip().upper()
     try:
         with SessionLocal() as db:
+            lock_positions(db)
             position = db.scalars(
                 select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
             ).first()
@@ -455,10 +485,27 @@ def close_position(ticker: str) -> bool:
 
 def sell_position(write: PortfolioSellWrite) -> tuple[PortfolioPositionRow | None, PortfolioTransactionRow]:
     clean = write.ticker.strip().upper()
+    if not all(math.isfinite(value) for value in (write.shares, write.price, write.fees, write.tax)):
+        raise ValueError("Stückzahl, Preis, Gebühren und Steuern müssen endlich sein.")
+    if min(write.shares, write.price) <= 0 or min(write.fees, write.tax) < 0:
+        raise ValueError("Stückzahl und Preis müssen positiv sein; Gebühren und Steuern dürfen nicht negativ sein.")
+    fingerprint = hashlib.sha256(json.dumps({
+        "ticker": clean, "shares": float(write.shares), "price": float(write.price), "date": write.date.isoformat(),
+        "currency": write.currency.upper(), "fees": float(write.fees), "tax": float(write.tax), "note": write.note,
+    }, sort_keys=True).encode()).hexdigest()
     try:
         with SessionLocal() as db:
+            lock_positions(db)
+            if write.booking_id:
+                previous = db.scalar(select(Transaction).where(Transaction.booking_id == write.booking_id))
+                if previous is not None:
+                    if (previous.raw_json or {}).get("booking_fingerprint") != fingerprint:
+                        raise ValueError("Buchungskennung wurde bereits für andere Eingaben verwendet.")
+                    position = db.get(Position, previous.position_id)
+                    return (_position_to_row(db, position) if position and position.is_open else None,
+                            _transaction_to_row(previous))
             position = db.scalars(
-                select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1)
+                select(Position).where(Position.ticker == clean, Position.is_open.is_(True)).limit(1).with_for_update()
             ).first()
             if position is None:
                 raise PortfolioRepositoryUnavailable(f"Offene Position {clean} nicht gefunden")
@@ -488,6 +535,8 @@ def sell_position(write: PortfolioSellWrite) -> tuple[PortfolioPositionRow | Non
                 currency=write.currency,
                 note=write.note,
             )
+            transaction.booking_id = write.booking_id
+            transaction.raw_json = {**(transaction.raw_json or {}), "booking_fingerprint": fingerprint}
             remaining = max(float(position.shares) - write.shares, 0.0)
             if remaining <= 1e-9:
                 position.shares = 0
@@ -658,9 +707,11 @@ def upsert_imported_positions(
     if not rows:
         return PortfolioImportResult(import_id="", rows_imported=0)
 
-    imported_tickers = {row.ticker.upper() for row in rows}
+    rows = list({row.ticker.strip().upper(): row for row in rows}.values())
+    imported_tickers = {row.ticker.strip().upper() for row in rows}
     try:
         with SessionLocal() as db:
+            lock_positions(db)
             import_batch = ImportBatch(
                 source=source,
                 file_name=file_name,
@@ -716,6 +767,7 @@ def upsert_imported_positions(
                         note=row.note,
                     )
                     db.add(position)
+                    db.flush()
                 else:
                     position.instrument_id = instrument.id
                     position.shares = row.shares
@@ -726,7 +778,7 @@ def upsert_imported_positions(
                     position.account = row.account
                     position.note = row.note
                 if row.current_price is not None and row.current_price > 0:
-                    _upsert_import_price_bar(db, instrument.id, row.current_price)
+                    _upsert_import_price_bar(db, instrument.id, row.current_price, row.quote_currency or row.currency)
                 imported_count += 1
 
             import_batch.status = "done"
@@ -784,9 +836,9 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
     latest_price = None
     if instrument is not None:
         latest_price = db.scalars(
-            select(PriceBar.close)
+            select(PriceBar)
             .where(PriceBar.instrument_id == instrument.id, PriceBar.close.is_not(None))
-            .order_by(PriceBar.date.desc())
+            .order_by(PriceBar.date.desc(), (PriceBar.source != "portfolio_import").desc(), PriceBar.fetched_at.desc().nulls_last(), PriceBar.id.desc())
             .limit(1)
         ).first()
     current_price_source = "price_cache" if latest_price is not None else "position_entry"
@@ -795,7 +847,7 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
         name=(instrument.name if instrument and instrument.name else position.ticker),
         shares=float(position.shares),
         entry_price=float(position.buy_price),
-        current_price=float(latest_price or position.buy_price),
+        current_price=float(latest_price.close if latest_price is not None else position.buy_price),
         currency=position.currency or "EUR",
         buy_date=position.buy_date,
         pivot_tag=position.pivot_tag,
@@ -805,6 +857,8 @@ def _position_to_row(db, position: Position) -> PortfolioPositionRow:
         account=position.account or "",
         note=position.note or "",
         current_price_source=current_price_source,
+        current_price_currency=_quote_unit(latest_price.source, latest_price.quote_currency, position.currency) if latest_price is not None else position.currency,
+        position_id=position.id,
     )
 
 
@@ -916,7 +970,7 @@ def _cash_flow_to_row(row: CashFlow) -> PortfolioCashFlowRow:
     )
 
 
-def _upsert_import_price_bar(db, instrument_id: str, close: float) -> None:
+def _upsert_import_price_bar(db, instrument_id: str, close: float, currency: str) -> None:
     today = date.today()
     row = db.scalars(
         select(PriceBar).where(
@@ -936,6 +990,7 @@ def _upsert_import_price_bar(db, instrument_id: str, close: float) -> None:
             close=close,
             adj_close=close,
             volume=None,
+            quote_currency=currency,
         )
         db.add(row)
     else:
@@ -944,3 +999,4 @@ def _upsert_import_price_bar(db, instrument_id: str, close: float) -> None:
         row.low = close
         row.close = close
         row.adj_close = close
+        row.quote_currency = currency

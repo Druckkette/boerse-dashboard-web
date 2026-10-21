@@ -243,7 +243,7 @@ export const api = {
   industryGroupRsDiagnostics: () =>
     getJson<IndustryGroupRsDiagnostics>("/industry-groups/rs/diagnostics"),
   freshness: () => getJson<Freshness>("/freshness"),
-  operations: () => getJson<{ generated_at: string; completed_session: string; monitor_last_success: string | null; queued: number; oldest_queue_seconds: number | null; assessments: { total: number; current: number; oldest_session: string | null }; position_quotes: { ticker: string; as_of: string | null; current: boolean }[]; active: { type: string; heartbeat_at: string | null; stale: boolean }[]; provider_usage: Record<string, number>; backup: { checked_at?: string; check?: string; sha256?: string; restore_tested_at?: string } | null; notes: string[] }>("/operations"),
+  operations: () => getJson<{ generated_at: string; completed_session: string; monitor_queue?: { status: string; consumers: string[] }; monitor_last_success: string | null; queued: number; oldest_queue_seconds: number | null; assessments: { total: number; current: number; oldest_session: string | null }; position_quotes: { ticker: string; as_of: string | null; current: boolean }[]; active: { type: string; heartbeat_at: string | null; stale: boolean }[]; provider_usage: Record<string, number>; backup: { checked_at?: string; check?: string; sha256?: string; restore_tested_at?: string } | null; notes: string[] }>("/operations"),
   readiness: () => getJson<SystemReadiness>("/readiness"),
   setupStatus: () => getJson<SetupStatus>("/setup/status"),
   stockPrices: (ticker: string, range: PriceRange = "1y") =>

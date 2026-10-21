@@ -2,7 +2,7 @@
 
 import { Banknote, ChevronDown, CircleDollarSign, Save, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { berlinDate } from "@/lib/date";
@@ -86,6 +86,8 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
   const [buyDate, setBuyDate] = useState(today());
   const [pivotTag, setPivotTag] = useState(today());
   const [stopPct, setStopPct] = useState("7");
+  const [stopMode, setStopMode] = useState<"pct" | "price" | "none">("pct");
+  const [stopPrice, setStopPrice] = useState("");
   const [currency, setCurrency] = useState("EUR");
   const [note, setNote] = useState("");
 
@@ -99,9 +101,13 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
         current_price: currentPrice ? Number(currentPrice) : null,
         buy_date: buyDate,
         pivot_tag: pivotTag,
-        stop_pct: stopPct ? Number(stopPct) : null,
+        stop_mode: stopMode,
+        stop_pct: stopMode === "pct" && stopPct ? Number(stopPct) : null,
+        stop_price: stopMode === "price" && stopPrice ? Number(stopPrice) : null,
         currency,
         note,
+        broker: selected?.broker ?? "",
+        account: selected?.account ?? "",
         record_transaction: true
       }),
     onSuccess: () => invalidatePortfolio(queryClient)
@@ -127,11 +133,15 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
     setBuyDate(position.buy_date ?? today());
     setPivotTag(position.pivot_tag ?? position.buy_date ?? today());
     setStopPct(String(position.stop_pct ?? 7));
+    setStopMode(position.stop_pct != null ? "pct" : position.stop_price != null ? "price" : "none");
+    setStopPrice(position.stop_price != null ? String(position.stop_price) : "");
     setCurrency(position.currency || "EUR");
     setNote(position.note || "");
   }
 
-  const canSave = ticker.trim().length > 0 && Number(shares) > 0 && Number(entryPrice) > 0;
+  const canSave = ticker.trim().length > 0 && Number(shares) > 0 && Number(entryPrice) > 0
+    && (stopMode !== "price" || Number(stopPrice) > 0)
+    && (stopMode !== "pct" || (Number(stopPct) > 0 && Number(stopPct) <= 50));
 
   return (
     <section className="rounded border border-[var(--border)] bg-[var(--panel)] p-5">
@@ -173,9 +183,15 @@ function PositionEditor({ positions }: { positions: PortfolioPosition[] }) {
         <Field label="Aktueller Kurs">
           <input className="input-dark" min="0" step="0.01" type="number" value={currentPrice} onChange={(event) => setCurrentPrice(event.target.value)} />
         </Field>
-        <Field label="Stopp %">
-          <input className="input-dark" min="0.1" step="0.1" type="number" value={stopPct} onChange={(event) => setStopPct(event.target.value)} />
+        <Field label="Stoppart">
+          <select aria-label="Stoppart" className="input-dark" value={stopMode} onChange={(event) => setStopMode(event.target.value as typeof stopMode)}>
+            <option value="pct">Prozent vom Einstand</option>
+            <option value="price">Fester Stoppkurs</option>
+            <option value="none">Kein Stopp</option>
+          </select>
         </Field>
+        {stopMode === "pct" && <Field label="Stopp %"><input aria-label="Stopp %" className="input-dark" min="0.1" max="50" step="0.1" type="number" value={stopPct} onChange={(event) => setStopPct(event.target.value)} /><p className="mt-1 text-xs text-[var(--muted)]">Wirksamer Stopp: {(Number(entryPrice) * (1 - Number(stopPct) / 100)).toFixed(2)} {currency}. Ein bisheriger fester Stoppkurs wird beim Speichern ersetzt.</p></Field>}
+        {stopMode === "price" && <Field label={`Stoppkurs (${currency})`}><input className="input-dark" min="0.01" step="0.01" type="number" value={stopPrice} onChange={(event) => setStopPrice(event.target.value)} /></Field>}
         <Field label="Kaufdatum">
           <input className="input-dark" type="date" value={buyDate} onChange={(event) => setBuyDate(event.target.value)} />
         </Field>
@@ -231,17 +247,22 @@ function SellBooking({ positions }: { positions: PortfolioPosition[] }) {
   const [shares, setShares] = useState("");
   const [price, setPrice] = useState("");
   const [date, setDate] = useState(today());
-  const [currency, setCurrency] = useState("EUR");
+  const [currency, setCurrency] = useState(positions[0]?.currency ?? "EUR");
+  const booking = useRef<{ fingerprint: string; id: string } | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () =>
-      api.sellPortfolioPosition(ticker, {
+    mutationFn: () => {
+      const body = {
         shares: Number(shares || position?.shares || 0),
         price: Number(price || position?.current_price || 0),
         date,
         currency
-      }),
-    onSuccess: () => invalidatePortfolio(queryClient)
+      };
+      const fingerprint = JSON.stringify({ ticker, ...body });
+      if (booking.current?.fingerprint !== fingerprint) booking.current = { fingerprint, id: crypto.randomUUID() };
+      return api.sellPortfolioPosition(ticker, { ...body, booking_id: booking.current.id });
+    },
+    onSuccess: () => { booking.current = null; invalidatePortfolio(queryClient); }
   });
 
   function selectTicker(next: string) {
@@ -258,6 +279,7 @@ function SellBooking({ positions }: { positions: PortfolioPosition[] }) {
         <div>
           <h2 className="text-base font-semibold">Verkauf buchen</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">Teil- oder Vollverkauf mit Transaktion und Cash-Wirkung.</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Buchungswährung: {currency}</p>
         </div>
         <CircleDollarSign className="text-[var(--green)]" size={20} />
       </div>
@@ -291,6 +313,7 @@ function SellBooking({ positions }: { positions: PortfolioPosition[] }) {
         <Banknote size={16} />
         {mutation.isPending ? "Bucht" : "Verkauf buchen"}
       </button>
+      {mutation.error && <p role="alert" className="mt-3 text-sm text-[var(--red)]">{mutation.error instanceof Error ? mutation.error.message : "Verkauf konnte nicht gebucht werden."}</p>}
     </section>
   );
 }

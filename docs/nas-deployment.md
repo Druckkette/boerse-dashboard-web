@@ -20,6 +20,7 @@ For public packages, login may not be required. Private packages require the tok
 cd /volume1/docker/boerse-dashboard-web
 cd infra
 cp .env.nas.example .env.nas
+# Set IMAGE_TAG to the full 40-character SHA of a successful docker-publish run.
 vi .env.nas
 docker compose --env-file .env.nas -f docker-compose.nas.yml pull
 docker compose --env-file .env.nas -f docker-compose.nas.yml --profile migrate run --rm migrate
@@ -288,7 +289,7 @@ stale RSC/client assets from the previous image.
 
 ## Rollback
 
-Images are published as `latest` and commit-SHA tags. To roll back:
+Images are published only under the full commit SHA of a successful CI release. To roll back:
 
 ```bash
 vi .env.nas
