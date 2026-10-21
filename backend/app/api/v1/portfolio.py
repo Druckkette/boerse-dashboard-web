@@ -184,18 +184,26 @@ def position_size(payload: PortfolioPositionSizeRequest) -> PortfolioPositionSiz
 
 @router.get("/transactions", response_model=PortfolioTransactionsResponse)
 def transactions(limit: int = Query(default=250, ge=1, le=1000)) -> PortfolioTransactionsResponse:
-    return get_portfolio_transactions(limit=limit)
+    try:
+        return get_portfolio_transactions(limit=limit)
+    except PortfolioRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Transaktionshistorie derzeit nicht verfügbar.") from exc
 
 
 @router.get("/cash-flows", response_model=PortfolioCashFlowsResponse)
 def cash_flows(limit: int = Query(default=250, ge=1, le=1000)) -> PortfolioCashFlowsResponse:
-    return get_portfolio_cash_flows(limit=limit)
+    try:
+        return get_portfolio_cash_flows(limit=limit)
+    except PortfolioRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Cashbestand und Cashflows derzeit nicht verfügbar.") from exc
 
 
 @router.post("/cash-flows", response_model=PortfolioCashFlowResponse)
 def create_cash_flow(payload: PortfolioCashFlowRequest) -> PortfolioCashFlowResponse:
     try:
-        return create_portfolio_cash_flow(payload)
+        response = create_portfolio_cash_flow(payload)
+        invalidate_home_dashboard_cache()
+        return response
     except PortfolioRepositoryUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -205,7 +213,10 @@ def create_cash_flow(payload: PortfolioCashFlowRequest) -> PortfolioCashFlowResp
 
 @router.get("/imports", response_model=PortfolioImportHistoryResponse)
 def imports(limit: int = Query(default=100, ge=1, le=500)) -> PortfolioImportHistoryResponse:
-    return get_portfolio_import_history(limit=limit)
+    try:
+        return get_portfolio_import_history(limit=limit)
+    except PortfolioRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Importhistorie derzeit nicht verfügbar.") from exc
 
 
 @router.get("/isin-mappings", response_model=IsinMappingListResponse)

@@ -14,6 +14,7 @@ from app.db.session import SessionLocal
 from app.domain.portfolio.trade_republic import TradeRepublicPosition, TradeRepublicTransactionRow
 from app.schemas import PortfolioImportRow
 from app.repositories.portfolio_lock import lock_positions
+from app.domain.portfolio.cash import cash_flow_sign
 
 
 @dataclass(frozen=True)
@@ -644,10 +645,7 @@ def get_cash_balances() -> dict[str, float]:
             for flow in cash_flows:
                 amount = Decimal(str(flow.amount or 0))
                 currency = str(flow.currency or "EUR").upper()
-                if flow.flow_type == "withdrawal":
-                    balances[currency] -= amount
-                else:
-                    balances[currency] += amount
+                balances[currency] += amount * cash_flow_sign(flow.flow_type)
             for tx in transactions:
                 net = Decimal(str(tx.net_amount or 0))
                 currency = str(tx.currency or "EUR").upper()
@@ -656,7 +654,7 @@ def get_cash_balances() -> dict[str, float]:
                 elif tx.transaction_type == "buy":
                     balances[currency] -= abs(net)
                 elif tx.transaction_type == "sell":
-                    balances[currency] += abs(net)
+                    balances[currency] += net
             return {currency: float(balance) for currency, balance in balances.items()}
     except SQLAlchemyError as exc:
         raise PortfolioRepositoryUnavailable(str(exc)) from exc

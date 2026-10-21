@@ -17,7 +17,7 @@ def ledger() -> dict:
                 raw = tx.raw_json or {}
                 net = float(tx.net_amount or 0)
                 if raw.get("source") != "trade_republic_transactions":
-                    net = -abs(net) if tx.transaction_type == "buy" else abs(net) if tx.transaction_type == "sell" else net
+                    net = -abs(net) if tx.transaction_type == "buy" else net
                 events.append(dict(id=tx.id, ticker=tx.ticker, date=tx.date, kind=tx.transaction_type,
                     shares=tx.shares, price=tx.price, net=net, fees=abs(tx.fees or 0), tax=abs(tx.tax or 0),
                     currency=tx.currency, raw=raw, name=instrument.name if instrument else tx.ticker,

@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { berlinDate } from "@/lib/date";
+import { createBookingId } from "@/lib/booking-id";
 import type { PortfolioPosition } from "@/lib/types/api";
 import { PositionSizeCalculator } from "./position-size-calculator";
 import {
@@ -259,7 +260,7 @@ function SellBooking({ positions }: { positions: PortfolioPosition[] }) {
         currency
       };
       const fingerprint = JSON.stringify({ ticker, ...body });
-      if (booking.current?.fingerprint !== fingerprint) booking.current = { fingerprint, id: crypto.randomUUID() };
+      if (booking.current?.fingerprint !== fingerprint) booking.current = { fingerprint, id: createBookingId() };
       return api.sellPortfolioPosition(ticker, { ...body, booking_id: booking.current.id });
     },
     onSuccess: () => { booking.current = null; invalidatePortfolio(queryClient); }
@@ -341,10 +342,11 @@ function CashFlowPanel() {
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Cashflows</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">Cash-Bestand: {money(flowsQuery.data?.cash_balance ?? 0)}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Cash-Bestand: {flowsQuery.isPending ? "wird geladen" : !flowsQuery.isError && typeof flowsQuery.data?.cash_balance === "number" && Number.isFinite(flowsQuery.data.cash_balance) ? money(flowsQuery.data.cash_balance) : "nicht verfügbar"}</p>
         </div>
-        <StatusChip tone="neutral">{flowsQuery.data?.cash_flows.length ?? 0}</StatusChip>
+        <StatusChip tone="neutral">{flowsQuery.isError ? "n/a" : flowsQuery.data?.cash_flows.length ?? "…"}</StatusChip>
       </div>
+      {flowsQuery.isError && <p role="alert" className="mb-3 text-sm text-[var(--red)]">Cashbestand konnte nicht geladen werden. Bitte erneut versuchen.</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Typ">
           <select className="input-dark" value={flowType} onChange={(event) => setFlowType(event.target.value as "deposit" | "withdrawal")}>
@@ -371,6 +373,7 @@ function CashFlowPanel() {
         <Banknote size={16} />
         {mutation.isPending ? "Bucht" : "Cashflow buchen"}
       </button>
+      {mutation.error && <p role="alert" className="mt-3 text-sm text-[var(--red)]">{mutation.error instanceof Error ? mutation.error.message : "Cashflow konnte nicht gebucht werden."}</p>}
     </section>
   );
 }
@@ -393,6 +396,7 @@ function invalidatePortfolio(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ["portfolio-cash-flows"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-import-history"] });
   queryClient.invalidateQueries({ queryKey: ["portfolio-buy-strength"] });
+  queryClient.invalidateQueries({ queryKey: ["portfolio-analysis"] });
   queryClient.invalidateQueries({ queryKey: ["sell-ranking"] });
 }
 
