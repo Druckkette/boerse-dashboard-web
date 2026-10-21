@@ -1,7 +1,11 @@
 from datetime import UTC, date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class FinancialInput(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
 
 
 class HealthResponse(BaseModel):
@@ -1130,8 +1134,9 @@ class PortfolioAfterHoursResponse(BaseModel):
     positions: list[PortfolioAfterHoursPosition]
 
 
-class PortfolioPositionWriteRequest(BaseModel):
+class PortfolioPositionWriteRequest(FinancialInput):
     create_only: bool = False
+    stop_mode: Literal["pct", "price", "none"] | None = None
     ticker: str
     name: str = ""
     shares: float = Field(gt=0, allow_inf_nan=False)
@@ -1147,12 +1152,25 @@ class PortfolioPositionWriteRequest(BaseModel):
     note: str = ""
     record_transaction: bool = True
 
+    @model_validator(mode="after")
+    def valid_stop_mode(self):
+        if self.stop_mode is None:
+            if self.stop_price is not None:
+                self.stop_mode = "price"
+            elif "stop_pct" in self.model_fields_set:
+                self.stop_mode = "pct" if self.stop_pct is not None else "none"
+        if self.stop_mode == "price" and self.stop_price is None:
+            raise ValueError("Ein Preisstopp benötigt einen Stoppkurs.")
+        if self.stop_mode == "pct" and self.stop_pct is None:
+            raise ValueError("Ein Prozentstopp benötigt einen Prozentsatz.")
+        return self
+
 
 class PortfolioPositionWriteResponse(BaseModel):
     position: PortfolioPosition
 
 
-class PortfolioPositionStopRequest(BaseModel):
+class PortfolioPositionStopRequest(FinancialInput):
     stop_price: float | None = Field(default=None, gt=0)
 
 
@@ -1181,13 +1199,14 @@ class PortfolioTransactionsResponse(BaseModel):
     transactions: list[PortfolioTransaction]
 
 
-class PortfolioSellRequest(BaseModel):
+class PortfolioSellRequest(FinancialInput):
+    booking_id: str | None = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     shares: float = Field(gt=0, allow_inf_nan=False)
     price: float = Field(gt=0, allow_inf_nan=False)
     date: str | None = None
     currency: str = "EUR"
-    fees: float = 0
-    tax: float = 0
+    fees: float = Field(default=0, ge=0)
+    tax: float = Field(default=0, ge=0)
     note: str = ""
 
 
@@ -1208,7 +1227,7 @@ class PortfolioCashFlow(BaseModel):
     note: str = ""
 
 
-class PortfolioCashFlowRequest(BaseModel):
+class PortfolioCashFlowRequest(FinancialInput):
     date: str | None = None
     amount: float = Field(gt=0, allow_inf_nan=False)
     flow_type: Literal["deposit", "withdrawal", "dividend", "interest", "tax", "fee", "other"]
@@ -1243,7 +1262,8 @@ class PortfolioImportHistoryResponse(BaseModel):
     imports: list[PortfolioImportHistoryItem]
 
 
-class PortfolioImportRow(BaseModel):
+class PortfolioImportRow(FinancialInput):
+    quote_currency: str = ""
     ticker: str
     name: str = ""
     shares: float
@@ -1442,7 +1462,7 @@ class BuyStrengthAssessmentResponse(BaseModel):
     warnings: list[BuyStrengthCheck] = Field(default_factory=list)
 
 
-class PortfolioPositionSizeRequest(BaseModel):
+class PortfolioPositionSizeRequest(FinancialInput):
     depot_value: float = Field(default=0, ge=0)
     risk_per_position_pct: float = Field(default=1.0, ge=0.1, le=5)
     target_risk_contribution: float = Field(default=0.20, ge=0.05, le=0.50)

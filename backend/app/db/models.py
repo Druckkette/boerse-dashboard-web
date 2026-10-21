@@ -84,6 +84,7 @@ class PriceBar(Base):
     close: Mapped[float | None] = mapped_column(Float)
     adj_close: Mapped[float | None] = mapped_column(Float)
     split_adjustment_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quote_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
     volume: Mapped[float | None] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(32), default="yfinance")
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -297,6 +298,7 @@ class Transaction(Base):
     __table_args__ = (Index("ix_transactions_ticker_date", "ticker", "date"),)
 
     id: Mapped[str] = uuid_pk()
+    booking_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     position_id: Mapped[str | None] = mapped_column(ForeignKey("positions.id"), nullable=True)
     instrument_id: Mapped[str | None] = mapped_column(ForeignKey("instruments.id"), nullable=True)
     ticker: Mapped[str] = mapped_column(String(32), index=True)

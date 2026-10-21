@@ -35,8 +35,14 @@ fi
 
 echo "Backup file:  ${BACKUP_FILE}"
 echo "== Stopping app services before restore =="
+AVAILABLE_SERVICES=$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile "*" config --services)
+APP_SERVICES=$(printf '%s\n' "$AVAILABLE_SERVICES" | awk '!/^(postgres|redis|caddy|migrate)$/')
+if [ -z "$APP_SERVICES" ]; then
+  echo "No application services found; restore aborted." >&2
+  exit 1
+fi
 BETA_ACTIVE=""
-if [ -n "$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running -q frontend-beta)" ]; then
+if printf '%s\n' "$AVAILABLE_SERVICES" | grep -qx frontend-beta && [ -n "$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running -q frontend-beta)" ]; then
   BETA_ACTIVE=beta
 fi
 compose() {
@@ -46,9 +52,12 @@ compose() {
     docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" "$@"
   fi
 }
-compose stop frontend frontend-beta backend worker interactive-worker report-worker monitor scheduler
+# Service names come exclusively from the selected Compose model.
+# Intentional splitting: config --services returns one service name per line.
+set -- $APP_SERVICES
+compose stop "$@"
 # Never write into a database while an application service may still be running.
-if [ -n "$(compose ps --status running -q frontend frontend-beta backend worker interactive-worker report-worker monitor scheduler)" ]; then
+if [ -n "$(compose ps --status running -q "$@")" ]; then
   echo "Application services are still running; restore aborted." >&2
   exit 1
 fi

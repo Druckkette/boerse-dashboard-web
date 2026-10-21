@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import math
+from collections import Counter
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from io import StringIO
@@ -137,7 +139,7 @@ def get_portfolio_positions(
         )
         else None
     )
-    rows = [_normalize_trade_republic_row_to_usd(row, fx_rate=tr_fx_rate) for row in rows]
+    rows = [_normalize_position_quote(row, fx_rate=tr_fx_rate) for row in rows]
     base_currency = "USD" if all(row.currency == "USD" for row in rows) else "EUR"
     rates = {currency: conversion(currency, base_currency) for currency in {row.currency for row in rows}}
     if any(value is None for value in rates.values()):
@@ -370,7 +372,7 @@ def get_portfolio_snapshot() -> PortfolioSnapshotResponse:
 
 def get_portfolio_after_hours() -> PortfolioAfterHoursResponse:
     rows = portfolio_repository.list_open_positions()
-    rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
+    rows = [_normalize_position_quote(row) for row in rows]
     tickers = [row.ticker for row in rows]
     quotes = fetch_after_hours_quotes(tickers)
     positions: list[PortfolioAfterHoursPosition] = []
@@ -506,7 +508,7 @@ def get_buy_strength_assessment(
         return _missing_buy_strength_assessment(clean, clean, "Keine offene Portfolio-Position gefunden.", window_days=window_days)
 
     if position_row is None:
-        row = _normalize_trade_republic_row_to_usd(row)
+        row = _normalize_position_quote(row)
     if row.buy_date is None:
         return _missing_buy_strength_assessment(
             row.ticker,
@@ -1125,7 +1127,7 @@ def get_portfolio_curve(days: int = DEFAULT_PORTFOLIO_CURVE_DAYS, start_date: da
         return _missing_portfolio_curve(f"Portfolio-Datenbank ist nicht erreichbar: {exc}.{tr_error or ''}")
     if not rows:
         return _missing_portfolio_curve(f"Keine offenen Positionen für die Depotkurve.{tr_error or ''}")
-    rows = [_normalize_trade_republic_row_to_usd(row) for row in rows]
+    rows = [_normalize_position_quote(row) for row in rows]
     if cash:
         fx_rate = get_eur_usd_rate()
         cash = round(float(eur_to_usd(cash, rate=fx_rate) or 0.0), 2)
@@ -1795,12 +1797,13 @@ def calculate_position_size(payload: PortfolioPositionSizeRequest) -> PortfolioP
 
 
 def upsert_portfolio_position(payload: PortfolioPositionWriteRequest) -> PortfolioPositionWriteResponse:
+    current_price, quote_currency = _canonical_import_quote(payload.ticker, payload.current_price, payload.currency)
     write = portfolio_repository.PortfolioPositionWrite(
         ticker=payload.ticker,
         name=payload.name,
         shares=payload.shares,
         entry_price=payload.entry_price,
-        current_price=payload.current_price,
+        current_price=current_price,
         currency=payload.currency.upper(),
         buy_date=_parse_date(payload.buy_date),
         pivot_tag=_parse_date(payload.pivot_tag),
@@ -1811,6 +1814,8 @@ def upsert_portfolio_position(payload: PortfolioPositionWriteRequest) -> Portfol
         note=payload.note,
         record_transaction=payload.record_transaction,
         create_only=payload.create_only,
+        stop_mode=payload.stop_mode,
+        quote_currency=quote_currency,
     )
     row = portfolio_repository.upsert_position(write)
     return PortfolioPositionWriteResponse(position=_position_from_row(row, invested=row.current_price * row.shares))
@@ -1838,6 +1843,7 @@ def sell_portfolio_position(ticker: str, payload: PortfolioSellRequest) -> Portf
             fees=payload.fees,
             tax=payload.tax,
             note=payload.note,
+            booking_id=payload.booking_id,
         )
     )
     cash_balance = portfolio_repository.get_cash_balance()
@@ -1924,7 +1930,7 @@ def import_portfolio_positions(payload: PortfolioImportRequest) -> PortfolioImpo
         )
 
     result = portfolio_repository.upsert_imported_positions(
-        parse_result.positions,
+        [_canonical_import_row(row) for row in parse_result.positions],
         source=payload.source,
         file_name=payload.file_name,
         replace_open_positions=payload.replace_open_positions,
@@ -2132,7 +2138,10 @@ def update_isin_mappings(payload: IsinMappingPatchRequest) -> IsinMappingListRes
 
 
 def _position_from_row(row: portfolio_repository.PortfolioPositionRow, *, invested: float) -> PortfolioPosition:
-    row = _normalize_trade_republic_row_to_usd(row)
+    old_value = row.current_price * row.shares
+    row = _normalize_position_quote(row)
+    if invested == old_value:
+        invested = row.current_price * row.shares
     market_value = row.current_price * row.shares
     pnl_pct = (row.current_price / row.entry_price - 1) * 100 if row.entry_price else 0
     pnl_abs = (row.current_price - row.entry_price) * row.shares if row.entry_price else 0
@@ -2201,6 +2210,33 @@ def _trade_republic_import_note(isin: str, *, fx_rate: FxRate, converted: bool) 
     return note
 
 
+def _normalize_position_quote(row, *, fx_rate=None):
+    if "trade republic" in str(row.broker or "").lower():
+        return _normalize_trade_republic_row_to_usd(row, fx_rate=fx_rate)
+    if getattr(row, "current_price_source", "") != "price_cache":
+        return row
+    quote_currency = getattr(row, "current_price_currency", "") or yahoo_quote_currency(row.ticker)
+    rate = conversion(quote_currency, row.currency)
+    if rate is None:
+        raise PortfolioRepositoryUnavailable(f"Depotbewertung für {row.ticker} nicht verfügbar: Wechselkurs {quote_currency}/{row.currency} fehlt.")
+    return replace(row, current_price=row.current_price * rate.rate, current_price_currency=row.currency)
+
+
+def _canonical_import_quote(ticker, value, currency):
+    quote_currency = yahoo_quote_currency(ticker)
+    if value is None:
+        return None, quote_currency
+    rate = conversion(currency, quote_currency)
+    if rate is None:
+        raise PortfolioRepositoryUnavailable(f"Kurseingabe für {ticker} nicht gespeichert: Wechselkurs {currency}/{quote_currency} fehlt.")
+    return value * rate.rate, quote_currency
+
+
+def _canonical_import_row(row):
+    value, currency = _canonical_import_quote(row.ticker, row.current_price, row.currency)
+    return row.model_copy(update={"current_price": value, "quote_currency": currency})
+
+
 def _normalize_trade_republic_row_to_usd(
     row: portfolio_repository.PortfolioPositionRow,
     *,
@@ -2222,7 +2258,7 @@ def _normalize_trade_republic_row_to_usd(
 
     current_price = row.current_price
     if row.current_price_source == "price_cache":
-        quote_currency = yahoo_quote_currency(row.ticker)
+        quote_currency = getattr(row, "current_price_currency", "") or yahoo_quote_currency(row.ticker)
         converted_price = currency_to_usd(row.current_price, quote_currency)
         if converted_price is None:
             raise PortfolioRepositoryUnavailable(f"Beobachteter Kurs oder Wechselkurs für {row.ticker} fehlt.")
@@ -2251,6 +2287,7 @@ def _normalize_trade_republic_row_to_usd(
         note=row.note,
         current_price_source=row.current_price_source,
         position_id=row.position_id,
+        current_price_currency="USD",
     )
 
 
@@ -2402,9 +2439,10 @@ def parse_positions_csv(content: str) -> PortfolioCsvParseResult:
 
     if not positions and not errors:
         errors.append("Keine importierbaren Positionen gefunden.")
-    duplicate_tickers = sorted({row.ticker for row in positions if sum(1 for item in positions if item.ticker == row.ticker) > 1})
+    duplicate_tickers = sorted(ticker for ticker, count in Counter(row.ticker for row in positions).items() if count > 1)
     if duplicate_tickers:
-        warnings.append(f"Doppelte Ticker in CSV: {', '.join(duplicate_tickers)}. Der letzte Import überschreibt später denselben offenen Ticker.")
+        warnings.append(f"Doppelte Ticker in CSV: {', '.join(duplicate_tickers)}. Pro Ticker wird nur die letzte Zeile importiert.")
+        positions = list({row.ticker: row for row in positions}.values())
     return PortfolioCsvParseResult(positions=positions, rows_total=rows_total, errors=errors, warnings=warnings)
 
 
@@ -2610,7 +2648,8 @@ def _parse_number(value: str) -> float | None:
     else:
         clean = clean.replace(",", ".")
     try:
-        return float(clean)
+        value = float(clean)
+        return value if math.isfinite(value) else None
     except ValueError:
         return None
 

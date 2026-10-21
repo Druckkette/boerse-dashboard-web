@@ -3,13 +3,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 import os
 from uuid import uuid4
+from threading import Barrier
+import time
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from app.db.models import Position, TradeJournalEntry, Transaction
 from app.repositories import portfolio, trade_journal
+from app.schemas import PortfolioImportRow
 
 pytestmark = pytest.mark.skipif(not os.environ.get("TEST_POSTGRES_URL"), reason="Disposable Postgres not configured")
 
@@ -60,6 +63,85 @@ def test_concurrent_partial_manual_sales_cannot_oversell_a_buy(storage):
         assert sorted(pool.map(sell, range(2))) == ["conflict", "created"]
     with sessions() as db:
         assert sum(row.shares for row in db.scalars(select(TradeJournalEntry).where(TradeJournalEntry.linked_entry_id == buy_id))) == 6
+
+
+def _holding(ticker, **values):
+    fields = dict(ticker=ticker, name="Guard", shares=10, entry_price=100, current_price=None,
+                  currency="USD", buy_date=date(2025, 1, 2), pivot_tag=None, stop_pct=None,
+                  stop_price=90, broker="test", account="test", note="original", record_transaction=True)
+    return portfolio.PortfolioPositionWrite(**(fields | values))
+
+
+def test_concurrent_portfolio_sales_preserve_inventory_and_cash(storage):
+    sessions, ticker = storage
+    portfolio.upsert_position(_holding(ticker))
+    barrier = Barrier(2)
+    def delay_read(conn, cursor, statement, parameters, context, many):
+        if statement.startswith("SELECT positions.") and "positions.ticker =" in statement:
+            time.sleep(.05)
+    engine = sessions.kw["bind"]
+    event.listen(engine, "after_cursor_execute", delay_read)
+    def sell(_):
+        barrier.wait(timeout=5)
+        try:
+            portfolio.sell_position(portfolio.PortfolioSellWrite(ticker, 6, 110, date(2025, 1, 3), "USD", 0, 0, ""))
+            return "sold"
+        except portfolio.PortfolioRepositoryUnavailable:
+            return "conflict"
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(sell, range(2))) == ["conflict", "sold"]
+    finally:
+        event.remove(engine, "after_cursor_execute", delay_read)
+    with sessions() as db:
+        position = db.scalar(select(Position).where(Position.ticker == ticker))
+        sales = list(db.scalars(select(Transaction).where(Transaction.ticker == ticker, Transaction.transaction_type == "sell")))
+        assert position.shares == 4
+        assert len(sales) == 1 and sales[0].shares == 6 and sales[0].net_amount == 660
+
+
+def test_sale_retry_has_one_effect_and_rejects_changed_payload(storage):
+    from dataclasses import replace
+    sessions, ticker = storage
+    portfolio.upsert_position(_holding(ticker))
+    write = portfolio.PortfolioSellWrite(ticker, 10, 110, date(2025, 1, 3), "USD", 0, 0, "", uuid4().hex)
+    first = portfolio.sell_position(write)
+    second = portfolio.sell_position(write)
+    assert first[0] is None and second[0] is None and first[1].id == second[1].id
+    with pytest.raises(ValueError, match="Buchungskennung"):
+        portfolio.sell_position(replace(write, price=111))
+    with sessions() as db:
+        assert len(list(db.scalars(select(Transaction).where(Transaction.ticker == ticker, Transaction.transaction_type == "sell")))) == 1
+
+
+def test_duplicate_and_parallel_csv_imports_keep_one_open_position(storage):
+    sessions, ticker = storage
+    from app.db.models import Instrument
+    with sessions() as db:
+        db.add(Instrument(ticker=ticker, name=ticker, currency="USD"))
+        db.commit()
+    rows = [PortfolioImportRow(ticker=ticker, shares=5, entry_price=100, currency="USD"),
+            PortfolioImportRow(ticker=ticker, shares=7, entry_price=100, currency="USD")]
+    def load(_):
+        return portfolio.upsert_imported_positions(rows, source="audit", file_name="audit.csv", replace_open_positions=False)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert all(result.rows_imported == 1 for result in pool.map(load, range(2)))
+    with sessions() as db:
+        positions = list(db.scalars(select(Position).where(Position.ticker == ticker, Position.is_open.is_(True))))
+        assert len(positions) == 1 and positions[0].shares == 7
+
+
+def test_explicit_stop_mode_changes_the_effective_stop(storage):
+    from dataclasses import replace
+    _sessions, ticker = storage
+    write = _holding(ticker)
+    portfolio.upsert_position(write)
+    changed = portfolio.upsert_position(replace(write, stop_mode="pct", stop_pct=15, stop_price=None))
+    assert changed.stop_price == 85 and changed.stop_pct == 15
+    changed = portfolio.upsert_position(replace(write, stop_mode="price", stop_price=91))
+    assert changed.stop_price == 91 and changed.stop_pct is None
+    changed = portfolio.upsert_position(replace(write, stop_mode="none", stop_price=None))
+    assert changed.stop_price is None and changed.stop_pct is None
 
 
 def test_buy_edit_preserves_previously_documented_sales(storage):

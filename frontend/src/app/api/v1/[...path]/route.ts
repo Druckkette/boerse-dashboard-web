@@ -142,6 +142,7 @@ function forwardedHeaders(headers: Headers, beta: boolean) {
   const nextHeaders = new Headers();
   headers.forEach((value, key) => {
     const lower = key.toLowerCase();
+    if (lower === "forwarded" || lower.startsWith("x-forwarded-") || lower === "x-real-ip") return;
     if (beta ? ["content-type", "accept", "x-beta-capability"].includes(lower)
       : !HOP_BY_HOP_HEADERS.has(lower) && !lower.startsWith("x-beta-") && lower !== "x-role") {
       nextHeaders.set(key, value);

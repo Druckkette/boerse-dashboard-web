@@ -1072,7 +1072,10 @@ def test_runtime_config_test_endpoint_returns_fmp_response_body_on_403(monkeypat
     assert "Legacy Endpoint" in payload["detail"]
 
 
-def test_runtime_config_patch_masks_secret() -> None:
+def test_runtime_config_patch_masks_secret(monkeypatch, tmp_path) -> None:
+    from app.services import settings
+    monkeypatch.setattr(settings.settings_repository, "patch_runtime_config", lambda values, keys: values)
+    monkeypatch.setenv("APP_RUNTIME_ENV_FILE", str(tmp_path / "runtime.env"))
     response = client.patch(
         "/api/v1/settings/runtime-config",
         json={"values": {"SEC_USER_AGENT": "boerse-dashboard-web tests@example.com"}},

@@ -931,6 +931,7 @@ export type TradeJournalEntryResponse = {
 };
 
 export type PortfolioPositionWriteRequest = {
+  stop_mode?: "pct" | "price" | "none";
   create_only?: boolean;
   ticker: string;
   name?: string;
@@ -965,6 +966,7 @@ export type PortfolioTransaction = {
 };
 
 export type PortfolioSellRequest = {
+  booking_id?: string;
   shares: number;
   price: number;
   date?: string | null;

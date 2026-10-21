@@ -8,6 +8,7 @@ from app.services.market_calendar import completed_us_market_session
 
 
 def operation_status():
+    from app.workers.queue_health import monitor_queue_status
     now = datetime.now(UTC)
     session = completed_us_market_session(now).date
     with SessionLocal() as db:
@@ -20,6 +21,7 @@ def operation_status():
         backup_value = {key: value for key, value in (backup.value_json or {}).items() if key in {"checked_at", "sha256", "check", "restore_tested_at"}} if backup else None
     return dict(generated_at=now.isoformat(), completed_session=session.isoformat(),
         monitor_last_success=latest.finished_at.isoformat() if latest and latest.finished_at else None,
+        monitor_queue=monitor_queue_status(),
         queued=count, oldest_queued_at=oldest.isoformat() if oldest else None,
         oldest_queue_seconds=max(0, (now - oldest).total_seconds()) if oldest else None,
         active=[dict(type=kind, heartbeat_at=heartbeat.isoformat() if heartbeat else None, stale=heartbeat is None or (now - heartbeat).total_seconds() > 300) for kind, heartbeat in active],

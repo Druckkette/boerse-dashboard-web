@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.models import AppSetting
@@ -54,6 +55,27 @@ def write_runtime_config(values: dict) -> dict:
         values,
         description="Runtime API keys and integration config edited through the setup UI.",
     )
+
+
+def patch_runtime_config(values: dict, clear_keys: list[str]) -> dict:
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('runtime_config'))"))
+            row = db.get(AppSetting, RUNTIME_CONFIG_KEY)
+            current = dict(row.value_json or {}) if row else {}
+            for key in clear_keys:
+                current.pop(key, None)
+                if key == "NEON_DATABASE_URL":
+                    current.pop("DATABASE_URL", None)
+            current.update(values)
+            if row is None:
+                row = AppSetting(key=RUNTIME_CONFIG_KEY, description="Runtime integration configuration")
+                db.add(row)
+            row.value_json = current
+            db.commit()
+            return current
+    except SQLAlchemyError as exc:
+        raise SettingsRepositoryUnavailable(str(exc)) from exc
 
 
 def read_position_monitor_state() -> dict:

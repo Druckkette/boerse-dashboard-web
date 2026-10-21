@@ -33,6 +33,9 @@
     "typescript": "6.0.3"
   },
   "overrides": {
+    "@next/eslint-plugin-next": {
+      "fast-glob": "npm:tinyglobby@0.2.17"
+    },
     "postcss": "8.5.28",
     "sharp": "0.35.5"
   }
