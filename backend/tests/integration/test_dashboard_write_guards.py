@@ -144,6 +144,22 @@ def test_explicit_stop_mode_changes_the_effective_stop(storage):
     assert changed.stop_price is None and changed.stop_pct is None
 
 
+def test_cash_expenses_and_sale_costs_keep_their_sign(storage, monkeypatch):
+    from app.repositories import analysis
+    sessions, ticker = storage
+    monkeypatch.setattr(analysis, "SessionLocal", sessions)
+    before = portfolio.get_cash_balances().get("USD", 0)
+    for kind, amount in [("deposit", 100), ("withdrawal", 20), ("fee", 10), ("tax", 5),
+                         ("dividend", 3), ("interest", 2), ("other", 4)]:
+        portfolio.add_cash_flow(portfolio.PortfolioCashFlowWrite(date(2025, 1, 2), amount, kind, "USD", "test", ""))
+    assert portfolio.get_cash_balances()["USD"] - before == pytest.approx(74)
+    portfolio.upsert_position(_holding(ticker, shares=1))
+    _, sale = portfolio.sell_position(portfolio.PortfolioSellWrite(ticker, 1, 10, date(2025, 1, 3), "USD", 15, 0, ""))
+    assert sale.net_amount == -5
+    assert portfolio.get_cash_balances()["USD"] - before == pytest.approx(74 - 100 - 5)
+    assert next(event for event in analysis.ledger()["events"] if event["id"] == sale.id)["net"] == -5
+
+
 def test_buy_edit_preserves_previously_documented_sales(storage):
     sessions, ticker = storage
     with sessions() as db:

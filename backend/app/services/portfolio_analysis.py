@@ -12,6 +12,7 @@ from app.repositories import analysis as repository, prices, earnings, portfolio
 from app.repositories.industry_group_rs import list_group_members
 from app.domain.stocks.industry_groups import TAXONOMY_VERSION
 from app.domain.portfolio.trade_republic import normalize_transaction_type
+from app.domain.portfolio.cash import cash_flow_sign
 from app.services.fx import yahoo_quote_currency
 from app.services.market_calendar import completed_us_market_session
 from app.services.money import money_sum, rounded_money
@@ -131,7 +132,7 @@ def attribution(ledger, book, *, start, end, base, positions):
                     balances[event["currency"]] += float(event.get("net") or 0)
             for flow in ledger["cash_flows"]:
                 if flow["date"] <= through:
-                    balances[flow["currency"]] += flow["amount"] * (-1 if flow["kind"] == "withdrawal" else 1)
+                    balances[flow["currency"]] += flow["amount"] * cash_flow_sign(flow["kind"])
             values = [amount * book.fx(currency, base, through) if book.fx(currency, base, through) is not None else None for currency, amount in balances.items() if abs(amount) > 1e-9]
             return None if any(value is None for value in values) else money_sum(values)
         opening_cash_value, ending_cash_value = cash_at(start), cash_at(end)
@@ -156,9 +157,12 @@ def attribution(ledger, book, *, start, end, base, positions):
                 if fx is None:
                     complete = False
                     continue
-                value = flow["amount"] * (-1 if flow["kind"] == "withdrawal" else 1) * fx
+                value = flow["amount"] * cash_flow_sign(flow["kind"]) * fx
                 movements.append(value)
-                external_cash += value
+                if flow["kind"] in {"deposit", "withdrawal"}:
+                    external_cash += value
+                else:
+                    other_cash += value
         cash_fx = ending_cash_value - opening_cash_value - money_sum(movements) if opening_cash_value is not None and ending_cash_value is not None else None
         complete = complete and cash_fx is not None
     positions_result = money_sum(row["result"] for row in valid)

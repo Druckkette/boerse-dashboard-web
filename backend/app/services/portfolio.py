@@ -1856,20 +1856,13 @@ def sell_portfolio_position(ticker: str, payload: PortfolioSellRequest) -> Portf
 
 
 def get_portfolio_transactions(limit: int = 250) -> PortfolioTransactionsResponse:
-    try:
-        rows = portfolio_repository.list_transactions(limit=limit)
-    except PortfolioRepositoryUnavailable:
-        rows = []
+    rows = portfolio_repository.list_transactions(limit=limit)
     return PortfolioTransactionsResponse(transactions=[_transaction_schema(row) for row in rows])
 
 
 def get_portfolio_cash_flows(limit: int = 250) -> PortfolioCashFlowsResponse:
-    try:
-        rows = portfolio_repository.list_cash_flows(limit=limit)
-        cash_balance = portfolio_repository.get_cash_balance()
-    except PortfolioRepositoryUnavailable:
-        rows = []
-        cash_balance = 0.0
+    rows = portfolio_repository.list_cash_flows(limit=limit)
+    cash_balance = portfolio_repository.get_cash_balance()
     return PortfolioCashFlowsResponse(
         cash_flows=[_cash_flow_schema(row) for row in rows],
         cash_balance=cash_balance,
@@ -1894,10 +1887,7 @@ def create_portfolio_cash_flow(payload: PortfolioCashFlowRequest) -> PortfolioCa
 
 
 def get_portfolio_import_history(limit: int = 100) -> PortfolioImportHistoryResponse:
-    try:
-        rows = portfolio_repository.list_import_history(limit=limit)
-    except PortfolioRepositoryUnavailable:
-        rows = []
+    rows = portfolio_repository.list_import_history(limit=limit)
     return PortfolioImportHistoryResponse(
         imports=[
             PortfolioImportHistoryItem(

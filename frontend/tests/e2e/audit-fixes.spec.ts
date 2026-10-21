@@ -3,6 +3,8 @@ import { test, expect } from "@playwright/test";
 test.use({ baseURL: "http://127.0.0.1:18300", httpCredentials: { username: "owner", password: "test-only-private-password" } });
 
 test("explicit percent stop replaces a price stop and failed sale retries reuse one booking id", async ({ page }) => {
+  // Like the real NAS HTTP origin: getRandomValues exists, randomUUID does not.
+  await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
   let position = { ticker: "TEST", name: "Synthetic", shares: 10, entry_price: 100, current_price: 110,
     currency: "USD", market_value: 1100, pnl_abs: 100, pnl_pct: 10, weight_pct: 100, status: "ok",
     stop_price: 90, stop_pct: null as number | null, buy_date: "2026-10-01", broker: "Test", account: "" };
@@ -46,4 +48,26 @@ test("explicit percent stop replaces a price stop and failed sale retries reuse 
   expect(sales[0].booking_id).toBeTruthy();
   expect(sales[1].booking_id).toBe(sales[0].booking_id);
   expect(sales[1].currency).toBe("USD");
+});
+
+test("cash failures show an unavailable balance and preserve the booking draft", async ({ page }) => {
+  await page.route("**/api/v1/portfolio/**", route => {
+    if (new URL(route.request().url()).pathname.endsWith("/snapshot")) return route.fulfill({ json: {
+      positions: [], kpis: [], cash_balance: 100, cash_ratio_pct: 100, currency: "EUR", total_value: 100
+    } });
+    return route.fulfill({ json: { positions: [], items: [], points: [], mappings: [], cash_flows: [], model: "current_holdings", data_status: "missing", source: "missing", message: "Synthetische Testdaten" } });
+  });
+  await page.route("**/api/v1/portfolio/cash-flows", route => route.fulfill({ status: 503,
+    json: { detail: route.request().method() === "GET" ? "Cashbestand nicht verfügbar" : "Buchung fehlgeschlagen" } }));
+  await page.goto("/portfolio");
+  await page.locator("summary").filter({ hasText: "Positionen, Verkäufe und Cashflows" }).click();
+  const panel = page.locator("section").filter({ has: page.getByRole("heading", { name: "Cashflows", exact: true }) }).last();
+  await expect(panel.getByText("Cash-Bestand: nicht verfügbar", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Cash-Bestand: 0,00 €", { exact: true })).toHaveCount(0);
+  await panel.getByLabel("Betrag", { exact: true }).fill("123");
+  await panel.getByLabel("Notiz", { exact: true }).fill("Mein Entwurf");
+  await panel.getByRole("button", { name: "Cashflow buchen" }).click();
+  await expect(panel.getByRole("alert").filter({ hasText: "Buchung fehlgeschlagen" })).toBeVisible();
+  await expect(panel.getByLabel("Betrag", { exact: true })).toHaveValue("123");
+  await expect(panel.getByLabel("Notiz", { exact: true })).toHaveValue("Mein Entwurf");
 });

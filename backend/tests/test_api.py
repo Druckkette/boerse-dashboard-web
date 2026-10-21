@@ -675,14 +675,19 @@ def test_isin_mappings_contract() -> None:
     assert isinstance(payload["mappings"], list)
 
 
-def test_portfolio_transactions_contract() -> None:
+def test_portfolio_transactions_contract(monkeypatch) -> None:
+    from app.repositories import portfolio
+    monkeypatch.setattr(portfolio, "list_transactions", lambda **kwargs: [])
     response = client.get("/api/v1/portfolio/transactions")
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload["transactions"], list)
 
 
-def test_portfolio_cash_flows_contract() -> None:
+def test_portfolio_cash_flows_contract(monkeypatch) -> None:
+    from app.repositories import portfolio
+    monkeypatch.setattr(portfolio, "list_cash_flows", lambda **kwargs: [])
+    monkeypatch.setattr(portfolio, "get_cash_balance", lambda: 0.0)
     response = client.get("/api/v1/portfolio/cash-flows")
     assert response.status_code == 200
     payload = response.json()
@@ -908,7 +913,9 @@ def test_portfolio_after_hours_contract(monkeypatch) -> None:
     assert payload["positions"][0]["after_hours_price"] == 105
 
 
-def test_portfolio_import_history_contract() -> None:
+def test_portfolio_import_history_contract(monkeypatch) -> None:
+    from app.repositories import portfolio
+    monkeypatch.setattr(portfolio, "list_import_history", lambda **kwargs: [])
     response = client.get("/api/v1/portfolio/imports")
     assert response.status_code == 200
     payload = response.json()

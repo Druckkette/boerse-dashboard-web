@@ -8,6 +8,18 @@ class FinancialInput(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
 
+class PortfolioDatedInput(FinancialInput):
+    @field_validator("date", "buy_date", "pivot_tag", check_fields=False)
+    @classmethod
+    def valid_booking_date(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        try:
+            return date.fromisoformat(value).isoformat()
+        except ValueError as exc:
+            raise ValueError("Datum muss ein gültiges Kalenderdatum im Format JJJJ-MM-TT sein.") from exc
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
     service: str
@@ -1134,7 +1146,7 @@ class PortfolioAfterHoursResponse(BaseModel):
     positions: list[PortfolioAfterHoursPosition]
 
 
-class PortfolioPositionWriteRequest(FinancialInput):
+class PortfolioPositionWriteRequest(PortfolioDatedInput):
     create_only: bool = False
     stop_mode: Literal["pct", "price", "none"] | None = None
     ticker: str
@@ -1199,7 +1211,7 @@ class PortfolioTransactionsResponse(BaseModel):
     transactions: list[PortfolioTransaction]
 
 
-class PortfolioSellRequest(FinancialInput):
+class PortfolioSellRequest(PortfolioDatedInput):
     booking_id: str | None = Field(default=None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     shares: float = Field(gt=0, allow_inf_nan=False)
     price: float = Field(gt=0, allow_inf_nan=False)
@@ -1227,7 +1239,7 @@ class PortfolioCashFlow(BaseModel):
     note: str = ""
 
 
-class PortfolioCashFlowRequest(FinancialInput):
+class PortfolioCashFlowRequest(PortfolioDatedInput):
     date: str | None = None
     amount: float = Field(gt=0, allow_inf_nan=False)
     flow_type: Literal["deposit", "withdrawal", "dividend", "interest", "tax", "fee", "other"]
