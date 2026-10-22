@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { Workspace } from "@/features/desk/workspace";
 
 export default function WorkspacePage() {
-  redirect("/#watchlist");
+  return <Workspace />;
 }

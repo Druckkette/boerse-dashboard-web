@@ -28,9 +28,23 @@ def read_workspace() -> tuple[dict, datetime | None]:
 
 
 def write_workspace(values: dict) -> tuple[dict, datetime | None]:
+    return mutate_workspace(lambda current: {**current, **values})
+
+
+def mutate_workspace(operation) -> tuple[dict, datetime | None]:
     try:
         with SessionLocal() as db:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('dashboard:professional_workspace'))"))
             row = db.get(AppSetting, WORKSPACE_KEY)
+            previous = dict(row.value_json or {}) if row else {}
+            values = operation(previous)
+            if previous.get("watchlist", []) != values.get("watchlist", []):
+                from app.repositories.desk import KEY
+                professional = db.get(AppSetting, KEY)
+                if professional is None:
+                    professional = AppSetting(key=KEY, value_json={}, description="Private trading workspace")
+                    db.add(professional)
+                professional.value_json = {**(professional.value_json or {}), "revision": int((professional.value_json or {}).get("revision", 0)) + 1}
             if row is None:
                 row = AppSetting(
                     key=WORKSPACE_KEY,
@@ -39,7 +53,7 @@ def write_workspace(values: dict) -> tuple[dict, datetime | None]:
                 )
                 db.add(row)
             else:
-                row.value_json = dict(values)
+                row.value_json = {**(row.value_json or {}), **values}
             db.commit()
             db.refresh(row)
             return dict(row.value_json or {}), row.updated_at

@@ -1,6 +1,6 @@
 # Neue und klassische Oberfläche
 
-Die neue Oberfläche ist die Standardansicht. Oben steht jederzeit **Klassische Ansicht**. Damit wird die bisherige Navigation und Anordnung wieder angezeigt. **Neue Ansicht** schaltet zurück. Die Wahl gilt für den jeweiligen Browser, wird ein Jahr im Cookie `dashboard-ui` gespeichert und schon beim Serverrendern berücksichtigt. Bei offenen Stopp-, Einstellungs- oder Notizentwürfen ist der Wechsel gesperrt; zuerst speichern oder verwerfen.
+Die neue Oberfläche ist die Standardansicht. Das Zahnrad **Darstellung ändern** im Header öffnet den Wechsel zur **Klassischen Ansicht**; derselbe Schalter liegt in den Darstellungseinstellungen. Damit wird die bisherige Navigation und Anordnung wieder angezeigt. **Neue Ansicht** schaltet zurück. Die Wahl gilt für den jeweiligen Browser, wird ein Jahr im Cookie `dashboard-ui` gespeichert und schon beim Serverrendern berücksichtigt. Bei offenen Stopp-, Einstellungs- oder Notizentwürfen ist der Wechsel gesperrt; zuerst speichern oder verwerfen.
 
 Der Ansichtswechsel verwendet keine Finanz-API-Schreibzugriffe und ändert weder Depot, TR-Buchungen, Tageskurse, Berechnungsmodelle noch Notizen. Es gibt keine Datenmigration für das neue Design. Ein vorhandener Verlauf oder eine fehlende Bewertung wird in beiden Ansichten aus denselben Backenddaten angezeigt.
 

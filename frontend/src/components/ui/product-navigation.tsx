@@ -22,6 +22,11 @@ const analysis = [
 ];
 const portfolio = [
   ["/portfolio", "Depot"],
+  ["/workspace", "Watchlists & Pläne"],
+  ["/alerts", "Alarmzentrale"],
+  ["/calendar", "Kalender"],
+  ["/portfolio/performance", "Performance"],
+  ["/portfolio/accounts", "Weitere Depots"],
   ["/portfolio/buy-strength", "Stärke nach Kauf"],
   ["/sell-monitor", "Verkaufsmonitor"],
   ["/trade-journal", "Handelstagebuch"],

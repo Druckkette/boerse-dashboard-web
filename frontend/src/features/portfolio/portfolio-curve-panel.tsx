@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { api } from "@/lib/api/client";
 import { nextPortfolioYearCheck, portfolioYearStart } from "./portfolio-year";
+import Link from "next/link";
 
 export function PortfolioCurvePanel() {
   const product = useProductUi();
@@ -31,6 +32,7 @@ export function PortfolioCurvePanel() {
     };
   }, []);
   const [model, setModel] = useState<"auto" | "execution_history" | "current_holdings">("auto");
+  const [averages,setAverages]=useState(false);
   const query = useQuery({
     queryKey: ["portfolio-curve", startDate, model],
     queryFn: () => api.portfolioCurve({ startDate, model }),
@@ -47,7 +49,7 @@ export function PortfolioCurvePanel() {
             Depot und S&P 500 werden ab dem Basistag gemeinsam auf 100 gesetzt. Standard ist der 01.01. des laufenden Jahres.
           </p>
         </div>
-        <ProductDetails title="Darstellung & Zeitraum ändern"><div className="flex flex-col gap-3 md:flex-row">
+        <ProductDetails title="Darstellung & Zeitraum ändern"><Link href="/portfolio/performance" className="app-button mb-3">Performance & Benchmark vergleichen</Link><label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={averages} onChange={event=>setAverages(event.target.checked)}/>SMA 10 und SMA 21 anzeigen</label><div className="flex flex-col gap-3 md:flex-row">
         <label className="w-full text-sm md:w-64">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#687386]">Darstellung</span>
           <select className="input-dark" value={model} onChange={event => setModel(event.target.value as typeof model)}>
@@ -85,27 +87,27 @@ export function PortfolioCurvePanel() {
             key: "portfolio_index",
             label: "Depotindex",
             color: "#34d399",
-            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
+            formatter: (value: number) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           },
           {
             key: "portfolio_index_sma10",
             label: "SMA 10",
             color: "#60a5fa",
-            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
+            formatter: (value: number) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           },
           {
             key: "portfolio_index_sma21",
             label: "SMA 21",
             color: "#fbbf24",
-            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
+            formatter: (value: number) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           },
           {
             key: "sp500_index",
             label: "S&P 500",
             color: "#f472b6",
-            formatter: (value) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
+            formatter: (value: number) => product ? value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : value.toFixed(2)
           }
-        ]}
+        ].filter(item=>averages||!item.key.startsWith("portfolio_index_sma"))}
         title="Depotkurve"
       />
     </div>

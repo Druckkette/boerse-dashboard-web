@@ -2,6 +2,8 @@
 
 import { useBetaMode } from "@/components/beta-mode-provider";
 
+import { ResearchTableTools } from "@/components/ui/research-table-tools";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Plus, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
@@ -27,7 +29,8 @@ type CompareCategory = (typeof categories)[number];
 
 export function StockComparePanel() {
   const beta = useBetaMode();
-  const [open, setOpen] = useState(false);
+  const searchParams=useSearchParams();
+  const [open, setOpen] = useState(searchParams.has("compare"));
   const [view, setView] = useViewState("compare", { tickers: defaultTickers, category: "Gesamtscore" as CompareCategory });
   const { tickers, category } = view;
   const setTickers = (tickers: string[]) => setView({ tickers });
@@ -189,7 +192,7 @@ export function StockComparePanel() {
       ) : rows.length === 0 ? (
         <div className="p-5 text-sm text-[var(--muted)]">Noch keine Vergleichsdaten. Lade zuerst Prices und RS Ratings.</div>
       ) : (
-        <>
+        <div id="aktienvergleich" className="scroll-mt-32">
           <CompareTable category={category} rows={rows} />
           <details className="border-t border-[var(--border)]">
             <summary className="cursor-pointer px-5 py-3 text-sm text-[var(--muted)] hover:text-[var(--text)]">
@@ -197,7 +200,7 @@ export function StockComparePanel() {
             </summary>
             <RawMetricsTable rows={rows} />
           </details>
-        </>
+        </div>
       )}
     </CollapsiblePanel>
   );
@@ -206,8 +209,9 @@ export function StockComparePanel() {
 function CompareTable({ category, rows }: { category: CompareCategory; rows: StockAssessmentCompareItem[] }) {
   const columns = columnsForCategory(category);
   return (
-    <div className="max-h-[560px] overflow-auto">
-      <table className="w-full min-w-[980px] border-collapse text-sm">
+    <><ResearchTableTools id="compare" pinned={2} columns={columns.map(column=>column.label)}/><div className="grid gap-3 p-3 lg:hidden">{rows.map(row=><article key={row.ticker} className="rounded-xl border p-4"><Link className="font-semibold text-teal-800" href={`/stocks/${row.ticker}`}>{row.ticker}</Link><dl className="mt-3 grid grid-cols-2 gap-3 text-sm">{columns.filter(column=>column.key!=="ticker").map(column=><div key={column.key}><dt className="mb-1 text-[#526174]">{column.label}</dt><dd className="break-words">{column.render(row)}</dd></div>)}</dl></article>)}</div>
+    <div className="hidden max-h-[560px] overflow-auto lg:block">
+      <table data-research="compare" className="research-table w-full min-w-[980px] border-collapse text-sm">
         <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
           <tr>
             {columns.map((column) => (
@@ -229,44 +233,30 @@ function CompareTable({ category, rows }: { category: CompareCategory; rows: Sto
           ))}
         </tbody>
       </table>
-    </div>
+    </div></>
   );
 }
 
 function RawMetricsTable({ rows }: { rows: StockAssessmentCompareItem[] }) {
-  return (
-    <div className="max-h-[420px] overflow-auto">
-      <table className="w-full min-w-[1180px] border-collapse text-sm">
-        <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
-          <tr>
-            {["Ticker", "Preis", "1M", "3M", "6M", "Drawdown", "ATR", "Beta", "RS", "10-SMA", "21-EMA", "50-SMA", "200-SMA", "MA-Ordnung"].map((label) => (
-              <th key={label} className="border-b border-[var(--border)] px-4 py-3 font-medium">{label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.ticker} className="border-b border-[var(--border)]">
-              <td className="px-4 py-3"><TickerCell row={row} /></td>
-              <td className="px-4 py-3">{money(row.price)}</td>
-              <td className="px-4 py-3"><PctCell value={row.perf_1m_pct} /></td>
-              <td className="px-4 py-3"><PctCell value={row.perf_3m_pct} /></td>
-              <td className="px-4 py-3"><PctCell value={row.perf_6m_pct} /></td>
-              <td className="px-4 py-3"><PctCell value={row.drawdown_52w_pct} /></td>
-              <td className="px-4 py-3">{pct(row.atr_pct)}</td>
-              <td className="px-4 py-3">{number(row.beta, 2)}</td>
-              <td className="px-4 py-3">{number(row.rs_rating, 0)}</td>
-              <td className="px-4 py-3">{boolChip(row.above_sma10)}</td>
-              <td className="px-4 py-3">{boolChip(row.above_ema21)}</td>
-              <td className="px-4 py-3">{boolChip(row.above_sma50)}</td>
-              <td className="px-4 py-3">{boolChip(row.above_sma200)}</td>
-              <td className="px-4 py-3">{boolChip(row.ma_order)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const columns: Column[] = [
+    {key:"price",label:"Preis (USD)",render:row=>money(row.price)},
+    {key:"m1",label:"1 Monat",render:row=><PctCell value={row.perf_1m_pct}/>},
+    {key:"m3",label:"3 Monate",render:row=><PctCell value={row.perf_3m_pct}/>},
+    {key:"m6",label:"6 Monate",render:row=><PctCell value={row.perf_6m_pct}/>},
+    {key:"drawdown",label:"Drawdown",render:row=><PctCell value={row.drawdown_52w_pct}/>},
+    {key:"atr",label:"ATR",render:row=>pct(row.atr_pct)},
+    {key:"beta",label:"Beta",render:row=>number(row.beta,2)},
+    {key:"rs",label:"RS",render:row=>number(row.rs_rating,0)},
+    {key:"sma10",label:"Über 10-SMA",render:row=>boolChip(row.above_sma10)},
+    {key:"ema21",label:"Über 21-EMA",render:row=>boolChip(row.above_ema21)},
+    {key:"sma50",label:"Über 50-SMA",render:row=>boolChip(row.above_sma50)},
+    {key:"sma200",label:"Über 200-SMA",render:row=>boolChip(row.above_sma200)},
+    {key:"order",label:"MA-Ordnung",render:row=>boolChip(row.ma_order)},
+  ];
+  return <>
+    <div className="grid gap-3 p-3 lg:hidden">{rows.map(row=><article key={row.ticker} className="rounded-xl border p-4"><TickerCell row={row}/><dl className="mt-3 grid grid-cols-2 gap-3 text-sm">{columns.map(column=><div key={column.key}><dt className="mb-1 text-[#526174]">{column.label}</dt><dd>{column.render(row)}</dd></div>)}</dl></article>)}</div>
+    <div className="hidden max-h-[420px] overflow-auto lg:block"><table className="research-table w-full min-w-[1180px] border-collapse text-sm"><thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]"><tr>{["Ticker",...columns.map(c=>c.label)].map(label=><th key={label} className="border-b border-[var(--border)] px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.ticker} className="border-b border-[var(--border)]"><td className="px-4 py-3"><TickerCell row={row}/></td>{columns.map(column=><td key={column.key} className="px-4 py-3">{column.render(row)}</td>)}</tr>)}</tbody></table></div>
+  </>;
 }
 
 type Column = {

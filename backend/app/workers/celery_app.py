@@ -39,11 +39,13 @@ celery_app.conf.update(
         "reclassify_report_history": {"queue": report_queue},
         "refresh_sec_companyfacts_bulk": {"queue": report_queue},
         "position_atr_monitor": {"queue": "monitor"},
+        "check_workspace_alerts": {"queue": "monitor"},
         "pushover_test": {"queue": "monitor"},
         "refresh_stock_detail": {"queue": "interactive"},
         "archive_portfolio_prices": {"queue": "interactive"},
     },
     imports=(
+        "app.workers.tasks.check_workspace_alerts",
         "app.workers.tasks.refresh_report_data",
         "app.workers.tasks.reclassify_report_history",
         "app.workers.tasks.refresh_sec_companyfacts_bulk",

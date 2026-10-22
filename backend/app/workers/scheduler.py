@@ -42,6 +42,11 @@ def get_beat_schedule() -> dict:
     in Smart Refresh and also run monthly as a backup because SEC artefacts are large.
     """
     return {
+        "workspace-alert-check": {
+            "task": "check_workspace_alerts",
+            "schedule": 300.0,
+            "options": {"expires": 240},
+        },
         "archive-portfolio-prices-after-close": {
             "task": "archive_portfolio_prices",
             "schedule": crontab(hour=22, minute=40, day_of_week="1-5"),

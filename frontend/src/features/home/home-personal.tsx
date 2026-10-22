@@ -35,7 +35,7 @@ export function HomeWatchlist({ data }: { data: HomeDashboard }) {
     const clean = input.trim().toUpperCase().replace(/[^A-Z0-9.-]/g, "").slice(0, 32);
     if (clean && !pending && canEdit) add.mutate(clean);
   }
-  return <Panel id="watchlist" icon={BookmarkPlus} title="Meine Watchlist" detail="Beobachtete Aktien verwalten und zuletzt geöffnete Analysen wiederfinden." action={<span className="text-xs text-[#687386]">{tickers.length} Aktien</span>}>
+  return <Panel id="watchlist" icon={BookmarkPlus} title="Meine Watchlist" detail="Beobachtete Aktien verwalten und zuletzt geöffnete Analysen wiederfinden." action={<TextLink href="/workspace#watchlists">Alle Listen & Pläne · {tickers.length} Favoriten</TextLink>}>
     <form className="mb-4 flex max-w-md gap-2" onSubmit={(event) => { event.preventDefault(); addTicker(); }}>
       <label htmlFor="watchlist-ticker" className="sr-only">Ticker zur Watchlist hinzufügen</label>
       <input id="watchlist-ticker" className="h-10 min-w-0 flex-1 rounded-lg border border-[#d8e1ea] bg-white px-3 text-sm uppercase outline-none focus:border-[#0f766e]" placeholder="Ticker hinzufügen, z. B. AAPL" maxLength={32} value={input} onChange={(event) => setInput(event.target.value)} />

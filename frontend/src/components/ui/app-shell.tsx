@@ -29,6 +29,11 @@ const navItems = [
   { href: "/industry-groups", label: "Branchen", icon: Layers3 },
   { href: "/stocks", label: "Aktien", icon: Search },
   { href: "/portfolio", label: "Portfolio", icon: BriefcaseBusiness, exact: true },
+  { href: "/workspace", label: "Watchlists & Pläne", icon: NotebookPen },
+  { href: "/alerts", label: "Alarmzentrale", icon: Shield },
+  { href: "/calendar", label: "Kalender", icon: Gauge },
+  { href: "/portfolio/performance", label: "Performance", icon: LineChart },
+  { href: "/portfolio/accounts", label: "Weitere Depots", icon: BriefcaseBusiness },
   { href: "/portfolio/buy-strength", label: "Stärke nach Kauf", icon: TrendingUp },
   { href: "/trade-journal", label: "Handelstagebuch", icon: NotebookPen },
   { href: "/sell-monitor", label: "Verkaufsmonitor", icon: ChartCandlestick },
@@ -36,7 +41,7 @@ const navItems = [
   { href: "/settings", label: "Einstellungen", icon: Settings }
 ];
 
-const betaNavItems = [...navItems.slice(0, 5), { href: "/sell-check", label: "Aktie frei prüfen", icon: ChartCandlestick }];
+const betaNavItems = [...navItems.filter(item => ["/", "/market", "/sectors", "/industry-groups", "/stocks"].includes(item.href)), { href: "/sell-check", label: "Aktie frei prüfen", icon: ChartCandlestick }];
 const hiddenPageLabels = [
   { href: "/setup", label: "Setup" },
   { href: "/jobs", label: "Jobs" },
@@ -44,6 +49,11 @@ const hiddenPageLabels = [
 ];
 
 const pageDescriptions: Record<string, string> = {
+  "/workspace": "Aktien beobachten, Einstiege planen und Entscheidungen nachvollziehen.",
+  "/alerts": "Alarmregeln, Ruhezeiten und Meldungsverlauf verwalten.",
+  "/calendar": "Quartalszahlen, Unternehmensereignisse und eigene Termine.",
+  "/portfolio/performance": "Rendite, Cashflows, Rückgänge und Benchmark vergleichen.",
+  "/portfolio/accounts": "Zusätzliche Depots mit eigenen Buchungen und Bewertungen.",
   "/": "Marktlage, Depot, Earnings und Recherche an einem Ort.",
   "/market": "Marktampel, Marktbreite und Frühwarnzeichen in einer ruhigen Übersicht.",
   "/sectors": "Sektorrotation und relative Stärke nach Tages- oder Wochenansicht.",
@@ -139,7 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>
               <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386] sm:text-sm">{currentPageDescription}</p>
             </div>
-            <div className="shell-tools flex flex-wrap items-center gap-2"><UiModeSwitch /><HeaderTools compact={product} /></div>
+            <div className="shell-tools flex flex-wrap items-center gap-2"><details className="relative shrink-0"><summary aria-label="Darstellung ändern" title="Darstellung ändern" className="grid cursor-pointer list-none place-items-center rounded-lg border border-[#d8e1ea] px-3"><Settings size={18}/><span className="sr-only">Darstellung</span></summary><div className="absolute left-0 top-full z-40 mt-2 grid min-w-56 gap-2 rounded-xl border bg-white p-3 shadow-lg"><UiModeSwitch/>{!beta&&<Link href="/settings#darstellung" className="app-button">Darstellungseinstellungen</Link>}</div></details><HeaderTools compact={product} /></div>
           </div>
         </header>
         <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">{children}</div>

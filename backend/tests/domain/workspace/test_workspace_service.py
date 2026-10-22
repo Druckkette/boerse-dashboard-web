@@ -34,7 +34,7 @@ def test_workspace_update_persists_normalized_state(monkeypatch) -> None:
         return values, datetime(2026, 6, 12, tzinfo=UTC)
 
     monkeypatch.setattr(workspace_service.workspace_repository, "read_workspace", fake_read_workspace)
-    monkeypatch.setattr(workspace_service.workspace_repository, "write_workspace", fake_write_workspace)
+    monkeypatch.setattr(workspace_service.workspace_repository, "mutate_workspace", lambda operation: fake_write_workspace(operation(fake_read_workspace()[0])))
 
     state = workspace_service.update_workspace_state(
         WorkspacePatch(watchlist=["nvda", "NVDA", "msft"], todos="Checkliste", recent_tickers=["tsla"])
@@ -70,7 +70,7 @@ def test_add_recent_ticker_moves_existing_symbol_to_front(monkeypatch) -> None:
         return values, datetime(2026, 6, 12, tzinfo=UTC)
 
     monkeypatch.setattr(workspace_service.workspace_repository, "read_workspace", fake_read_workspace)
-    monkeypatch.setattr(workspace_service.workspace_repository, "write_workspace", fake_write_workspace)
+    monkeypatch.setattr(workspace_service.workspace_repository, "mutate_workspace", lambda operation: fake_write_workspace(operation(fake_read_workspace()[0])))
 
     state = workspace_service.add_recent_ticker("nvda")
 

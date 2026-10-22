@@ -1,6 +1,7 @@
 "use client";
 
 import { useProductUi } from "@/components/ui/ui-mode-provider";
+import { TodayTasks } from "@/features/desk/today-tasks";
 import { useQuery } from "@tanstack/react-query";
 import { BriefcaseBusiness, Clock3, Layers3, LineChart, TrendingUp } from "lucide-react";
 import Link from "next/link";
@@ -40,7 +41,7 @@ export function HomeDashboard() {
       <a href="#systemstatus" onClick={() => setSystemOpen(true)} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0f766e]">Daten & Meldungen</a>
     </div>
 
-    {product && <section aria-label="Im Blick behalten" className="flex flex-wrap items-center gap-3 rounded-xl border border-[#d8e1ea] bg-white px-4 py-3 text-sm"><span className="font-semibold">Im Blick behalten</span><TextLink href="/sell-monitor">{data.review_positions_count} Positionen prüfen</TextLink>{(data.portfolio.stop_coverage_total || 0) > (data.portfolio.stop_coverage_count || 0) && <TextLink href="/portfolio#positionen">{(data.portfolio.stop_coverage_total || 0) - (data.portfolio.stop_coverage_count || 0)} Stopps fehlen</TextLink>}<TextLink href="/portfolio">Depotergebnis ansehen</TextLink></section>}
+    {product && <TodayTasks data={data}/>}
     {product ? <CompactMarketOverview data={data} /> : <MarketOverview data={data} />}
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <PortfolioOverview data={data} />

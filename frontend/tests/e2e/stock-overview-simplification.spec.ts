@@ -1,3 +1,4 @@
+import { showDisplaySettings } from "./ui-preferences";
 import { test, expect } from "@playwright/test";
 
 test.use({ baseURL: "http://127.0.0.1:18300", httpCredentials: {
@@ -21,7 +22,7 @@ for (const width of [390, 1440]) test(`stock analysis keeps useful signals witho
     await expect(page.locator("[data-chart-surface]")).toBeVisible();
     await expect(page.getByText("Chartwerte als Tabelle", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("table")).toHaveCount(0);
-    if (mode === "product") await page.getByRole("button", { name: "Zur klassischen Ansicht wechseln", exact: true }).click();
+    if (mode === "product") { await showDisplaySettings(page); await showDisplaySettings(page); await page.getByRole("button", { name: "Zur klassischen Ansicht wechseln", exact: true }).click(); }
   }
   expect(diagnosticRequests).toEqual([]);
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { ChartTools, exportChart, useChartPreferences } from "./chart-tools";
 import { useProductUi } from "./ui-mode-provider";
 import { Eye, EyeOff, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +40,7 @@ export type ChartMarker = {
 
 type LineChartCardProps = {
   title: string;
+  storageKey?: string;
   caption: string;
   points: ChartDatum[];
   series: ChartSeries[];
@@ -100,11 +102,12 @@ type TimeTick = {
 
 export function LineChartCard({
   title,
+  storageKey,
   caption,
   points,
   series,
   chartMode = "line",
-  levels = [],
+  levels: suppliedLevels = [],
   markers = [],
   subSeries = [],
   subTitle = "",
@@ -121,6 +124,8 @@ export function LineChartCard({
   showPreviousCloseChange = false
 }: LineChartCardProps) {
   const product = useProductUi();
+  const preferences=useChartPreferences(storageKey||title);
+  const levels=[...suppliedLevels,...preferences.value.levels];
   const [interact, setInteract] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
@@ -189,7 +194,11 @@ export function LineChartCard({
       )
     : [];
   const levelValues = levels.map((level) => level.value).filter((value) => Number.isFinite(value));
-  const priceScale = createPriceScale([...numericValues, ...candleValues, ...levelValues], chartSize.width < 640 ? 5 : 7);
+  const allPriceValues=[...numericValues,...candleValues,...levelValues];
+  const canLog=allPriceValues.length>0&&allPriceValues.every(value=>value>0);
+  const logarithmic=preferences.value.logarithmic&&canLog;
+  const scale=createPriceScale(logarithmic?allPriceValues.map(Math.log):allPriceValues,chartSize.width<640?5:7);
+  const priceScale=logarithmic?{min:Math.exp(scale.min),max:Math.exp(scale.max),ticks:scale.ticks.map(Math.exp)}:scale;
 
   const subValues = visiblePoints.flatMap((point) =>
     visibleSubSeries
@@ -227,7 +236,7 @@ export function LineChartCard({
     [chartSize.width, dateTickMode, visiblePoints]
   );
   const visibleMarkers = useMemo(() => layoutMarkers(markers, visiblePoints, plotRight), [markers, plotRight, visiblePoints]);
-  const levelLayouts = layoutLevelLabels(levels, priceScale, priceBottom);
+  const levelLayouts = layoutLevelLabels(levels, priceScale, priceBottom, logarithmic);
   const eventLegend = useMemo(() => createEventLegend(markers), [markers]);
 
   useEffect(() => {
@@ -313,7 +322,7 @@ export function LineChartCard({
     const y = Math.max(PAD_TOP, Math.min(priceBottom, svgY));
     setHover({
       index,
-      price: valueForY(y, priceScale.min, priceScale.max, PAD_TOP, priceBottom),
+      price: valueForY(y, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic),
       y
     });
 
@@ -377,6 +386,7 @@ export function LineChartCard({
         </div>
       </div>
 
+      <ChartTools value={preferences.value} onChange={preferences.update} canLog={canLog} onExport={format=>exportChart(cardRef.current,title,caption,format)}/>
       <div
         ref={chartRef}
         className={[
@@ -408,7 +418,7 @@ export function LineChartCard({
             <rect fill="var(--panel)" height={HEIGHT} width={canvasWidth} />
 
             {showHorizontalGrid && priceScale.ticks.map((tick) => {
-              const y = yForValue(tick, priceScale.min, priceScale.max, PAD_TOP, priceBottom);
+              const y = yForValue(tick, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
               return <line key={`price-grid-${tick}`} stroke="var(--border)" strokeWidth="0.8" vectorEffect="non-scaling-stroke" x1={PLOT_LEFT} x2={plotRight} y1={y} y2={y} />;
             })}
             {timeTicks.map((tick) => {
@@ -453,10 +463,10 @@ export function LineChartCard({
                   if (open === null || high === null || low === null || close === null) return null;
                   const x = xForIndex(index, visiblePoints.length, plotRight);
                   const candleWidth = Math.min(13, Math.max(2, ((plotRight - PLOT_LEFT) / Math.max(1, visiblePoints.length)) * 0.7));
-                  const yHigh = yForValue(high, priceScale.min, priceScale.max, PAD_TOP, priceBottom);
-                  const yLow = yForValue(low, priceScale.min, priceScale.max, PAD_TOP, priceBottom);
-                  const yOpen = yForValue(open, priceScale.min, priceScale.max, PAD_TOP, priceBottom);
-                  const yClose = yForValue(close, priceScale.min, priceScale.max, PAD_TOP, priceBottom);
+                  const yHigh = yForValue(high, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
+                  const yLow = yForValue(low, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
+                  const yOpen = yForValue(open, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
+                  const yClose = yForValue(close, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
                   const color = close >= open ? UP_COLOR : DOWN_COLOR;
                   return (
                     <g key={`${point.date}-candle`} opacity={hover && hover.index !== index ? "0.82" : "1"}>
@@ -472,12 +482,12 @@ export function LineChartCard({
               if (visiblePoints.length === 1) {
                 const value = toNumber(visiblePoints[0][item.key]);
                 return value === null ? null : <circle key={item.key} data-series={item.key}
-                  cx={(PLOT_LEFT + plotRight) / 2} cy={yForValue(value, priceScale.min, priceScale.max, PAD_TOP, priceBottom)}
+                  cx={(PLOT_LEFT + plotRight) / 2} cy={yForValue(value, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic)}
                   r={3 + (visibleSeries.length - seriesIndex)} fill="none" stroke={item.color} strokeWidth="2" vectorEffect="non-scaling-stroke">
                   <title>{item.label}: {item.formatter?.(value) ?? value} ({visiblePoints[0].date})</title>
                 </circle>;
               }
-              const path = buildPath(visiblePoints, item.key, priceScale.min, priceScale.max, PAD_TOP, priceBottom, plotRight);
+              const path = buildPath(visiblePoints, item.key, priceScale.min, priceScale.max, PAD_TOP, priceBottom, plotRight, logarithmic);
               if (!path) return null;
               return <path key={item.key} d={path} fill="none" stroke={item.color} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.35" vectorEffect="non-scaling-stroke" />;
             })}
@@ -493,8 +503,8 @@ export function LineChartCard({
 
             {latestIsVisible && latestClose !== null && (
               <g pointerEvents="none">
-                <line opacity="0.72" stroke={currentPriceColor} strokeDasharray="2 3" strokeWidth="1" vectorEffect="non-scaling-stroke" x1={PLOT_LEFT} x2={plotRight} y1={yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom)} y2={yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom)} />
-                <AxisLabel canvasWidth={canvasWidth} color={currentPriceColor} plotRight={plotRight} text={formatPrice(latestClose)} y={yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom)} />
+                <line opacity="0.72" stroke={currentPriceColor} strokeDasharray="2 3" strokeWidth="1" vectorEffect="non-scaling-stroke" x1={PLOT_LEFT} x2={plotRight} y1={yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic)} y2={yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic)} />
+                <AxisLabel canvasWidth={canvasWidth} color={currentPriceColor} plotRight={plotRight} text={formatPrice(latestClose)} y={yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic)} />
               </g>
             )}
 
@@ -513,9 +523,9 @@ export function LineChartCard({
 
             <line stroke="var(--border-strong)" strokeWidth="0.8" x1={plotRight} x2={plotRight} y1={PAD_TOP} y2={TIME_AXIS_Y} />
             {priceScale.ticks.map((tick) => {
-              const y = yForValue(tick, priceScale.min, priceScale.max, PAD_TOP, priceBottom);
+              const y = yForValue(tick, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
               const overlapsMarker = levelLayouts.some((layout) => Math.abs(layout.labelY - y) < 12)
-                || (latestIsVisible && latestClose !== null && Math.abs(yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom) - y) < 12);
+                || (latestIsVisible && latestClose !== null && Math.abs(yForValue(latestClose, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic) - y) < 12);
               return (
                 <g key={`price-tick-${tick}`}>
                   <line stroke="var(--border-strong)" strokeWidth="0.8" x1={plotRight} x2={plotRight + 5} y1={y} y2={y} />
@@ -657,7 +667,7 @@ function HoverValue({ label, value }: { label: string; value: number | null }) {
   return <span className="text-[var(--muted)]">{label} <span className="font-semibold text-[var(--text)]">{formatPrice(value)}</span></span>;
 }
 
-function buildPath(points: ChartDatum[], key: string, yMin: number, yMax: number, top: number, bottom: number, plotRight: number) {
+function buildPath(points: ChartDatum[], key: string, yMin: number, yMax: number, top: number, bottom: number, plotRight: number, logarithmic=false) {
   const segments: string[] = [];
   let drawing = false;
   points.forEach((point, index) => {
@@ -667,7 +677,7 @@ function buildPath(points: ChartDatum[], key: string, yMin: number, yMax: number
       return;
     }
     const x = xForIndex(index, points.length, plotRight);
-    const y = yForValue(value, yMin, yMax, top, bottom);
+    const y = yForValue(value, yMin, yMax, top, bottom, logarithmic);
     segments.push(`${drawing ? "L" : "M"} ${x.toFixed(2)} ${y.toFixed(2)}`);
     drawing = true;
   });
@@ -707,12 +717,14 @@ function fullVisibleRange(total: number): VisibleRange {
   return { start: 0, end: Math.max(0, total - 1), total };
 }
 
-function yForValue(value: number, yMin: number, yMax: number, top: number, bottom: number) {
+export function yForValue(value: number, yMin: number, yMax: number, top: number, bottom: number, logarithmic=false) {
+  if(logarithmic)return yForValue(Math.log(value),Math.log(yMin),Math.log(yMax),top,bottom);
   const ratio = (value - yMin) / (yMax - yMin || 1);
   return top + (1 - ratio) * (bottom - top);
 }
 
-function valueForY(y: number, yMin: number, yMax: number, top: number, bottom: number) {
+function valueForY(y: number, yMin: number, yMax: number, top: number, bottom: number, logarithmic=false): number {
+  if(logarithmic)return Math.exp(valueForY(y,Math.log(yMin),Math.log(yMax),top,bottom));
   const ratio = (y - top) / (bottom - top || 1);
   return yMax - ratio * (yMax - yMin);
 }
@@ -858,10 +870,10 @@ function compactLevelLabel(label: string) {
   return label === "Startschuss-Tief" ? "Startschuss" : label;
 }
 
-function layoutLevelLabels(levels: ChartLevel[], scale: PriceScale, priceBottom: number) {
+function layoutLevelLabels(levels: ChartLevel[], scale: PriceScale, priceBottom: number, logarithmic=false) {
   const layouts = levels
     .filter((level) => Number.isFinite(level.value))
-    .map((level) => ({ level, lineY: yForValue(level.value, scale.min, scale.max, PAD_TOP, priceBottom), labelY: yForValue(level.value, scale.min, scale.max, PAD_TOP, priceBottom) }))
+    .map((level) => ({ level, lineY: yForValue(level.value, scale.min, scale.max, PAD_TOP, priceBottom, logarithmic), labelY: yForValue(level.value, scale.min, scale.max, PAD_TOP, priceBottom, logarithmic) }))
     .sort((a, b) => a.labelY - b.labelY);
   const minimumGap = 20;
   layouts.forEach((layout, index) => {
