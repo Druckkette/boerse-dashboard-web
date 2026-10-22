@@ -280,6 +280,9 @@ test("calculator converts EUR equity and refuses a missing FX rate instead of si
 test("chart levels and log preferences persist and exports include a rendered chart", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined });
+  });
   await page.goto("/stocks/NVDA?tab=chart");
   await expect(page.locator("[data-chart-surface]")).toBeVisible();
   await page
