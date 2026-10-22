@@ -19,53 +19,42 @@ def get_workspace_state() -> WorkspaceState:
         return _workspace_from_values({}, updated_at=None, source="default")
 
 
+def tracked_watchlist_tickers() -> list[str]:
+    values, _ = workspace_repository.read_workspace()
+    return _normalize_ticker_list([*values.get("watchlist", []), *values.get("tracked_watchlists", [])], limit=3000)
+
+
 def update_workspace_state(payload: WorkspacePatch) -> WorkspaceState:
-    current = get_workspace_state().model_dump()
-    source = current.pop("source", "default")
-    current.pop("updated_at", None)
     updates = payload.model_dump(exclude_none=True)
-    merged = {
-        **current,
-        **updates,
-    }
-    next_state = _workspace_from_values(merged, updated_at=None, source="database")
-    try:
-        persisted, updated_at = workspace_repository.write_workspace(
-            {
-                "watchlist": next_state.watchlist,
-                "todos": next_state.todos,
-                "recent_tickers": next_state.recent_tickers,
-            }
-        )
-        return _workspace_from_values(persisted, updated_at=updated_at, source="database")
-    except WorkspaceRepositoryUnavailable:
-        return next_state.model_copy(update={"source": source})
+    return _mutate(lambda current: {**current, **updates})
+
+
+def _mutate(operation) -> WorkspaceState:
+    def normalized(values):
+        current = operation(values)
+        state = _workspace_from_values(current, updated_at=None, source="database")
+        return {**current, "watchlist": state.watchlist, "todos": state.todos, "recent_tickers": state.recent_tickers}
+    persisted, updated_at = workspace_repository.mutate_workspace(normalized)
+    return _workspace_from_values(persisted, updated_at=updated_at, source="database")
 
 
 def add_watchlist_ticker(ticker: str) -> WorkspaceState:
-    state = get_workspace_state()
     clean = _normalize_ticker(ticker)
     if not clean:
-        return state
-    watchlist = [item for item in state.watchlist if item != clean]
-    watchlist.insert(0, clean)
-    return update_workspace_state(WorkspacePatch(watchlist=watchlist[:MAX_TICKERS]))
+        return get_workspace_state()
+    return _mutate(lambda current: {**current, "watchlist": [clean, *[item for item in _normalize_ticker_list(current.get("watchlist")) if item != clean]][:MAX_TICKERS]})
 
 
 def remove_watchlist_ticker(ticker: str) -> WorkspaceState:
     clean = _normalize_ticker(ticker)
-    state = get_workspace_state()
-    return update_workspace_state(WorkspacePatch(watchlist=[item for item in state.watchlist if item != clean]))
+    return _mutate(lambda current: {**current, "watchlist": [item for item in _normalize_ticker_list(current.get("watchlist")) if item != clean]})
 
 
 def add_recent_ticker(ticker: str) -> WorkspaceState:
-    state = get_workspace_state()
     clean = _normalize_ticker(ticker)
     if not clean:
-        return state
-    recent = [item for item in state.recent_tickers if item != clean]
-    recent.insert(0, clean)
-    return update_workspace_state(WorkspacePatch(recent_tickers=recent[:24]))
+        return get_workspace_state()
+    return _mutate(lambda current: {**current, "recent_tickers": [clean, *[item for item in _normalize_ticker_list(current.get("recent_tickers"), limit=24) if item != clean]][:24]})
 
 
 def _workspace_from_values(values: dict, *, updated_at: datetime | None, source: str) -> WorkspaceState:

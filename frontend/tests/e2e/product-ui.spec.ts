@@ -1,3 +1,4 @@
+import { showDisplaySettings } from "./ui-preferences";
 import { test, expect, webkit, type Page } from "@playwright/test";
 
 test.use({
@@ -135,6 +136,7 @@ for (const width of [320, 390, 844, 1440])
       ).toBeLessThan(115);
     }
     await expect(page.locator("main")).toContainText("1.234.567.890 EUR");
+    await showDisplaySettings(page);
     await page
       .getByRole("button", {
         name: "Zur klassischen Ansicht wechseln",
@@ -148,6 +150,7 @@ for (const width of [320, 390, 844, 1440])
       await expect(
         page.getByRole("combobox", { name: "Bereich öffnen" }),
       ).toBeVisible();
+    await showDisplaySettings(page);
     await page
       .getByRole("button", { name: "Zur neuen Ansicht wechseln", exact: true })
       .click();
@@ -177,6 +180,7 @@ test("stop draft survives focus changes, blocks view switching and saves only ex
   await stop.press("Tab");
   await expect(stop).toHaveValue("13.25");
   expect(writes).toEqual([]);
+  await showDisplaySettings(page);
   await expect(
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
   ).toBeDisabled();
@@ -187,8 +191,10 @@ test("stop draft survives focus changes, blocks view switching and saves only ex
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toEqual({ stop_price: 13.25 });
   await expect(stop).toHaveValue("13.25");
+  await expect(stop).toBeEnabled();
   await stop.press("Escape");
   await expect(stop).toHaveValue("12");
+  await showDisplaySettings(page);
   await expect(
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
   ).toBeEnabled();
@@ -340,6 +346,7 @@ test("mobile beta More menu and classic fallback contain no private destinations
     ).toEqual(["/sectors", "/industry-groups"]);
     await page.keyboard.press("Escape");
     await expect(menu).not.toBeVisible();
+    await showDisplaySettings(page);
     await page
       .getByRole("button", { name: "Zur klassischen Ansicht wechseln" })
       .click();
@@ -379,6 +386,7 @@ for (const width of [320, 390])
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBeTruthy();
+      await showDisplaySettings(page);
       await page
         .getByRole("button", { name: "Zur klassischen Ansicht wechseln" })
         .click();
@@ -478,6 +486,7 @@ test("settings save bar appears only for drafts, avoids navigation and preserves
   });
   await risk.fill("1.5");
   await expect(save).toBeEnabled();
+  await showDisplaySettings(page);
   await expect(
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
   ).toBeDisabled();
@@ -490,6 +499,7 @@ test("settings save bar appears only for drafts, avoids navigation and preserves
   await page.getByRole("button", { name: "Verwerfen", exact: true }).click();
   await expect(risk).toHaveValue("1");
   await expect(save).toHaveCount(0);
+  await showDisplaySettings(page);
   await expect(
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
   ).toBeEnabled();
@@ -546,6 +556,7 @@ test("a touch swipe across the chart scrolls the page and enlarged content still
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBeTruthy();
+    await showDisplaySettings(page);
     await expect(
       page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
     ).toBeVisible();
@@ -634,6 +645,7 @@ test("a desktop stop draft survives a fresh snapshot with a changed quote", asyn
   await page.clock.runFor(60_000);
   await expect.poll(() => snapshots).toBeGreaterThan(snapshotsBeforeRefresh);
   await expect(stop).toHaveValue("13.25");
+  await showDisplaySettings(page);
   await expect(
     page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
   ).toBeDisabled();

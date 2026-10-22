@@ -26,6 +26,8 @@ Backend: `http://localhost:8000`
 
 OpenAPI: `http://localhost:8000/docs`
 
+Watchlists, Einstiegsplanung, Alarmzentrale, Kalender, Performance und zusätzliche Depots: [Dokumentation des professionellen Arbeitsbereichs](docs/professional-workspace.md).
+
 Readiness: `http://localhost:8000/api/v1/readiness`
 
 The frontend uses the same-origin API path `/api/v1` and proxies requests to the FastAPI container.

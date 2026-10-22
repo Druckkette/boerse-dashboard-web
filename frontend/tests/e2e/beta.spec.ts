@@ -86,7 +86,7 @@ test("free sell check displays the entered purchase and all rule categories", as
 });
 
 test("direct private APIs/pages, spoofed headers, RSC, exports and server actions are denied", async ({ request }) => {
-  for (const path of ["/portfolio", "/settings", "/setup", "/jobs", "/sell-monitor", "/trade-journal", "/portfolio.png", "/api/v1/home", "/api/v1/workspace", "/api/v1/industry-groups/rs/diagnostics", "/api/v1/jobs", "/api/v1/stocks/NVDA/report.pdf", "/api/v1/stocks/screening/export"]) {
+  for (const path of ["/alerts", "/calendar", "/workspace", "/portfolio/accounts", "/portfolio/performance", "/api/v1/desk/state", "/api/v1/desk/calendar", "/api/v1/desk/accounts/overview", "/portfolio", "/settings", "/setup", "/jobs", "/sell-monitor", "/trade-journal", "/portfolio.png", "/api/v1/home", "/api/v1/workspace", "/api/v1/industry-groups/rs/diagnostics", "/api/v1/jobs", "/api/v1/stocks/NVDA/report.pdf", "/api/v1/stocks/screening/export"]) {
     const response = await request.get(path, { headers: { RSC: "1", "x-beta-proxy-key": "wrong", "x-role": "admin" } });
     expect(response.status(), path).toBe(403);
   }

@@ -7,12 +7,11 @@ import type { ReactNode } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import type { PortfolioPositionSizeRequest, PortfolioPositionSizeResult } from "@/lib/types/api";
+import { deskApi } from "@/lib/desk";
 
 type CalculatorMode = "loss_budget" | "risk_contribution";
 type StopUnit = "pct" | "usd";
 
-const money = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0, style: "currency", currency: "USD" });
-const preciseMoney = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2, style: "currency", currency: "USD" });
 const number = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 
 export function PositionSizeCalculator() {
@@ -21,6 +20,9 @@ export function PositionSizeCalculator() {
   const [mode, setMode] = useState<CalculatorMode>("loss_budget");
   const [stopUnit, setStopUnit] = useState<StopUnit>("pct");
   const [depotValue, setDepotValue] = useState("");
+  const [quoteCurrency, setQuoteCurrency] = useState("USD");
+  const baseCurrency = snapshot?.currency;
+  const fx = useQuery({queryKey:["desk-fx",baseCurrency,quoteCurrency],queryFn:()=>deskApi.fx(baseCurrency!,quoteCurrency),enabled:Boolean(baseCurrency&&baseCurrency!==quoteCurrency&&!depotValue),staleTime:60_000});
   const [riskPct, setRiskPct] = useState("");
   const [targetRiskContribution, setTargetRiskContribution] = useState("");
   const [ticker, setTicker] = useState("");
@@ -32,7 +34,7 @@ export function PositionSizeCalculator() {
   const [beta, setBeta] = useState("");
   const [marketAtrPct, setMarketAtrPct] = useState("");
 
-  const effectiveDepotValue = depotValue || String(Math.trunc(snapshot?.total_value ?? 0));
+  const effectiveDepotValue = depotValue || (baseCurrency===quoteCurrency ? String(snapshot?.total_value ?? "") : fx.data ? String((snapshot?.total_value ?? 0)*fx.data.rate) : "");
   const effectiveRiskPct = riskPct || String(settings?.risk_per_position_pct ?? 1);
   const effectiveTargetRiskContribution =
     targetRiskContribution || String(settings?.target_risk_contribution ?? 0.2);
@@ -70,8 +72,9 @@ export function PositionSizeCalculator() {
   const localResult = useMemo(() => calculatePositionSize(request, mode), [mode, request]);
 
   const assessment = useMutation({
-    mutationFn: () => api.stockAssessment(ticker.trim().toUpperCase()),
-    onSuccess: (data) => {
+    mutationFn: async () => {const clean=ticker.trim().toUpperCase();const [data,history]=await Promise.all([api.stockAssessment(clean),api.stockPrices(clean,"1y")]);return {data,history};},
+    onSuccess: ({data,history}) => {
+      if(history.currency){setQuoteCurrency(history.currency);setDepotValue("");}
       if (data.metrics.last_close) {
         setBuyPrice(String(Number(data.metrics.last_close.toFixed(2))));
         setCurrentPrice(String(Number(data.metrics.last_close.toFixed(2))));
@@ -122,9 +125,10 @@ export function PositionSizeCalculator() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
-            <Field label="Depotwert USD">
+            <Field label={`Depotwert ${quoteCurrency}`}>
               <input className="input-dark" min="0" step="500" type="number" value={effectiveDepotValue} onChange={(event) => setDepotValue(integerInput(event.target.value))} />
             </Field>
+            <Field label="Kurswährung"><select aria-label="Kurswährung" className="input-dark" value={quoteCurrency} onChange={event=>{setQuoteCurrency(event.target.value);setDepotValue("");}}>{["USD","EUR","GBP","CHF","CAD","JPY","HKD","AUD"].map(currency=><option key={currency}>{currency}</option>)}</select></Field>
             <Field label="Ticker optional">
               <input className="input-dark" placeholder="NVDA" value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} />
             </Field>
@@ -151,7 +155,7 @@ export function PositionSizeCalculator() {
                   />
                   <select className="input-dark" value={stopUnit} onChange={(event) => setStopUnit(event.target.value as StopUnit)}>
                     <option value="pct">%</option>
-                    <option value="usd">USD</option>
+                    <option value="usd">{quoteCurrency}</option>
                   </select>
                 </div>
               </Field>
@@ -215,13 +219,15 @@ export function PositionSizeCalculator() {
           )}
         </div>
 
-        <ResultCard mode={mode} result={localResult} />
+        <div className="space-y-3">{!depotValue&&baseCurrency!==quoteCurrency&&<p className="text-sm text-[#526174]">Depotbasis {baseCurrency||"wird geladen"} · {fx.data?`Umrechnung ${fx.data.rate.toLocaleString("de-DE",{maximumFractionDigits:6})} ${quoteCurrency} je ${baseCurrency} · Stand ${fx.data.as_of}`:"Für eine Stückzahlberechnung fehlt ein bestätigter Wechselkurs."}</p>}{fx.error&&!depotValue&&<p role="alert" className="text-sm text-red-800">{fx.error.message}</p>}{positiveNumber(effectiveDepotValue)>0?<ResultCard currency={quoteCurrency} mode={mode} result={localResult}/>:<p role="status" className="text-sm text-amber-800">Stückzahl nicht verfügbar. Depotwert in der gewählten Kurswährung ausdrücklich eingeben oder Wechselkurs aktualisieren.</p>}</div>
       </div>
     </details>
   );
 }
 
-function ResultCard({ mode, result }: { mode: CalculatorMode; result: PortfolioPositionSizeResult }) {
+function ResultCard({ mode, result, currency }: { mode: CalculatorMode; result: PortfolioPositionSizeResult; currency:string }) {
+  const money = new Intl.NumberFormat("de-DE", {maximumFractionDigits:0,style:"currency",currency});
+  const preciseMoney = new Intl.NumberFormat("de-DE", {minimumFractionDigits:2,maximumFractionDigits:2,style:"currency",currency});
   return (
     <div className="rounded border border-[var(--border)] bg-[var(--panel)] p-4">
       <div className="mb-4 flex items-center justify-between">

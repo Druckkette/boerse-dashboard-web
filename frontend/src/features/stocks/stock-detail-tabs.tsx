@@ -15,6 +15,7 @@ import { StockFundamentalsPanel } from "@/features/stocks/stock-fundamentals-pan
 import { StockPricePanel } from "@/features/stocks/stock-price-panel";
 import { StockRsPanel } from "@/features/stocks/stock-rs-panel";
 import { StockSignalChangesPanel } from "@/features/stocks/stock-signal-changes-panel";
+import { StockQuickActions } from "@/features/desk/stock-actions";
 
 const tabs = [
   { key: "overview", label: "Übersicht", icon: Gauge },
@@ -34,6 +35,7 @@ export function StockDetailTabs({ ticker }: { ticker: string }) {
   const setActive = (key: TabKey) => { const next = new URLSearchParams(window.location.search); next.set("tab", key); window.history.pushState(null, "", `${window.location.pathname}?${next}`); };
   return <div className="space-y-4">
     {product && <StockIdentity ticker={ticker} />}
+    {!beta && <StockQuickActions ticker={ticker}/>}
     {beta && <BetaStockDetailActions key={ticker} ticker={ticker} />}
     {product && <label className="block text-xs font-medium text-[#687386] lg:hidden">Analysebereich<select aria-label="Aktienanalyse Bereich" className="input-dark mt-1" value={active} onChange={event=>setActive(event.target.value as TabKey)}>{tabs.map(tab=><option key={tab.key} value={tab.key}>{tab.label}</option>)}</select></label>}
     <nav aria-label="Aktienanalyse Bereiche" className={`${product ? "hidden lg:flex" : "flex"} sticky top-[var(--app-header-height,88px)] z-[8] gap-1 overflow-x-auto rounded-[12px] border border-[#e3e8ef] bg-white/95 p-1.5 shadow-[0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur`}>
@@ -45,6 +47,6 @@ export function StockDetailTabs({ ticker }: { ticker: string }) {
     {active === "fundamental" ? <StockFundamentalsPanel ticker={ticker} /> : null}
     {active === "chart" ? <StockPricePanel ticker={ticker} title="Kurs und Relative Stärke" /> : null}
     {active === "institutions" ? <Institutional13FPanel ticker={ticker} /> : null}
-    {!beta && product && <ProductDetails title="Weitere Aktionen · Watchlist & Daten"><StockDetailActions key={ticker} ticker={ticker} /></ProductDetails>}
+    {!beta && product && <ProductDetails title="Daten aktualisieren & weitere Aktionen"><StockDetailActions key={ticker} ticker={ticker} /></ProductDetails>}
   </div>;
 }

@@ -17,6 +17,35 @@ from app.services import beta, stocks, jobs
 from app.main import create_app
 from tests.helpers.sell_fixture_data import fixture_price_bars
 
+# New private workflows use the real service/router with disposable durable-state semantics.
+from copy import deepcopy
+from app.services import desk as desk_service
+from app.repositories.desk import DeskConflict
+from app.services.market_calendar import completed_us_market_session
+
+desk_state = {}
+def reset_desk():
+    desk_state.clear()
+    desk_state.update(revision=0,watchlists=[dict(id="default",name="Meine Watchlist",items=[])],plans=[],alerts=[],history=[],events=[],accounts=[])
+reset_desk()
+def desk_transact(operation=None, *, revision=None):
+    if operation is None:
+        return deepcopy(desk_state)
+    if revision is not None and revision != desk_state["revision"]:
+        raise DeskConflict("Daten wurden inzwischen geändert. Neu laden.")
+    candidate = deepcopy(desk_state)
+    result = operation(candidate)
+    candidate["revision"] += 1
+    desk_state.clear()
+    desk_state.update(candidate)
+    return deepcopy(result if result is not None else desk_state)
+desk_service.repository.transact = desk_transact
+actual_account = desk_service.account
+desk_service.account = lambda account_id, **kw: dict(id="main",name="Bestehendes Depot",currency="EUR",cash=5000,total_value=10000,positions=[],transactions=[],data_status="available") if account_id == "main" else actual_account(account_id, **kw)
+desk_service.fx_quote = lambda source,target: dict(source=source,target=target,rate=1 if source==target else 1.1 if source=="EUR" else 1/1.1,as_of=completed_us_market_session().date.isoformat(),provider="Testkurs")
+desk_service.earnings.upcoming_earnings_events = lambda *a, **kw: []
+desk_service.observe = lambda rule: (True,"Isoliertes Testsignal",completed_us_market_session().date.isoformat())
+
 cache = fakeredis.FakeRedis(decode_responses=True)
 beta.redis_client = lambda: cache
 import redis
@@ -78,6 +107,11 @@ sell_service.yahoo_quote_currency = lambda ticker: "USD"
 sell_service.cached_currency_usd_factor = lambda currency: 1 if currency == "USD" else 1.2
 # If any personal API is accidentally allowed, its unmistakable payload makes failures visible.
 app = create_app()
+desk_service.capture = lambda ticker: {key:value for key,value in assessment(ticker).model_dump(mode="json").items() if key in {"as_of","scores","calculation","data_quality","checks","verdict_label"}}
+@app.post("/__fixture/desk-reset")
+def reset_workspace_fixture():
+    reset_desk()
+    return {"ok":True}
 @app.get("/__fixture/stats")
 def stats():
     return {"enqueued": len(created), "by_ticker": state}

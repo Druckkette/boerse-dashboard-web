@@ -102,6 +102,12 @@ export type BetaSellPreview = {
 
 function getApiBaseUrl() { return "/api/v1"; }
 
+export async function workspaceRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const response = await safeFetch(`/desk${path}`, { method, headers: { "Content-Type": "application/json" }, cache: "no-store", body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return response.json() as Promise<T>;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await safeFetch(path, {
     headers: { "Content-Type": "application/json" },

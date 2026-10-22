@@ -17,6 +17,14 @@ from app.services.workspace import (
 router = APIRouter()
 
 
+def persist(operation):
+    from app.repositories.workspace import WorkspaceRepositoryUnavailable
+    try:
+        return operation()
+    except WorkspaceRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Watchlist konnte nicht gespeichert werden. Bitte erneut versuchen.") from exc
+
+
 class SavedViewRequest(BaseModel):
     id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     name: str = Field(min_length=1, max_length=60)
@@ -77,27 +85,27 @@ def read_workspace() -> WorkspaceState:
 
 @router.patch("", response_model=WorkspaceState)
 def patch_workspace(payload: WorkspacePatch) -> WorkspaceState:
-    state = update_workspace_state(payload)
+    state = persist(lambda: update_workspace_state(payload))
     invalidate_home_dashboard_cache()
     return state
 
 
 @router.post("/watchlist", response_model=WorkspaceState)
 def add_watchlist_item(payload: WorkspaceTickerRequest) -> WorkspaceState:
-    state = add_watchlist_ticker(payload.ticker)
+    state = persist(lambda: add_watchlist_ticker(payload.ticker))
     invalidate_home_dashboard_cache()
     return state
 
 
 @router.delete("/watchlist/{ticker}", response_model=WorkspaceState)
 def remove_watchlist_item(ticker: str) -> WorkspaceState:
-    state = remove_watchlist_ticker(ticker)
+    state = persist(lambda: remove_watchlist_ticker(ticker))
     invalidate_home_dashboard_cache()
     return state
 
 
 @router.post("/recent-tickers", response_model=WorkspaceState)
 def add_recent_ticker_item(payload: WorkspaceTickerRequest) -> WorkspaceState:
-    state = add_recent_ticker(payload.ticker)
+    state = persist(lambda: add_recent_ticker(payload.ticker))
     invalidate_home_dashboard_cache()
     return state

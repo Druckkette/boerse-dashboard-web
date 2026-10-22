@@ -14,6 +14,8 @@ import { ArrowUpDown, Play, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ResearchTableTools } from "@/components/ui/research-table-tools";
+import { RsCards } from "@/features/desk/research-cards";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -66,7 +68,7 @@ export function RsRankingPanel() {
       },
       {
         accessorKey: "percentile",
-        header: "Percentile",
+        header: "Perzentil",
         cell: ({ getValue }) => formatPct(getValue<number | null>())
       },
       {
@@ -86,10 +88,10 @@ export function RsRankingPanel() {
       },
       {
         accessorKey: "new_high_52w",
-        header: "RS High",
+        header: "RS-Hoch",
         cell: ({ row }) => (
           <StatusChip tone={row.original.new_high_52w ? "good" : row.original.near_high_52w ? "neutral" : "warning"}>
-            {row.original.new_high_52w ? "New" : row.original.near_high_52w ? "Near" : "Off"}
+            {row.original.new_high_52w ? "Neu" : row.original.near_high_52w ? "Nahe" : "Entfernt"}
           </StatusChip>
         )
       }
@@ -110,8 +112,8 @@ export function RsRankingPanel() {
 
   return (
     <CollapsiblePanel
-      title="Relative Stärke Ranking"
-      subtitle="Vorberechnete RS-Ratings aus dem Worker. Die Tabelle zeigt nur die obersten Werte bis zum Limit."
+      title="Relative Stärke · Top 120 nach RS"
+      subtitle="Die 120 Aktien mit dem höchsten gespeicherten RS-Rating. Sortierung gilt für diese Auswahl."
       open={open}
       onOpenChange={setOpen}
       summary={
@@ -175,8 +177,9 @@ export function RsRankingPanel() {
           Die Tabelle wird gefüllt, sobald Prices und danach RS Ratings erfolgreich gelaufen sind.
         </div>
       ) : (
-        <div className="max-h-[580px] overflow-auto">
-          <table className="w-full min-w-[860px] border-collapse text-sm">
+        <><ResearchTableTools id="rs" columns={["Aktie","RS","Perzentil","3 Monate","6 Monate","vs. SPY 6 Monate","RS-Hoch"]}/><RsCards rows={table.getRowModel().rows.map(row=>row.original)}/>
+      <div className="hidden max-h-[580px] overflow-auto lg:block">
+          <table data-research="rs" className="research-table w-full min-w-[860px] border-collapse text-sm">
             <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
@@ -211,10 +214,10 @@ export function RsRankingPanel() {
               ))}
             </tbody>
           </table>
-        </div>
+        </div></>
       )}
       <div className="border-t border-[var(--border)] px-5 py-2 text-xs text-[var(--muted)]">
-        TanStack Table mit Sortierung; Virtualisierung kann bei großem Universe ergänzt werden.
+        Sortierung gilt für die angezeigten Top 120. Weitere Aktien findest du über die Suche und das Bewertungsranking.
       </div>
     </CollapsiblePanel>
   );

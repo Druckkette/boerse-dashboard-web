@@ -1,3 +1,4 @@
+import { showDisplaySettings } from "./ui-preferences";
 import { test, expect } from "@playwright/test";
 
 test.use({ baseURL: "http://127.0.0.1:18300", httpCredentials: {
@@ -27,7 +28,7 @@ for (const width of [390, 1440]) test(`TSLA deteriorations are correctly describ
     await expect(panel.locator('[data-effect="deterioration"] svg').first()).toHaveCSS("color", "rgb(194, 65, 59)");
     await expect(panel.getByText("3 Änderungen", { exact: true })).toHaveCSS("color", "rgb(194, 65, 59)");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-    if (mode === "product") await page.getByRole("button", { name: "Zur klassischen Ansicht wechseln", exact: true }).click();
+    if (mode === "product") { await showDisplaySettings(page); await showDisplaySettings(page); await page.getByRole("button", { name: "Zur klassischen Ansicht wechseln", exact: true }).click(); }
   }
 });
 

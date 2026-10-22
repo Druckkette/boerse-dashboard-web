@@ -192,6 +192,13 @@ def _tracked_fundamental_tickers(*, limit: int) -> list[str]:
 
     workspace = get_workspace_state()
     tickers.extend(workspace.watchlist)
+    try:
+        from app.services.workspace import tracked_watchlist_tickers
+        tickers.extend(tracked_watchlist_tickers())
+    except portfolio_repository.PortfolioRepositoryUnavailable:
+        pass
+    except RuntimeError:
+        pass
     tickers.extend(workspace.recent_tickers)
     return _dedupe_tickers(tickers)[:limit]
 

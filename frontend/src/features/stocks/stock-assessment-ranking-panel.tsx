@@ -11,11 +11,13 @@ import { ReportWorkOverview } from "@/components/ui/report-work-status";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { useViewState } from "@/lib/view-state";
+import { ResearchTableTools } from "@/components/ui/research-table-tools";
+import { ScreeningCards } from "@/features/desk/research-cards";
 import { SavedViews } from "@/components/ui/saved-views";
 
 const control = "rounded-lg border border-[#d3dce6] bg-white px-3 py-2 text-sm text-[#172033] focus-visible:outline-2 focus-visible:outline-teal-700 disabled:opacity-40";
 const terminal = new Set(["done", "failed", "skipped", "cancelled"]);
-const scoreLabels = { overall_score: "Gesamtscore", technical_score: "Technical", fundamental_score: "Fundamental", moving_average_score: "Moving Average", chart_behavior_score: "Chart", rs_rating: "RS-Rating" };
+const scoreLabels = { overall_score: "Gesamtscore", technical_score: "Technisch", fundamental_score: "Fundamental", moving_average_score: "Gleitende Durchschnitte", chart_behavior_score: "Chart", rs_rating: "RS-Rating" };
 type ScoreKey = keyof typeof scoreLabels;
 
 export function StockAssessmentRankingPanel() {
@@ -124,9 +126,11 @@ export function StockAssessmentRankingPanel() {
           <label className="flex items-center gap-2 text-sm">Sortierung<select className={control} value={sort} onChange={(event) => { setSort(event.target.value as ScoreKey); setPage(0); }}>{Object.entries(scoreLabels).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1040px] text-left text-sm text-[#172033]">
-          <thead className="border-y border-[#e3e8ef] bg-[#f6f8fb] text-xs text-[#687386]"><tr>{["Platz", "Aktie", "Score", "Technical", "Fundamental", "Moving Average", "Chart", "RS", "Warnungen", "Kursstand / Daten"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead>
+      <ResearchTableTools id="screening" pinned={2} columns={["Platz","Aktie","Score","Technisch","Fundamental","Gleitende Durchschnitte","Chart","RS","Warnungen","Kursstand / Daten"]}/>
+      <ScreeningCards rows={rows}/>
+      <div className="hidden overflow-x-auto lg:block">
+        <table data-research="screening" className="research-table w-full min-w-[1040px] text-left text-sm text-[#172033]">
+          <thead className="border-y border-[#e3e8ef] bg-[#f6f8fb] text-xs text-[#687386]"><tr>{["Platz", "Aktie", "Score", "Technisch", "Fundamental", "Gleitende Durchschnitte", "Chart", "RS", "Warnungen", "Kursstand / Daten"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.ticker} className="border-b border-[#e3e8ef] hover:bg-teal-50/40">
             <td className="px-3 py-3 tabular-nums">{currentPage * 50 + index + 1}</td>
             <td className="px-3 py-3"><Link className="font-semibold text-teal-800 hover:underline" href={"/stocks/" + encodeURIComponent(row.ticker)}>{row.ticker}</Link><div className="max-w-44 truncate text-xs text-[#687386]" title={row.name}>{row.name}</div></td>
