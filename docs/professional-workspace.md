@@ -6,7 +6,7 @@ Diese Erweiterung setzt die Verbesserungen des Beta-Berichts vom 22. Oktober um.
 
 | Ansicht | Funktionen |
 | --- | --- |
-| Startseite | „Heute prüfen“ priorisiert bis zu fünf Aufgaben aus bestätigten Depotwarnungen, fehlenden Stopps, offenen Alarmmeldungen, nahen Quartalszahlen und geplanten Einstiegen. Fehlende persönliche Daten werden kenntlich gemacht. |
+| Startseite | Unter „Weitere Prüfpunkte & Einstiegspläne“ priorisiert „Heute prüfen“ bis zu fünf Aufgaben aus bestätigten Depotwarnungen, fehlenden Stopps, offenen Alarmmeldungen, nahen Quartalszahlen und geplanten Einstiegen. Fehlende persönliche Daten werden kenntlich gemacht. |
 | Aktie | „Beobachten“, „Vergleichen“ und „Einstieg planen“ stehen direkt oberhalb der Analyse. Kurs und Kurswährung werden in den Plan übernommen. Der Vergleich öffnet Aktie und SPY. Technische Pflege bleibt im zusätzlichen Aktionsbereich. |
 | `/workspace` | Benannte Watchlists, Notizen, Kennzeichnungen, Suchfilter, Kandidatenstatus, Mehrfachauswahl sowie Kopieren und Verschieben zwischen Listen. Die Standardliste entspricht weiterhin der bisherigen Watchlist. |
 | `/workspace#einstieg` | Kaufplan mit Einstieg, Stopp, optionalem Ziel, Gebührenreserve, Cashgrenze, Risikobudget und beobachtetem Wechselkurs. Speichern dokumentiert die geprüfte Vorschau mit damaligem Bewertungsstand. |
@@ -21,11 +21,11 @@ Die initial vorgeschlagenen Stoppwerte sind bearbeitbare Annahmen. Die Stückzah
 
 ## Bedienung und Darstellung
 
-- Screener, RS-Ranking und Vergleich verwenden auf schmalen Bildschirmen Karten. Auch die vollständigen Vergleichskennzahlen sind mobil ohne breite Tabelle lesbar. Die vorhandenen Scores bleiben zugänglich.
-- Desktoptabellen erhalten Spaltenauswahl, kompakte Zeilen und fixierte Aktienkennungen. Darstellungspräferenzen werden lokal im Browser gespeichert.
+- Screener, RS-Ranking und Vergleich verwenden wieder die bisherigen Tabellen, auch mobil. Breite Tabellen scrollen innerhalb ihres Bereichs. Alle Teilbewertungen und Vergleichskennzahlen bleiben zugänglich.
+- Desktoptabellen behalten die optionale Spaltenauswahl und kompakte Zeilen. Fixierte Spalten entfallen zugunsten der vorherigen Darstellung. Darstellungspräferenzen werden lokal im Browser gespeichert.
 - Das RS-Ranking heißt ausdrücklich „Top 120 nach RS“. Lokales Sortieren betrifft diese Auswahl; der vollständige Screener bleibt separat verfügbar.
-- Erläuterungen werden in der neuen Ansicht größer dargestellt; zentrale Recherchebegriffe sind vereinheitlicht. Datenstand, Quelle und Einschränkungen stehen an den betroffenen Informationen.
-- Der Wechsel zwischen klassischer und neuer Ansicht liegt im Darstellungsmenü beziehungsweise in den Einstellungen. Der Schutz offener Entwürfe bleibt erhalten.
+- Schriftgrößen entsprechen wieder dem Stand vor dem Funktionsupdate. Datenstand, Quelle und Einschränkungen stehen an den betroffenen Informationen.
+- Der Wechsel zwischen klassischer und neuer Ansicht liegt wieder direkt im Header sowie in den Einstellungen. Der Schutz offener Entwürfe bleibt erhalten.
 - Die Depotkurve zeigt ihre gleitenden Durchschnitte nur auf Wunsch.
 - Gemeinsame Charts unterstützen eigene horizontale Marken, benannte Vorlagen, eine logarithmische Skala bei positiven Werten sowie SVG- und PNG-Export. Marken und Vorlagen liegen im jeweiligen Browser, nicht im serverseitigen Entscheidungsarchiv.
 

@@ -411,10 +411,12 @@ test("performance keeps cashflow result, annual personal return and benchmark di
   });
 });
 
-test("mobile screening preserves ticker, warnings and all existing score components", async ({
+for (const mode of ["product", "classic"]) for (const width of [390, 1440])
+test(`previous research tables and direct view switch remain usable at ${width}px (${mode})`, async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 900 });
+  await page.context().addCookies([{ name: "dashboard-ui", value: mode, url: "http://127.0.0.1:18300" }]);
+  await page.setViewportSize({ width, height: 900 });
   const row = {
     ticker: "NVDA",
     name: "NVIDIA",
@@ -448,18 +450,15 @@ test("mobile screening preserves ticker, warnings and all existing score compone
   );
   await page.goto("/stocks");
   await page.getByRole("button", { name: /Aktienbewertung Ranking/ }).click();
-  const cards = page.locator(".stock-research-cards").first();
-  await expect(
-    cards.getByRole("link", { name: "NVDA", exact: true }),
-  ).toBeVisible();
-  await expect(cards).toContainText("Quartalszahlen stehen bevor");
-  await cards
-    .getByText("Alle Teilbewertungen & Daten", { exact: true })
-    .click();
-  await expect(cards).toContainText("85");
-  await expect(cards).toContainText("90");
-  await expect(cards).toContainText("86");
-  await expect(cards).toContainText("89");
+  const table = page.locator('table[data-research="screening"]');
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("link", { name: "NVDA", exact: true })).toBeVisible();
+  await expect(table.locator('[title="Quartalszahlen stehen bevor"]')).toHaveText("1");
+  for (const value of ["85", "90", "86", "89"]) await expect(table.getByRole("cell", { name: value, exact: true })).toHaveCount(1);
+  await expect(page.locator(".stock-research-cards")).toHaveCount(0);
+  await expect(page.locator("main > header").getByRole("button", { name: mode === "product" ? "Zur klassischen Ansicht wechseln" : "Zur neuen Ansicht wechseln", exact: true })).toBeVisible();
+  // A wide table scrolls within its own panel, leaving the page usable on mobile.
+  expect(await table.locator("..").evaluate(el => getComputedStyle(el).overflowX)).toBe("auto");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -467,7 +466,7 @@ test("mobile screening preserves ticker, warnings and all existing score compone
   ).toBeTruthy();
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
   await page.screenshot({
-    path: "/tmp/boerse-desk-screening-390.png",
+    path: `/tmp/boerse-restored-screening-${mode}-${width}.png`,
     fullPage: true,
   });
 });

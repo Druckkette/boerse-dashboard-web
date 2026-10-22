@@ -149,7 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="text-xl font-semibold text-[#172033]">{currentPageLabel}</div>
               <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[#687386] sm:text-sm">{currentPageDescription}</p>
             </div>
-            <div className="shell-tools flex flex-wrap items-center gap-2"><details className="relative shrink-0"><summary aria-label="Darstellung ändern" title="Darstellung ändern" className="grid cursor-pointer list-none place-items-center rounded-lg border border-[#d8e1ea] px-3"><Settings size={18}/><span className="sr-only">Darstellung</span></summary><div className="absolute left-0 top-full z-40 mt-2 grid min-w-56 gap-2 rounded-xl border bg-white p-3 shadow-lg"><UiModeSwitch/>{!beta&&<Link href="/settings#darstellung" className="app-button">Darstellungseinstellungen</Link>}</div></details><HeaderTools compact={product} /></div>
+            <div className="shell-tools flex flex-wrap items-center gap-2"><UiModeSwitch /><HeaderTools compact={product} /></div>
           </div>
         </header>
         <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">{children}</div>
