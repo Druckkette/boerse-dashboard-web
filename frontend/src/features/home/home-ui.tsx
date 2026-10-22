@@ -9,6 +9,12 @@ export const shortDate = (value?: string | null) => value
   ? new Date(`${value}T12:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "–";
 export const signedPercent = (value: number | null | undefined, digits = 2) => value == null
   ? "–" : `${value >= 0 ? "+" : ""}${number(value, digits)} %`;
+export function indexQuoteLabel(quote?: { as_of: string; fetched_at?: string | null; kind: string } | null, fallbackDate?: string | null) {
+  const label = quote?.kind === "intraday" ? "Zwischenstand" : quote?.kind === "unconfirmed_close" ? "Unbestätigter Tagesstand" : "Schlusskurs";
+  const fetched = quote?.fetched_at ? new Date(quote.fetched_at) : null;
+  const time = fetched && Number.isFinite(fetched.getTime()) ? fetched.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" }) : null;
+  return `${label} ${shortDate(quote?.as_of || fallbackDate)}${time ? ` · Abruf ${time} Uhr` : ""}`;
+}
 export function marketTone(phase?: string | null): Tone {
   return phase === "aufwaertstrend" || phase === "gruen" ? "good" : phase === "rot" ? "bad"
     : phase === "gelb_startschuss" || phase === "gelb_rally_unter_druck" || phase === "gelb_trend_unter_druck" || phase === "mixed" ? "warning" : "neutral";

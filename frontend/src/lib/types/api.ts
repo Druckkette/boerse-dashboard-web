@@ -2135,6 +2135,16 @@ export type HomeDashboard = {
       previous_close?: number | null;
       change_pct?: number | null;
       status: "available" | "stale" | "partial" | "missing";
+      quote?: {
+        price: number;
+        as_of: string;
+        fetched_at?: string | null;
+        kind: "close" | "intraday" | "unconfirmed_close";
+        change_pct?: number | null;
+        previous_as_of?: string | null;
+        status: "available" | "stale" | "partial";
+        source: string;
+      } | null;
       phase?: string | null;
       phase_label?: string;
       phase_as_of?: string | null;

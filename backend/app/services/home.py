@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any, Callable
+from math import isfinite
 from zoneinfo import ZoneInfo
 
 from app.domain.market.ampel import AMPEL_RULESET_VERSION
@@ -20,7 +21,7 @@ from app.repositories import sell_state as sell_state_repository
 from app.repositories import stock_assessments
 from app.services import daily_opportunities
 from app.services.industry_group_rs import ALGORITHM_VERSION
-from app.services.market_calendar import completed_us_market_session, daily_bar_is_final, expected_us_market_session
+from app.services.market_calendar import completed_us_market_session, daily_bar_is_final, expected_us_market_session, previous_us_market_session_date
 from app.services.market import _market_trend_ampel_for_ticker, _selected_market_ampel_logic
 from app.services.settings import get_data_quality_summary
 from app.services.workspace import get_workspace_state
@@ -50,12 +51,14 @@ def _phase_label(phase: str | None) -> str:
 def _index_summary(ticker: str, label: str, points: list[Any] | None = None) -> dict[str, Any]:
     """Build a daily index comparison from two canonical persisted closes."""
     completed = completed_us_market_session()
+    observed = points if points is not None else market_repository.load_latest_close_pair(ticker)
+    quote = _latest_index_quote(observed)
     points = [
-        point for point in (points if points is not None else market_repository.load_latest_close_pair(ticker))
+        point for point in observed
         if daily_bar_is_final(point.date, point.fetched_at)
     ][-2:]
     if not points:
-        return {"ticker": ticker, "label": label, "status": "missing"}
+        return {"ticker": ticker, "label": label, "status": "missing", "quote": quote}
     current = points[-1]
     previous = points[-2] if len(points) > 1 else None
     status = "available" if current.date == completed.date else "stale"
@@ -70,6 +73,37 @@ def _index_summary(ticker: str, label: str, points: list[Any] | None = None) -> 
         "previous_close": round(previous.close, 2) if previous else None,
         "change_pct": change_pct,
         "status": status,
+        "quote": quote,
+    }
+
+
+def _latest_index_quote(points: list[Any]) -> dict[str, Any] | None:
+    """Latest observed price is independent of the confirmed daily signal basis."""
+    now = datetime.now(UTC)
+    expected = expected_us_market_session()
+    eligible = [p for p in points if p.date <= expected.date and isfinite(p.close) and p.close > 0]
+    if not eligible:
+        return None
+    latest = max(eligible, key=lambda p: p.date)
+    previous_day = previous_us_market_session_date(latest.date)
+    previous = next((p for p in reversed(eligible) if p.date == previous_day and daily_bar_is_final(p.date, p.fetched_at)), None)
+    final = daily_bar_is_final(latest.date, latest.fetched_at)
+    fetched = latest.fetched_at
+    if fetched is not None:
+        fetched = fetched.replace(tzinfo=UTC) if fetched.tzinfo is None else fetched.astimezone(UTC)
+    current = latest.date == expected.date
+    if not final:
+        current = current and expected.phase == "intraday" and fetched is not None and -timedelta(minutes=1) <= now - fetched <= timedelta(minutes=15)
+    if fetched is not None and fetched > now + timedelta(minutes=1):
+        current = False
+    return {
+        "price": round(latest.close, 2), "as_of": latest.date.isoformat(),
+        "fetched_at": fetched.isoformat() if fetched else None,
+        "kind": "close" if final else "intraday" if expected.phase == "intraday" and latest.date == expected.date else "unconfirmed_close",
+        "change_pct": round((latest.close / previous.close - 1) * 100, 2) if previous and previous.close else None,
+        "previous_as_of": previous.date.isoformat() if previous else None,
+        "status": "stale" if not current else "available" if previous else "partial",
+        "source": "Yahoo Finance",
     }
 
 
@@ -133,7 +167,9 @@ def _market_summary() -> dict[str, Any]:
             "pct_above_50sma": breadth.pct_above_50sma,
         } if breadth else None,
         "volatility": {
-            "as_of": vix.get("as_of"), "close": vix.get("close"), "status": vix.get("status"),
+            "as_of": (vix.get("quote") or {}).get("as_of", vix.get("as_of")),
+            "close": (vix.get("quote") or {}).get("price", vix.get("close")),
+            "status": (vix.get("quote") or {}).get("status", vix.get("status")),
         },
         "indices": indices,
         "as_of": completed.date.isoformat() if current_indices else None,
