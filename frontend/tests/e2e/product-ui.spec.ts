@@ -487,9 +487,9 @@ test("settings save bar appears only for drafts, avoids navigation and preserves
   await risk.fill("1.5");
   await expect(save).toBeEnabled();
   await showDisplaySettings(page);
-  await expect(
-    page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
-  ).toBeDisabled();
+  for (const area of ["main > header", "#darstellung"]) {
+    await expect(page.locator(area).getByRole("button", { name: "Zur klassischen Ansicht wechseln" })).toBeDisabled();
+  }
   await save.click();
   await expect(
     page.getByRole("alert").filter({ hasText: "Testfehler beim Speichern" }),
@@ -500,9 +500,9 @@ test("settings save bar appears only for drafts, avoids navigation and preserves
   await expect(risk).toHaveValue("1");
   await expect(save).toHaveCount(0);
   await showDisplaySettings(page);
-  await expect(
-    page.getByRole("button", { name: "Zur klassischen Ansicht wechseln" }),
-  ).toBeEnabled();
+  for (const area of ["main > header", "#darstellung"]) {
+    await expect(page.locator(area).getByRole("button", { name: "Zur klassischen Ansicht wechseln" })).toBeEnabled();
+  }
 });
 
 test("a touch swipe across the chart scrolls the page and enlarged content still fits", async ({

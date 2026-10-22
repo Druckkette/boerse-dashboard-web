@@ -12,7 +12,6 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
 import { useViewState } from "@/lib/view-state";
 import { ResearchTableTools } from "@/components/ui/research-table-tools";
-import { ScreeningCards } from "@/features/desk/research-cards";
 import { SavedViews } from "@/components/ui/saved-views";
 
 const control = "rounded-lg border border-[#d3dce6] bg-white px-3 py-2 text-sm text-[#172033] focus-visible:outline-2 focus-visible:outline-teal-700 disabled:opacity-40";
@@ -127,8 +126,7 @@ export function StockAssessmentRankingPanel() {
         </div>
       </div>
       <ResearchTableTools id="screening" pinned={2} columns={["Platz","Aktie","Score","Technisch","Fundamental","Gleitende Durchschnitte","Chart","RS","Warnungen","Kursstand / Daten"]}/>
-      <ScreeningCards rows={rows}/>
-      <div className="hidden overflow-x-auto lg:block">
+      <div className="overflow-x-auto">
         <table data-research="screening" className="research-table w-full min-w-[1040px] text-left text-sm text-[#172033]">
           <thead className="border-y border-[#e3e8ef] bg-[#f6f8fb] text-xs text-[#687386]"><tr>{["Platz", "Aktie", "Score", "Technisch", "Fundamental", "Gleitende Durchschnitte", "Chart", "RS", "Warnungen", "Kursstand / Daten"].map((label) => <th key={label} className="px-3 py-3 font-medium">{label}</th>)}</tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.ticker} className="border-b border-[#e3e8ef] hover:bg-teal-50/40">

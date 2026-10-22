@@ -226,12 +226,3 @@ html[data-ui="product"] .product-market-jumps { top: var(--app-header-height, 88
 @media(max-width:1023px) { html[data-ui="product"] .product-market-jumps { position: relative; top: auto; flex-wrap: wrap; overflow: visible; } }
 html[data-ui="product"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]), select) { min-height: 44px; }
 html[data-ui="product"] label:has(input[type="checkbox"]) { min-height: 44px; }
-
-/* Readable supporting information and stable ticker context in research tables. */
-html[data-ui="product"] main .dashboard-section .text-xs { font-size: 13px; line-height: 1.5; }
-html[data-ui="product"] main .dashboard-section [class~="text-[11px]"],
-html[data-ui="product"] main .dashboard-section [class~="text-[10px]"] { font-size: 12px; line-height: 1.5; }
-.research-table tr > :first-child { position: sticky; left: 0; z-index: 1; background: #fff; }
-.research-table:is([data-research="screening"],[data-research="compare"]) tr > :nth-child(2) { position: sticky; left: 48px; z-index: 1; background: #fff; }
-.research-table thead tr > :first-child,
-.research-table:is([data-research="screening"],[data-research="compare"]) thead tr > :nth-child(2) { z-index: 3; background: #f6f8fb; }

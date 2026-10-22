@@ -41,7 +41,8 @@ export function HomeDashboard() {
       <a href="#systemstatus" onClick={() => setSystemOpen(true)} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0f766e]">Daten & Meldungen</a>
     </div>
 
-    {product && <TodayTasks data={data}/>}
+    {product && <section aria-label="Im Blick behalten" className="flex flex-wrap items-center gap-3 rounded-xl border border-[#d8e1ea] bg-white px-4 py-3 text-sm"><span className="font-semibold">Im Blick behalten</span><TextLink href="/sell-monitor">{data.review_positions_count} Positionen prüfen</TextLink>{(data.portfolio.stop_coverage_total || 0) > (data.portfolio.stop_coverage_count || 0) && <TextLink href="/portfolio#positionen">{(data.portfolio.stop_coverage_total || 0) - (data.portfolio.stop_coverage_count || 0)} Stopps fehlen</TextLink>}<TextLink href="/portfolio">Depotergebnis ansehen</TextLink></section>}
+    {product && <details className="rounded-xl border border-[#d8e1ea] bg-white px-4 py-3 text-sm"><summary className="cursor-pointer font-semibold">Weitere Prüfpunkte & Einstiegspläne</summary><div className="mt-3"><TodayTasks data={data}/></div></details>}
     {product ? <CompactMarketOverview data={data} /> : <MarketOverview data={data} />}
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <PortfolioOverview data={data} />

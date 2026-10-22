@@ -31,12 +31,12 @@ export default function PortfolioPage() {
       <div className={product ? "grid grid-cols-2 gap-2.5 md:grid-cols-3" : "grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7"}>
         {data?.kpis.filter(item => !product || primaryLabels.includes(item.label)).map((item) => <KpiCard key={item.label} item={item} />)}
       </div>
-      <div className={product ? "order-5" : ""}><ProductDetails title="Weitere Kennzahlen & Nachbörslich">
+      <div className={product ? "order-5" : ""}><ProductDetails title="Weitere Kennzahlen & After Market">
       {product && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{data?.kpis.filter(item => !primaryLabels.includes(item.label)).map(item => <KpiCard key={item.label} item={item} />)}</div>}
       <section className="rounded-[14px] border border-[#e3e8ef] bg-white p-4 shadow-[0_5px_18px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold">Nachbörslich</h2>
+            <h2 className="text-base font-semibold">After Market</h2>
             <p className="mt-0.5 text-xs leading-5 text-[#687386]">
               Holt gesammelt die aktuellen Yahoo-Finance-After-Hours-Kurse deiner offenen Positionen.
               Die Werte werden nur per Button aktualisiert.
@@ -49,13 +49,13 @@ export default function PortfolioPage() {
             onClick={() => afterHoursMutation.mutate()}
           >
             <RefreshCw className={afterHoursMutation.isPending ? "animate-spin" : ""} size={16} />
-            {afterHoursMutation.isPending ? "lädt" : "Nachbörslich aktualisieren"}
+            {afterHoursMutation.isPending ? "lädt" : "After Market aktualisieren"}
           </button>
         </div>
         {afterHoursMutation.data ? (
           <div className="mt-3 grid gap-2 md:grid-cols-3">
             <AfterHoursMetric
-              label="Depotbewegung Nachbörslich"
+              label="Depotbewegung After Market"
               value={`${signedNumber(afterHoursMutation.data.total_after_hours_change)} ${afterHoursMutation.data.currency}`}
               tone={afterHoursMutation.data.total_after_hours_change >= 0 ? "good" : "bad"}
             />
@@ -76,7 +76,7 @@ export default function PortfolioPage() {
           <div className="mt-3 rounded-[10px] border border-[#f0b9b5] bg-[#fff0ef] p-3 text-sm text-[#c2413b]">
             {afterHoursMutation.error instanceof Error
               ? afterHoursMutation.error.message
-              : "Nachbörsliche Kurse konnten nicht geladen werden."}
+              : "After-Market-Kurse konnten nicht geladen werden."}
           </div>
         ) : null}
       </section></ProductDetails></div>

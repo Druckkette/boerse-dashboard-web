@@ -15,7 +15,6 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ResearchTableTools } from "@/components/ui/research-table-tools";
-import { RsCards } from "@/features/desk/research-cards";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { api } from "@/lib/api/client";
@@ -177,8 +176,8 @@ export function RsRankingPanel() {
           Die Tabelle wird gefüllt, sobald Prices und danach RS Ratings erfolgreich gelaufen sind.
         </div>
       ) : (
-        <><ResearchTableTools id="rs" columns={["Aktie","RS","Perzentil","3 Monate","6 Monate","vs. SPY 6 Monate","RS-Hoch"]}/><RsCards rows={table.getRowModel().rows.map(row=>row.original)}/>
-      <div className="hidden max-h-[580px] overflow-auto lg:block">
+        <><ResearchTableTools id="rs" columns={["Aktie","RS","Perzentil","3 Monate","6 Monate","vs. SPY 6 Monate","RS-Hoch"]}/>
+      <div className="max-h-[580px] overflow-auto">
           <table data-research="rs" className="research-table w-full min-w-[860px] border-collapse text-sm">
             <thead className="sticky top-0 bg-[var(--panel)] text-left text-xs uppercase text-[var(--muted)]">
               {table.getHeaderGroups().map((headerGroup) => (

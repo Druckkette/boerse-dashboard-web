@@ -32,7 +32,7 @@ export function PortfolioCurvePanel() {
     };
   }, []);
   const [model, setModel] = useState<"auto" | "execution_history" | "current_holdings">("auto");
-  const [averages,setAverages]=useState(false);
+  const [averages,setAverages]=useState(true);
   const query = useQuery({
     queryKey: ["portfolio-curve", startDate, model],
     queryFn: () => api.portfolioCurve({ startDate, model }),

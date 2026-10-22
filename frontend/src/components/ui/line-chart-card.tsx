@@ -386,7 +386,6 @@ export function LineChartCard({
         </div>
       </div>
 
-      <ChartTools value={preferences.value} onChange={preferences.update} canLog={canLog} onExport={format=>exportChart(cardRef.current,title,caption,format)}/>
       <div
         ref={chartRef}
         className={[
@@ -599,6 +598,7 @@ export function LineChartCard({
           ))}
         </div>
       )}
+      <ChartTools value={preferences.value} onChange={preferences.update} canLog={canLog} onExport={format=>exportChart(cardRef.current,title,caption,format)}/>
     </section>
   );
 }
