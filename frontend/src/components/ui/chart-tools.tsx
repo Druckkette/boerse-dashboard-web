@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { createBookingId } from "@/lib/booking-id";
 import type { ChartLevel } from "./line-chart-card";
 
 type Preferences = { logarithmic: boolean; levels: ChartLevel[] };
@@ -137,7 +138,7 @@ export function ChartTools({
               levels: [
                 ...value.levels,
                 {
-                  key: crypto.randomUUID(),
+                  key: createBookingId(),
                   label: label.trim() || "Eigene Marke",
                   value: number,
                   color: "#9333ea",
