@@ -14,7 +14,7 @@ import { powerTrendPresentation } from "../market/powertrend-card";
 import { IndexCard } from "./home-index-card";
 import { HomeSystemStatus, HomeWatchlist } from "./home-personal";
 import { HomeChanges, HomeEarnings, PortfolioAlerts } from "./home-sections";
-import { Empty, marketTone, number, Panel, shortDate, signedPercent, TextLink } from "./home-ui";
+import { Empty, indexQuoteLabel, marketTone, number, Panel, shortDate, signedPercent, TextLink } from "./home-ui";
 
 export function HomeDashboard() {
   const product = useProductUi();
@@ -63,14 +63,17 @@ export function HomeDashboard() {
 
 function CompactMarketOverview({ data }: { data: HomeData }) {
  return <Panel icon={LineChart} title="Marktlage" action={<StatusChip tone={marketTone(data.market.phase)}>{data.market.phase_label || "Marktstand fehlt"}</StatusChip>}>
-  <div className="grid grid-cols-3 gap-2">{data.market.indices.map(index => <Link href={`/market?ticker=${encodeURIComponent(index.ticker)}`} key={index.ticker} className="min-w-0 rounded-xl bg-[#f7f9fb] p-2.5">
+  <div className="grid grid-cols-3 gap-2">{data.market.indices.map(index => { const quote = index.quote; const change = quote ? quote.change_pct : index.change_pct; return <Link href={`/market?ticker=${encodeURIComponent(index.ticker)}`} key={index.ticker} className="min-w-0 rounded-xl bg-[#f7f9fb] p-2.5">
    <div className="break-words text-xs font-medium text-[#687386]">{index.label || index.ticker}</div>
-   <div className="mt-2 text-sm font-semibold tabular-nums">{number(index.close, 0)}</div>
-   <div className={`mt-1 text-xs tabular-nums ${index.change_pct == null ? "text-[#687386]" : index.change_pct < 0 ? "text-[#c2413b]" : "text-[#138a57]"}`}>{signedPercent(index.change_pct, 1)}</div>
+   <div className="mt-2 text-sm font-semibold tabular-nums">{number(quote?.price ?? index.close, 2)}</div>
+   <div className={`mt-1 text-xs tabular-nums ${change == null ? "text-[#687386]" : change < 0 ? "text-[#c2413b]" : "text-[#138a57]"}`}>{signedPercent(change, 2)}</div>
    {index.phase_status === "available" && index.powertrend?.enabled && <p className={`mt-2 break-words text-[11px] ${index.powertrend.state === "on" ? "text-[#138a57]" : index.powertrend.state === "under_pressure" ? "text-[#9a650f]" : "text-[#687386]"}`}>{powerTrendPresentation(index.powertrend.state).label}</p>}
    <div className="mt-2 break-words text-xs font-medium">{index.phase_status === "available" ? index.phase_label : "Ampelstand prüfen"}</div>
-   <div className="mt-1 text-[11px] text-[#687386]">{shortDate(index.as_of)}</div>
-  </Link>)}</div>
+   <div className="mt-1 text-[11px] text-[#687386]">{indexQuoteLabel(quote, index.as_of)}</div>
+   {quote?.status === "stale" && <p className="mt-1 text-xs text-[#b7791f]">Kursstand veraltet</p>}
+   {quote?.status === "partial" && <p className="mt-1 text-xs text-[#b7791f]">Vortagsvergleich fehlt</p>}
+  </Link>; })}</div>
+  <p className="mt-3 text-[11px] text-[#687386]">Indexkurse: automatischer Abruf alle 5 Minuten während des US-Handels und bis 2 Stunden danach. Yahoo Finance, Verzögerungen möglich. Ampeln beruhen auf bestätigten Schlusskursen.</p>
   <details className="mt-3 border-t border-[#e3e8ef] pt-2"><summary className="cursor-pointer text-sm font-medium">Indexdetails, Marktbreite & VIX</summary><div className="mt-3 grid gap-3 md:grid-cols-3">{data.market.indices.map(index=><IndexCard key={index.ticker} index={index}/>)}</div><p className="mt-3 text-xs text-[#687386]">Marktbreite: {number(data.market.breadth?.pct_above_50sma,1)} % über 50-SMA · VIX {number(data.market.volatility?.close,1)}</p></details>
  </Panel>;
 }
@@ -78,6 +81,7 @@ function CompactMarketOverview({ data }: { data: HomeData }) {
 export function MarketOverview({ data }: { data: Pick<HomeData, "market"> }) {
   return <Panel icon={LineChart} title="Marktlage" detail={`${data.market.logic === "ibd" ? "IBD" : "Buchlogik"} · Phasen aus abgeschlossenen Tageskerzen`} action={<StatusChip tone={marketTone(data.market.phase)}>{data.market.phase_label || "Marktstand fehlt"}</StatusChip>}>
     <div className="grid gap-3 md:grid-cols-3">{data.market.indices.map((index) => <IndexCard key={index.ticker} index={index} />)}</div>
+    <p className="mt-3 text-[11px] text-[#687386]">Indexkurse: automatischer Abruf alle 5 Minuten während des US-Handels und bis 2 Stunden danach. Yahoo Finance, Verzögerungen möglich.</p>
     <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-[#e3e8ef] pt-3 text-xs text-[#687386]">
       <p className="flex flex-wrap gap-x-5 gap-y-1"><span>Marktbreite: <b className="font-medium text-[#475569]">{number(data.market.breadth?.pct_above_50sma, 1)} %</b> über 50-SMA{data.market.breadth?.as_of && <> · {shortDate(data.market.breadth.as_of)}</>}</span><span>VIX: <b className="font-medium text-[#475569]">{number(data.market.volatility?.close, 1)}</b>{data.market.volatility?.as_of && <> · {shortDate(data.market.volatility.as_of)}</>}</span></p>
       <TextLink href="/market">Marktanalyse öffnen</TextLink>

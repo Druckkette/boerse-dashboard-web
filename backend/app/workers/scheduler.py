@@ -42,6 +42,11 @@ def get_beat_schedule() -> dict:
     in Smart Refresh and also run monthly as a backup because SEC artefacts are large.
     """
     return {
+        "market-indices-five-minutes": {
+            "task": "refresh_market_indices",
+            "schedule": 300.0,
+            "options": {"expires": 240, "queue": "interactive"},
+        },
         "workspace-alert-check": {
             "task": "check_workspace_alerts",
             "schedule": 300.0,

@@ -44,7 +44,7 @@ def test_index_summary_uses_two_distinct_persisted_sessions(monkeypatch) -> None
 
     payload = home._index_summary("^GSPC", "S&P 500")
 
-    assert payload == {
+    assert {key:value for key,value in payload.items() if key != "quote"} == {
         "ticker": "^GSPC", "label": "S&P 500", "as_of": "2026-09-28",
         "previous_as_of": "2026-09-25", "close": 103.5, "previous_close": 100.0,
         "change_pct": 3.5, "status": "available",
