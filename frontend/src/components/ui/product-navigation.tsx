@@ -123,6 +123,8 @@ export function ProductBottomNav() {
         ),
         ...administration,
       ];
+  const currentItem = items.find(([href]) => path === href || (href !== "/" && path.startsWith(`${href}/`)))?.[0];
+  const moreIsCurrent = !currentItem && more.some(([href]) => active(path, href));
   return (
     <>
       <nav
@@ -133,22 +135,23 @@ export function ProductBottomNav() {
           <Link
             key={href}
             href={href}
-            aria-current={active(path, href) ? "page" : undefined}
-            className={`flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-medium ${active(path, href) ? "text-[#0f766e]" : "text-[#687386]"}`}
+            aria-current={currentItem === href ? "page" : undefined}
+            className="product-bottom-nav-item"
           >
-            <Icon size={20} />
-            {label}
+            <span className="product-bottom-nav-icon"><Icon size={20} aria-hidden="true" /></span>
+            <span>{label}</span>
           </Link>
         ))}
         <button
           type="button"
           aria-haspopup="dialog"
           aria-expanded={open}
-          className="flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] text-[#687386]"
+          data-current={moreIsCurrent || undefined}
+          className="product-bottom-nav-item"
           onClick={() => setOpen(true)}
         >
-          <MoreHorizontal size={20} />
-          Mehr
+          <span className="product-bottom-nav-icon"><MoreHorizontal size={20} aria-hidden="true" /></span>
+          <span>Mehr</span>
         </button>
       </nav>
       <dialog
@@ -173,7 +176,8 @@ export function ProductBottomNav() {
             <Link
               key={href}
               href={href}
-              className="rounded-lg px-3 py-3 text-sm hover:bg-[#e8f4f2]"
+              aria-current={active(path, href) ? "page" : undefined}
+              className="product-more-link rounded-lg px-3 py-3 text-sm hover:bg-[#e8f4f2]"
               onClick={() => setOpen(false)}
             >
               {label}

@@ -11,6 +11,7 @@ import {
   MarketSentimentPositioningPanel
 } from "@/features/market/market-risk-sections-panel";
 import { useState, Suspense, type ReactNode } from "react";
+import { ArrowDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 
 const indexes = [
@@ -37,8 +38,22 @@ function MarketDashboard({ initialTicker }: { initialTicker: MarketIndexTicker }
 
   return (
     <div className="space-y-4">
-      <nav aria-label="Marktübersicht Bereiche" className="product-market-jumps sticky top-[88px] z-[8] flex gap-1 overflow-x-auto rounded-[12px] border border-[#e3e8ef] bg-white/95 p-1.5 shadow-[0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur">
-        {[{ href: "#trend", label: "Trend-Ampel" }, { href: "#context-scores", label: "Kontext-Scores" }, { href: "#warnings", label: "Früh- und Warnzeichen" }, { href: "#breadth", label: "Marktbreite" }, { href: "#sentiment", label: "Stimmung" }].map((item) => <a key={item.href} className="inline-flex h-9 min-w-fit items-center rounded-[9px] px-3 text-sm font-semibold text-[#687386] transition hover:bg-[#e8f4f2] hover:text-[#0f766e]" href={item.href}>{item.label}</a>)}
+      <nav aria-label="Marktübersicht Bereiche" className="product-market-jumps rounded-xl border border-[#e3e8ef] bg-white p-3 shadow-sm">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#687386]">Direkt zum Bereich</p>
+        <div className="product-market-jump-links">
+          {[
+            { href: "#trend", label: "Trend-Ampel" },
+            { href: "#context-scores", label: "Kontext-Scores" },
+            { href: "#warnings", label: "Früh- und Warnzeichen" },
+            { href: "#breadth", label: "Marktbreite" },
+            { href: "#sentiment", label: "Stimmung" },
+          ].map((item) => (
+            <a key={item.href} href={item.href}>
+              <span>{item.label}</span>
+              <ArrowDown size={16} aria-hidden="true" />
+            </a>
+          ))}
+        </div>
       </nav>
       <section id="trend" className="scroll-mt-36"><MarketAmpelPanel indexes={indexes} ticker={ticker} onTickerChange={setTicker} /></section>
       <section id="warnings" className="scroll-mt-36"><MarketRiskSectionsPanel ticker={ticker} /></section>

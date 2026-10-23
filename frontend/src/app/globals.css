@@ -222,7 +222,19 @@ html[data-ui="product"] .product-save-bar { bottom: calc(76px + env(safe-area-in
 html[data-ui="product"] button { min-width: 44px; }
 html[data-ui="product"] .stock-export-details { max-width: 100%; }
 html[data-ui="product"] [class~="min-w-[235px]"] { min-width: 0; }
-html[data-ui="product"] .product-market-jumps { top: var(--app-header-height, 88px); }
-@media(max-width:1023px) { html[data-ui="product"] .product-market-jumps { position: relative; top: auto; flex-wrap: wrap; overflow: visible; } }
+/* Explicit component colors take precedence over the global anchor reset. */
+.product-market-jump-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.product-market-jump-links a { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border: 1px solid #cedbdc; border-radius: 10px; background: #f5faf9; padding: 10px 12px; color: #115e59; font-size: 14px; font-weight: 600; }
+.product-market-jump-links a:hover { background: #e8f4f2; border-color: #0f766e; }
+.product-market-jump-links svg { flex-shrink: 0; }
+.product-bottom-nav .product-bottom-nav-item { position: relative; display: flex; min-height: 64px; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; border-radius: 10px; background: transparent; color: #526174; font-size: 11px; font-weight: 500; }
+.product-bottom-nav-icon { display: flex; width: 48px; height: 30px; align-items: center; justify-content: center; border-radius: 10px; }
+.product-bottom-nav .product-bottom-nav-item:is([aria-current="page"], [data-current="true"]) { color: #115e59; font-weight: 700; }
+.product-bottom-nav-item:is([aria-current="page"], [data-current="true"]) .product-bottom-nav-icon { background: #d9efea; box-shadow: inset 0 3px #0f766e; }
+.product-more-link[aria-current="page"] { background: #e8f4f2; color: #115e59; font-weight: 700; }
+@media(max-width: 639px) {
+ .product-market-jump-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .product-market-jump-links a[href="#warnings"] { grid-column: 1 / -1; }
+}
 html[data-ui="product"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]), select) { min-height: 44px; }
 html[data-ui="product"] label:has(input[type="checkbox"]) { min-height: 44px; }
