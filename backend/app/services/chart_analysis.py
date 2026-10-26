@@ -46,6 +46,7 @@ def _quality_payload(quality) -> dict:
 
 def _split_issues(issues, events, *, cutoff: date, repair=None) -> None:
     """Annotate evidence, without inferring or applying any price correction."""
+    events = {**(events or {}), **((repair or {}).get("split_events") or {})}
     for issue in issues:
         if issue["code"] != "extreme_jump":
             continue

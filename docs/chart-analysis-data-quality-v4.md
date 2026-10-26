@@ -30,7 +30,7 @@ Ein über die Oberfläche gestarteter Scan prüft zuerst die Kursqualität und l
 gezielt auffällige Historien neu. Bekannte OHLC-Fehler haben Vorrang vor fehlenden
 Kursen. Standardmäßig sind höchstens 100 Ticker und 300 Sekunden für diese Phase
 vorgesehen. Ein Providerabruf hat zehn Sekunden Request-Timeout; ein laufender
-Abruf kann die Phasengrenze geringfügig überschreiten. Rate-Limits stoppen weitere
+Abruf kann die Phasengrenze überschreiten. Rate-Limits stoppen weitere
 Versuche im selben Lauf. Aufgeschobene Ticker kommen bei späteren Scans dran.
 
 Der Auftrag `scan_chart_patterns` kann für einen gezielten Wartungslauf
@@ -41,7 +41,9 @@ Gesamtlimit von zwei Stunden, Fortschritt und Abbruchprüfung bleiben aktiv.
 
 Ein neuer Abruf darf die bestehende Preisbasis nur ersetzen, wenn mindestens 25
 gültige Tageskerzen vorliegen, alle bereits gecachten Tage des Prüfzeitraums
-enthalten sind und die Reihe ausreichend dicht und aktuell ist. Bei leeren,
+enthalten sind und die Reihe ausreichend dicht und aktuell ist. Zusätzlich umfasst
+der Abruf sämtliche älteren oder bereits gecachten jüngeren Tage, damit auch
+außerhalb des Chartfensters keine gemischten Splitbasen entstehen. Bei leeren,
 verkürzten, widersprüchlichen oder nicht erreichbaren Quellen bleibt der Cache
 unverändert. Neuabrufe berücksichtigen die gesamte gemeinsame Historie statt
 einer einseitigen Änderung von Kursen rund um einen Split.

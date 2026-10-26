@@ -6,12 +6,12 @@ corporate-action factors are persisted as provenance and are never applied here.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from math import isfinite
 import re
 from billiard.exceptions import SoftTimeLimitExceeded, TimeLimitExceeded
 
-from app.data_sources.yfinance_client import fetch_daily_price_bars
+from app.data_sources.yfinance_client import fetch_daily_price_bars_strict as fetch_daily_price_bars
 from app.repositories.prices import PriceBarWrite, list_price_bars, upsert_price_bars
 
 
@@ -57,8 +57,8 @@ def repair_chart_history(
 
     The caller owns scheduling, cooldowns and the total request budget. This
     function issues at most one provider fetch, with a ten-second request timeout
-    and no service-level retry. The existing client has no ``end`` argument, so
-    bars outside the inclusive requested interval are discarded before writing.
+    and no service-level retry. The complete existing cache is included when
+    changing its price basis, even outside the caller's chart-analysis window.
     Database exceptions deliberately propagate instead of becoming provider errors.
     """
     clean = ticker.strip().upper()
@@ -92,14 +92,27 @@ def repair_chart_history(
         result.update(reason_code="invalid_request", message="Ungültiger Ticker oder Zeitraum.")
         return result
 
-    # Read before spending the provider budget. Preserve every cached date in the
-    # requested window when replacing its price basis, including a split refresh.
-    cached = list_price_bars(clean, start_date=start_date)
-    cached_dates = {bar.date for bar in cached if start_date <= bar.date <= end_date}
+    # A split can change every historical OHLC. Never replace only the last 850
+    # days while leaving older quotes (or an existing intraday quote) on another basis.
+    cached = list_price_bars(clean)
+    cached_dates = {bar.date for bar in cached}
+    basis_start = min(cached_dates | {start_date})
+    basis_end = max(cached_dates | {end_date})
+    if basis_end > date.today():
+        result.update(
+            reason_code="invalid_cached_date",
+            message="Zukünftiges Datum im Kurscache; keine automatische Änderung.",
+        )
+        return result
+    result.update(basis_start_date=basis_start.isoformat(), basis_end_date=basis_end.isoformat())
     result["attempted"] = True
     try:
         fetched = fetch_daily_price_bars(
-            symbol, period="5y", start=start_date, timeout=REPAIR_TIMEOUT_SECONDS
+            symbol,
+            period="5y",
+            start=basis_start,
+            end=basis_end + timedelta(days=1),
+            timeout=REPAIR_TIMEOUT_SECONDS,
         )
     except (SoftTimeLimitExceeded, TimeLimitExceeded):
         raise
@@ -141,7 +154,7 @@ def repair_chart_history(
         if not isinstance(day, date) or isinstance(day, datetime):
             result["invalid_records"] += 1
             continue
-        if not start_date <= day <= end_date:
+        if not basis_start <= day <= basis_end:
             continue
         result["records_in_window"] += 1
         if day in dates_seen or not _valid_bar(bar):
@@ -176,7 +189,7 @@ def repair_chart_history(
     gaps = [(right.date - left.date).days for left, right in zip(incoming, incoming[1:])]
     complete = (
         cached_dates.issubset(dates_seen)
-        and (end_date - incoming[-1].date).days <= 10
+        and (basis_end - incoming[-1].date).days <= 10
         and max(gaps, default=0) <= 10
         and len(incoming) / span >= 0.5
     )
@@ -189,7 +202,7 @@ def repair_chart_history(
     jump_dates = [
         right.date.isoformat()
         for left, right in zip(incoming, incoming[1:])
-        if abs(right.close / left.close - 1) > 0.60
+        if abs(right.close - left.close) > left.close * 0.60
     ]
     result["extreme_jump_dates"] = jump_dates
     result["fresh_jump_verified"] = bool(jump_dates)

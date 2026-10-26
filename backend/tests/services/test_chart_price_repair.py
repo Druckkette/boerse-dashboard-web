@@ -112,3 +112,43 @@ def test_repository_failure_propagates_instead_of_becoming_provider_failure(setu
     monkeypatch.setattr(service, "upsert_price_bars", fail)
     with pytest.raises(RuntimeError, match="database unavailable"):
         setup.run()
+
+
+def test_basis_change_must_also_cover_quotes_older_than_chart_window(setup, monkeypatch):
+    old = list(setup.bars)
+    fresh = [replace(b, open=25, high=26, low=24, close=25, adj_close=25) for b in old]
+    calls = []
+
+    def incomplete(symbol, **kwargs):
+        calls.append(kwargs)
+        return fresh[10:]
+
+    monkeypatch.setattr(service, "fetch_daily_price_bars", incomplete)
+    result = service.repair_chart_history("TEST", start_date=old[10].date, end_date=old[-1].date)
+    assert calls[0]["start"] == old[0].date
+    assert not result["ok"] and not setup.writes
+    monkeypatch.setattr(service, "fetch_daily_price_bars", lambda *a, **kw: fresh)
+    result = service.repair_chart_history("TEST", start_date=old[10].date, end_date=old[-1].date)
+    assert result["ok"] and result["records_written"] == 50
+    assert all(b.close == 25 for b in setup.writes[-1][0][1])
+
+
+def test_existing_quote_after_analysis_cutoff_must_share_the_new_basis(setup, monkeypatch):
+    old = list(setup.bars)
+    calls = []
+    fresh = [replace(b, open=25, high=26, low=24, close=25, adj_close=25) for b in old]
+
+    def fetch(symbol, **kwargs):
+        calls.append(kwargs)
+        return fresh
+
+    monkeypatch.setattr(service, "fetch_daily_price_bars", fetch)
+    result = service.repair_chart_history("TEST", start_date=old[0].date, end_date=old[-2].date)
+    assert result["ok"] and result["records_written"] == 50
+    assert calls[0]["end"] > old[-1].date
+
+
+def test_exact_sixty_percent_movement_is_consistent_with_segment_validation(setup):
+    setup.bars[25:] = [replace(b, open=160, high=161, low=159, close=160) for b in setup.bars[25:]]
+    result = setup.run()
+    assert result["ok"] and not result["extreme_jump_dates"]
