@@ -2,7 +2,7 @@
 
 ## Stand und Freigabe
 
-Implementiert auf `feat/chartanalyse-basismuster`, **noch nicht live geschaltet**.
+Seit **26. Oktober 2026 auf ausdrücklichen Nutzerwunsch auf dem NAS aktiv**.
 Die Erkennung ist eine nachvollziehbare geometrische Vorauswahl mit getrennten
 Volumenhinweisen. Sie bewertet weder künftige Rendite noch eine Erfolgswahrscheinlichkeit.
 
@@ -12,14 +12,16 @@ visuelle Stichprobe mit 32 Treffern aus 13 weiteren Aktien deckte unzulässige
 Double-Bottom-Geometrien und zu großzügige Cup-Zuordnungen auf. Diese führten zu
 Korrekturen und zusätzlichen Regressionstests. Die Stichprobe wurde dadurch zur
 Kalibrierung verwendet und ist kein unabhängiger Nachweis der Erkennungspräzision.
-Bei unruhigen Cup-Verläufen bleiben fachlich mehrdeutige Grenzfälle. Daher keine
-Produktionsfreigabe allein aufgrund grüner Softwaretests.
+Bei unruhigen Cup-Verläufen bleiben fachlich mehrdeutige Grenzfälle. Grüne
+Softwaretests belegen keine allgemeine Erkennungspräzision.
 
-Vor einer Liveschaltung ist ein separater, fachlich beschrifteter Prüfsatz mit
-positiven **und negativen** Beispielen nötig. Er muss andere Aktien/Zeiträume als
-die Kalibrierung enthalten und ohne anschließendes Nachjustieren ausgewertet
-werden. Präzision und übersehene Muster sind getrennt auszuweisen. Die dafür
-verwendeten Parameter, Kursdaten und die Algorithmusversion müssen feststehen.
+Der anschließende [Vergleich mit fünf veröffentlichten Internetbeispielen](chart-analysis-internet-validation.md)
+ergibt mit unveränderten Standardparametern eine Übereinstimmung mit der
+Quellenklassifikation in **einem von fünf Fällen**. Ein separates Parameterexperiment
+erkennt zusätzlich den flachen Cisco-Handle. Die übrigen Quellenbeispiele werden
+weiterhin verfehlt. Die Erkennung ersetzt die visuelle Musterprüfung daher nicht.
+Für belastbare Präzisions- und Abdeckungswerte ist ein größerer, fachlich beschrifteter
+Prüfsatz mit positiven und negativen Fällen erforderlich.
 
 ## Bedienung
 
@@ -57,8 +59,10 @@ Das PDF bleibt außerhalb des Repositorys. Regeln wurden in eigene Prüflogik
 | Box | Mindestens vier Wochen, höchstens 15 % Tiefe; mindestens zwei zeitlich getrennte Tests beider Begrenzungen und geringer linearer Drift. Pivot am tatsächlichen Hoch der Basis. |
 
 Der Basisbeginn ist die erste Sitzung einer negativen Kalenderwoche nach einem
-lokalen Hoch, gemessen am Wochenschluss gegenüber der Vorwoche. Der linke
-Formationspunkt und das Startdatum der Dauerzählung werden getrennt geführt.
+lokalen Hoch, gemessen am Wochenschluss gegenüber der Vorwoche. Die Suche nach
+dem linken Peak umfasst die zehn vorangehenden Sitzungen und diese negative
+Woche selbst. So kann eine enge positive Woche zwischen Peak und Basisbeginn
+liegen. Der linke Formationspunkt und der Beginn der Dauerzählung bleiben getrennt.
 Maximale Basisdauer standardmäßig 65 Wochen; Analysefenster 850 Kalendertage.
 
 Der Formfilter arbeitet mit drei Sitzungen geglätteten Schlusskursen. Der
@@ -180,3 +184,8 @@ Frontendbuild. Sie prüfen beide UI-Modi bei 1440 und 390 Pixeln, Trefferklick,
 Musterzeichnung, Tickersuche, historische Grenze und Parameterspeicherung mit
 Scanveraltung. Echte Postgres-Tests prüfen Persistenz, einen vollständigen Scan
 und den Erhalt des vorherigen Ergebnisstands bei Abbruch.
+
+Version `chapter-4.2-v2` korrigiert die Peak-Suche und verlangt beim Double Bottom
+mindestens drei Sitzungen zwischen jedem Tief und dem Mittelgipfel. Eine Kerze
+kann somit nicht zugleich Tief und Mittelgipfel sein. Die Algorithmusversion
+geht in den Parameterhash ein; Ergebnisse der Vorgängerversion werden veraltet.
