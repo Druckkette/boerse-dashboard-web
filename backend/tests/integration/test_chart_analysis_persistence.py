@@ -12,9 +12,9 @@ from sqlalchemy.orm import sessionmaker
 from app.db.models import AppSetting
 from app.domain.chart_patterns import PatternParameters
 from app.repositories import prices, settings
-from app.services import chart_analysis as service
+from app.services import chart_analysis as service, chart_price_repair
 from app.workers.tasks.common import JobCancelled
-from tests.domain.test_chart_patterns import fixture
+from tests.domain.test_chart_patterns import fixture, series
 
 
 pytestmark = pytest.mark.skipif(
@@ -66,4 +66,59 @@ def test_chart_settings_price_scan_and_cancellation_roundtrip(monkeypatch):
     service.save_config(PatternParameters(cup_max_depth_pct=25))
     assert service.get_results(search=ticker)["obsolete"]
     assert not any(p["kind"].startswith("cup") for p in service.analyse(ticker)["patterns"])
+    engine.dispose()
+
+
+def test_targeted_split_refresh_replaces_entire_shared_price_basis(monkeypatch):
+    """A partial chart window must never leave older prices on a different basis."""
+    from app.data_sources.yfinance_client import FetchedPriceBar
+
+    url = os.environ["TEST_POSTGRES_URL"]
+    assert make_url(url).database == "audit_tests"
+    engine = create_engine(url)
+    monkeypatch.setattr(prices, "SessionLocal", sessionmaker(bind=engine))
+    ticker = "SPLIT" + uuid4().hex[:8].upper()
+    bars = series([100] * 60)
+    prices.upsert_price_bars(
+        ticker,
+        [
+            prices.PriceBarWrite(b.date, b.open, b.high, b.low, b.close, b.close, b.volume)
+            for b in bars
+        ],
+    )
+    fresh = [
+        FetchedPriceBar(
+            b.date,
+            25,
+            26,
+            24,
+            25,
+            25,
+            1000,
+            stock_split=4 if index == 10 else None,
+            split_adjustment_factor=0.25 if index < 10 else 1,
+        )
+        for index, b in enumerate(bars)
+    ]
+    calls = []
+
+    def fetch(symbol, **kwargs):
+        calls.append(kwargs)
+        return fresh
+
+    monkeypatch.setattr(chart_price_repair, "fetch_daily_price_bars", fetch)
+    result = chart_price_repair.repair_chart_history(
+        ticker,
+        start_date=bars[10].date,
+        end_date=bars[-2].date,
+    )
+    assert result["ok"] and result["records_written"] == 60
+    assert calls[0]["start"] == bars[0].date
+    assert calls[0]["end"] == bars[-1].date + timedelta(days=1)
+    stored = prices.list_price_bars(ticker)
+    assert len(stored) == 60 and all(row.close == 25 for row in stored)
+    assert stored[0].split_adjustment_factor == 0.25
+    assert prices.list_instrument_metadata([ticker])[ticker]["stock_splits"] == {
+        str(bars[10].date): 4
+    }
     engine.dispose()

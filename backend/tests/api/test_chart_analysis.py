@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.api.v1.chart_analysis import router
-from app.domain.chart_patterns import PatternParameters
+from app.domain.chart_patterns import ALGORITHM_VERSION, PatternParameters
 from app.repositories.settings import SettingsRepositoryUnavailable
 from app.services import chart_analysis as service
 from tests.helpers.chart_pattern_data import historical_bars, historical_cases
@@ -42,7 +42,7 @@ def client(monkeypatch):
 def test_config_validation_and_saved_rules_invalidate_old_scan(client):
     http, store = client
     initial = http.get("/chart-analysis/config").json()
-    store[service.RESULT_KEY] = {"parameter_hash": initial["parameter_hash"], "patterns": []}
+    store[service.RESULT_KEY] = {"parameter_hash": initial["parameter_hash"], "algorithm_version": ALGORITHM_VERSION, "patterns": []}
     assert not http.get("/chart-analysis/results").json()["obsolete"]
     values = {**initial["parameters"], "cup_max_depth_pct": 40}
     assert http.put("/chart-analysis/config", json=values).status_code == 200
@@ -103,4 +103,6 @@ def test_nonfinite_quotes_return_diagnostics_and_json_null(client, monkeypatch):
     assert result.status_code == 200
     assert result.json()["points"][0]["high"] is None
     assert result.json()["diagnostics"]
-    assert result.json()["patterns"] == []
+    assert result.json()["quality"]["partial"]
+    assert result.json()["quality"]["excluded_bar_count"] == 1
+    assert all(p["start_date"] > rows[0].date.isoformat() for p in result.json()["patterns"])

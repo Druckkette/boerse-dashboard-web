@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import date
 from types import SimpleNamespace
 
-from app.domain.chart_patterns import PatternParameters, detect_patterns
+from app.domain.chart_patterns import ALGORITHM_VERSION, PatternParameters, detect_patterns
 from app.services import chart_analysis as service
 from tests.helpers.chart_pattern_data import historical_bars, historical_cases
 
@@ -27,6 +27,7 @@ def scan():
     ]
     store[service.RESULT_KEY] = dict(
         generated_at="2026-10-26T10:00:00+00:00",
+        algorithm_version=ALGORITHM_VERSION,
         parameter_hash=p.fingerprint,
         scanned_count=len(data),
         analysed_count=len(data),

@@ -18,7 +18,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-ALGORITHM_VERSION = "chapter-4.2-v3"
+ALGORITHM_VERSION = "chapter-4.2-v4"
 PatternKind = Literal[
     "cup_with_handle", "cup_without_handle", "double_bottom", "high_tight_flag", "box"
 ]
@@ -152,7 +152,7 @@ def validate_bars(bars: list[Bar]) -> list[str]:
             return [
                 "Doppelte, unsortierte oder lückenhafte Kurse; keine verlässliche Musterprüfung."
             ]
-        if i and abs(b.close / bars[i - 1].close - 1) > 0.60:
+        if i and abs(b.close - bars[i - 1].close) > bars[i - 1].close * 0.60:
             return ["Extremer Kurssprung: Splitbereinigung oder Datenquelle zuerst prüfen."]
     return []
 

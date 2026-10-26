@@ -118,6 +118,46 @@ def fetch_daily_price_bars(
     return _bars_from_frame(normalized)
 
 
+def fetch_daily_price_bars_strict(
+    symbol: str,
+    *,
+    period: str = "1y",
+    start: date | None = None,
+    end: date | None = None,
+    timeout: int = 15,
+) -> list[FetchedPriceBar]:
+    """Fetch one history without hiding provider failures or retrying locally.
+
+    ``start`` is inclusive and ``end`` exclusive. Unlike ``yf.download``, direct
+    history with local ``raise_errors=True`` lets callers stop on throttling
+    without changing yfinance's shared exception configuration.
+    """
+    import yfinance as yf
+
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        return []
+    history_kwargs = {
+        key: value
+        for key, value in _download_kwargs(period=period, start=start, timeout=timeout).items()
+        if key not in {"progress", "threads"}
+    }
+    history_kwargs.update(
+        back_adjust=False,
+        repair=False,
+        rounding=False,
+        keepna=True,
+        raise_errors=True,
+    )
+    if end is not None:
+        history_kwargs["end"] = end.isoformat()
+    record_provider_event("yahoo_requests")
+    frame = yf.Ticker(clean_symbol).history(**history_kwargs)
+    if frame.empty:
+        return []
+    return _bars_from_frame(_normalize_download_frame(frame, clean_symbol))
+
+
 def fetch_daily_price_bars_batch(
     symbols: list[str],
     *,

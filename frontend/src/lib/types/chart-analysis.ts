@@ -31,6 +31,9 @@ export type ChartPattern = {
   parameter_hash: string;
   stale?: boolean;
   price_as_of?: string;
+  continuity_limited?: boolean;
+  segment_start?: string;
+  segment_end?: string;
   points: { date: string; value: number; label: string }[];
   checks: string[];
   warnings: string[];
@@ -42,14 +45,37 @@ export type PatternConfig = {
   algorithm_version: string;
   patterns: Record<PatternKind, string>;
 };
+export type ChartQualityIssue = {
+  code: string;
+  reason: string;
+  date?: string | null;
+};
+export type ChartQuality = {
+  partial: boolean;
+  segment_count: number;
+  analysed_bar_count: number;
+  excluded_bar_count: number;
+  boundary_count: number;
+  issues: ChartQualityIssue[];
+};
 export type PatternResults = {
   available: boolean;
   obsolete: boolean;
   generated_at?: string;
   scanned_count?: number;
   analysed_count?: number;
+  partial_count?: number;
   skipped_count?: number;
-  skipped?: { ticker: string; reason: string }[];
+  skipped?: { ticker: string; reason: string; code?: string }[];
+  algorithm_version?: string;
+  repair_summary?: {
+    attempted: number;
+    succeeded: number;
+    deferred: number;
+    failed: number;
+  };
+  quality_counts?: Record<string, number>;
+  quality_issues?: (ChartQualityIssue & { ticker: string })[];
   parameter_hash?: string;
   current_parameter_hash: string;
   total: number;
@@ -64,6 +90,7 @@ export type PatternChart = {
   stale: boolean;
   parameter_hash: string;
   diagnostics: string[];
+  quality?: ChartQuality;
   patterns: ChartPattern[];
   points: {
     date: string;

@@ -132,7 +132,7 @@ test("historical cutoff and a ticker with no data remain explicit", async ({
   ).not.toContainText("Cup with Handle");
   await page.goto("/chart-analysis/NODATA");
   await expect(
-    page.getByText(/Zu wenig abgeschlossene Handelstage/),
+    page.getByRole("status").filter({ hasText: /Keine abgeschlossenen Kursdaten|Zu wenig abgeschlossene Handelstage/ }),
   ).toBeVisible();
   await expect(page.getByTestId("pattern-overlays")).toHaveCount(0);
   await expect(
@@ -226,4 +226,87 @@ test("explicit ticker search queues one background refresh for missing prices", 
     page.getByText("Test: Kurse derzeit nicht verfügbar", { exact: true }),
   ).toBeVisible();
   expect(writes).toBe(1);
+});
+
+test("data quality separates partial histories, suspected jumps and unavailable tickers with bounded lists", async ({
+  page,
+}) => {
+  const skipped = Array.from({ length: 80 }, (_, index) => ({
+    ticker: `MISS${String(index).padStart(3, "0")}`,
+    code: "missing_history",
+    reason: "Keine gespeicherten Kurse vorhanden.",
+  }));
+  const partial = [
+    { ticker: "IBKR", code: "extreme_jump", reason: "Auffälliger Kurssprung; Split oder echte Kursbewegung prüfen." },
+    { ticker: "GAP", code: "gap", reason: "Datenlücke zwischen zwei Handelstagen." },
+    ...Array.from({ length: 38 }, (_, index) => ({
+      ticker: `PART${String(index).padStart(3, "0")}`,
+      code: "invalid_ohlc",
+      reason: "Ungültige Tageskurse; andere Abschnitte wurden geprüft.",
+    })),
+  ];
+  await page.route("**/api/v1/chart-analysis/results?*", (route) => route.fulfill({
+    json: {
+      available: true, obsolete: false, generated_at: "2026-10-26T18:00:00Z",
+      scanned_count: 121, analysed_count: 41, partial_count: 40, skipped_count: 80,
+      skipped, quality_issues: [...skipped, ...partial],
+      quality_counts: { missing_history: 80, extreme_jump: 1, gap: 1, invalid_ohlc: 38 },
+      repair_summary: { attempted: 30, succeeded: 20, failed: 10, deferred: 90 },
+      current_parameter_hash: "test", total: 0, offset: 0, limit: 100, rows: [],
+    },
+  }));
+  await page.goto("/chart-analysis");
+  const availability = page.getByLabel("Auswertbarkeit des Aktienuniversums");
+  await expect(availability.getByText("Vollständig auswertbar").locator("..").getByRole("definition")).toHaveText("1");
+  await expect(availability.getByText("Teilweise auswertbar").locator("..").getByRole("definition")).toHaveText("40");
+  await expect(availability.getByText("Nicht auswertbar").locator("..").getByRole("definition")).toHaveText("80");
+  await expect(page.getByText(/Kursdaten nachladen: 30 Versuche · 20 behoben · 10 nicht behoben · 90 aufgeschoben/)).toBeVisible();
+  await page.getByText("Datenqualität und ausgeschlossene Aktien ansehen", { exact: true }).click();
+  const issues = page.getByRole("list", { name: "Datenhinweise", exact: true });
+  await expect(issues.getByRole("listitem")).toHaveCount(50);
+  await page.getByRole("button", { name: "Weitere Hinweise", exact: true }).click();
+  await expect(issues.getByRole("listitem")).toHaveCount(50);
+  await page.getByLabel("Datenhinweise nach Aktie filtern").fill("MISS079");
+  await expect(issues.getByRole("listitem")).toHaveCount(1);
+  await expect(issues.getByRole("link", { name: "MISS079", exact: true })).toHaveAttribute("href", "/chart-analysis/MISS079");
+  await page.getByLabel("Datenhinweise nach Aktie filtern").clear();
+  await page.getByLabel("Datenhinweise nach Auswertbarkeit filtern").selectOption("partial");
+  await expect(issues.getByRole("listitem")).toHaveCount(40);
+  await page.getByLabel("Datenhinweise nach Grund filtern").selectOption("jumps");
+  await expect(issues.getByRole("listitem")).toHaveCount(1);
+  await expect(page.getByText(/Ein auffälliger Kurssprung ist ein Verdachtsfall/)).toBeVisible();
+  await issues.getByRole("link", { name: "IBKR", exact: true }).click();
+  await expect(page).toHaveURL(/chart-analysis\/IBKR$/);
+});
+
+test("partial chart retains valid patterns and explains isolated data boundaries", async ({ page }) => {
+  await page.route("**/api/v1/chart-analysis/IBKR", async (route) => {
+    const response = await route.fetch();
+    const chart = await response.json();
+    await route.fulfill({
+      json: {
+        ...chart,
+        quality: {
+          partial: true, segment_count: 3, analysed_bar_count: 400,
+          excluded_bar_count: 1, boundary_count: 2,
+          issues: [
+            { code: "invalid_ohlc", reason: "Ungültige OHLC-Daten am 2024-08-01.", date: "2024-08-01" },
+            { code: "extreme_jump", reason: "Kurssprung am 2024-09-01 bleibt ein Verdachtsfall.", date: "2024-09-01" },
+          ],
+        },
+        patterns: chart.patterns.map((pattern: { warnings: string[] }) => ({
+          ...pattern,
+          warnings: [...pattern.warnings, "Datenabschnitt endet; spätere Entwicklung ist nicht geprüft."],
+        })),
+      },
+    });
+  });
+  await page.goto("/chart-analysis/IBKR");
+  await expect(page.getByText("Teilweise auswertbar", { exact: true })).toBeVisible();
+  await expect(page.getByText(/400 Handelstage in 3 getrennten Kursabschnitten geprüft · 1 Tageskurs ausgelassen/)).toBeVisible();
+  await expect(page.getByTestId("pattern-overlays").locator("path")).toHaveCount(1);
+  await expect(page.getByText("Datenabschnitt endet; spätere Entwicklung ist nicht geprüft.", { exact: true })).toBeVisible();
+  await page.getByText("Datenhinweise zu diesem Chart (2)", { exact: true }).click();
+  await expect(page.getByText(/Kurssprung am 2024-09-01 bleibt ein Verdachtsfall/)).toBeVisible();
+  await expect(page.getByText(/Kurssprünge · Verdachtsfälle:/)).toBeVisible();
 });
