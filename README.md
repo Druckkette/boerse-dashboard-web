@@ -406,6 +406,11 @@ This prevents small controls, such as ATR threshold changes, from starting a ful
 
 ## NAS Performance Guardrails
 
+The private **Chartanalyse** area scans cached stock prices for five chapter-4.2
+base patterns, opens annotated charts and stores adjustable pattern parameters.
+See [chart analysis and validation status](docs/chart-analysis.md). This feature
+is prepared as a draft; pattern precision has not been approved for production.
+
 The full-universe stock assessment and filtered CSV best-list export are available under
 **Aktien > Aktienbewertung Ranking**. See [stock screening](docs/stock-screening.md)
 for data coverage, incremental reuse, worker limits and API details.

@@ -1,0 +1,16 @@
+[
+  {
+    "file": "amd-invalidated-second-low.json.gz",
+    "ticker": "AMD",
+    "invalid_second_low": "2025-01-13",
+    "old_detected_on": "2025-06-20",
+    "reason": "Nach dem markierten zweiten Tief entstand vor der Erholung ein tieferes Tief."
+  },
+  {
+    "file": "amzn-invalidated-second-low.json.gz",
+    "ticker": "AMZN",
+    "invalid_second_low": "2025-03-18",
+    "old_detected_on": "2025-06-06",
+    "reason": "Nach dem markierten zweiten Tief entstand vor der Erholung ein tieferes Tief."
+  }
+]

@@ -1,0 +1,82 @@
+[
+  {
+    "file": "ibkr-cup.json.gz",
+    "ticker": "IBKR",
+    "kind": "cup_with_handle",
+    "detected_from": "2025-05-01",
+    "detected_to": "2025-06-30",
+    "reference": "Buch S. 151",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "rcl-cup.json.gz",
+    "ticker": "RCL",
+    "kind": "cup_with_handle",
+    "detected_from": "2025-05-01",
+    "detected_to": "2025-06-30",
+    "reference": "Buch S. 151",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "tbbk-cup.json.gz",
+    "ticker": "TBBK",
+    "kind": "cup_without_handle",
+    "detected_from": "2024-07-01",
+    "detected_to": "2024-07-31",
+    "reference": "Buch S. 155",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "nflx-double-bottom.json.gz",
+    "ticker": "NFLX",
+    "kind": "double_bottom",
+    "detected_from": "2025-04-01",
+    "detected_to": "2025-04-30",
+    "reference": "Buch S. 158",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "snex-double-bottom.json.gz",
+    "ticker": "SNEX",
+    "kind": "double_bottom",
+    "detected_from": "2025-04-01",
+    "detected_to": "2025-04-30",
+    "reference": "Buch S. 159",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "rklb-flag.json.gz",
+    "ticker": "RKLB",
+    "kind": "high_tight_flag",
+    "detected_from": "2024-12-01",
+    "detected_to": "2024-12-31",
+    "reference": "Historischer Prüffall, visuell geprüft am 26.10.2026",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "smci-flag.json.gz",
+    "ticker": "SMCI",
+    "kind": "high_tight_flag",
+    "detected_from": "2023-06-01",
+    "detected_to": "2023-07-15",
+    "reference": "Historischer Prüffall, visuell geprüft am 26.10.2026",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  },
+  {
+    "file": "ibkr-box.json.gz",
+    "ticker": "IBKR",
+    "kind": "box",
+    "detected_from": "2025-06-01",
+    "detected_to": "2025-06-30",
+    "reference": "Historischer Prüffall, visuell geprüft am 26.10.2026",
+    "source": "Yahoo Finance via yfinance; OHLC split-adjusted, not dividend-adjusted",
+    "retrieved_on": "2026-10-26"
+  }
+]

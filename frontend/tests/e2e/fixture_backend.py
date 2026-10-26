@@ -59,6 +59,9 @@ beta.stock_freshness = lambda ticker: {"ticker": ticker, "fresh": state.get(tick
 def enqueue(name, **kwargs):
     job_id = kwargs["args"][0]
     created[job_id] = time.monotonic()
+    if name == "scan_chart_patterns":
+        import chart_fixture
+        repository.mark_done(job_id,result=chart_fixture.scan())
     return SimpleNamespace(id="fixture-celery-id")
 jobs.celery_app.send_task = enqueue
 original_status = beta.refresh_status
@@ -107,6 +110,12 @@ sell_service.yahoo_quote_currency = lambda ticker: "USD"
 sell_service.cached_currency_usd_factor = lambda currency: 1 if currency == "USD" else 1.2
 # If any personal API is accidentally allowed, its unmistakable payload makes failures visible.
 app = create_app()
+import chart_fixture
+chart_fixture.install()
+@app.post("/__fixture/chart-reset")
+def reset_chart_fixture():
+    chart_fixture.reset()
+    return {"ok":True}
 desk_service.capture = lambda ticker: {key:value for key,value in assessment(ticker).model_dump(mode="json").items() if key in {"as_of","scores","calculation","data_quality","checks","verdict_label"}}
 @app.post("/__fixture/desk-reset")
 def reset_workspace_fixture():

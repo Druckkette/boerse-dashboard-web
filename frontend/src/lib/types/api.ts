@@ -1874,6 +1874,7 @@ export type Job = {
 export type JobStatus = "queued" | "running" | "done" | "failed" | "skipped" | "cancelled";
 
 export type JobType =
+  | "scan_chart_patterns"
   | "smart_refresh_market_data"
   | "bootstrap_market_data"
   | "refresh_prices"

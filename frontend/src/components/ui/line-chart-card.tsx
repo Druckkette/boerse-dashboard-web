@@ -3,7 +3,7 @@
 import { ChartTools, exportChart, useChartPreferences } from "./chart-tools";
 import { useProductUi } from "./ui-mode-provider";
 import { Eye, EyeOff, Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { StatusChip } from "@/components/ui/status-chip";
 import { lastChartDataIndex, previousChartClose } from "./chart-data";
@@ -38,6 +38,14 @@ export type ChartMarker = {
   legendLabel?: string;
 };
 
+export type ChartOverlay = {
+  key: string;
+  label: string;
+  color: string;
+  cup?: boolean;
+  points: { date: string; value: number; label: string }[];
+};
+
 type LineChartCardProps = {
   title: string;
   storageKey?: string;
@@ -47,6 +55,7 @@ type LineChartCardProps = {
   chartMode?: "line" | "candlestick";
   levels?: ChartLevel[];
   markers?: ChartMarker[];
+  overlays?: ChartOverlay[];
   subSeries?: ChartSeries[];
   subTitle?: string;
   volumeKey?: string;
@@ -109,6 +118,7 @@ export function LineChartCard({
   chartMode = "line",
   levels: suppliedLevels = [],
   markers = [],
+  overlays = [],
   subSeries = [],
   subTitle = "",
   volumeKey,
@@ -123,6 +133,7 @@ export function LineChartCard({
   hideTextHeader = false,
   showPreviousCloseChange = false
 }: LineChartCardProps) {
+  const overlayClip = useId().replaceAll(":", "");
   const product = useProductUi();
   const preferences=useChartPreferences(storageKey||title);
   const levels=[...suppliedLevels,...preferences.value.levels];
@@ -415,6 +426,7 @@ export function LineChartCard({
           <svg className="size-full" preserveAspectRatio="none" role="img" viewBox={`0 0 ${canvasWidth} ${HEIGHT}`}>
             <title>{product ? `${title}: Chart. Zum Ablesen und Verschieben den Interaktionsmodus aktivieren.` : `${title}: interaktiver Chart. Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück.`}</title>
             <rect fill="var(--panel)" height={HEIGHT} width={canvasWidth} />
+            <defs><clipPath id={overlayClip}><rect x={PLOT_LEFT} y={PAD_TOP} width={plotRight-PLOT_LEFT} height={priceBottom-PAD_TOP} /></clipPath></defs>
 
             {showHorizontalGrid && priceScale.ticks.map((tick) => {
               const y = yForValue(tick, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
@@ -543,6 +555,22 @@ export function LineChartCard({
               );
             })}
 
+            <g clipPath={`url(#${overlayClip})`} data-testid="pattern-overlays">
+              {overlays.map(overlay => {
+                const coordinates = overlay.points.map(point => {
+                  const index = points.findIndex(p => p.date === point.date);
+                  return { ...point, index, x: xForIndex(index-normalizedRange.start, visiblePoints.length, plotRight), y: yForValue(point.value, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic) };
+                });
+                if (coordinates.length < 2 || coordinates.some(p => p.index < 0 || !Number.isFinite(p.y))) return null;
+                const [a,b,c] = coordinates;
+                const path = overlay.cup && c
+                  ? `M ${a.x} ${a.y} Q ${a.x} ${b.y} ${b.x} ${b.y} Q ${c.x} ${b.y} ${c.x} ${c.y} ${coordinates.slice(3).map(p => `L ${p.x} ${p.y}`).join(" ")}`
+                  : coordinates.map((p,i) => `${i ? "L" : "M"} ${p.x} ${p.y}`).join(" ");
+                return <g key={overlay.key}><title>{overlay.label}</title><path d={path} fill="none" stroke={overlay.color} strokeWidth="2.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+                  {coordinates.map((point,i) => <circle key={i} cx={point.x} cy={point.y} r="3" fill={overlay.color}><title>{point.label} · {point.date} · {formatNumber(point.value,2)}</title></circle>)}
+                </g>;
+              })}
+            </g>
             {visibleMarkers.map(({ marker, index, track }) => {
               const x = xForIndex(index, visiblePoints.length, plotRight);
               const markerY = TIME_AXIS_Y - 12 - track * 17;

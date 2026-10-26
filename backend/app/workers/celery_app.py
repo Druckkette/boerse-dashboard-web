@@ -46,6 +46,7 @@ celery_app.conf.update(
         "archive_portfolio_prices": {"queue": "interactive"},
     },
     imports=(
+        "app.workers.tasks.scan_chart_patterns",
         "app.workers.tasks.check_workspace_alerts",
         "app.workers.tasks.refresh_report_data",
         "app.workers.tasks.reclassify_report_history",
