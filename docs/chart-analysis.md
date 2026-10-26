@@ -15,11 +15,13 @@ Kalibrierung verwendet und ist kein unabhängiger Nachweis der Erkennungspräzis
 Bei unruhigen Cup-Verläufen bleiben fachlich mehrdeutige Grenzfälle. Grüne
 Softwaretests belegen keine allgemeine Erkennungspräzision.
 
-Der anschließende [Vergleich mit fünf veröffentlichten Internetbeispielen](chart-analysis-internet-validation.md)
-ergibt mit unveränderten Standardparametern eine Übereinstimmung mit der
-Quellenklassifikation in **einem von fünf Fällen**. Ein separates Parameterexperiment
-erkennt zusätzlich den flachen Cisco-Handle. Die übrigen Quellenbeispiele werden
-weiterhin verfehlt. Die Erkennung ersetzt die visuelle Musterprüfung daher nicht.
+Die aktive Version `chapter-4.2-v3` verbessert die Behandlung asymmetrischer Cups,
+Handle-Ausbrüche und späterer Strukturverletzungen. Im ursprünglichen
+[Internetvergleich mit v2](chart-analysis-internet-validation.md) wurde einer von
+fünf Quellenfällen erkannt; v3 erkennt **zwei von fünf**. Bei vier weiteren
+Quellenfällen bleibt es bei **einem von vier**. Die Auswertung und der erste,
+schlechtere Entwicklungsstand sind im [v3-Prüfbericht](chart-analysis-robustness-v3.md)
+offen dokumentiert. Die Erkennung ersetzt die visuelle Musterprüfung daher nicht.
 Für belastbare Präzisions- und Abdeckungswerte ist ein größerer, fachlich beschrifteter
 Prüfsatz mit positiven und negativen Fällen erforderlich.
 
@@ -52,7 +54,7 @@ Das PDF bleibt außerhalb des Repositorys. Regeln wurden in eigene Prüflogik
 
 | Muster | Kernregeln der Erkennung |
 |---|---|
-| Cup with Handle | Cup ab sechs Wochen, standardmäßig 12–50 % Tiefe; geglättete Kurve mit positiv gekrümmter quadratischer Anpassung, Boden im mittleren Bereich, zusätzliche V-Prüfung. Rechter Rand höchstens 15 % unter linkem Rand. Handle fünf bis 25 Handelstage, standardmäßig 5–15 % tief, vollständig in oberer Cup-Hälfte, Midpoint-Regel, Abwärtsdrift mit Erholung. Handle-Hoch bleibt unter linkem Cup-Hoch. |
+| Cup with Handle | Cup ab sechs Wochen, standardmäßig 12–50 % Tiefe; breite Bodenzone, fallende und steigende angepasste Kurve, Vergleich gegen zwei gerade V-Schenkel. Zusätzliche asymmetrische Formen benötigen einen deutlich besseren runden Fit. Einstellbares maximales Zeitverhältnis standardmäßig 3. Rechter Rand höchstens 15 % unter linkem Rand, marginale Intraday-Überschreitungen bis 1,5 % zulässig. Handle fünf bis 25 Handelstage, standardmäßig 5–15 % tief, vollständig in oberer Cup-Hälfte, Midpoint-Regel, Abwärtsdrift mit Erholung oder bestätigendem Ausbruch. |
 | Cup without Handle | Gleicher Cup-Formfilter, Rückkehr bis nahe an den linken Rand; Pivot am linken Rand. Ein Setup ist von einem Schlusskursausbruch getrennt. |
 | Double Bottom | Mindestens sieben Wochen; zweites Tief unter erstem, maximaler Unterschuss standardmäßig 10 %; Gesamttiefe höchstens 50 %. Mittelgipfel unter linkem Peak und über der Basismitte. Kein weiteres tieferes Tief zwischen zweitem Tief und Erkennung. Pivot am Mittelgipfel. |
 | High Tight Flag | Mastanstieg mindestens 90 % in vier bis acht Wochen; Flagge drei bis fünf Wochen, 10–25 % tief. Pivot am Flaggenhoch. Anstiege über den typischen 120 % werden nicht pauschal ausgeschlossen; die einstellbare Obergrenze liegt standardmäßig bei 1.000 %. |
@@ -65,9 +67,14 @@ Woche selbst. So kann eine enge positive Woche zwischen Peak und Basisbeginn
 liegen. Der linke Formationspunkt und der Beginn der Dauerzählung bleiben getrennt.
 Maximale Basisdauer standardmäßig 65 Wochen; Analysefenster 850 Kalendertage.
 
-Der Formfilter arbeitet mit drei Sitzungen geglätteten Schlusskursen. Der
-quadratische Anpassungsfehler wird durch die Basistiefe normiert. Zusätzlich
-werden fast geradlinige V-Schenkel ausgeschlossen. Diese Zahlen, die Zeitabstände
+Der Formfilter arbeitet mit drei Sitzungen geglätteten Schlusskursen. Quadratische
+und kubische Anpassungsfehler werden durch die Basistiefe normiert. Zusätzliche
+asymmetrische Kandidaten werden nur zugelassen, wenn der kubische Fehler höchstens
+85 % des V-Fehlers beträgt. Andernfalls gelten weiter die konservativen symmetrischen
+Quadratikregeln; der relative V-Vergleich kann zusätzliche Kandidaten verwerfen.
+Die Zeitverteilung wird am Minimum der angepassten Kurve gemessen; eine einzelne
+Tiefstkerze bestimmt sie nicht allein. Unruhige Verläufe erhalten einen Hinweis.
+Diese Zahlen, die Zeitabstände
 für lokale Wendepunkte und die Rückkehrschwellen sind technische Näherungen für
 qualitative Buchmerkmale, keine wörtlichen Buchregeln. Der Formfilter ersetzt
 deshalb die visuelle Prüfung nicht.
@@ -82,8 +89,12 @@ diesem Mittel enthalten. Dieser Faktor ist ein einstellbarer technischer Standar
 
 `ready` bezeichnet eine geometrisch erkennbare Basis; `breakout` einen späteren
 Schlusskurs über Pivot mit Volumenbestätigung. Ohne diese Bestätigung wird
-`unconfirmed_breakout` verwendet. Ein vor dem Ausbruch unterschrittener Boden
-ergibt `invalidated`, mehr als 35 Kalendertage ohne Ausbruch `expired`.
+`unconfirmed_breakout` verwendet. Ein vor dem Ausbruch auch nur intraday
+unterschrittener Boden ergibt `invalidated`. Bei Handles gelten zusätzlich
+Maximaltiefe und obere Cup-Hälfte. Die erste Ausbruchssitzung darf den zuvor
+fertigen Handle bestätigen; ihre Kurse fließen nicht in dessen Pivot ein.
+Handles laufen nach ihrer eingestellten Höchstdauer ab (ein anschließender
+Ausbruchstag ist zulässig); ansonsten gelten 35 Kalendertage ab Erkennung als Ablaufgrenze.
 Diese Zustände beschreiben historische Ereignisse. Sie sind kein aktuelles
 Kaufsignal und keine Bewertung, ob ein Ausbruch später erfolgreich blieb.
 
@@ -123,11 +134,11 @@ die bestehende Standardqueue und Jobfortschrittsanzeige angebunden.
 
 ## Prüfbelege vom 26.10.2026
 
-Letzter lokaler Gesamtstand: Backend **1.509 bestanden**, 55 ohne zusätzliche
+Letzter lokaler Gesamtstand mit v3: Backend **1.550 bestanden**, 55 ohne zusätzliche
 Integrationsdienste übersprungen; die Postgres-Integration wurde separat in einer
 frischen Docker-Datenbank ausgeführt. Frontend **53 Unit-Tests bestanden**, Lint,
-Typprüfung und Produktionsbuild erfolgreich. **11 Browserprüfungen bestanden**
-(neun neue Chartanalyse-Fälle plus zwei mobile Navigationsprüfungen).
+Typprüfung und Produktionsbuild erfolgreich. **Neun Chartanalyse-Browserprüfungen bestanden**,
+einschließlich mobiler Darstellung und zentralem Speichern des neuen Zeitverhältnisses.
 
 Eingefrorene reale Kurse in `backend/tests/fixtures/chart_patterns/`, mit Herkunft
 und Prüfzeiträumen im Manifest. Die Tests benötigen keine Live-Marktdaten.

@@ -85,6 +85,6 @@ export const patternStatuses: Record<ChartPattern["status"], string> = {
   ready: "Basis erkannt",
   breakout: "Ausbruch mit Volumen",
   unconfirmed_breakout: "Ausbruch ohne Volumenbestätigung",
-  invalidated: "Basis unterschritten",
+  invalidated: "Musterregeln verletzt",
   expired: "Ohne Ausbruch abgelaufen",
 };

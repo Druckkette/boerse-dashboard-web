@@ -1,0 +1,851 @@
+{
+  "algorithm_version": "chapter-4.2-v3",
+  "module_sha256": "7d298006fc4b1ef995ffae048796423b1581fc8c3714efd82ca867d9a95d4b32",
+  "parameter_hash": "460c7b542e00622a",
+  "parameters": {
+    "cup_min_weeks": 6,
+    "base_max_weeks": 65,
+    "cup_min_depth_pct": 12.0,
+    "cup_max_depth_pct": 50.0,
+    "cup_min_floor_fraction": 0.1,
+    "cup_max_shape_error": 0.12,
+    "cup_max_asymmetry_ratio": 3.0,
+    "rim_tolerance_pct": 15.0,
+    "handle_min_days": 5,
+    "handle_max_days": 25,
+    "handle_min_depth_pct": 5.0,
+    "handle_max_depth_pct": 15.0,
+    "double_bottom_min_weeks": 7,
+    "double_bottom_max_depth_pct": 50.0,
+    "double_bottom_max_undercut_pct": 10.0,
+    "flag_min_gain_pct": 90.0,
+    "flag_max_gain_pct": 1000.0,
+    "flag_min_depth_pct": 10.0,
+    "flag_max_depth_pct": 25.0,
+    "box_min_weeks": 4,
+    "box_max_depth_pct": 15.0,
+    "volume_dry_up_ratio": 0.9,
+    "flag_volume_ratio": 0.75,
+    "breakout_volume_ratio": 1.4,
+    "require_volume": false
+  },
+  "price_source": "Yahoo Finance via yfinance, split-adjusted OHLC, no dividend adjustment",
+  "retrieved_on": "2026-10-26",
+  "cases": [
+    {
+      "id": "ati-2005-cup",
+      "ticker": "ATI",
+      "kind": "cup_without_handle",
+      "data_from": "2005-06-01",
+      "as_of": "2005-11-25",
+      "base_from": "2005-09-20",
+      "base_to": "2005-10-10",
+      "detected_from": "2005-11-01",
+      "detected_to": "2005-11-25",
+      "source_pivot": 31.48,
+      "source": "https://finance.yahoo.com/news/cup-patterns-without-handles-still-182000010.html",
+      "source_author": "Investor's Business Daily",
+      "source_date": "2013-10-03",
+      "source_note": "Seven-week cup in late 2005; breakout in week ended 25 November. IBD-authored syndicated article.",
+      "prices_sha256": "8806ef8b862f758d73c1899b9646b102af0ebaf4e0ba22d55972ae5fa1e1817d",
+      "bars": 125,
+      "diagnostics": [],
+      "matched": true,
+      "matches": [
+        {
+          "id": "ATI:cup_without_handle:2005-09-26:2005-11-15:460c7b542e00622a",
+          "ticker": "ATI",
+          "kind": "cup_without_handle",
+          "label": "Cup without Handle",
+          "start_date": "2005-10-03",
+          "end_date": "2005-11-15",
+          "detected_on": "2005-11-15",
+          "breakout_on": "2005-11-21",
+          "status": "unconfirmed_breakout",
+          "pivot": 31.379999,
+          "depth_pct": 16.76,
+          "duration_days": 44,
+          "volume_ratio": 0.907,
+          "breakout_volume_ratio": 1.067,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2005-09-26",
+              "value": 31.37999916,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2005-10-19",
+              "value": 26.12000084,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2005-11-15",
+              "value": 30.87999916,
+              "label": "Rechter Rand"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft"
+          ],
+          "warnings": [
+            "Unruhiger Kursverlauf: U-/V-Abgrenzung unsicher; Form visuell prüfen.",
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "all_patterns": [
+        {
+          "id": "ATI:cup_without_handle:2005-09-26:2005-11-15:460c7b542e00622a",
+          "ticker": "ATI",
+          "kind": "cup_without_handle",
+          "label": "Cup without Handle",
+          "start_date": "2005-10-03",
+          "end_date": "2005-11-15",
+          "detected_on": "2005-11-15",
+          "breakout_on": "2005-11-21",
+          "status": "unconfirmed_breakout",
+          "pivot": 31.379999,
+          "depth_pct": 16.76,
+          "duration_days": 44,
+          "volume_ratio": 0.907,
+          "breakout_volume_ratio": 1.067,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2005-09-26",
+              "value": 31.37999916,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2005-10-19",
+              "value": 26.12000084,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2005-11-15",
+              "value": 30.87999916,
+              "label": "Rechter Rand"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft"
+          ],
+          "warnings": [
+            "Unruhiger Kursverlauf: U-/V-Abgrenzung unsicher; Form visuell prüfen.",
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "ATI:box:2005-08-12:2005-10-06:460c7b542e00622a",
+          "ticker": "ATI",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2005-08-15",
+          "end_date": "2005-10-06",
+          "detected_on": "2005-10-06",
+          "breakout_on": null,
+          "status": "invalidated",
+          "pivot": 31.379999,
+          "depth_pct": 13.8,
+          "duration_days": 53,
+          "volume_ratio": 0.98,
+          "breakout_volume_ratio": null,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2005-08-12",
+              "value": 31.37999916,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2005-10-06",
+              "value": 31.37999916,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2005-10-06",
+              "value": 26.43000031,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2005-08-12",
+              "value": 26.43000031,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2005-08-12",
+              "value": 31.37999916,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "RS-Linie und Marktumfeld separat prüfen.",
+            "Basistief am 2005-10-13 intraday unterschritten."
+          ]
+        }
+      ],
+      "causal_replay_verified": true
+    },
+    {
+      "id": "se-2019-cup",
+      "ticker": "SE",
+      "kind": "cup_without_handle",
+      "data_from": "2019-04-01",
+      "as_of": "2019-11-22",
+      "base_from": "2019-07-01",
+      "base_to": "2019-08-15",
+      "detected_from": "2019-11-01",
+      "detected_to": "2019-11-22",
+      "source_pivot": 38.1,
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily",
+      "source_date": "2019-12-19",
+      "source_note": "Print page 86 / PDF page 87: cup without handle, buy range cleared 20 November at 38.10.",
+      "prices_sha256": "2656dd720ea99be0b19090cd66fec61b73f0ee678a829e7819a71c47cce6a693",
+      "bars": 166,
+      "diagnostics": [],
+      "matched": false,
+      "matches": [],
+      "all_patterns": [],
+      "causal_replay_verified": false
+    },
+    {
+      "id": "aapl-2004-handle",
+      "ticker": "AAPL",
+      "kind": "cup_with_handle",
+      "data_from": "2003-06-01",
+      "as_of": "2004-03-10",
+      "base_from": "2003-09-15",
+      "base_to": "2003-10-31",
+      "detected_from": "2004-02-01",
+      "detected_to": "2004-03-10",
+      "source": "https://finance.yahoo.com/news/chart-pattern-star-power-simple-212700404.html",
+      "source_author": "Investor's Business Daily",
+      "source_date": "2015-09-11",
+      "source_note": "Cup with handle October 2003 to February 2004, breakout early March 2004. IBD-authored syndicated article.",
+      "prices_sha256": "dac70be08e2d372a06c7b4c7af98aabe9be9420c614242c90fdc662423214b18",
+      "bars": 196,
+      "diagnostics": [],
+      "matched": false,
+      "matches": [],
+      "all_patterns": [
+        {
+          "id": "AAPL:box:2004-01-13:2004-03-01:460c7b542e00622a",
+          "ticker": "AAPL",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2004-01-12",
+          "end_date": "2004-03-01",
+          "detected_on": "2004-03-01",
+          "breakout_on": "2004-03-04",
+          "status": "breakout",
+          "pivot": 0.443571,
+          "depth_pct": 12.64,
+          "duration_days": 50,
+          "volume_ratio": 0.652,
+          "breakout_volume_ratio": 2.104,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2004-01-13",
+              "value": 0.443571,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2004-03-01",
+              "value": 0.443571,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2004-03-01",
+              "value": 0.38749999,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2004-01-13",
+              "value": 0.38749999,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2004-01-13",
+              "value": 0.443571,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "AAPL:double_bottom:2003-10-30:2003-12-30:460c7b542e00622a",
+          "ticker": "AAPL",
+          "kind": "double_bottom",
+          "label": "Double Bottom",
+          "start_date": "2003-11-03",
+          "end_date": "2003-12-30",
+          "detected_on": "2003-12-30",
+          "breakout_on": "2004-01-05",
+          "status": "breakout",
+          "pivot": 0.391071,
+          "depth_pct": 19.79,
+          "duration_days": 58,
+          "volume_ratio": 1.154,
+          "breakout_volume_ratio": 1.609,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2003-10-30",
+              "value": 0.42857099,
+              "label": "Linker Peak"
+            },
+            {
+              "date": "2003-11-21",
+              "value": 0.35446399,
+              "label": "Erstes Tief"
+            },
+            {
+              "date": "2003-12-02",
+              "value": 0.39107099,
+              "label": "Mittelgipfel / Pivot"
+            },
+            {
+              "date": "2003-12-22",
+              "value": 0.34375,
+              "label": "Tieferes zweites Tief"
+            },
+            {
+              "date": "2003-12-30",
+              "value": 0.38,
+              "label": "Rechte Seite"
+            }
+          ],
+          "checks": [
+            "Mindestens sieben Wochen",
+            "Zweites Tief unter erstem Tief",
+            "Mittelgipfel in oberer Hälfte",
+            "Erholung auf rechter Seite"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": false
+    },
+    {
+      "id": "adsk-2009-handle",
+      "ticker": "ADSK",
+      "kind": "cup_with_handle",
+      "data_from": "2009-03-01",
+      "as_of": "2009-08-12",
+      "base_from": "2009-05-25",
+      "base_to": "2009-06-15",
+      "detected_from": "2009-07-20",
+      "detected_to": "2009-08-12",
+      "source": "https://articles.stockcharts.com/article/articles-dont_ignore_this_chart-2009-09-identifying-the-cup-with-handle-formation/",
+      "source_author": "Tom Bowley / StockCharts",
+      "source_date": "2009-09-08",
+      "source_note": "Published annotated daily chart: June left rim, July trough/right rim, late July/early August handle and August breakout.",
+      "prices_sha256": "3315f02952c4c1b50c2ad126e5886d1233136982ecece50c3e671050489ad475",
+      "bars": 115,
+      "diagnostics": [],
+      "matched": true,
+      "matches": [
+        {
+          "id": "ADSK:cup_with_handle:2009-06-02:2009-08-06:460c7b542e00622a",
+          "ticker": "ADSK",
+          "kind": "cup_with_handle",
+          "label": "Cup with Handle",
+          "start_date": "2009-06-15",
+          "end_date": "2009-08-06",
+          "detected_on": "2009-08-07",
+          "breakout_on": "2009-08-07",
+          "status": "breakout",
+          "pivot": 22.950001,
+          "depth_pct": 26.0,
+          "duration_days": 53,
+          "volume_ratio": 0.896,
+          "breakout_volume_ratio": 1.952,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2009-06-02",
+              "value": 22.85000038,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2009-07-08",
+              "value": 16.90999985,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2009-07-28",
+              "value": 22.95000076,
+              "label": "Rechter Rand / Handle-Beginn"
+            },
+            {
+              "date": "2009-08-05",
+              "value": 21.56999969,
+              "label": "Handle-Tief"
+            },
+            {
+              "date": "2009-08-06",
+              "value": 21.80999947,
+              "label": "Handle-Ende"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft",
+            "Handle mindestens fünf Handelstage",
+            "Handle in oberer Cup-Hälfte",
+            "Midpoint-Regel erfüllt",
+            "Abwärtsdrift und Erholung",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "Volumen am Cup-Boden nicht bestätigt.",
+            "Handle erst durch die Ausbruchskerze bestätigt.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "all_patterns": [
+        {
+          "id": "ADSK:cup_with_handle:2009-06-02:2009-08-06:460c7b542e00622a",
+          "ticker": "ADSK",
+          "kind": "cup_with_handle",
+          "label": "Cup with Handle",
+          "start_date": "2009-06-15",
+          "end_date": "2009-08-06",
+          "detected_on": "2009-08-07",
+          "breakout_on": "2009-08-07",
+          "status": "breakout",
+          "pivot": 22.950001,
+          "depth_pct": 26.0,
+          "duration_days": 53,
+          "volume_ratio": 0.896,
+          "breakout_volume_ratio": 1.952,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2009-06-02",
+              "value": 22.85000038,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2009-07-08",
+              "value": 16.90999985,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2009-07-28",
+              "value": 22.95000076,
+              "label": "Rechter Rand / Handle-Beginn"
+            },
+            {
+              "date": "2009-08-05",
+              "value": 21.56999969,
+              "label": "Handle-Tief"
+            },
+            {
+              "date": "2009-08-06",
+              "value": 21.80999947,
+              "label": "Handle-Ende"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft",
+            "Handle mindestens fünf Handelstage",
+            "Handle in oberer Cup-Hälfte",
+            "Midpoint-Regel erfüllt",
+            "Abwärtsdrift und Erholung",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "Volumen am Cup-Boden nicht bestätigt.",
+            "Handle erst durch die Ausbruchskerze bestätigt.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": true
+    },
+    {
+      "id": "csco-2023-handle",
+      "ticker": "CSCO",
+      "kind": "cup_with_handle",
+      "data_from": "2022-10-01",
+      "as_of": "2023-07-24",
+      "base_from": "2023-03-27",
+      "base_to": "2023-04-17",
+      "detected_from": "2023-06-15",
+      "detected_to": "2023-07-24",
+      "source_pivot": 52.5,
+      "source": "https://articles.stockcharts.com/article/articles-arthurhill-2023-07-cisco-takes-the-lead-with-a-cl-153/",
+      "source_author": "Arthur Hill / StockCharts",
+      "source_date": "2023-07-24",
+      "source_note": "Published annotated chart: April-May cup, mid June to mid July handle, rim resistance around 52.50.",
+      "prices_sha256": "1a149bc0f81b0cb4192eea6c7207e5272052a74794fce9259cd7338aca46df7d",
+      "bars": 202,
+      "diagnostics": [],
+      "matched": false,
+      "matches": [],
+      "all_patterns": [
+        {
+          "id": "CSCO:box:2023-06-16:2023-07-18:460c7b542e00622a",
+          "ticker": "CSCO",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2023-06-20",
+          "end_date": "2023-07-18",
+          "detected_on": "2023-07-18",
+          "breakout_on": "2023-07-19",
+          "status": "unconfirmed_breakout",
+          "pivot": 52.41,
+          "depth_pct": 4.48,
+          "duration_days": 29,
+          "volume_ratio": 0.99,
+          "breakout_volume_ratio": 1.179,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2023-06-16",
+              "value": 52.40999985,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2023-07-18",
+              "value": 52.40999985,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2023-07-18",
+              "value": 50.06000137,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2023-06-16",
+              "value": 50.06000137,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2023-06-16",
+              "value": 52.40999985,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "CSCO:cup_without_handle:2023-04-03:2023-06-15:460c7b542e00622a",
+          "ticker": "CSCO",
+          "kind": "cup_without_handle",
+          "label": "Cup without Handle",
+          "start_date": "2023-04-03",
+          "end_date": "2023-06-15",
+          "detected_on": "2023-06-15",
+          "breakout_on": "2023-07-21",
+          "status": "breakout",
+          "pivot": 52.560001,
+          "depth_pct": 13.32,
+          "duration_days": 74,
+          "volume_ratio": 1.09,
+          "breakout_volume_ratio": 2.727,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2023-04-03",
+              "value": 52.56000137,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2023-05-04",
+              "value": 45.56000137,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2023-06-15",
+              "value": 52.06999969,
+              "label": "Rechter Rand"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "CSCO:box:2023-02-16:2023-03-20:460c7b542e00622a",
+          "ticker": "CSCO",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2023-02-21",
+          "end_date": "2023-03-20",
+          "detected_on": "2023-03-20",
+          "breakout_on": "2023-03-31",
+          "status": "unconfirmed_breakout",
+          "pivot": 51.740002,
+          "depth_pct": 7.19,
+          "duration_days": 28,
+          "volume_ratio": 0.991,
+          "breakout_volume_ratio": 1.092,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2023-02-16",
+              "value": 51.74000168,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2023-03-20",
+              "value": 51.74000168,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2023-03-20",
+              "value": 48.02000046,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2023-02-16",
+              "value": 48.02000046,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2023-02-16",
+              "value": 51.74000168,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "CSCO:box:2022-12-13:2023-02-21:460c7b542e00622a",
+          "ticker": "CSCO",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2022-12-12",
+          "end_date": "2023-02-21",
+          "detected_on": "2023-02-21",
+          "breakout_on": null,
+          "status": "expired",
+          "pivot": 51.740002,
+          "depth_pct": 9.94,
+          "duration_days": 72,
+          "volume_ratio": 1.106,
+          "breakout_volume_ratio": null,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2022-12-13",
+              "value": 51.74000168,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2023-02-21",
+              "value": 51.74000168,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2023-02-21",
+              "value": 45.66999817,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2022-12-13",
+              "value": 45.66999817,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2022-12-13",
+              "value": 51.74000168,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "CSCO:box:2023-01-12:2023-02-13:460c7b542e00622a",
+          "ticker": "CSCO",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2023-01-17",
+          "end_date": "2023-02-13",
+          "detected_on": "2023-02-13",
+          "breakout_on": "2023-02-16",
+          "status": "breakout",
+          "pivot": 49.560001,
+          "depth_pct": 7.61,
+          "duration_days": 28,
+          "volume_ratio": 1.006,
+          "breakout_volume_ratio": 2.736,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2023-01-12",
+              "value": 49.56000137,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2023-02-13",
+              "value": 49.56000137,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2023-02-13",
+              "value": 45.66999817,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2023-01-12",
+              "value": 45.66999817,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2023-01-12",
+              "value": 49.56000137,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "CSCO:double_bottom:2022-12-01:2023-01-25:460c7b542e00622a",
+          "ticker": "CSCO",
+          "kind": "double_bottom",
+          "label": "Double Bottom",
+          "start_date": "2022-12-05",
+          "end_date": "2023-01-25",
+          "detected_on": "2023-01-25",
+          "breakout_on": "2023-02-16",
+          "status": "breakout",
+          "pivot": 49.43,
+          "depth_pct": 9.49,
+          "duration_days": 52,
+          "volume_ratio": 1.104,
+          "breakout_volume_ratio": 2.736,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2022-12-01",
+              "value": 50.45999908,
+              "label": "Linker Peak"
+            },
+            {
+              "date": "2022-12-22",
+              "value": 46.68999863,
+              "label": "Erstes Tief"
+            },
+            {
+              "date": "2023-01-12",
+              "value": 49.43000031,
+              "label": "Mittelgipfel / Pivot"
+            },
+            {
+              "date": "2023-01-20",
+              "value": 45.66999817,
+              "label": "Tieferes zweites Tief"
+            },
+            {
+              "date": "2023-01-25",
+              "value": 47.97999954,
+              "label": "Rechte Seite"
+            }
+          ],
+          "checks": [
+            "Mindestens sieben Wochen",
+            "Zweites Tief unter erstem Tief",
+            "Mittelgipfel in oberer Hälfte",
+            "Erholung auf rechter Seite"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": false
+    }
+  ],
+  "matched_count": 2
+}
