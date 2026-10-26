@@ -98,7 +98,21 @@ jobs:
           BETA_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       - run: npm ci
         working-directory: frontend
+      - name: Use Ubuntu archive for browser dependencies
+        run: |
+          # Regional Azure mirrors can remain connected while downloading too slowly.
+          # Keep suites, components and Signed-By; change only the Ubuntu mirror host.
+          sudo find /etc/apt -maxdepth 2 -type f \
+            \( -name sources.list -o -name '*.list' -o -name '*.sources' -o -name '*mirrors*.txt' \) \
+            -exec sed -i -E \
+            's|https?://azure\.archive\.ubuntu\.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' {} +
+          sudo tee /etc/apt/apt.conf.d/99playwright-network >/dev/null <<'EOF'
+          Acquire::Retries "2";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          EOF
       - run: npx playwright install --with-deps chromium webkit
+        timeout-minutes: 5
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
