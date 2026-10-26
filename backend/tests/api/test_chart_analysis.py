@@ -91,3 +91,16 @@ def test_database_failure_is_explicit_503(client, monkeypatch):
     monkeypatch.setattr(service.repository, "_read_json_setting", unavailable)
     assert http.get("/chart-analysis/config").status_code == 503
     assert http.get("/chart-analysis/IBKR").status_code == 503
+
+
+def test_nonfinite_quotes_return_diagnostics_and_json_null(client, monkeypatch):
+    http, _ = client
+    bars = historical_bars(historical_cases()[0])
+    rows = [SimpleNamespace(**b.__dict__) for b in bars]
+    rows[0].high = float("nan")
+    monkeypatch.setattr(service, "list_price_bars", lambda *a, **kw: rows)
+    result = http.get("/chart-analysis/IBKR")
+    assert result.status_code == 200
+    assert result.json()["points"][0]["high"] is None
+    assert result.json()["diagnostics"]
+    assert result.json()["patterns"] == []

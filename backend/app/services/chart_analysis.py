@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from math import isfinite
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -57,6 +58,10 @@ def _bar(row) -> Bar:
     )
 
 
+def _chart_number(value):
+    return value if value is not None and isfinite(value) else None
+
+
 def analyse(ticker: str, *, as_of: date | None = None) -> dict:
     parameters = PatternParameters.model_validate(get_config()["parameters"])
     cutoff = min(as_of or date.max, completed_ticker_market_session(ticker).date)
@@ -77,11 +82,11 @@ def analyse(ticker: str, *, as_of: date | None = None) -> dict:
         "points": [
             {
                 "date": r.date.isoformat(),
-                "open": r.open,
-                "high": r.high,
-                "low": r.low,
-                "close": r.close,
-                "volume": r.volume,
+                "open": _chart_number(r.open),
+                "high": _chart_number(r.high),
+                "low": _chart_number(r.low),
+                "close": _chart_number(r.close),
+                "volume": _chart_number(r.volume),
             }
             for r in rows
         ],

@@ -394,7 +394,11 @@ function ParameterEditor({
                     key.endsWith("weeks") || key.endsWith("days") ? "1" : "0.01"
                   }
                   className={control}
-                  value={String(value)}
+                  value={
+                    typeof value === "number" && !Number.isFinite(value)
+                      ? ""
+                      : String(value)
+                  }
                   onChange={(e) =>
                     setDraft({
                       ...draft,
