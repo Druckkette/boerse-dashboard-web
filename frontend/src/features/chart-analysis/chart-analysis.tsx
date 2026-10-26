@@ -9,7 +9,12 @@ import { useJob } from "@/lib/use-job";
 import { LineChartCard } from "@/components/ui/line-chart-card";
 import { formatNumber } from "@/lib/format";
 import { patternLabels, patternStatuses } from "@/lib/types/chart-analysis";
-import type { ChartPattern, PatternConfig } from "@/lib/types/chart-analysis";
+import type {
+  ChartPattern,
+  ChartQuality,
+  PatternConfig,
+  PatternResults,
+} from "@/lib/types/chart-analysis";
 
 const panel = "rounded-2xl border border-[#e3e8ef] bg-white p-4 sm:p-6";
 const control =
@@ -20,6 +25,146 @@ const dateText = (day: string) =>
   new Date(`${day}T12:00:00`).toLocaleDateString("de-DE");
 const errorText = (error: Error | null) =>
   error?.message || "Daten konnten nicht geladen werden.";
+
+const qualityCategories = {
+  history: "Fehlende oder kurze Historie",
+  prices: "Ungültige Tageskurse / Volumen",
+  jumps: "Kurssprünge · Verdachtsfälle",
+  gaps: "Datenlücken / doppelte Tage",
+  other: "Weitere Hinweise",
+};
+
+function qualityCategory(issue: { code?: string; reason: string }) {
+  if (["missing_history", "insufficient_history"].includes(issue.code || ""))
+    return "history";
+  if (["invalid_ohlc", "invalid_volume"].includes(issue.code || ""))
+    return "prices";
+  if (issue.code === "extreme_jump") return "jumps";
+  if (["duplicate_date", "gap"].includes(issue.code || "")) return "gaps";
+  // Older saved scans only provide a reason, without a structured code.
+  if (/zu wenig|keine.*kurse|historie/i.test(issue.reason)) return "history";
+  if (/OHLC|volumen/i.test(issue.reason)) return "prices";
+  if (/kurssprung/i.test(issue.reason)) return "jumps";
+  if (/doppelte|unsortierte|lücken/i.test(issue.reason)) return "gaps";
+  return "other";
+}
+
+function QualityReport({ results }: { results: PatternResults }) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [availability, setAvailability] = useState("");
+  const [offset, setOffset] = useState(0);
+  const skipped = new Set(results.skipped?.map((row) => row.ticker));
+  const issues = results.quality_issues?.length
+    ? results.quality_issues
+    : (results.skipped || []);
+  const filtered = issues.filter(
+    (issue) =>
+      (!category || qualityCategory(issue) === category) &&
+      (!availability ||
+        skipped.has(issue.ticker) === (availability === "skipped")) &&
+      `${issue.ticker} ${issue.reason}`
+        .toLocaleLowerCase("de-DE")
+        .includes(search.trim().toLocaleLowerCase("de-DE")),
+  );
+  const pageOffset = Math.min(
+    offset,
+    Math.max(0, Math.ceil(filtered.length / 50) - 1) * 50,
+  );
+  const counts = results.quality_counts;
+  const categoryCounts = Object.keys(qualityCategories).map((key) => {
+    // A ticker may have several issue types, so category counts use distinct tickers.
+    const tickers = new Set(
+      issues.filter((issue) => qualityCategory(issue) === key).map((issue) => issue.ticker),
+    );
+    return [key, tickers.size] as const;
+  });
+  return (
+    <details className="mt-5 border-t pt-4 text-sm">
+      <summary className="cursor-pointer font-semibold">
+        Datenqualität und ausgeschlossene Aktien ansehen
+      </summary>
+      <p className="mt-3 text-slate-600">
+        {results.partial_count !== undefined
+          ? "Saubere Kursabschnitte werden getrennt geprüft. Muster über eine Unterbrechung hinweg werden ausgeschlossen. "
+          : "Dieser ältere Scan schließt betroffene Aktien vollständig aus. Ein neuer Scan prüft saubere Kursabschnitte getrennt. "}
+        Ein auffälliger Kurssprung ist ein Verdachtsfall und kann auch eine echte
+        Kursbewegung sein.
+      </p>
+      <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-slate-600">
+        {categoryCounts.filter(([, count]) => count > 0).map(([key, count]) => (
+          <li key={key}>
+            {qualityCategories[key as keyof typeof qualityCategories]}: {count}
+          </li>
+        ))}
+      </ul>
+      {!!counts && Object.keys(counts).length > 1 && (
+        <p className="mt-2 text-xs text-slate-500">
+          Aktien können in mehreren Kategorien vorkommen.
+        </p>
+      )}
+      <div className="my-3 grid gap-2 sm:grid-cols-3">
+        <input
+          aria-label="Datenhinweise nach Aktie filtern"
+          className={control}
+          placeholder="Ticker oder Hinweis suchen"
+          value={search}
+          onChange={(event) => { setSearch(event.target.value); setOffset(0); }}
+        />
+        <select
+          aria-label="Datenhinweise nach Grund filtern"
+          className={control}
+          value={category}
+          onChange={(event) => { setCategory(event.target.value); setOffset(0); }}
+        >
+          <option value="">Alle Gründe</option>
+          {Object.entries(qualityCategories).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Datenhinweise nach Auswertbarkeit filtern"
+          className={control}
+          value={availability}
+          onChange={(event) => { setAvailability(event.target.value); setOffset(0); }}
+        >
+          <option value="">Alle betroffenen Aktien</option>
+          <option value="partial">Teilweise auswertbar</option>
+          <option value="skipped">Nicht auswertbar</option>
+        </select>
+      </div>
+      <ul className="divide-y divide-slate-100" aria-label="Datenhinweise">
+        {filtered.slice(pageOffset, pageOffset + 50).map((issue, index) => (
+          <li key={`${issue.ticker}:${index}:${issue.reason}`} className="py-3">
+            <Link
+              prefetch={false}
+              className="font-semibold text-[#0f766e] hover:underline"
+              href={`/chart-analysis/${encodeURIComponent(issue.ticker)}`}
+            >
+              {issue.ticker}
+            </Link>
+            <span className="ml-2 text-xs text-slate-500">
+              {skipped.has(issue.ticker) ? "Nicht auswertbar" : "Teilweise auswertbar"}
+            </span>
+            <p className="mt-1 text-slate-600">{issue.reason}</p>
+          </li>
+        ))}
+      </ul>
+      {!filtered.length && <p className="py-3 text-slate-600">Keine Datenhinweise für diese Auswahl.</p>}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <button className={control} disabled={!pageOffset} onClick={() => setOffset(Math.max(0, pageOffset - 50))}>
+          Vorherige Hinweise
+        </button>
+        <span className="text-xs text-slate-500">
+          {filtered.length ? `${pageOffset + 1}–${Math.min(pageOffset + 50, filtered.length)}` : "0"} / {filtered.length} Hinweise
+        </span>
+        <button className={control} disabled={pageOffset + 50 >= filtered.length} onClick={() => setOffset(pageOffset + 50)}>
+          Weitere Hinweise
+        </button>
+      </div>
+    </details>
+  );
+}
 
 function StockEntry() {
   const [input, setInput] = useState("");
@@ -154,17 +299,39 @@ export function ChartAnalysisOverview() {
             <h2 className="text-lg font-semibold">Erkannte Muster</h2>
             <p className="mt-1 text-sm text-slate-600">
               {results.data?.available
-                ? `${results.data.analysed_count} von ${results.data.scanned_count} Aktien geprüft · ${results.data.skipped_count} mit unzureichenden Daten · Scan vom ${new Date(results.data.generated_at!).toLocaleString("de-DE")}`
+                ? `${results.data.scanned_count} Aktien im Scan · Scan vom ${new Date(results.data.generated_at!).toLocaleString("de-DE")}`
                 : "Den ersten Scan starten, um das gespeicherte Aktienuniversum zu prüfen."}
             </p>
           </div>
         </div>
+        {results.data?.available && (
+          <>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3" aria-label="Auswertbarkeit des Aktienuniversums">
+              {[
+                ["Vollständig auswertbar", Math.max(0, (results.data.analysed_count || 0) - (results.data.partial_count || 0))],
+                ["Teilweise auswertbar", results.data.partial_count || 0],
+                ["Nicht auswertbar", results.data.skipped_count || 0],
+              ].map(([label, count]) => (
+                <div key={label} className="rounded-lg bg-slate-50 p-3">
+                  <dt className="text-slate-600">{label}</dt>
+                  <dd className="mt-1 text-xl font-semibold tabular-nums">{count}</dd>
+                </div>
+              ))}
+            </dl>
+            {results.data.repair_summary && (
+              <p className="mt-3 text-sm text-slate-600">
+                Kursdaten nachladen: {results.data.repair_summary.attempted} Versuche · {results.data.repair_summary.succeeded} behoben · {results.data.repair_summary.failed} nicht behoben · {results.data.repair_summary.deferred} aufgeschoben.
+                Bei weiteren Scans werden aufgeschobene Anfragen innerhalb des Abrufbudgets und nach Ablauf ihrer Wartefrist berücksichtigt.
+              </p>
+            )}
+          </>
+        )}
         {results.data?.obsolete && (
           <p
             role="status"
             className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
           >
-            Die Parameter wurden geändert. Diese Treffer verwenden noch die
+            Die Parameter wurden geändert oder die Erkennung wurde aktualisiert. Diese Treffer verwenden noch die
             vorherigen Regeln. Bitte einen neuen Scan starten.
           </p>
         )}
@@ -269,7 +436,7 @@ export function ChartAnalysisOverview() {
                         {patternStatuses[row.status]}
                         {row.stale && (
                           <p className="text-xs text-amber-800">
-                            Kurse veraltet · {row.price_as_of}
+                            {row.continuity_limited ? "Historischer Abschnitt bis" : "Kurse veraltet"} · {row.price_as_of}
                           </p>
                         )}
                       </td>
@@ -305,19 +472,8 @@ export function ChartAnalysisOverview() {
                 Weiter
               </button>
             </div>
-            {!!results.data.skipped?.length && (
-              <details className="mt-4 text-sm">
-                <summary className="cursor-pointer">
-                  Datenlücken ansehen ({results.data.skipped_count})
-                </summary>
-                <ul className="mt-2 max-h-60 space-y-1 overflow-y-auto">
-                  {results.data.skipped.map((row) => (
-                    <li key={row.ticker}>
-                      {row.ticker}: {row.reason}
-                    </li>
-                  ))}
-                </ul>
-              </details>
+            {(!!results.data.quality_issues?.length || !!results.data.skipped?.length) && (
+              <QualityReport results={results.data} />
             )}
           </>
         )}
@@ -597,7 +753,19 @@ export function ChartAnalysisDetail({
             oder den Scan erneuern.
           </p>
         )}
-        {chart.data?.diagnostics.map((problem) => (
+        {chart.data?.quality?.partial && (
+          <div role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-semibold">Teilweise auswertbar</p>
+            <p className="mt-1">
+              {chart.data.quality.analysed_bar_count} Handelstage in {chart.data.quality.segment_count} getrennten Kursabschnitten geprüft · {chart.data.quality.excluded_bar_count} {chart.data.quality.excluded_bar_count === 1 ? "Tageskurs" : "Tageskurse"} ausgelassen.
+              Erkannte Muster gelten nur innerhalb ihres geprüften Abschnitts.
+            </p>
+          </div>
+        )}
+        {chart.data?.quality && chart.data.quality.issues.length > 0 && (
+          <ChartQualityDetails quality={chart.data.quality} />
+        )}
+        {chart.data?.diagnostics.filter((problem) => !chart.data?.quality?.partial || !chart.data.quality.issues.some((issue) => issue.reason === problem)).map((problem) => (
           <p
             key={problem}
             role="status"
@@ -728,6 +896,23 @@ export function ChartAnalysisDetail({
         {selected && <PatternDetails pattern={selected} />}
       </section>
     </div>
+  );
+}
+
+function ChartQualityDetails({ quality }: { quality: ChartQuality }) {
+  return (
+    <details className="mt-3 text-sm text-amber-900">
+      <summary className="cursor-pointer">Datenhinweise zu diesem Chart ({quality.issues.length})</summary>
+      <ul className="mt-2 space-y-2">
+        {quality.issues.slice(0, 50).map((issue, index) => (
+          <li key={`${issue.code}:${issue.date || ""}:${index}`}>
+            <span className="font-medium">{qualityCategories[qualityCategory(issue)]}: </span>
+            {issue.reason}
+          </li>
+        ))}
+      </ul>
+      {quality.issues.length > 50 && <p className="mt-2">Die ersten 50 von {quality.issues.length} Hinweisen werden angezeigt.</p>}
+    </details>
   );
 }
 
