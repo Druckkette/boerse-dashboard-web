@@ -137,6 +137,21 @@ def test_rate_limit_stops_remaining_requests_and_snapshot_still_completes(setup,
     assert service.get_results()["available"]
 
 
+def test_untried_symbols_are_not_starved_by_expired_old_failures(setup, monkeypatch):
+    setup.rows["TEST"][0].high = 0
+    setup.rows["EMPTY"] = []
+    past = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+    setup.store[service.REPAIR_KEY] = {"TEST": {"checked_at": past, "next_retry_at": past}}
+    calls = []
+    monkeypatch.setattr(
+        service,
+        "repair_chart_history",
+        lambda ticker, *a, **kw: calls.append(ticker) or {"reason_code": "provider_empty"},
+    )
+    service.scan_universe(repair_prices=True, repair_limit=1)
+    assert calls == ["EMPTY"]
+
+
 def test_cancellation_does_not_publish_partial_scan(setup, monkeypatch):
     service.scan_universe()
     before = deepcopy(setup.store[service.RESULT_KEY])

@@ -56,7 +56,10 @@ Hinweis auf die erneute Quellenbeobachtung. Seine Ursache ist damit nicht bewies
 
 Versuche werden vor dem Abruf gespeichert. Fehler erhalten mindestens einen Tag
 Wartezeit, gespeicherte vollständige Neuabrufe mit weiterhin auffälligen Daten
-sieben Tage. Ein abgebrochener Scan veröffentlicht keine halbfertige Trefferliste;
+sieben Tage. Noch nie geprüfte Ticker haben Vorrang vor wiederholten Versuchen;
+anschließend werden die ältesten Versuche zuerst bearbeitet. So blockieren
+dauerhafte Fehler nicht jeden Tag erneut alle anderen Ticker.
+Ein abgebrochener Scan veröffentlicht keine halbfertige Trefferliste;
 bereits abgeschlossene, geprüfte Kursreparaturen bleiben jedoch im Cache erhalten.
 Deshalb vor dem ersten produktiven Wartungslauf die Datenbank sichern.
 

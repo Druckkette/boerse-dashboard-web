@@ -295,14 +295,23 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
                 summary["deferred"] += 1
                 summary["cooldown"] += 1
                 continue
+            attempt = state.get(ticker, {})
             candidates.append(
-                (min(priorities.get(i["code"], 9) for i in quality.issues), ticker, symbol)
+                (
+                    bool(attempt),
+                    attempt.get("checked_at", ""),
+                    min(priorities.get(i["code"], 9) for i in quality.issues),
+                    ticker,
+                    symbol,
+                )
             )
         if progress:
             progress(min(start + len(chunk), len(stocks)), len(stocks), "quality")
     candidates.sort()
     deadline = monotonic() + max(0, seconds)
-    for index, (_, ticker, symbol) in enumerate(candidates):
+    # Untried symbols first, then oldest attempts: repeated daily scans must not
+    # spend their entire budget on the same alphabetically first failures.
+    for index, (_, _, _, ticker, symbol) in enumerate(candidates):
         if cancelled:
             cancelled()
         if summary["attempted"] >= limit or monotonic() >= deadline or summary["rate_limited"]:
