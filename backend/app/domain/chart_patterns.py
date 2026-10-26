@@ -95,6 +95,20 @@ class Bar:
     volume: float | None
 
 
+@dataclass(frozen=True)
+class _HandleCandidate:
+    observed_on: int
+    rim: int
+    end: int
+    bottom: int
+    low_index: int
+    pivot: float
+    volume_ratio: float | None
+    checks: list[str]
+    warnings: list[str]
+    breakout: bool
+
+
 class PatternPoint(BaseModel):
     date: str
     value: float
@@ -375,6 +389,7 @@ def detect_patterns(
         peak = highs[s]
         stop = min(len(bars), base + p.base_max_weeks * 5 + 10)
         emitted: set[str] = set()
+        best_handle: _HandleCandidate | None = None
         for e in range(max(base + 14, s + 20), stop):
             days = (bars[e].date - bars[base].date).days + 1
             if days > p.base_max_weeks * 7:
@@ -474,19 +489,23 @@ def detect_patterns(
                     shape_warnings,
                 )
                 emitted.add("cup_without_handle")
-            if "cup_with_handle" in emitted:
+            if best_handle is not None and e + p.handle_min_days > best_handle.observed_on:
                 continue
             if highs[e] < max(highs[max(s, e - 4) : e + 1]):
                 continue  # do not move the rim into a falling handle to lower its pivot
             # A handle is observable only after at least five subsequent sessions.
-            for h in range(e + p.handle_min_days, min(e + p.handle_max_days + 2, stop)):
-                if (bars[h].date - bars[base].date).days + 1 > p.base_max_weeks * 7:
-                    break
+            handle_stop = min(e + p.handle_max_days + 2, stop)
+            if best_handle is not None:
+                handle_stop = min(handle_stop, best_handle.observed_on + 1)
+            for h in range(e + p.handle_min_days, handle_stop):
                 # A breakout can itself confirm a valid handle. Its high must
                 # never enter the resistance it is supposed to break through.
                 breakout = h > e + p.handle_min_days and closes[h] > max(highs[e:h])
                 end = h - 1 if breakout else h
-                if end - e > p.handle_max_days:
+                if (
+                    end - e > p.handle_max_days
+                    or (bars[end].date - bars[base].date).days + 1 > p.base_max_weeks * 7
+                ):
                     break
                 handle = bars[e : end + 1]
                 hp = float(max(b.high for b in handle))
@@ -515,45 +534,83 @@ def detect_patterns(
                 hv = _ratio(bars[max(s, e - 10) : e], bars[e + 1 : end + 1])
                 if not _volume_ok(hv, p):
                     continue
-                emit(
-                    "cup_with_handle",
-                    s,
-                    base,
-                    end,
-                    hp,
-                    [
-                        (s, peak, "Linker Rand"),
-                        (bottom, lows[bottom], "Cup-Tief"),
-                        (e, highs[e], "Rechter Rand / Handle-Beginn"),
-                        (low_index, hl, "Handle-Tief"),
-                        (end, closes[end], "Handle-Ende" if breakout else "Handle-Erholung"),
-                    ],
-                    hv,
-                    [
-                        *checks,
-                        "Handle mindestens fünf Handelstage",
-                        "Handle in oberer Cup-Hälfte",
-                        "Midpoint-Regel erfüllt",
-                        "Abwärtsdrift und Erholung",
-                    ],
-                    [
-                        *shape_warnings,
-                        *(
-                            ["Volumen am Cup-Boden nicht bestätigt."]
-                            if vr is None or vr > p.volume_dry_up_ratio
-                            else []
-                        ),
-                        *(["Handle erst durch die Ausbruchskerze bestätigt."] if breakout else []),
-                    ],
-                    observed_on=h,
-                )
-                emitted.add("cup_with_handle")
+                # A prior rim may need more observations (notably for volume)
+                # than a later rim. Preserve the first observable setup instead
+                # of letting the outer rim loop choose using future evidence.
+                if best_handle is None or (h, e) < (
+                    best_handle.observed_on,
+                    best_handle.rim,
+                ):
+                    best_handle = _HandleCandidate(
+                        observed_on=h,
+                        rim=e,
+                        end=end,
+                        bottom=bottom,
+                        low_index=low_index,
+                        pivot=hp,
+                        volume_ratio=hv,
+                        checks=[
+                            *checks,
+                            "Handle mindestens fünf Handelstage",
+                            "Handle in oberer Cup-Hälfte",
+                            "Midpoint-Regel erfüllt",
+                            "Abwärtsdrift und Erholung",
+                        ],
+                        warnings=[
+                            *shape_warnings,
+                            *(
+                                ["Volumen am Cup-Boden nicht bestätigt."]
+                                if vr is None or vr > p.volume_dry_up_ratio
+                                else []
+                            ),
+                            *(
+                                ["Handle erst durch die Ausbruchskerze bestätigt."]
+                                if breakout
+                                else []
+                            ),
+                        ],
+                        breakout=breakout,
+                    )
                 break
+
+        if best_handle is not None:
+            chosen_handle = best_handle
+            emit(
+                "cup_with_handle",
+                s,
+                base,
+                chosen_handle.end,
+                chosen_handle.pivot,
+                [
+                    (s, peak, "Linker Rand"),
+                    (chosen_handle.bottom, lows[chosen_handle.bottom], "Cup-Tief"),
+                    (
+                        chosen_handle.rim,
+                        highs[chosen_handle.rim],
+                        "Rechter Rand / Handle-Beginn",
+                    ),
+                    (chosen_handle.low_index, lows[chosen_handle.low_index], "Handle-Tief"),
+                    (
+                        chosen_handle.end,
+                        closes[chosen_handle.end],
+                        "Handle-Ende" if chosen_handle.breakout else "Handle-Erholung",
+                    ),
+                ],
+                chosen_handle.volume_ratio,
+                chosen_handle.checks,
+                chosen_handle.warnings,
+                observed_on=chosen_handle.observed_on,
+            )
 
         # Double Bottom: confirmed local troughs, a lower second low, upper-half middle peak.
         troughs = [i for i in range(s + 5, stop - 3) if lows[i] == min(lows[i - 2 : i + 3])]
-        found_db = False
-        for t1, t2 in ((a, b) for i, a in enumerate(troughs) for b in troughs[i + 1 :]):
+        best_db: tuple[int, int, int, int, float | None] | None = None
+        best_end = stop - 1
+        # Search by confirmed second trough, not by first trough. A first low
+        # whose recovery only happens later must not displace an observable W.
+        for t1, t2 in ((a, b) for j, b in enumerate(troughs) for a in troughs[:j]):
+            if t2 + 3 > best_end:
+                break
             if (
                 t2 - t1 < 10
                 or not lows[t1] * (1 - p.double_bottom_max_undercut_pct / 100)
@@ -579,7 +636,7 @@ def detect_patterns(
             vr = _ratio(bars[s : s + 5], [*bars[t1 - 2 : t1 + 3], *bars[t2 - 2 : t2 + 3]])
             if not _volume_ok(vr, p):
                 continue
-            for e in range(t2 + 3, stop):
+            for e in range(t2 + 3, best_end + 1):
                 if min(lows[t2 + 1 : e + 1]) < lows[t2]:
                     break  # the second trough was invalidated before recovery
                 if (bars[e].date - bars[base].date).days + 1 > p.base_max_weeks * 7:
@@ -587,31 +644,35 @@ def detect_patterns(
                 if (bars[e].date - bars[base].date).days + 1 < p.double_bottom_min_weeks * 7:
                     continue
                 if closes[e] >= mp * 0.97 and closes[e] > closes[e - 3]:
-                    emit(
-                        "double_bottom",
-                        s,
-                        base,
-                        e,
-                        float(mp),
-                        [
-                            (s, peak, "Linker Peak"),
-                            (t1, lows[t1], "Erstes Tief"),
-                            (mid, mp, "Mittelgipfel / Pivot"),
-                            (t2, lows[t2], "Tieferes zweites Tief"),
-                            (e, closes[e], "Rechte Seite"),
-                        ],
-                        vr,
-                        [
-                            "Mindestens sieben Wochen",
-                            "Zweites Tief unter erstem Tief",
-                            "Mittelgipfel in oberer Hälfte",
-                            "Erholung auf rechter Seite",
-                        ],
-                    )
-                    found_db = True
+                    # Equal detection dates prefer the earlier first trough,
+                    # then second trough. All tie inputs already exist on e.
+                    if best_db is None or (e, t1, t2) < best_db[:3]:
+                        best_db = (e, t1, t2, mid, vr)
+                        best_end = e
                     break
-            if found_db:
-                break
+        if best_db is not None:
+            e, t1, t2, mid, vr = best_db
+            emit(
+                "double_bottom",
+                s,
+                base,
+                e,
+                float(highs[mid]),
+                [
+                    (s, peak, "Linker Peak"),
+                    (t1, lows[t1], "Erstes Tief"),
+                    (mid, highs[mid], "Mittelgipfel / Pivot"),
+                    (t2, lows[t2], "Tieferes zweites Tief"),
+                    (e, closes[e], "Rechte Seite"),
+                ],
+                vr,
+                [
+                    "Mindestens sieben Wochen",
+                    "Zweites Tief unter erstem Tief",
+                    "Mittelgipfel in oberer Hälfte",
+                    "Erholung auf rechter Seite",
+                ],
+            )
 
         # High Tight Flag: the mast is distinct from the flag and uses 4–8 calendar weeks.
         for origin in range(max(0, s - 42), max(0, s - 18)):

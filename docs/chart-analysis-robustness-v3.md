@@ -28,6 +28,12 @@ Vorauswahl, keine allgemeine Erfolgswahrscheinlichkeit oder Renditeprognose.
   derselben ungültigen Geometrie. Grund und Datum erscheinen als Hinweis.
 - Ein Handle kann nicht über seine eingestellte Höchstdauer hinaus auf einen
   Ausbruch warten. Ein unmittelbar anschließender Ausbruchstag ist zulässig.
+- Die maximale Basisdauer endet mit der Formation. Eine folgende Bestätigung
+  am Montag verlängert eine am Freitag fertiggestellte Basis nicht nachträglich.
+- Bei konkurrierenden Double-Bottom-Paaren und Handle-Rändern gewinnt die
+  früheste damals beobachtbare Variante. Später nachgewiesene Erholung oder
+  Volumenabnahme kann deren historische Auswahl nicht verdrängen. Das gilt
+  auch bei eingeschaltetem Volumen-Pflichtfilter.
 
 Maximale Cup-Tiefe 50 %, Handle-Mindesttiefe 5 % und Handle-Höchstdauer 25 Sitzungen
 bleiben unverändert. Bestehende gespeicherte Einstellungen werden erhalten;
@@ -113,9 +119,13 @@ Geometrien aus den Buch- und Quellenreihen wurde jede Erkennung ausschließlich
 mit dem bis dahin verfügbaren Kurspräfix wiederholt: keine Abweichung bei ID,
 Punkten und Pivot. Zusätzliche Regressionen prüfen flache Reihen mit einzelner
 Tiefstkerze, asymmetrische verrauschte Vs, Intraday-Verletzungen, Handle-Verfall,
-korrekte Randkerzen sowie Speichern und Neuladen des neuen Parameters.
+korrekte Randkerzen, konkurrierende W-Tiefs und Handles in beiden Volumenmodi
+sowie Speichern und Neuladen des neuen Parameters. Weitere deterministische
+Zufallsreihen wurden am jeweiligen historischen Erkennungstag erneut abgespielt:
+112 Geometrien im Standardmodus und 41 mit verpflichtendem Volumenfilter,
+ohne Abweichung bei ID, Punkten oder Pivot.
 
-Lokale Prüfung: **1.542 Backendtests bestanden**, 55 ohne Integrationsdienste
+Lokale Prüfung: **1.550 Backendtests bestanden**, 55 ohne Integrationsdienste
 übersprungen; Postgres-Persistenztest separat bestanden. **53 Frontendtests**,
 Lint, Typprüfung, Produktionsbuild und **9 Chartanalyse-Browsertests** erfolgreich.
 Die zusätzliche Kurvenprüfung bleibt auf den eingefrorenen realen Reihen im

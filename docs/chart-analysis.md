@@ -134,7 +134,7 @@ die bestehende Standardqueue und Jobfortschrittsanzeige angebunden.
 
 ## Prüfbelege vom 26.10.2026
 
-Letzter lokaler Gesamtstand mit v3: Backend **1.542 bestanden**, 55 ohne zusätzliche
+Letzter lokaler Gesamtstand mit v3: Backend **1.550 bestanden**, 55 ohne zusätzliche
 Integrationsdienste übersprungen; die Postgres-Integration wurde separat in einer
 frischen Docker-Datenbank ausgeführt. Frontend **53 Unit-Tests bestanden**, Lint,
 Typprüfung und Produktionsbuild erfolgreich. **Neun Chartanalyse-Browserprüfungen bestanden**,

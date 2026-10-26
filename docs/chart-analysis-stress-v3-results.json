@@ -1,6 +1,6 @@
 {
   "algorithm_version": "chapter-4.2-v3",
-  "module_sha256": "8e4e8ed8f8c45c4a2ee8ce31fd77fc60d6030e24ddff424d55cd1a14dfac34f1",
+  "module_sha256": "7d298006fc4b1ef995ffae048796423b1581fc8c3714efd82ca867d9a95d4b32",
   "parameters": {
     "cup_min_weeks": 6,
     "base_max_weeks": 65,
@@ -492,5 +492,5 @@
       ]
     }
   ],
-  "elapsed_seconds": 0.925
+  "elapsed_seconds": 1.028
 }

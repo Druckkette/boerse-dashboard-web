@@ -1,6 +1,6 @@
 {
   "algorithm_version": "chapter-4.2-v3",
-  "module_sha256": "8e4e8ed8f8c45c4a2ee8ce31fd77fc60d6030e24ddff424d55cd1a14dfac34f1",
+  "module_sha256": "7d298006fc4b1ef995ffae048796423b1581fc8c3714efd82ca867d9a95d4b32",
   "manifest_sha256": "0a8a45e0dd1508c7a929e435dd4a8c094fbc2ccdff3e1c7c2783f038ff43dc35",
   "parameter_hash": "460c7b542e00622a",
   "parameters": {
@@ -665,5 +665,5 @@
   "positive_matched": 1,
   "negative_count": 1,
   "negative_correctly_excluded": 1,
-  "elapsed_seconds": 0.047
+  "elapsed_seconds": 0.062
 }

@@ -132,3 +132,31 @@ def test_old_handle_cannot_wait_beyond_configured_maximum_and_then_break_out():
     same = next(p for p in detect_patterns("TEST", bars, parameters) if p.id == initial.id)
     assert same.status == "expired"
     assert same.breakout_on is None
+
+
+def test_base_maximum_measures_formation_not_next_sessions_confirmation():
+    from tests.domain.test_chart_patterns import series
+
+    prices = [
+        *np.linspace(60, 100, 60),
+        *(70 + 30 * np.linspace(-1, 1, 32)[1:] ** 2),
+        99,
+        98,
+        97,
+        96,
+        95,
+        94,
+        93,
+        92,
+        91,
+        101,
+    ]
+    bars = series(prices)
+    cup = next(
+        p
+        for p in detect_patterns("TEST", bars, PatternParameters(base_max_weeks=8))
+        if p.kind == "cup_with_handle"
+    )
+    assert cup.duration_days <= 8 * 7
+    assert cup.end_date == "2024-05-17"
+    assert cup.detected_on == cup.breakout_on == "2024-05-20"
