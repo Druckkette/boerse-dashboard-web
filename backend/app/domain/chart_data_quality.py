@@ -4,8 +4,9 @@ No price is repaired, rounded or inferred. A large movement is a boundary for
 analysis, not evidence that the provider's observation is incorrect.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
+from datetime import date
 from itertools import groupby
 from math import isfinite
 
@@ -78,7 +79,7 @@ def _signature(bar: Bar) -> tuple:
     return tuple(values)
 
 
-def prepare_segments(bars: Sequence[Bar]) -> QualityResult:
+def prepare_segments(bars: Sequence[Bar], *, incomplete_dates: Collection[date] = ()) -> QualityResult:
     """Return every clean section with at least 25 observations, in date order.
 
     All rows sharing a date are excluded, even if identical. Invalid rows end
@@ -120,6 +121,17 @@ def prepare_segments(bars: Sequence[Bar]) -> QualityResult:
         duplicate = len(group) > 1
         invalid_ohlc = sum(not _valid_ohlc(bar) for bar in group)
         invalid_volume = sum(not _valid_volume(bar.volume) for bar in group)
+        incomplete = day in incomplete_dates
+        if incomplete:
+            issues.append(
+                {
+                    "code": "incomplete_session",
+                    "date": day_text,
+                    "reason": f"Der Tageskurs vom {day_text} wurde vor Börsenschluss geladen "
+                    "oder sein Ladezeitpunkt fehlt. Ein Neuabruf nach Börsenschluss "
+                    "ist für die Musteranalyse erforderlich.",
+                }
+            )
         if duplicate:
             conflicting = len({_signature(bar) for bar in group}) > 1
             issues.append(
@@ -151,7 +163,7 @@ def prepare_segments(bars: Sequence[Bar]) -> QualityResult:
                     "bar_count": invalid_volume,
                 }
             )
-        if duplicate or invalid_ohlc or invalid_volume:
+        if duplicate or invalid_ohlc or invalid_volume or incomplete:
             excluded += len(group)
             finish_section()
             continue

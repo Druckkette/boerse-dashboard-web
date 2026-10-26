@@ -19,7 +19,7 @@ mit den unveränderten Musterregeln aus Kapitel 4.2 geprüft.
   sichtbare historische Kennzeichnung und eine Warnung über den begrenzten Status.
 - Alle Gründe werden erhoben. Zusammengefasste Scanhinweise zählen betroffene
   Aktien je Grund; eine Aktie kann in mehreren Kategorien erscheinen.
-- Die jüngste abgeschlossene Börsensitzung wird nur verwendet, wenn ihr Kurs
+- Die jüngste gespeicherte Börsensitzung wird nur verwendet, wenn ihr Kurs
   nachweislich frühestens zu ihrem Börsenschluss geladen wurde. Ein zuvor
   geladener Intradaykurs wird nicht allein durch Zeitablauf zum Schlusskurs.
   Solche Kerzen und Kerzen ohne Ladezeitpunkt bleiben bis zum Neuabruf leer;
@@ -27,6 +27,8 @@ mit den unveränderten Musterregeln aus Kapitel 4.2 geprüft.
   Historische Stichtage behalten ihre bisherige Auswertung. Sitzung und
   Börsenschluss werden für einen gesamten Scan einmal je Aktie eingefroren.
   Numerische Aliase wie `2318-HK` verwenden den Hongkonger Börsenkalender.
+  Auch eine ältere stehengebliebene Intradaykerze wird beim nächsten
+  Börsenschluss nicht automatisch gültig; für sie gilt ihr eigener Börsenschluss.
 - `analysed_count` enthält vollständig und teilweise auswertbare Aktien.
   `partial_count` ist eine Teilmenge davon. `skipped_count` umfasst nur Aktien ohne
   ausreichend langen sauberen Abschnitt. Alte Scans bleiben bis zum erfolgreichen
@@ -67,6 +69,9 @@ Wartezeit, gespeicherte vollständige Neuabrufe mit weiterhin auffälligen Daten
 sieben Tage. Noch nie geprüfte Ticker haben Vorrang vor wiederholten Versuchen;
 anschließend werden die ältesten Versuche zuerst bearbeitet. So blockieren
 dauerhafte Fehler nicht jeden Tag erneut alle anderen Ticker.
+Die Wartezeit gilt für die gespeicherten Fehlerarten und betroffenen Daten.
+Ein neu entstandener Fehler darf erneut geprüft werden, auch wenn eine frühere
+Reparatur derselben Aktie noch innerhalb ihrer Wartezeit liegt.
 Ein abgebrochener Scan veröffentlicht keine halbfertige Trefferliste;
 bereits abgeschlossene, geprüfte Kursreparaturen bleiben jedoch im Cache erhalten.
 Deshalb vor dem ersten produktiven Wartungslauf die Datenbank sichern.

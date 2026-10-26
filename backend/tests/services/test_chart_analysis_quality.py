@@ -137,6 +137,33 @@ def test_rate_limit_stops_remaining_requests_and_snapshot_still_completes(setup,
     assert service.get_results()["available"]
 
 
+def test_new_issue_bypasses_previous_success_cooldown_but_same_issue_waits(setup, monkeypatch):
+    setup.rows["TEST"][0].high = 0
+    calls = []
+
+    def repair(*args, **kwargs):
+        calls.append(args[0])
+        setup.rows["TEST"][0].high = setup.bars[0].high
+        return {"records_written": len(setup.bars), "reason_code": "repaired"}
+
+    monkeypatch.setattr(service, "repair_chart_history", repair)
+    service.scan_universe(repair_prices=True)
+    assert calls == ["TEST"]
+    assert setup.store[service.REPAIR_KEY]["TEST"]["issue_signature"] == []
+    # A newly broken observation is independent of the successful prior repair.
+    setup.rows["TEST"][1].high = 0
+    monkeypatch.setattr(
+        service,
+        "repair_chart_history",
+        lambda ticker, *a, **kw: calls.append(ticker) or {"reason_code": "provider_empty"},
+    )
+    service.scan_universe(repair_prices=True)
+    assert calls == ["TEST", "TEST"]
+    service.scan_universe(repair_prices=True)
+    assert calls == ["TEST", "TEST"]
+    assert service.get_results()["repair_summary"]["cooldown"] == 1
+
+
 def test_untried_symbols_are_not_starved_by_expired_old_failures(setup, monkeypatch):
     setup.rows["TEST"][0].high = 0
     setup.rows["EMPTY"] = []

@@ -8,7 +8,10 @@ import pytest
 
 from app.domain.chart_patterns import detect_patterns
 from app.services import chart_analysis as service
-from app.services.market_calendar import ExpectedMarketSession
+from app.services.market_calendar import (
+    ExpectedMarketSession,
+    completed_ticker_market_session as calendar_completed_session,
+)
 from scripts.evaluate_published_chart_examples import bars_for, cases, matching
 
 
@@ -215,9 +218,9 @@ def test_scan_freezes_each_session_once_across_repair_preflight_recheck_and_anal
 
     original_prepare = service._prepare_rows
 
-    def prepare(observations, *, cutoff, session=None):
+    def prepare(observations, *, cutoff, session=None, ticker=None):
         prepared.append(session)
-        return original_prepare(observations, cutoff=cutoff, session=session)
+        return original_prepare(observations, cutoff=cutoff, session=session, ticker=ticker)
 
     def repair(ticker, *args, **kwargs):
         repaired.append(ticker)
@@ -258,3 +261,103 @@ def test_duplicate_current_date_with_mixed_fetch_times_is_entirely_excluded(quot
         assert all(point["excluded"] and point["close"] is None for point in current)
         assert chart["price_as_of"] == quotes.rows[-3].date.isoformat() and chart["stale"]
         assert not any(pattern["id"] == quotes.reference.id for pattern in chart["patterns"])
+
+
+def _move_reference_to_friday(quotes, friday):
+    shift = friday - quotes.rows[-1].date
+    for row in quotes.rows:
+        row.date += shift
+        # These older reference observations represent a later history fetch;
+        # only the newest Friday gets a same-day retrieval in the actual test.
+        row.fetched_at = datetime.combine(row.date, datetime.min.time(), tzinfo=UTC) + timedelta(
+            days=1, hours=21
+        )
+
+
+def test_fridays_intraday_quote_remains_unverified_after_mondays_session_closes(
+    quotes, monkeypatch
+):
+    friday = date(2026, 10, 23)
+    _move_reference_to_friday(quotes, friday)
+    monday = calendar_completed_session("ADSK", now=datetime(2026, 10, 26, 22, tzinfo=UTC))
+    friday_session = calendar_completed_session("ADSK", now=datetime(2026, 10, 23, 23, tzinfo=UTC))
+    quotes.rows[-1].fetched_at = friday_session.close_at - timedelta(minutes=30)
+    monkeypatch.setattr(
+        service,
+        "completed_ticker_market_session",
+        lambda ticker, now=None: calendar_completed_session(ticker, now=now) if now else monday,
+    )
+    _, quality = service._prepare_rows(
+        quotes.rows, cutoff=monday.date, session=monday, ticker="ADSK"
+    )
+    assert any(
+        issue["code"] == "incomplete_session" and issue["date"] == friday.isoformat()
+        for issue in quality.issues
+    )
+    assert all(bar.date < friday for segment in quality.segments for bar in segment)
+    chart = service.analyse("ADSK")
+    assert chart["as_of"] == "2026-10-26"
+    assert chart["price_as_of"] == "2026-10-22" and chart["stale"] is True
+    assert chart["points"][-1]["date"] == friday.isoformat()
+    assert chart["points"][-1]["close"] is None
+    assert chart["points"][-1]["excluded"] is True
+    assert all(pattern["breakout_on"] != friday.isoformat() for pattern in chart["patterns"])
+
+
+def test_previous_friday_uses_its_own_us_close_across_the_dst_change(quotes, monkeypatch):
+    friday = date(2026, 10, 30)
+    _move_reference_to_friday(quotes, friday)
+    monday = calendar_completed_session("ADSK", now=datetime(2026, 11, 2, 22, tzinfo=UTC))
+    friday_session = calendar_completed_session("ADSK", now=datetime(2026, 10, 30, 23, tzinfo=UTC))
+    assert friday_session.close_at == datetime(2026, 10, 30, 20, tzinfo=UTC)
+    assert monday.close_at == datetime(2026, 11, 2, 21, tzinfo=UTC)
+    monkeypatch.setattr(
+        service,
+        "completed_ticker_market_session",
+        lambda ticker, now=None: calendar_completed_session(ticker, now=now) if now else monday,
+    )
+
+    # 20:30 UTC is a final Friday quote, even though Monday closes at 21:00 UTC.
+    quotes.rows[-1].fetched_at = datetime(2026, 10, 30, 20, 30, tzinfo=UTC)
+    _, final_quality = service._prepare_rows(
+        quotes.rows, cutoff=monday.date, session=monday, ticker="ADSK"
+    )
+    assert any(bar.date == friday for segment in final_quality.segments for bar in segment)
+    assert not any(issue["code"] == "incomplete_session" for issue in final_quality.issues)
+    chart = service.analyse("ADSK")
+    assert chart["price_as_of"] == friday.isoformat()
+    assert chart["points"][-1]["close"] == quotes.rows[-1].close
+
+    quotes.rows[-1].fetched_at = datetime(2026, 10, 30, 19, 59, tzinfo=UTC)
+    _, early_quality = service._prepare_rows(
+        quotes.rows, cutoff=monday.date, session=monday, ticker="ADSK"
+    )
+    assert all(bar.date < friday for segment in early_quality.segments for bar in segment)
+    assert any(issue["code"] == "incomplete_session" for issue in early_quality.issues)
+
+
+def test_known_intraday_quote_inside_the_cup_is_a_boundary_for_pattern_detection(quotes):
+    middle = next(row for row in quotes.rows if row.date == date(2009, 7, 8))
+    middle.fetched_at = datetime(2009, 7, 8, 19, tzinfo=UTC)
+    quotes.rows[-1].fetched_at = quotes.session.close_at + timedelta(minutes=1)
+    _, quality = service._prepare_rows(
+        quotes.rows, cutoff=quotes.session.date, session=quotes.session, ticker="ADSK"
+    )
+    assert quality.partial and quality.excluded_bar_count == 1
+    assert quality.boundary_count == 1
+    assert any(
+        issue["code"] == "incomplete_session" and issue["date"] == middle.date.isoformat()
+        for issue in quality.issues
+    )
+    assert all(
+        not segment[0].date <= middle.date <= segment[-1].date for segment in quality.segments
+    )
+    chart = service.analyse("ADSK")
+    point = next(point for point in chart["points"] if point["date"] == "2009-07-08")
+    assert point["excluded"] is True and point["close"] is None
+    assert chart["points"][-1]["close"] == quotes.bars[-1].close
+    assert not any(pattern["id"] == quotes.reference.id for pattern in chart["patterns"])
+    assert all(
+        not pattern["start_date"] < "2009-07-08" < pattern["end_date"]
+        for pattern in chart["patterns"]
+    )

@@ -13,7 +13,9 @@ def test_numeric_hong_kong_alias_uses_the_same_completed_session_as_yahoo_symbol
 
     now = datetime(2026, 10, 26, 10, tzinfo=UTC)
     assert ticker_market_calendar_name("2318-HK") == "XHKG"
-    assert ticker_market_calendar_name("BRK-B") == "XNYS"
+    for ticker in ("BRK-B", "T", "F", "DE", "L", "AS", "TO", "AX", "SW"):
+        assert ticker_market_calendar_name(ticker) == "XNYS"
+    assert ticker_market_calendar_name("SAP.DE") == "XETR"
     assert completed_ticker_market_session("2318-HK", now) == completed_ticker_market_session(
         "2318.HK", now
     )
