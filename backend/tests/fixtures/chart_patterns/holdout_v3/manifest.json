@@ -1,0 +1,144 @@
+{
+  "selected_before_evaluation": "2026-10-26T08:57:35.838409+00:00",
+  "selection": "Six source cases fixed without running either v2 or the proposed v3 detector. Four source-positive cup-with-handle cases and two source-positive but default/book-depth-out-of-scope whole bases. These are case coverage and exclusion checks, not a random-sample estimate of precision.",
+  "source_pdf_sha256": "f21769716efcb1b9c41efe4bfcd8681db50591421f962469469f2109c3a55f5f",
+  "method": "Positive checks require exact kind plus left-rim date window plus detection window. Depth-exclusion negatives reject either Cup kind for that whole base. No future bars beyond as_of. Price data downloaded after source labels and windows were fixed. Windows follow source text and visual weekly-chart date resolution.",
+  "cases": [
+    {
+      "id": "adbe-2019-handle",
+      "ticker": "ADBE",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2019-03-01",
+      "as_of": "2019-12-13",
+      "base_from": "2019-07-15",
+      "base_to": "2019-07-31",
+      "detected_from": "2019-11-15",
+      "detected_to": "2019-12-13",
+      "source_pivot": 310.1,
+      "source_date": "2019-12-26",
+      "source_pages": [
+        169,
+        170
+      ],
+      "source_note": "IBD names a cup with handle from July 19; breakout December 13. Source chart reviewed before evaluation.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith"
+    },
+    {
+      "id": "ew-2019-handle",
+      "ticker": "EW",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2018-10-01",
+      "as_of": "2019-07-24",
+      "base_from": "2019-03-01",
+      "base_to": "2019-04-30",
+      "detected_from": "2019-07-01",
+      "detected_to": "2019-07-24",
+      "source_pivot": 195.1,
+      "source_date": "2019-09-11",
+      "source_pages": [
+        109,
+        110
+      ],
+      "source_note": "IBD names a 16.3%-deep cup with handle; initial breakout July 22-23, earnings gap July 24. Older November-January cup is a different base.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith"
+    },
+    {
+      "id": "oled-2019-handle",
+      "ticker": "OLED",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2019-01-01",
+      "as_of": "2019-06-18",
+      "base_from": "2019-04-15",
+      "base_to": "2019-05-10",
+      "detected_from": "2019-06-01",
+      "detected_to": "2019-06-18",
+      "source_pivot": 177.05,
+      "source_date": "2019-06-28",
+      "source_pages": [
+        65,
+        66
+      ],
+      "source_note": "IBD names second-stage cup with handle and breakout June 18. The February first-stage consolidation is unrelated.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith"
+    },
+    {
+      "id": "mktx-2019-handle",
+      "ticker": "MKTX",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2019-03-01",
+      "as_of": "2019-12-04",
+      "base_from": "2019-08-01",
+      "base_to": "2019-09-06",
+      "detected_from": "2019-11-15",
+      "detected_to": "2019-12-04",
+      "source_pivot": 411.97,
+      "source_date": "2019-12-04",
+      "source_pages": [
+        73,
+        74
+      ],
+      "source_note": "IBD names a cup with handle at December 4, after September decline and November 11 recovery of 50-day MA. This is a formed setup, not a required successful breakout.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith"
+    },
+    {
+      "id": "roku-2019-too-deep",
+      "ticker": "ROKU",
+      "expected": "absent",
+      "kind": "cup_with_handle",
+      "data_from": "2018-04-01",
+      "as_of": "2019-05-10",
+      "base_from": "2018-09-01",
+      "base_to": "2018-10-15",
+      "detected_from": "2019-04-01",
+      "detected_to": "2019-05-10",
+      "source_pivot": 74.45,
+      "source_date": "2019-12-04",
+      "source_pages": [
+        89,
+        90
+      ],
+      "source_note": "Publisher calls this a cup with handle but explicitly states 66% peak-to-trough depth. The whole September-May base is outside chapter 4.2/default maximum 50%. Negative only for that whole base; unrelated smaller bases are not false positives.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "rejected_kinds": [
+        "cup_with_handle",
+        "cup_without_handle"
+      ]
+    },
+    {
+      "id": "bld-2019-too-deep",
+      "ticker": "BLD",
+      "expected": "absent",
+      "kind": "cup_with_handle",
+      "data_from": "2018-01-01",
+      "as_of": "2019-08-05",
+      "base_from": "2018-05-01",
+      "base_to": "2018-06-30",
+      "detected_from": "2019-06-01",
+      "detected_to": "2019-08-05",
+      "source_pivot": 87.06,
+      "source_date": "2019-08-05",
+      "source_pages": [
+        37,
+        38
+      ],
+      "source_note": "Publisher calls this a 14-month cup with handle but explicitly states 53% depth. Outside chapter 4.2/default maximum 50%. Its two-month handle could separately qualify as a flat base, which is not a failure of the whole-cup exclusion test.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "rejected_kinds": [
+        "cup_with_handle",
+        "cup_without_handle"
+      ],
+      "data_status": "unavailable",
+      "data_note": "Yahoo Finance returned HTTP404/quote not found for BLD on 2026-10-26; Stooq query also returned404. Retained as a preselected but unscorable case; never counted as a correct negative."
+    }
+  ]
+}

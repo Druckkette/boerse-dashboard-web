@@ -69,12 +69,20 @@ for (const mode of ["product", "classic"])
       expect(errors).toEqual([]);
     });
 
-test("saved cup-depth setting survives reload and invalidates an old scan", async ({
+test("saved cup parameters survive reload and invalidate an old scan", async ({
   page,
 }) => {
   await page.goto("/chart-analysis");
   await page.getByText("Musterparameter anpassen", { exact: true }).click();
+  const asymmetry = page.getByLabel("Cup: Maximales Zeitverhältnis der Seiten", {
+    exact: true,
+  });
+  await expect(asymmetry).toHaveValue("3");
+  await expect(asymmetry).toHaveAccessibleDescription(
+    /3 erlaubt eine bis zu dreimal längere Seite/,
+  );
   await page.getByLabel("Cup: Maximale Tiefe (%)", { exact: true }).fill("40");
+  await asymmetry.fill("2");
   await page
     .getByRole("button", { name: "Parameter speichern", exact: true })
     .click();
@@ -84,6 +92,21 @@ test("saved cup-depth setting survives reload and invalidates an old scan", asyn
   await expect(
     page.getByLabel("Cup: Maximale Tiefe (%)", { exact: true }),
   ).toHaveValue("40");
+  await expect(asymmetry).toHaveValue("2");
+  await asymmetry.fill("3");
+  const saved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/chart-analysis/config") &&
+      response.request().method() === "PUT" &&
+      response.ok(),
+  );
+  await page
+    .getByRole("button", { name: "Parameter speichern", exact: true })
+    .click();
+  await saved;
+  await page.reload();
+  await page.getByText("Musterparameter anpassen", { exact: true }).click();
+  await expect(asymmetry).toHaveValue("3");
   await page
     .getByRole("button", { name: "Universum nach Mustern scannen" })
     .click();

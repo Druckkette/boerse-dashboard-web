@@ -1,0 +1,669 @@
+{
+  "algorithm_version": "chapter-4.2-v3",
+  "module_sha256": "8e4e8ed8f8c45c4a2ee8ce31fd77fc60d6030e24ddff424d55cd1a14dfac34f1",
+  "manifest_sha256": "0a8a45e0dd1508c7a929e435dd4a8c094fbc2ccdff3e1c7c2783f038ff43dc35",
+  "parameter_hash": "460c7b542e00622a",
+  "parameters": {
+    "cup_min_weeks": 6,
+    "base_max_weeks": 65,
+    "cup_min_depth_pct": 12.0,
+    "cup_max_depth_pct": 50.0,
+    "cup_min_floor_fraction": 0.1,
+    "cup_max_shape_error": 0.12,
+    "cup_max_asymmetry_ratio": 3.0,
+    "rim_tolerance_pct": 15.0,
+    "handle_min_days": 5,
+    "handle_max_days": 25,
+    "handle_min_depth_pct": 5.0,
+    "handle_max_depth_pct": 15.0,
+    "double_bottom_min_weeks": 7,
+    "double_bottom_max_depth_pct": 50.0,
+    "double_bottom_max_undercut_pct": 10.0,
+    "flag_min_gain_pct": 90.0,
+    "flag_max_gain_pct": 1000.0,
+    "flag_min_depth_pct": 10.0,
+    "flag_max_depth_pct": 25.0,
+    "box_min_weeks": 4,
+    "box_max_depth_pct": 15.0,
+    "volume_dry_up_ratio": 0.9,
+    "flag_volume_ratio": 0.75,
+    "breakout_volume_ratio": 1.4,
+    "require_volume": false
+  },
+  "price_source": "Yahoo Finance via yfinance, split-adjusted OHLC, no dividend adjustment",
+  "retrieved_on": "2026-10-26",
+  "limitation": "Selected source cases; no estimate of population precision or returns.",
+  "cases": [
+    {
+      "id": "adbe-2019-handle",
+      "ticker": "ADBE",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2019-03-01",
+      "as_of": "2019-12-13",
+      "base_from": "2019-07-15",
+      "base_to": "2019-07-31",
+      "detected_from": "2019-11-15",
+      "detected_to": "2019-12-13",
+      "source_pivot": 310.1,
+      "source_date": "2019-12-26",
+      "source_pages": [
+        169,
+        170
+      ],
+      "source_note": "IBD names a cup with handle from July 19; breakout December 13. Source chart reviewed before evaluation.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "prices_sha256": "d0375cfc9acad81bc875ce227e012f02c6e5a1044be4a0da344cfa814a70c035",
+      "bars": 201,
+      "eligible": true,
+      "diagnostics": [],
+      "matched": false,
+      "passed": false,
+      "matches": [],
+      "all_patterns": [
+        {
+          "id": "ADBE:double_bottom:2019-09-26:2019-11-11:460c7b542e00622a",
+          "ticker": "ADBE",
+          "kind": "double_bottom",
+          "label": "Double Bottom",
+          "start_date": "2019-09-23",
+          "end_date": "2019-11-11",
+          "detected_on": "2019-11-11",
+          "breakout_on": "2019-11-11",
+          "status": "unconfirmed_breakout",
+          "pivot": 281.51001,
+          "depth_pct": 9.21,
+          "duration_days": 50,
+          "volume_ratio": 0.807,
+          "breakout_volume_ratio": 0.599,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-09-26",
+              "value": 285.8999938964844,
+              "label": "Linker Peak"
+            },
+            {
+              "date": "2019-10-03",
+              "value": 263.8500061035156,
+              "label": "Erstes Tief"
+            },
+            {
+              "date": "2019-10-15",
+              "value": 281.510009765625,
+              "label": "Mittelgipfel / Pivot"
+            },
+            {
+              "date": "2019-10-23",
+              "value": 259.57000732421875,
+              "label": "Tieferes zweites Tief"
+            },
+            {
+              "date": "2019-11-11",
+              "value": 290.2699890136719,
+              "label": "Rechte Seite"
+            }
+          ],
+          "checks": [
+            "Mindestens sieben Wochen",
+            "Zweites Tief unter erstem Tief",
+            "Mittelgipfel in oberer Hälfte",
+            "Erholung auf rechter Seite",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "ADBE:double_bottom:2019-07-19:2019-11-07:460c7b542e00622a",
+          "ticker": "ADBE",
+          "kind": "double_bottom",
+          "label": "Double Bottom",
+          "start_date": "2019-07-15",
+          "end_date": "2019-11-07",
+          "detected_on": "2019-11-07",
+          "breakout_on": "2019-11-19",
+          "status": "unconfirmed_breakout",
+          "pivot": 298.269989,
+          "depth_pct": 17.1,
+          "duration_days": 116,
+          "volume_ratio": 1.866,
+          "breakout_volume_ratio": 0.739,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-07-19",
+              "value": 313.1099853515625,
+              "label": "Linker Peak"
+            },
+            {
+              "date": "2019-08-05",
+              "value": 276.7799987792969,
+              "label": "Erstes Tief"
+            },
+            {
+              "date": "2019-08-09",
+              "value": 298.2699890136719,
+              "label": "Mittelgipfel / Pivot"
+            },
+            {
+              "date": "2019-10-23",
+              "value": 259.57000732421875,
+              "label": "Tieferes zweites Tief"
+            },
+            {
+              "date": "2019-11-07",
+              "value": 290.7699890136719,
+              "label": "Rechte Seite"
+            }
+          ],
+          "checks": [
+            "Mindestens sieben Wochen",
+            "Zweites Tief unter erstem Tief",
+            "Mittelgipfel in oberer Hälfte",
+            "Erholung auf rechter Seite"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "ADBE:double_bottom:2019-04-29:2019-06-24:460c7b542e00622a",
+          "ticker": "ADBE",
+          "kind": "double_bottom",
+          "label": "Double Bottom",
+          "start_date": "2019-05-06",
+          "end_date": "2019-06-24",
+          "detected_on": "2019-06-24",
+          "breakout_on": "2019-06-24",
+          "status": "unconfirmed_breakout",
+          "pivot": 285.869995,
+          "depth_pct": 11.74,
+          "duration_days": 50,
+          "volume_ratio": 0.872,
+          "breakout_volume_ratio": 1.092,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-04-29",
+              "value": 291.7099914550781,
+              "label": "Linker Peak"
+            },
+            {
+              "date": "2019-05-13",
+              "value": 267.2200012207031,
+              "label": "Erstes Tief"
+            },
+            {
+              "date": "2019-05-16",
+              "value": 285.8699951171875,
+              "label": "Mittelgipfel / Pivot"
+            },
+            {
+              "date": "2019-06-04",
+              "value": 257.4599914550781,
+              "label": "Tieferes zweites Tief"
+            },
+            {
+              "date": "2019-06-24",
+              "value": 299.8699951171875,
+              "label": "Rechte Seite"
+            }
+          ],
+          "checks": [
+            "Mindestens sieben Wochen",
+            "Zweites Tief unter erstem Tief",
+            "Mittelgipfel in oberer Hälfte",
+            "Erholung auf rechter Seite",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "Vorausgehender Anstieg von etwa 30 % nicht nachgewiesen.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": false
+    },
+    {
+      "id": "ew-2019-handle",
+      "ticker": "EW",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2018-10-01",
+      "as_of": "2019-07-24",
+      "base_from": "2019-03-01",
+      "base_to": "2019-04-30",
+      "detected_from": "2019-07-01",
+      "detected_to": "2019-07-24",
+      "source_pivot": 195.1,
+      "source_date": "2019-09-11",
+      "source_pages": [
+        109,
+        110
+      ],
+      "source_note": "IBD names a 16.3%-deep cup with handle; initial breakout July 22-23, earnings gap July 24. Older November-January cup is a different base.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "prices_sha256": "69cdfb3fcd6d0c94c4601d8f86b5e1be06e1e9bf456594acf263b8415a975b6c",
+      "bars": 204,
+      "eligible": true,
+      "diagnostics": [],
+      "matched": false,
+      "passed": false,
+      "matches": [],
+      "all_patterns": [
+        {
+          "id": "EW:double_bottom:2019-03-18:2019-06-06:460c7b542e00622a",
+          "ticker": "EW",
+          "kind": "double_bottom",
+          "label": "Double Bottom",
+          "start_date": "2019-04-01",
+          "end_date": "2019-06-06",
+          "detected_on": "2019-06-06",
+          "breakout_on": "2019-06-07",
+          "status": "unconfirmed_breakout",
+          "pivot": 61.166668,
+          "depth_pct": 16.26,
+          "duration_days": 67,
+          "volume_ratio": 0.769,
+          "breakout_volume_ratio": 1.022,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-03-18",
+              "value": 65.95333099365234,
+              "label": "Linker Peak"
+            },
+            {
+              "date": "2019-04-18",
+              "value": 57.380001068115234,
+              "label": "Erstes Tief"
+            },
+            {
+              "date": "2019-05-06",
+              "value": 61.16666793823242,
+              "label": "Mittelgipfel / Pivot"
+            },
+            {
+              "date": "2019-05-29",
+              "value": 55.22999954223633,
+              "label": "Tieferes zweites Tief"
+            },
+            {
+              "date": "2019-06-06",
+              "value": 59.93000030517578,
+              "label": "Rechte Seite"
+            }
+          ],
+          "checks": [
+            "Mindestens sieben Wochen",
+            "Zweites Tief unter erstem Tief",
+            "Mittelgipfel in oberer Hälfte",
+            "Erholung auf rechter Seite",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": false
+    },
+    {
+      "id": "oled-2019-handle",
+      "ticker": "OLED",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2019-01-01",
+      "as_of": "2019-06-18",
+      "base_from": "2019-04-15",
+      "base_to": "2019-05-10",
+      "detected_from": "2019-06-01",
+      "detected_to": "2019-06-18",
+      "source_pivot": 177.05,
+      "source_date": "2019-06-28",
+      "source_pages": [
+        65,
+        66
+      ],
+      "source_note": "IBD names second-stage cup with handle and breakout June 18. The February first-stage consolidation is unrelated.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "prices_sha256": "52e64556bd0d2ff03060a5d00a96e43846b1ee3597393d9808e32efaff887afd",
+      "bars": 116,
+      "eligible": true,
+      "diagnostics": [],
+      "matched": false,
+      "passed": false,
+      "matches": [],
+      "all_patterns": [
+        {
+          "id": "OLED:cup_without_handle:2019-05-03:2019-06-18:460c7b542e00622a",
+          "ticker": "OLED",
+          "kind": "cup_without_handle",
+          "label": "Cup without Handle",
+          "start_date": "2019-05-06",
+          "end_date": "2019-06-18",
+          "detected_on": "2019-06-18",
+          "breakout_on": null,
+          "status": "ready",
+          "pivot": 190.0,
+          "depth_pct": 24.45,
+          "duration_days": 44,
+          "volume_ratio": 0.296,
+          "breakout_volume_ratio": null,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-05-03",
+              "value": 190.0,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2019-06-03",
+              "value": 143.5500030517578,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2019-06-18",
+              "value": 186.30999755859375,
+              "label": "Rechter Rand"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": false
+    },
+    {
+      "id": "mktx-2019-handle",
+      "ticker": "MKTX",
+      "expected": "present",
+      "kind": "cup_with_handle",
+      "data_from": "2019-03-01",
+      "as_of": "2019-12-04",
+      "base_from": "2019-08-01",
+      "base_to": "2019-09-06",
+      "detected_from": "2019-11-15",
+      "detected_to": "2019-12-04",
+      "source_pivot": 411.97,
+      "source_date": "2019-12-04",
+      "source_pages": [
+        73,
+        74
+      ],
+      "source_note": "IBD names a cup with handle at December 4, after September decline and November 11 recovery of 50-day MA. This is a formed setup, not a required successful breakout.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "prices_sha256": "acd55e71b3666cb19b0e1cbf82bc7881d06b370ecdc7520898795646092aef89",
+      "bars": 194,
+      "eligible": true,
+      "diagnostics": [],
+      "matched": true,
+      "passed": true,
+      "matches": [
+        {
+          "id": "MKTX:cup_with_handle:2019-09-06:2019-11-27:460c7b542e00622a",
+          "ticker": "MKTX",
+          "kind": "cup_with_handle",
+          "label": "Cup with Handle",
+          "start_date": "2019-09-09",
+          "end_date": "2019-11-27",
+          "detected_on": "2019-11-27",
+          "breakout_on": null,
+          "status": "ready",
+          "pivot": 411.869995,
+          "depth_pct": 24.56,
+          "duration_days": 80,
+          "volume_ratio": 1.041,
+          "breakout_volume_ratio": null,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-09-06",
+              "value": 421.45001220703125,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2019-10-02",
+              "value": 317.94000244140625,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2019-11-20",
+              "value": 411.8699951171875,
+              "label": "Rechter Rand / Handle-Beginn"
+            },
+            {
+              "date": "2019-11-22",
+              "value": 388.989990234375,
+              "label": "Handle-Tief"
+            },
+            {
+              "date": "2019-11-27",
+              "value": 406.42999267578125,
+              "label": "Handle-Erholung"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft",
+            "Handle mindestens fünf Handelstage",
+            "Handle in oberer Cup-Hälfte",
+            "Midpoint-Regel erfüllt",
+            "Abwärtsdrift und Erholung"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "all_patterns": [
+        {
+          "id": "MKTX:cup_with_handle:2019-09-06:2019-11-27:460c7b542e00622a",
+          "ticker": "MKTX",
+          "kind": "cup_with_handle",
+          "label": "Cup with Handle",
+          "start_date": "2019-09-09",
+          "end_date": "2019-11-27",
+          "detected_on": "2019-11-27",
+          "breakout_on": null,
+          "status": "ready",
+          "pivot": 411.869995,
+          "depth_pct": 24.56,
+          "duration_days": 80,
+          "volume_ratio": 1.041,
+          "breakout_volume_ratio": null,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-09-06",
+              "value": 421.45001220703125,
+              "label": "Linker Rand"
+            },
+            {
+              "date": "2019-10-02",
+              "value": 317.94000244140625,
+              "label": "Cup-Tief"
+            },
+            {
+              "date": "2019-11-20",
+              "value": 411.8699951171875,
+              "label": "Rechter Rand / Handle-Beginn"
+            },
+            {
+              "date": "2019-11-22",
+              "value": 388.989990234375,
+              "label": "Handle-Tief"
+            },
+            {
+              "date": "2019-11-27",
+              "value": 406.42999267578125,
+              "label": "Handle-Erholung"
+            }
+          ],
+          "checks": [
+            "Cup mindestens sechs Wochen",
+            "Tiefe innerhalb der Grenzen",
+            "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+            "Bodenbreite und zeitliche Asymmetrie geprüft",
+            "Handle mindestens fünf Handelstage",
+            "Handle in oberer Cup-Hälfte",
+            "Midpoint-Regel erfüllt",
+            "Abwärtsdrift und Erholung"
+          ],
+          "warnings": [
+            "Volumen trocknet nicht ausreichend aus; die Basis ist nur geometrisch geprüft.",
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        },
+        {
+          "id": "MKTX:box:2019-07-19:2019-08-19:460c7b542e00622a",
+          "ticker": "MKTX",
+          "kind": "box",
+          "label": "Box",
+          "start_date": "2019-07-22",
+          "end_date": "2019-08-19",
+          "detected_on": "2019-08-19",
+          "breakout_on": "2019-08-20",
+          "status": "unconfirmed_breakout",
+          "pivot": 373.980011,
+          "depth_pct": 11.49,
+          "duration_days": 29,
+          "volume_ratio": 0.445,
+          "breakout_volume_ratio": 0.48,
+          "parameter_hash": "460c7b542e00622a",
+          "points": [
+            {
+              "date": "2019-07-19",
+              "value": 373.9800109863281,
+              "label": "Box-Oberkante"
+            },
+            {
+              "date": "2019-08-19",
+              "value": 373.9800109863281,
+              "label": "Widerstand"
+            },
+            {
+              "date": "2019-08-19",
+              "value": 331.0,
+              "label": "Box-Unterkante"
+            },
+            {
+              "date": "2019-07-19",
+              "value": 331.0,
+              "label": "Unterstützung"
+            },
+            {
+              "date": "2019-07-19",
+              "value": 373.9800109863281,
+              "label": "Box"
+            }
+          ],
+          "checks": [
+            "Mindestens vier Wochen",
+            "Maximale Tiefe eingehalten",
+            "Zwei getrennte Tests beider Grenzen",
+            "Waagerechte Handelsspanne",
+            "Rückläufiges Volumen nachgewiesen"
+          ],
+          "warnings": [
+            "RS-Linie und Marktumfeld separat prüfen."
+          ]
+        }
+      ],
+      "causal_replay_verified": true
+    },
+    {
+      "id": "roku-2019-too-deep",
+      "ticker": "ROKU",
+      "expected": "absent",
+      "kind": "cup_with_handle",
+      "data_from": "2018-04-01",
+      "as_of": "2019-05-10",
+      "base_from": "2018-09-01",
+      "base_to": "2018-10-15",
+      "detected_from": "2019-04-01",
+      "detected_to": "2019-05-10",
+      "source_pivot": 74.45,
+      "source_date": "2019-12-04",
+      "source_pages": [
+        89,
+        90
+      ],
+      "source_note": "Publisher calls this a cup with handle but explicitly states 66% peak-to-trough depth. The whole September-May base is outside chapter 4.2/default maximum 50%. Negative only for that whole base; unrelated smaller bases are not false positives.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "rejected_kinds": [
+        "cup_with_handle",
+        "cup_without_handle"
+      ],
+      "prices_sha256": "cd70414394400facb954aa8ce099a8dc5cc94c6b141e23abd0ff0aa622f2e2e7",
+      "bars": 280,
+      "eligible": true,
+      "diagnostics": [],
+      "matched": false,
+      "passed": true,
+      "matches": [],
+      "all_patterns": [],
+      "causal_replay_verified": false
+    },
+    {
+      "id": "bld-2019-too-deep",
+      "ticker": "BLD",
+      "expected": "absent",
+      "kind": "cup_with_handle",
+      "data_from": "2018-01-01",
+      "as_of": "2019-08-05",
+      "base_from": "2018-05-01",
+      "base_to": "2018-06-30",
+      "detected_from": "2019-06-01",
+      "detected_to": "2019-08-05",
+      "source_pivot": 87.06,
+      "source_date": "2019-08-05",
+      "source_pages": [
+        37,
+        38
+      ],
+      "source_note": "Publisher calls this a 14-month cup with handle but explicitly states 53% depth. Outside chapter 4.2/default maximum 50%. Its two-month handle could separately qualify as a flat base, which is not a failure of the whole-cup exclusion test.",
+      "source": "https://shop.investors.com/images/promotional/shop/assets/pdf/TopStocks-2019.pdf",
+      "source_author": "Investor's Business Daily / MarketSmith",
+      "rejected_kinds": [
+        "cup_with_handle",
+        "cup_without_handle"
+      ],
+      "data_status": "unavailable",
+      "data_note": "Yahoo Finance returned HTTP404/quote not found for BLD on 2026-10-26; Stooq query also returned404. Retained as a preselected but unscorable case; never counted as a correct negative.",
+      "eligible": false,
+      "passed": false,
+      "matched": null,
+      "diagnostics": [
+        "Yahoo Finance returned HTTP404/quote not found for BLD on 2026-10-26; Stooq query also returned404. Retained as a preselected but unscorable case; never counted as a correct negative."
+      ]
+    }
+  ],
+  "unscorable_count": 1,
+  "positive_count": 4,
+  "positive_matched": 1,
+  "negative_count": 1,
+  "negative_correctly_excluded": 1,
+  "elapsed_seconds": 0.047
+}

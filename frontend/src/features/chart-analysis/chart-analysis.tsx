@@ -333,6 +333,7 @@ const parameterLabels: Record<string, string> = {
   cup_max_depth_pct: "Cup: Maximale Tiefe (%)",
   cup_min_floor_fraction: "Cup: Mindestanteil am runden Boden (0–1)",
   cup_max_shape_error: "Cup: Maximaler Formfehler (0–1)",
+  cup_max_asymmetry_ratio: "Cup: Maximales Zeitverhältnis der Seiten",
   rim_tolerance_pct: "Cup: Maximaler Abstand des rechten Rands (%)",
   handle_min_days: "Handle: Mindestdauer (Handelstage)",
   handle_max_days: "Handle: Höchstdauer (Handelstage)",
@@ -390,6 +391,12 @@ function ParameterEditor({
                 <input
                   required
                   type="number"
+                  aria-label={parameterLabels[key] || key}
+                  aria-describedby={
+                    key === "cup_max_asymmetry_ratio"
+                      ? "cup-asymmetry-description"
+                      : undefined
+                  }
                   step={
                     key.endsWith("weeks") || key.endsWith("days") ? "1" : "0.01"
                   }
@@ -409,6 +416,15 @@ function ParameterEditor({
                     })
                   }
                 />
+                {key === "cup_max_asymmetry_ratio" && (
+                  <span
+                    id="cup-asymmetry-description"
+                    className="text-xs text-slate-500"
+                  >
+                    Zeit vom Rand bis zum Boden der angepassten Kurve: 3 erlaubt eine
+                    bis zu dreimal längere Seite. Zulässig sind 1–5.
+                  </span>
+                )}
               </label>
             ))}
         </div>

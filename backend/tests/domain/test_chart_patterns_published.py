@@ -51,3 +51,24 @@ def test_published_adsk_rim_precedes_a_tight_positive_week():
     bars = bars_for(case("ADSK"))
     anchors = [(bars[left].date, bars[base].date) for left, base in _anchors(bars)]
     assert (date(2009, 6, 2), date(2009, 6, 15)) in anchors
+
+
+def test_published_adsk_breakout_confirms_handle_using_prior_resistance_only():
+    source = case("ADSK")
+    bars = bars_for(source)
+    cup = matching(source, detect_patterns("ADSK", bars))[0]
+    assert cup.detected_on == cup.breakout_on == "2009-08-07"
+    assert cup.end_date == "2009-08-06"
+    assert cup.pivot == 22.950001
+    handle_start = cup.points[2].date
+    assert cup.pivot == round(
+        max(b.high for b in bars if handle_start <= str(b.date) <= cup.end_date), 6
+    )
+    assert not matching(
+        source, detect_patterns("ADSK", [b for b in bars if str(b.date) < cup.detected_on])
+    )
+    replay = matching(
+        source, detect_patterns("ADSK", [b for b in bars if str(b.date) <= cup.detected_on])
+    )[0]
+    assert replay.points == cup.points
+    assert replay.pivot == cup.pivot

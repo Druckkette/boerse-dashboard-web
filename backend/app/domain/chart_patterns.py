@@ -18,7 +18,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-ALGORITHM_VERSION = "chapter-4.2-v2"
+ALGORITHM_VERSION = "chapter-4.2-v3"
 PatternKind = Literal[
     "cup_with_handle", "cup_without_handle", "double_bottom", "high_tight_flag", "box"
 ]
@@ -39,6 +39,7 @@ class PatternParameters(BaseModel):
     cup_max_depth_pct: float = Field(50, ge=12, le=50)
     cup_min_floor_fraction: float = Field(0.10, ge=0.05, le=0.6)
     cup_max_shape_error: float = Field(0.12, ge=0.05, le=0.3)
+    cup_max_asymmetry_ratio: float = Field(3, ge=1, le=5)
     rim_tolerance_pct: float = Field(15, ge=1, le=15)
     handle_min_days: int = Field(5, ge=5, le=15)
     handle_max_days: int = Field(25, ge=5, le=25)
@@ -178,9 +179,7 @@ def _anchors(bars: list[Bar]) -> list[tuple[int, int]]:
         if not negative[w]:
             continue
         current = weeks[w]
-        left = max(
-            range(max(0, current[0] - 10), current[-1] + 1), key=lambda i: bars[i].high
-        )
+        left = max(range(max(0, current[0] - 10), current[-1] + 1), key=lambda i: bars[i].high)
         if bars[left].high < max(b.high for b in bars[max(0, left - 10) : left + 1]):
             continue
         first_red = next(j for j in range(max(1, week_of[left]), w + 1) if negative[j])
@@ -188,6 +187,77 @@ def _anchors(bars: list[Bar]) -> list[tuple[int, int]]:
         if anchor not in anchors:
             anchors.append(anchor)
     return anchors
+
+
+def _cup_shape(
+    values: np.ndarray, width: float, p: PatternParameters, *, wick_position: float
+) -> list[str] | None:
+    """Compare a rounded, possibly asymmetric bowl with two straight V legs.
+
+    Wicks still define price depth. The fitted close curve defines the floor's
+    location, so a shake-out or an uneven floor cannot dictate time symmetry.
+    A cubic allows unequal sides but must fall then rise across the central 80%.
+    """
+    smooth = np.convolve(values, np.ones(3) / 3, mode="valid")
+    height = float(max(smooth[0], smooth[-1]) - smooth.min())
+    if width <= 0 or height < width * 0.5:
+        return None  # a deep wick on a flat price series is not a cup
+    floor = np.flatnonzero(smooth <= smooth.min() + height * 0.22)
+    floor_fraction = len(floor) / len(smooth)
+    if floor_fraction < p.cup_min_floor_fraction:
+        return None
+    x = np.linspace(-1, 1, len(smooth))
+    fit = np.polyfit(x, smooth, 3)
+    derivative = np.polyder(fit)
+    if np.polyval(derivative, -0.8) >= 0 or np.polyval(derivative, 0.8) <= 0:
+        return None
+    minimum = next(
+        float(root.real)
+        for root in np.roots(derivative)
+        if abs(root.imag) < 1e-8
+        and -0.8 < root.real < 0.8
+        and np.polyval(np.polyder(derivative), root.real) > 0
+    )
+    position = (minimum + 1) / 2
+    margin = 1 / (1 + p.cup_max_asymmetry_ratio)
+    if not margin <= position <= 1 - margin:
+        return None
+    shape_error = float(np.sqrt(np.mean((smooth - np.polyval(fit, x)) ** 2)) / width)
+    if shape_error > p.cup_max_shape_error:
+        return None
+    k = int(np.argmin(smooth))
+    residual = []
+    for leg in (smooth[: k + 1], smooth[k:]):
+        if len(leg) > 2:
+            lx = np.arange(len(leg))
+            residual.extend(leg - np.polyval(np.polyfit(lx, leg, 1), lx))
+    v_error = float(np.sqrt(np.mean(np.square(residual))) / width) if residual else 0
+    # Relative model evidence scales with noise and volatility. The old absolute
+    # V-error threshold rejected rounded asymmetric cups yet admitted noisy Vs.
+    if floor_fraction < 0.30 and v_error < shape_error * 0.85:
+        return None
+    # Extra flexibility needs positive evidence: an asymmetric cubic must fit
+    # distinctly better than a V. Otherwise retain the conservative symmetric
+    # quadratic test rather than accepting noise merely because a cubic can fit it.
+    quadratic = np.polyfit(x, smooth, 2)
+    quadratic_error = float(np.sqrt(np.mean((smooth - np.polyval(quadratic, x)) ** 2)) / width)
+    symmetric = (
+        0.3 <= wick_position <= 0.7
+        and quadratic[0] > 0
+        and quadratic_error <= p.cup_max_shape_error
+        and (v_error >= 0.06 or floor_fraction >= 0.30)
+    )
+    if not symmetric and not shape_error <= v_error * 0.85:
+        return None
+    warnings = []
+    if position < 0.3 or position > 0.7:
+        warnings.append(
+            "Asymmetrischer Cup: ungleiche Dauer der beiden Seiten; Form visuell prüfen."
+        )
+    roughness = float(np.median(np.abs(np.diff(values, n=2))) / width)
+    if roughness > p.cup_max_shape_error:
+        warnings.append("Unruhiger Kursverlauf: U-/V-Abgrenzung unsicher; Form visuell prüfen.")
+    return warnings
 
 
 def detect_patterns(
@@ -211,10 +281,11 @@ def detect_patterns(
         ratio: float | None,
         checks: list[str],
         quality_warnings: list[str] | None = None,
+        observed_on: int | None = None,
     ):
         segment = bars[s : end + 1]
         depth = (1 - min(b.low for b in segment) / bars[s].high) * 100
-        detected = end
+        detected = max(end, observed_on if observed_on is not None else end)
         # Weekly anchor validation consumes its entire first red week.
         first_week_end = base
         while (
@@ -264,9 +335,24 @@ def detect_patterns(
             warnings=warnings,
         )
         floor = min(b.low for b in segment)
+        if kind == "cup_with_handle":
+            # Formation and lifecycle must use the same intraday constraints.
+            floor = max(
+                floor,
+                pivot * (1 - p.handle_max_depth_pct / 100),
+                (bars[s].high + min(b.low for b in segment)) / 2,
+            )
         for i in range(detected, len(bars)):
-            if bars[i].close < floor:
+            if bars[i].low < floor:
                 pattern.status = "invalidated"
+                pattern.warnings.append(
+                    f"Handle-Regeln am {bars[i].date} verletzt (Tiefe oder obere Cup-Hälfte)."
+                    if kind == "cup_with_handle"
+                    else f"Basistief am {bars[i].date} intraday unterschritten."
+                )
+                break
+            if kind == "cup_with_handle" and i > geometry[2][0] + p.handle_max_days + 1:
+                pattern.status = "expired"
                 break
             if bars[i].close > pivot:
                 vr = _ratio(bars[max(0, i - 50) : i], [bars[i]]) if i >= 50 else None
@@ -278,7 +364,9 @@ def detect_patterns(
                     else "unconfirmed_breakout"
                 )
                 break
-            if (bars[i].date - bars[detected].date).days > 35:
+            if (kind == "cup_with_handle" and i > geometry[2][0] + p.handle_max_days) or (
+                bars[i].date - bars[detected].date
+            ).days > 35:
                 pattern.status = "expired"
                 break
         candidates.append(pattern)
@@ -352,35 +440,9 @@ def detect_patterns(
             if highs[e] < peak * (1 - p.rim_tolerance_pct / 100):
                 continue
             values = closes[s : e + 1]
-            smooth = np.convolve(values, np.ones(3) / 3, mode="valid")
             width = peak - lows[bottom]
-            position = (bottom - s) / (e - s)
-            # Candle wicks determine depth, but must not determine how long the
-            # closing-price curve spends at its floor (a single shake-out wick
-            # otherwise makes every genuine rounded floor disappear).
-            smooth_floor = float(smooth.min())
-            smooth_height = float(max(smooth[0], smooth[-1]) - smooth_floor)
-            floor_fraction = float(np.mean(smooth <= smooth_floor + smooth_height * 0.22))
-            x = np.linspace(-1, 1, len(smooth))
-            fit = np.polyfit(x, smooth, 2)
-            shape_error = float(np.sqrt(np.mean((smooth - np.polyval(fit, x)) ** 2)) / width)
-            k = int(np.argmin(smooth))
-            v_residual = []
-            for leg in (smooth[: k + 1], smooth[k:]):
-                if len(leg) > 2:
-                    lx = np.arange(len(leg))
-                    v_residual.extend(leg - np.polyval(np.polyfit(lx, leg, 1), lx))
-            v_error = float(np.sqrt(np.mean(np.square(v_residual))) / width) if v_residual else 0
-            # Reject an actual pointed V: two almost straight legs meeting at
-            # one bottom. A shake-out wick in a noisy rounded cup is different.
-            pointed_v = v_error < 0.06 and floor_fraction < 0.30
-            if not (
-                0.3 <= position <= 0.7
-                and floor_fraction >= p.cup_min_floor_fraction
-                and fit[0] > 0
-                and shape_error <= p.cup_max_shape_error
-                and not pointed_v
-            ):
+            shape_warnings = _cup_shape(values, width, p, wick_position=(bottom - s) / (e - s))
+            if shape_warnings is None:
                 continue
             third = max(3, (e - s) // 4)
             vr = _ratio(
@@ -391,8 +453,8 @@ def detect_patterns(
             checks = [
                 "Cup mindestens sechs Wochen",
                 "Tiefe innerhalb der Grenzen",
-                "Runder Boden statt V-Erholung",
-                "Symmetrie: Boden im mittleren Bereich der Cup-Länge",
+                "U-Formfilter mit Vergleich gegen V-Erholung bestanden",
+                "Bodenbreite und zeitliche Asymmetrie geprüft",
             ]
             # A recovered rim on its own is a setup; a later close above the left rim is the breakout.
             if "cup_without_handle" not in emitted and closes[e] >= peak * 0.97:
@@ -409,45 +471,62 @@ def detect_patterns(
                     ],
                     vr,
                     checks,
+                    shape_warnings,
                 )
                 emitted.add("cup_without_handle")
             if "cup_with_handle" in emitted:
                 continue
+            if highs[e] < max(highs[max(s, e - 4) : e + 1]):
+                continue  # do not move the rim into a falling handle to lower its pivot
             # A handle is observable only after at least five subsequent sessions.
-            for h in range(e + p.handle_min_days, min(e + p.handle_max_days + 1, stop)):
+            for h in range(e + p.handle_min_days, min(e + p.handle_max_days + 2, stop)):
                 if (bars[h].date - bars[base].date).days + 1 > p.base_max_weeks * 7:
                     break
-                handle = bars[e : h + 1]
+                # A breakout can itself confirm a valid handle. Its high must
+                # never enter the resistance it is supposed to break through.
+                breakout = h > e + p.handle_min_days and closes[h] > max(highs[e:h])
+                end = h - 1 if breakout else h
+                if end - e > p.handle_max_days:
+                    break
+                handle = bars[e : end + 1]
                 hp = float(max(b.high for b in handle))
                 hl = float(min(b.low for b in handle))
-                if hp > peak or hp > highs[e] * 1.005 or max(b.close for b in handle) > peak:
+                if (
+                    hp > peak * 1.015
+                    or hp > highs[e] * 1.005
+                    or max(b.close for b in handle) > peak
+                ):
                     break
                 hd = (1 - hl / hp) * 100
                 if not p.handle_min_depth_pct <= hd <= p.handle_max_depth_pct:
                     continue
                 if hl <= (peak + lows[bottom]) / 2 or (hp + hl) / 2 <= (peak + lows[bottom]) / 2:
                     continue
-                low_index = e + int(np.argmin(lows[e : h + 1]))
-                if low_index <= e or closes[h] <= hl + (hp - hl) * 0.35:
+                low_index = e + int(np.argmin(lows[e : end + 1]))
+                if low_index <= e or (not breakout and closes[h] <= hl + (hp - hl) * 0.35):
+                    continue
+                if breakout and lows[h] < max(
+                    hp * (1 - p.handle_max_depth_pct / 100), (peak + lows[bottom]) / 2
+                ):
                     continue
                 # Falling early lows plus a recovery prevent wedge-up handles.
                 if bars[min(e + 2, h)].low >= bars[e].low:
                     continue
-                hv = _ratio(bars[max(s, e - 10) : e], bars[e + 1 : h + 1])
+                hv = _ratio(bars[max(s, e - 10) : e], bars[e + 1 : end + 1])
                 if not _volume_ok(hv, p):
                     continue
                 emit(
                     "cup_with_handle",
                     s,
                     base,
-                    h,
+                    end,
                     hp,
                     [
                         (s, peak, "Linker Rand"),
                         (bottom, lows[bottom], "Cup-Tief"),
-                        (e, hp, "Handle-Hoch"),
+                        (e, highs[e], "Rechter Rand / Handle-Beginn"),
                         (low_index, hl, "Handle-Tief"),
-                        (h, closes[h], "Handle-Erholung"),
+                        (end, closes[end], "Handle-Ende" if breakout else "Handle-Erholung"),
                     ],
                     hv,
                     [
@@ -457,9 +536,16 @@ def detect_patterns(
                         "Midpoint-Regel erfüllt",
                         "Abwärtsdrift und Erholung",
                     ],
-                    ["Volumen am Cup-Boden nicht bestätigt."]
-                    if vr is None or vr > p.volume_dry_up_ratio
-                    else [],
+                    [
+                        *shape_warnings,
+                        *(
+                            ["Volumen am Cup-Boden nicht bestätigt."]
+                            if vr is None or vr > p.volume_dry_up_ratio
+                            else []
+                        ),
+                        *(["Handle erst durch die Ausbruchskerze bestätigt."] if breakout else []),
+                    ],
+                    observed_on=h,
                 )
                 emitted.add("cup_with_handle")
                 break
