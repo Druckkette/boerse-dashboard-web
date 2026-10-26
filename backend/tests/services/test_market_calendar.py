@@ -5,6 +5,20 @@ from datetime import UTC, date, datetime
 from app.services.market_calendar import expected_us_market_session
 
 
+def test_numeric_hong_kong_alias_uses_the_same_completed_session_as_yahoo_symbol():
+    from app.services.market_calendar import (
+        completed_ticker_market_session,
+        ticker_market_calendar_name,
+    )
+
+    now = datetime(2026, 10, 26, 10, tzinfo=UTC)
+    assert ticker_market_calendar_name("2318-HK") == "XHKG"
+    assert ticker_market_calendar_name("BRK-B") == "XNYS"
+    assert completed_ticker_market_session("2318-HK", now) == completed_ticker_market_session(
+        "2318.HK", now
+    )
+
+
 def test_expected_session_is_current_while_nyse_is_open() -> None:
     result = expected_us_market_session(datetime(2026, 7, 31, 14, 0, tzinfo=UTC))
 

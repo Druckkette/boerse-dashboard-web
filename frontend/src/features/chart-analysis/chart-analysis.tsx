@@ -35,7 +35,7 @@ const qualityCategories = {
 };
 
 function qualityCategory(issue: { code?: string; reason: string }) {
-  if (["missing_history", "insufficient_history"].includes(issue.code || ""))
+  if (["missing_history", "insufficient_history", "incomplete_session"].includes(issue.code || ""))
     return "history";
   if (["invalid_ohlc", "invalid_volume"].includes(issue.code || ""))
     return "prices";

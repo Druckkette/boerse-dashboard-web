@@ -19,6 +19,14 @@ mit den unveränderten Musterregeln aus Kapitel 4.2 geprüft.
   sichtbare historische Kennzeichnung und eine Warnung über den begrenzten Status.
 - Alle Gründe werden erhoben. Zusammengefasste Scanhinweise zählen betroffene
   Aktien je Grund; eine Aktie kann in mehreren Kategorien erscheinen.
+- Die jüngste abgeschlossene Börsensitzung wird nur verwendet, wenn ihr Kurs
+  nachweislich frühestens zu ihrem Börsenschluss geladen wurde. Ein zuvor
+  geladener Intradaykurs wird nicht allein durch Zeitablauf zum Schlusskurs.
+  Solche Kerzen und Kerzen ohne Ladezeitpunkt bleiben bis zum Neuabruf leer;
+  die früheren sauberen Abschnitte bleiben auswertbar (`incomplete_session`).
+  Historische Stichtage behalten ihre bisherige Auswertung. Sitzung und
+  Börsenschluss werden für einen gesamten Scan einmal je Aktie eingefroren.
+  Numerische Aliase wie `2318-HK` verwenden den Hongkonger Börsenkalender.
 - `analysed_count` enthält vollständig und teilweise auswertbare Aktien.
   `partial_count` ist eine Teilmenge davon. `skipped_count` umfasst nur Aktien ohne
   ausreichend langen sauberen Abschnitt. Alte Scans bleiben bis zum erfolgreichen
