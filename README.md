@@ -408,8 +408,9 @@ This prevents small controls, such as ATR threshold changes, from starting a ful
 
 The private **Chartanalyse** area scans cached stock prices for five chapter-4.2
 base patterns, opens annotated charts and stores adjustable pattern parameters.
-See [chart analysis and validation status](docs/chart-analysis.md). This feature
-is prepared as a draft; pattern precision has not been approved for production.
+The feature is active on the NAS. See [chart analysis and validation status](docs/chart-analysis.md)
+and the [published-example comparison](docs/chart-analysis-internet-validation.md).
+The detector provides a geometric shortlist; published examples can remain undetected.
 
 The full-universe stock assessment and filtered CSV best-list export are available under
 **Aktien > Aktienbewertung Ranking**. See [stock screening](docs/stock-screening.md)

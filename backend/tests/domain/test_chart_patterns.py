@@ -274,3 +274,13 @@ def test_new_low_before_recovery_invalidates_the_second_bottom():
         and p.detected_on >= str(changed[index].date)
         for p in result
     )
+
+
+def test_left_rim_can_occur_within_the_first_negative_week():
+    bars = fixture("cup_with_handle")
+    # The first red week's Monday spikes above the previous week's high,
+    # then closes lower. That spike is the cup rim, not last Friday's high.
+    bars[60] = replace(bars[60], high=110)
+    cup = next(p for p in detect_patterns("TEST", bars) if p.kind == "cup_with_handle")
+    assert cup.points[0].date == str(bars[60].date)
+    assert cup.points[0].value == 110

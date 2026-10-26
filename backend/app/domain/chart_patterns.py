@@ -18,7 +18,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-ALGORITHM_VERSION = "chapter-4.2-v1"
+ALGORITHM_VERSION = "chapter-4.2-v2"
 PatternKind = Literal[
     "cup_with_handle", "cup_without_handle", "double_bottom", "high_tight_flag", "box"
 ]
@@ -160,21 +160,33 @@ def _anchors(bars: list[Bar]) -> list[tuple[int, int]]:
     """(left peak, first session of first negative close-to-close week).
 
     The first negative week must be complete before a pattern is detected;
-    its preceding week supplies the left rim. Intraday/weekend bars are removed
-    by the service before this pure function is called.
+    The rim can precede a tight positive week, or occur within the first red
+    week itself. Intraday/weekend bars are removed by the service.
     """
     weeks: list[list[int]] = []
     for i, b in enumerate(bars):
         if not weeks or bars[weeks[-1][0]].date.isocalendar()[:2] != b.date.isocalendar()[:2]:
             weeks.append([])
         weeks[-1].append(i)
+    negative = [False] + [
+        bars[current[-1]].close < bars[previous[-1]].close
+        for previous, current in zip(weeks, weeks[1:])
+    ]
+    week_of = {i: w for w, indices in enumerate(weeks) for i in indices}
     anchors = []
-    for previous, current in zip(weeks, weeks[1:]):
-        left = max(previous, key=lambda i: bars[i].high)
-        if bars[current[-1]].close < bars[previous[-1]].close and bars[left].high >= max(
-            b.high for b in bars[max(0, left - 10) : left + 1]
-        ):
-            anchors.append((left, current[0]))
+    for w in range(1, len(weeks)):
+        if not negative[w]:
+            continue
+        current = weeks[w]
+        left = max(
+            range(max(0, current[0] - 10), current[-1] + 1), key=lambda i: bars[i].high
+        )
+        if bars[left].high < max(b.high for b in bars[max(0, left - 10) : left + 1]):
+            continue
+        first_red = next(j for j in range(max(1, week_of[left]), w + 1) if negative[j])
+        anchor = (left, weeks[first_red][0])
+        if anchor not in anchors:
+            anchors.append(anchor)
     return anchors
 
 
@@ -464,6 +476,10 @@ def detect_patterns(
             ):
                 continue
             mid = t1 + int(np.argmax(highs[t1 : t2 + 1]))
+            # A trough candle's own high cannot also be the W's middle peak.
+            # Both legs must extend beyond the two-session trough confirmation.
+            if mid - t1 < 3 or t2 - mid < 3:
+                continue
             mp = highs[mid]
             if lows[t1] != min(lows[s : mid + 1]) or lows[t2] != min(lows[mid : t2 + 1]):
                 continue
