@@ -15,7 +15,7 @@ Kalibrierung verwendet und ist kein unabhängiger Nachweis der Erkennungspräzis
 Bei unruhigen Cup-Verläufen bleiben fachlich mehrdeutige Grenzfälle. Grüne
 Softwaretests belegen keine allgemeine Erkennungspräzision.
 
-Die aktive Version `chapter-4.2-v3` verbessert die Behandlung asymmetrischer Cups,
+Version `chapter-4.2-v3` verbessert die Behandlung asymmetrischer Cups,
 Handle-Ausbrüche und späterer Strukturverletzungen. Im ursprünglichen
 [Internetvergleich mit v2](chart-analysis-internet-validation.md) wurde einer von
 fünf Quellenfällen erkannt; v3 erkennt **zwei von fünf**. Bei vier weiteren
@@ -24,6 +24,12 @@ schlechtere Entwicklungsstand sind im [v3-Prüfbericht](chart-analysis-robustnes
 offen dokumentiert. Die Erkennung ersetzt die visuelle Musterprüfung daher nicht.
 Für belastbare Präzisions- und Abdeckungswerte ist ein größerer, fachlich beschrifteter
 Prüfsatz mit positiven und negativen Fällen erforderlich.
+
+Version `chapter-4.2-v4` ergänzt die Auswertung sicherer Kursabschnitte und
+begrenztes Nachladen auffälliger Historien. Einzelne Kursfehler sperren damit
+nicht mehr automatisch die gesamte Aktie. Muster können keine Unterbrechung
+überspannen. Vorgehen und Grenzen stehen im
+[v4-Bericht zur Datenqualität](chart-analysis-data-quality-v4.md).
 
 ## Bedienung
 
@@ -109,14 +115,20 @@ Mittelgipfel. Das ist eine dokumentierte Grenze gegenüber dem gesamten Kapitel.
 - Tages-OHLC auf der bestehenden splitbereinigten Yahoo-Kursbasis. Der zusätzliche
   `split_adjustment_factor` aus der Transaktionsbewertung wird nicht erneut angewandt.
   Dividendenbereinigte Schlusskurse werden nicht mit OHLC vermischt.
-- Fehlende OHLC-Werte werden im Chart nicht als Null erfunden. Zu kurze,
-  widersprüchliche, doppelte/unsortierte Reihen, Lücken über zehn Kalendertage und
-  Tagessprünge über 60 % verhindern die Mustererkennung mit sichtbarer Diagnose.
+- Fehlende oder ungültige OHLC-Werte erscheinen im Chart als leere Stellen.
+  Widersprüchliche Tageskurse und doppelte Daten unterbrechen die Auswertung;
+  Lücken über zehn Kalendertage und Tagessprünge über 60 % trennen Abschnitte.
+  Jeder saubere Abschnitt mit mindestens 25 Handelstagen wird einzeln geprüft.
+  Ein großer Sprung ist ein Verdachtsfall und kann eine echte Bewegung sein.
 - Der Scan prüft alle gespeicherten Instrumente der Anlageklasse `stock`, jeweils
-  in Batches von 25. Er lädt selbst keine externen Marktdaten. Aktien ohne
-  brauchbare Kurse erscheinen in der Datenlückenübersicht.
+  in Batches von 25. Der Worker lädt zuvor auffällige Kursreihen begrenzt nach
+  (standardmäßig 100 Ticker/300 Sekunden), mit Wartefristen und Rate-Limit-Stopp.
+  Gemeinsame Preisbasen werden nur nach vollständiger Validierung ersetzt.
+  Normale Lesezugriffe bleiben netzwerkfrei. Die Übersicht unterscheidet
+  vollständig, teilweise und nicht auswertbare Aktien mit konkreten Gründen.
 - Bestehende AppSetting-Tabelle: `chart_analysis_config_v1` und
-  `chart_analysis_scan_v1`. Keine neue Datenbankmigration.
+  `chart_analysis_scan_v1`, zusätzlich `chart_analysis_price_repairs_v1` für
+  Wiederholungsfristen. Keine neue Datenbankmigration.
 - Erst nach erfolgreichem Scan wird der komplette neue Ergebnisstand publiziert.
   Abbruch oder Fehler erhalten den vorherigen Stand.
 - Algorithmusversion plus kanonisch validierte Parameter bestimmen die Kennung.
