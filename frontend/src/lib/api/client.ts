@@ -1,4 +1,5 @@
 import { withApiSlot } from "@/lib/beta/request-limiter";
+import type { PatternConfig, PatternParameters, PatternResults, PatternChart } from "@/lib/types/chart-analysis";
 import type { PortfolioAnalysis, SavedView, ResearchResults, StockProvenance, ScoreHistory } from "@/lib/types/analysis";
 import type {
   AppSettings,
@@ -200,6 +201,14 @@ async function errorMessage(response: Response) {
 }
 
 export const api = {
+  chartPatternConfig: () => getJson<PatternConfig>("/chart-analysis/config"),
+  chartPatternResults: (params = "") => getJson<PatternResults>(`/chart-analysis/results?${params}`),
+  chartPatternChart: (ticker: string, asOf = "") => getJson<PatternChart>(`/chart-analysis/${encodeURIComponent(ticker)}${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""}`),
+  saveChartPatternConfig: async (parameters: PatternParameters) => {
+    const response = await safeFetch("/chart-analysis/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parameters) });
+    if (!response.ok) throw new Error(await errorMessage(response));
+    return response.json() as Promise<PatternConfig>;
+  },
   researchResults: () => getJson<ResearchResults>("/insights/research"),
   stockProvenance: (ticker: string) => getJson<StockProvenance>(`/stocks/${encodeURIComponent(ticker)}/provenance`),
   stockScoreHistory: (ticker: string) => getJson<ScoreHistory>(`/stocks/${encodeURIComponent(ticker)}/score-history`),

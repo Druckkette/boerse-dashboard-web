@@ -1,9 +1,11 @@
 from fastapi import APIRouter
+from app.api.v1 import chart_analysis
 
 from app.api.v1 import beta, desk, health, home, industry_groups, insights, jobs, market, portfolio, sell, settings, setup, stocks, trade_journal, workspace
 
 
 api_router = APIRouter()
+api_router.include_router(chart_analysis.router, prefix="/chart-analysis", tags=["chart-analysis"])
 api_router.include_router(desk.router, prefix="/desk", tags=["private-workspace"])
 api_router.include_router(beta.router, prefix="/beta", tags=["beta"])
 api_router.include_router(health.router, tags=["system"])
