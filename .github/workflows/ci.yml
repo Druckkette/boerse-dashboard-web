@@ -27,6 +27,11 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    # This unit-test job has no services. Fail repository fallbacks locally
+    # instead of waiting for Docker-only hostnames on the hosted runner.
+    env:
+      DATABASE_URL: postgresql+psycopg://unused:unused@127.0.0.1:1/unused
+      REDIS_URL: redis://127.0.0.1:1/0
     defaults:
       run:
         working-directory: backend
