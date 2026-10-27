@@ -66,7 +66,7 @@ def parse_nasdaq_listed_text(text: str) -> list[str]:
             continue
         symbol = str(row.get(symbol_col, "") or "")
         symbols.append(symbol)
-    return normalize_tickers(symbols)
+    return _normalize_listing_tickers(symbols)
 
 
 def parse_otherlisted_text(text: str) -> list[str]:
@@ -96,7 +96,7 @@ def parse_otherlisted_text(text: str) -> list[str]:
             if candidate:
                 symbols.append(candidate)
                 break
-    return normalize_tickers(symbols)
+    return _normalize_listing_tickers(symbols)
 
 
 def normalize_tickers(values: list[str]) -> list[str]:
@@ -108,6 +108,17 @@ def normalize_tickers(values: list[str]) -> list[str]:
         if not re.fullmatch(r"[A-Z0-9\-]+", ticker):
             continue
         tickers.append(ticker)
+    return list(dict.fromkeys(tickers))
+
+
+def _normalize_listing_tickers(values: list[str]) -> list[str]:
+    """Keep the exchange-listed CASH ticker without accepting manual cash rows."""
+    tickers = []
+    for value in values:
+        if str(value or "").strip().upper() == "CASH":
+            tickers.append("CASH")
+        else:
+            tickers.extend(normalize_tickers([value]))
     return list(dict.fromkeys(tickers))
 
 
@@ -139,7 +150,7 @@ def _listing_details(text: str, *symbol_columns: str, default_exchange: str = ""
     for _, row in frame.iterrows():
         symbol = next((str(row.get(columns[col]) or "").strip() for col in symbol_columns
                        if col in columns and str(row.get(columns[col]) or "").strip()), "")
-        clean = normalize_tickers([symbol])
+        clean = _normalize_listing_tickers([symbol])
         if not clean:
             continue
         name = str(row.get(columns.get("security name", ""), "") or "")
@@ -155,7 +166,8 @@ def _listing_details(text: str, *symbol_columns: str, default_exchange: str = ""
 
 def _read_pipe_table(text: str) -> pd.DataFrame:
     try:
-        df = pd.read_csv(io.StringIO(text), sep="|", dtype=str, engine="python")
+        # NA is a valid exchange symbol, not a missing-value marker.
+        df = pd.read_csv(io.StringIO(text), sep="|", dtype=str, engine="python", keep_default_na=False)
     except Exception:
         return pd.DataFrame()
     if df.empty:
@@ -187,6 +199,15 @@ def _looks_like_common_equity_name(name: object) -> bool:
     low = f" {str(name or '').lower()} "
     if not low.strip():
         return False
+    issuer, separator, security_description = low.partition(" - ")
+    bond_title = low
+    # Nasdaq separates the issuer from the security description. A company
+    # name such as "Our Bond, Inc." does not turn its common stock into debt.
+    if separator and re.fullmatch(r"\s*(?:common stock|common shares|ordinary shares)\s*", security_description):
+        if not re.search(r"\bbond\s+fund\b", issuer):
+            bond_title = security_description
+    if re.search(r"\bbonds?\b", bond_title):
+        return False
     reject_patterns = (
         r"\bpreferred\b",
         r"\bpreference shares?\b",
@@ -198,7 +219,6 @@ def _looks_like_common_equity_name(name: object) -> bool:
         r"\brights?\b",
         r"\bunits?\b",
         r"\bnotes?\b",
-        r"\bbonds?\b",
         r"\bdebentures?\b",
         r"\betn\b",
         r"\betf\b",
