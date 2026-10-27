@@ -809,7 +809,7 @@ export function ChartAnalysisDetail({
               </option>
               {patterns.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label} · {dateText(p.detected_on)}
+                  {p.continuity_limited ? "Historisch · " : ""}{p.label} · {dateText(p.detected_on)}
                 </option>
               ))}
             </select>
@@ -823,6 +823,22 @@ export function ChartAnalysisDetail({
             Muster einzeichnen
           </label>
         </div>
+        {selected?.continuity_limited && selected.segment_end && (
+          <div
+            role="status"
+            aria-label="Historischer Musterstatus"
+            className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            <p className="font-semibold">
+              Historischer Musterstatus · geprüft bis {dateText(selected.segment_end)}
+            </p>
+            <p className="mt-1">
+              Der Status „{patternStatuses[selected.status]}“ bezieht sich nur auf
+              diesen Kursabschnitt. Die spätere Entwicklung wurde nicht geprüft;
+              die heutige Gültigkeit des Musters ist unbekannt.
+            </p>
+          </div>
+        )}
         <LineChartCard
           key={`${ticker}:${selected?.id || "none"}:${asOf}`}
           title={`${ticker} · Tageschart`}
@@ -920,7 +936,7 @@ function PatternDetails({ pattern: p }: { pattern: ChartPattern }) {
   return (
     <div className="mt-5 border-t pt-4">
       <h2 className="text-lg font-semibold">
-        {p.label} · {patternStatuses[p.status]}
+        {p.label} · {p.continuity_limited ? "Historisch: " : ""}{patternStatuses[p.status]}
       </h2>
       <dl className="my-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         {[

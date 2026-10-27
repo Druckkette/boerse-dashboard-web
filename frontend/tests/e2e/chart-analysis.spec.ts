@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 test.use({
   baseURL: "http://127.0.0.1:18300",
@@ -279,7 +279,7 @@ test("data quality separates partial histories, suspected jumps and unavailable 
   await expect(page).toHaveURL(/chart-analysis\/IBKR$/);
 });
 
-test("partial chart retains valid patterns and explains isolated data boundaries", async ({ page }) => {
+async function mockPartialChart(page: Page, historical = false) {
   await page.route("**/api/v1/chart-analysis/IBKR", async (route) => {
     const response = await route.fetch();
     const chart = await response.json();
@@ -294,13 +294,19 @@ test("partial chart retains valid patterns and explains isolated data boundaries
             { code: "extreme_jump", reason: "Kurssprung am 2024-09-01 bleibt ein Verdachtsfall.", date: "2024-09-01" },
           ],
         },
-        patterns: chart.patterns.map((pattern: { warnings: string[] }) => ({
+        patterns: chart.patterns.map((pattern: { kind: string; warnings: string[] }) => ({
           ...pattern,
+          continuity_limited: historical && pattern.kind === "cup_with_handle",
+          segment_end: historical && pattern.kind === "cup_with_handle" ? "2025-06-30" : undefined,
           warnings: [...pattern.warnings, "Datenabschnitt endet; spätere Entwicklung ist nicht geprüft."],
         })),
       },
     });
   });
+}
+
+test("partial chart retains valid patterns and explains isolated data boundaries", async ({ page }) => {
+  await mockPartialChart(page);
   await page.goto("/chart-analysis/IBKR");
   await expect(page.getByText("Teilweise auswertbar", { exact: true })).toBeVisible();
   await expect(page.getByText(/400 Handelstage in 3 getrennten Kursabschnitten geprüft · 1 Tageskurs ausgelassen/)).toBeVisible();
@@ -309,4 +315,24 @@ test("partial chart retains valid patterns and explains isolated data boundaries
   await page.getByText("Datenhinweise zu diesem Chart (2)", { exact: true }).click();
   await expect(page.getByText(/Kurssprung am 2024-09-01 bleibt ein Verdachtsfall/)).toBeVisible();
   await expect(page.getByText(/Kurssprünge · Verdachtsfälle:/)).toBeVisible();
+});
+
+test("historical pattern status is dated above the chart and clears for another section", async ({ page }) => {
+  await mockPartialChart(page, true);
+  await page.goto("/chart-analysis/IBKR");
+  const picker = page.getByLabel("Muster im Chart", { exact: true });
+  const historical = picker.getByRole("option").filter({ hasText: "Historisch · Cup with Handle" }).first();
+  await expect(historical).toBeAttached();
+  await picker.selectOption((await historical.getAttribute("value")) || "");
+  const banner = page.getByRole("status", { name: "Historischer Musterstatus", exact: true });
+  await expect(banner).toContainText("geprüft bis 30.6.2025");
+  await expect(banner).toContainText("die heutige Gültigkeit des Musters ist unbekannt");
+  await expect(page.getByRole("heading", { name: /Cup with Handle · Historisch:/ })).toBeVisible();
+  const chart = page.getByText("IBKR · Tageschart", { exact: true });
+  expect((await banner.boundingBox())!.y).toBeLessThan((await chart.boundingBox())!.y);
+  await expect(page.getByTestId("pattern-overlays").locator("path")).toHaveCount(1);
+  const current = picker.locator("option:not([disabled])").filter({ hasNotText: "Historisch" }).first();
+  await picker.selectOption((await current.getAttribute("value")) || "");
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /Historisch:/ })).toHaveCount(0);
 });
