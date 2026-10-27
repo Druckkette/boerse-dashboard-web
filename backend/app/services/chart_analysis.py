@@ -22,7 +22,7 @@ from app.domain.chart_patterns import (
 from app.domain.chart_data_quality import prepare_segments
 from app.repositories import settings as repository
 from app.repositories.prices import list_price_bars, list_price_bars_for_tickers
-from app.services.market_calendar import completed_ticker_market_session
+from app.services.market_calendar import completed_ticker_market_session, daily_bar_is_final
 from app.services.chart_price_repair import repair_chart_history
 
 
@@ -145,21 +145,40 @@ def _chart_number(value):
     return value if value is not None and isfinite(value) else None
 
 
+def _prepare_rows(rows, *, cutoff, session=None, ticker=None):
+    """Exclude known intraday observations using the shared exchange close rules."""
+    rows = [row for row in rows if row.date <= cutoff]
+    bars = [_bar(row) for row in rows]
+    close_at = getattr(session, "close_at", None)
+    pending_dates = set()
+    if getattr(session, "date", None) == cutoff and close_at is not None:
+        pending_dates = {
+            row.date for row in rows
+            if not daily_bar_is_final(
+                row.date, getattr(row, "fetched_at", None), completed=session, ticker=ticker or ""
+            )
+        }
+    quality = prepare_segments(bars, incomplete_dates=pending_dates)
+    return bars, quality
+
+
 def analyse(ticker: str, *, as_of: date | None = None) -> dict:
     parameters = PatternParameters.model_validate(get_config()["parameters"])
-    cutoff = min(as_of or date.max, completed_ticker_market_session(ticker).date)
+    session = completed_ticker_market_session(ticker)
+    cutoff = min(as_of or date.max, session.date)
     rows = list_price_bars(ticker, start_date=cutoff - timedelta(days=850))
     # Multiple providers for one date are ambiguous, never silently blended.
     rows = [r for r in rows if r.date <= cutoff]
-    bars = [_bar(r) for r in rows]
-    quality = prepare_segments(bars)
+    bars, quality = _prepare_rows(rows, cutoff=cutoff, session=session, ticker=ticker)
     if any(issue["code"] == "extreme_jump" for issue in quality.issues):
         state = repository._read_json_setting(REPAIR_KEY).get(ticker, {})
         _split_issues(quality.issues, _split_events(ticker), cutoff=cutoff, repair=state)
     excluded_dates = {
         issue["date"]
         for issue in quality.issues
-        if issue["code"] in {"invalid_ohlc", "invalid_volume", "duplicate_date"}
+        if issue["code"] in {
+            "invalid_ohlc", "invalid_volume", "duplicate_date", "incomplete_session"
+        }
     }
     usable_dates = [bar.date for bar in bars if bar.date.isoformat() not in excluded_dates]
     price_date = max(usable_dates) if usable_dates else None
@@ -256,15 +275,23 @@ def _retry_due(attempt, now):
         return True
 
 
-def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
+def _issue_signature(quality):
+    return sorted([issue["code"], str(issue.get("date", ""))] for issue in quality.issues)
+
+
+def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds, sessions=None):
     """Bounded maintenance phase; ordinary chart reads never perform network I/O."""
     state = repository._read_json_setting(REPAIR_KEY)
+    sessions = sessions if sessions is not None else {
+        stock[0]: completed_ticker_market_session(stock[0]) for stock in stocks
+    }
     candidates = []
     priorities = {
         "invalid_ohlc": 0,
         "invalid_volume": 0,
         "duplicate_date": 1,
         "gap": 2,
+        "incomplete_session": 2,
         "insufficient_history": 3,
         "extreme_jump": 4,
         "missing_history": 5,
@@ -287,15 +314,18 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
             [s[0] for s in chunk], start_date=date.today() - timedelta(days=850)
         )
         for ticker, name, symbol, events in chunk:
-            bars = [_bar(r) for r in data.get(ticker, []) if r.date <= cutoffs[ticker]]
-            quality = prepare_segments(bars)
+            _, quality = _prepare_rows(
+                data.get(ticker, []), cutoff=cutoffs[ticker], session=sessions[ticker], ticker=ticker
+            )
             if not quality.issues:
                 continue
-            if not _retry_due(state.get(ticker, {}), now):
+            attempt = state.get(ticker, {})
+            signature = _issue_signature(quality)
+            changed = "issue_signature" in attempt and attempt["issue_signature"] != signature
+            if not changed and not _retry_due(attempt, now):
                 summary["deferred"] += 1
                 summary["cooldown"] += 1
                 continue
-            attempt = state.get(ticker, {})
             candidates.append(
                 (
                     bool(attempt),
@@ -303,6 +333,7 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
                     min(priorities.get(i["code"], 9) for i in quality.issues),
                     ticker,
                     symbol,
+                    signature,
                 )
             )
         if progress:
@@ -311,7 +342,7 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
     deadline = monotonic() + max(0, seconds)
     # Untried symbols first, then oldest attempts: repeated daily scans must not
     # spend their entire budget on the same alphabetically first failures.
-    for index, (_, _, _, ticker, symbol) in enumerate(candidates):
+    for index, (_, _, _, ticker, symbol, signature) in enumerate(candidates):
         if cancelled:
             cancelled()
         if summary["attempted"] >= limit or monotonic() >= deadline or summary["rate_limited"]:
@@ -323,6 +354,7 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
             "checked_at": checked.isoformat(),
             "next_retry_at": (checked + timedelta(days=1)).isoformat(),
             "reason_code": "attempt_started",
+            "issue_signature": signature,
         }
         repository._write_json_setting(
             REPAIR_KEY, state, description="Chartanalyse: begrenzte Kursreparaturversuche"
@@ -341,7 +373,9 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
         if refreshed:
             summary["refreshed"] += 1
             rows = list_price_bars(ticker, start_date=cutoffs[ticker] - timedelta(days=850))
-            remaining = prepare_segments([_bar(r) for r in rows if r.date <= cutoffs[ticker]])
+            _, remaining = _prepare_rows(
+                rows, cutoff=cutoffs[ticker], session=sessions[ticker], ticker=ticker
+            )
         resolved = remaining is not None and not remaining.issues
         summary["succeeded" if resolved else "failed"] += 1
         summary["rate_limited"] = result.get("reason_code") == "rate_limited"
@@ -351,6 +385,7 @@ def _repair_candidates(stocks, cutoffs, *, progress, cancelled, limit, seconds):
             records_written=result.get("records_written", 0),
             verified_jump_dates=result.get("extreme_jump_dates", []) if refreshed else [],
             split_events=result.get("split_events", {}),
+            issue_signature=_issue_signature(remaining) if remaining is not None else signature,
         )
         repository._write_json_setting(
             REPAIR_KEY, state, description="Chartanalyse: begrenzte Kursreparaturversuche"
@@ -366,7 +401,8 @@ def scan_universe(
     config = get_config()
     parameters = PatternParameters.model_validate(config["parameters"])
     stocks = _scan_stocks()
-    cutoffs = {stock[0]: completed_ticker_market_session(stock[0]).date for stock in stocks}
+    sessions = {stock[0]: completed_ticker_market_session(stock[0]) for stock in stocks}
+    cutoffs = {ticker: session.date for ticker, session in sessions.items()}
     repair_summary = {"attempted": 0, "succeeded": 0, "failed": 0, "deferred": 0, "refreshed": 0}
     repair_state = repository._read_json_setting(REPAIR_KEY)
     if repair_prices:
@@ -377,6 +413,7 @@ def scan_universe(
             cancelled=cancelled,
             limit=max(0, min(int(repair_limit), 2500)),
             seconds=max(0, min(float(repair_seconds), 1800)),
+            sessions=sessions,
         )
     patterns, skipped = [], []
     quality_issues, partial_count, quality_counts = [], 0, Counter()
@@ -391,8 +428,9 @@ def scan_universe(
         )
         for ticker, name, symbol, events in chunk:
             cutoff = cutoffs[ticker]
-            bars = [_bar(row) for row in data.get(ticker, []) if row.date <= cutoff]
-            quality = prepare_segments(bars)
+            bars, quality = _prepare_rows(
+                data.get(ticker, []), cutoff=cutoff, session=sessions[ticker], ticker=ticker
+            )
             _split_issues(quality.issues, events, cutoff=cutoff, repair=repair_state.get(ticker))
             grouped = {}
             for issue in quality.issues:
@@ -418,7 +456,7 @@ def scan_universe(
                 )
                 continue
             partial_count += int(quality.partial)
-            as_of_dates.append(bars[-1].date.isoformat())
+            as_of_dates.append(max(segment[-1].date for segment in quality.segments).isoformat())
             for pattern in _segment_patterns(ticker, quality, parameters, last_date=bars[-1].date):
                 patterns.append(
                     {

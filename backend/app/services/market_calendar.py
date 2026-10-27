@@ -88,7 +88,12 @@ _TICKER_CALENDARS = {"L": "XLON", "DE": "XETR", "F": "XFRA", "HK": "XHKG", "PA":
 
 
 def ticker_market_calendar_name(ticker: str) -> str:
-    suffix = str(ticker or "").upper().rsplit(".", 1)[-1]
+    clean = str(ticker or "").strip().upper()
+    if clean.endswith("-HK") and clean[:-3].isdigit():
+        return "XHKG"
+    if "." not in clean:
+        return "XNYS"
+    suffix = clean.rsplit(".", 1)[-1]
     return _TICKER_CALENDARS.get(suffix, "XNYS")
 
 
