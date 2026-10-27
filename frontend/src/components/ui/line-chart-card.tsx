@@ -140,11 +140,14 @@ export function LineChartCard({
   const [interact, setInteract] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLElement>(null);
+  const fullscreenDialogRef = useRef<HTMLDialogElement>(null);
+  const inlineScrollRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [visibleRange, setVisibleRange] = useState<VisibleRange>(() => fullVisibleRange(points.length));
   const [hiddenSeries, setHiddenSeries] = useState<Record<string, boolean>>({});
   const [hover, setHover] = useState<HoverState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [inlineHeight, setInlineHeight] = useState(0);
   const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
   const canvasWidth = chartSize.width > 0 && chartSize.height > 0
     ? Math.max(360, (chartSize.width / chartSize.height) * HEIGHT)
@@ -261,7 +264,7 @@ export function LineChartCard({
     const observer = new ResizeObserver(updateSize);
     observer.observe(chart);
     return () => observer.disconnect();
-  }, []);
+  }, [isFullscreen]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -289,13 +292,31 @@ export function LineChartCard({
 
     chart.addEventListener("wheel", handleWheel, { passive: false });
     return () => chart.removeEventListener("wheel", handleWheel);
-  }, [canvasWidth, normalizedRange, plotRight, points.length, product, interact]);
+  }, [canvasWidth, normalizedRange, plotRight, points.length, product, interact, isFullscreen]);
 
   useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(document.fullscreenElement === cardRef.current);
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
+    if (!isFullscreen) {
+      const position = inlineScrollRef.current;
+      const opener = cardRef.current?.querySelector<HTMLButtonElement>('[aria-label="Chart im Vollbild öffnen"]');
+      if (position && opener) {
+        window.scrollTo(position.x, position.y);
+        opener.focus({ preventScroll: true });
+        inlineScrollRef.current = null;
+      }
+      return;
+    }
+    const dialog = fullscreenDialogRef.current;
+    if (!dialog) return;
+    const overflow = document.body.style.overflow;
+    inlineScrollRef.current = { x: window.scrollX, y: window.scrollY };
+    document.body.style.overflow = "hidden";
+    dialog.showModal();
+    cardRef.current?.querySelector<HTMLButtonElement>('[aria-label="Vollbild schließen"]')?.focus({ preventScroll: true });
+    return () => {
+      dialog.close();
+      document.body.style.overflow = overflow;
+    };
+  }, [isFullscreen]);
 
   function zoomBy(factor: number) {
     if (points.length <= 1) return;
@@ -350,17 +371,9 @@ export function LineChartCard({
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
   }
 
-  async function toggleFullscreen() {
-    try {
-      if (document.fullscreenElement === cardRef.current) {
-        await document.exitFullscreen();
-        return;
-      }
-      await cardRef.current?.requestFullscreen();
-    } catch {
-      // Some embedded browsers deny fullscreen; the chart remains fully usable inline.
-      return;
-    }
+  function toggleFullscreen() {
+    if (!isFullscreen) setInlineHeight(cardRef.current?.getBoundingClientRect().height ?? 0);
+    setIsFullscreen((current) => !current);
   }
 
   const hoveredPoint = hover ? visiblePoints[hover.index] : null;
@@ -369,14 +382,23 @@ export function LineChartCard({
   const activeIndex = hover ? normalizedRange.start + hover.index : normalizedRange.start + latestVisibleIndex;
   const previousClose = showPreviousCloseChange ? previousChartClose(points, activeIndex) : null;
 
-  return (
+  const card = (
     <section
       ref={cardRef}
       className={isFullscreen
-        ? "flex h-screen w-screen flex-col overflow-hidden bg-[var(--background)] p-4"
+        ? "flex h-full min-h-0 w-full flex-col overflow-y-auto bg-[var(--background)] p-3"
         : "rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadow-card)] sm:p-4"}
+      style={isFullscreen ? {
+        paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+        paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        paddingLeft: "max(0.75rem, env(safe-area-inset-left))",
+        paddingRight: "max(0.75rem, env(safe-area-inset-right))",
+      } : undefined}
     >
-      <div className={hideTextHeader ? "mb-2 flex justify-end" : "mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between"}>
+      <div className={[
+        hideTextHeader ? "mb-2 flex justify-end" : "mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between",
+        isFullscreen ? "sticky top-0 z-20 shrink-0 bg-[var(--background)]" : "",
+      ].join(" ")}>
         {!hideTextHeader && (
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-[var(--text)]">{title}</h2>
@@ -401,7 +423,7 @@ export function LineChartCard({
         ref={chartRef}
         className={[
           `relative ${product && !interact ? "touch-pan-y" : "touch-none"} select-none overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--panel)]`,
-          isFullscreen ? "min-h-0 flex-1" : "h-[430px] sm:h-[470px]",
+          isFullscreen ? "min-h-40 flex-1" : "h-[430px] sm:h-[470px]",
           isZoomed ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"
         ].join(" ")}
         data-chart-surface="true"
@@ -629,11 +651,25 @@ export function LineChartCard({
       <ChartTools value={preferences.value} onChange={preferences.update} canLog={canLog} onExport={format=>exportChart(cardRef.current,title,caption,format)}/>
     </section>
   );
+
+  return (
+    <>
+      {isFullscreen ? <div aria-hidden="true" style={{ height: inlineHeight }} /> : card}
+      <dialog
+        ref={fullscreenDialogRef}
+        aria-label={`${title} · Vollbild`}
+        onClose={(event) => { if (!event.currentTarget.open) setIsFullscreen(false); }}
+        className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-[var(--background)] p-0 backdrop:bg-black/40"
+      >
+        {isFullscreen && card}
+      </dialog>
+    </>
+  );
 }
 
 function ChartToolButton({ children, disabled, label, onClick }: { children: ReactNode; disabled?: boolean; label: string; onClick: () => void }) {
   return (
-    <button aria-label={label} className="inline-flex size-7 items-center justify-center border-r border-[var(--border)] text-[var(--muted)] transition last:border-r-0 hover:bg-[var(--panel)] hover:text-[var(--teal)] disabled:cursor-not-allowed disabled:opacity-35" disabled={disabled} title={label} type="button" onClick={onClick}>
+    <button aria-label={label} className="inline-flex size-7 items-center justify-center border-r border-[var(--border)] text-[var(--muted)] transition last:border-r-0 hover:bg-[var(--panel)] hover:text-[var(--teal)] disabled:cursor-not-allowed disabled:opacity-35 pointer-coarse:size-11" disabled={disabled} title={label} type="button" onClick={onClick}>
       {children}
     </button>
   );
