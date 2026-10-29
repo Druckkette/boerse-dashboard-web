@@ -6,948 +6,515 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.notification_preferences import NotificationPreferences, merge_preferences
 from app.repositories import jobs as job_repository
+from app.services import stop_alerts
 from app.workers.tasks import position_atr_monitor as monitor_module
+
+NOW = datetime(2026, 10, 26, 15, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
-def reset_jobs() -> None:
+def reset_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
     job_repository.clear_memory_jobs()
+    monkeypatch.setattr(monitor_module.settings_repository, "read_atr_rearm_requests", lambda: {})
 
 
-def test_position_atr_monitor_skips_scheduler_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = SimpleNamespace(
-        position_monitor_enabled=False,
-        model_dump=lambda: {
-            "position_monitor_enabled": False,
-            "position_monitor_reference": "high_since_buy",
-            "position_monitor_threshold_atr": 1.5,
-            "position_monitor_atr_period": 21,
-            "position_monitor_lookback_days": 120,
-            "position_monitor_cooldown_hours": 12,
+def settings(**patch) -> dict:
+    return {
+        "notification_preferences": merge_preferences(NotificationPreferences().model_dump(), patch)
+    }
+
+
+def atr_tick(
+    state: dict,
+    distance: float | None,
+    now: datetime = NOW,
+    *,
+    prefs: dict | None = None,
+    quote_at: datetime | None = None,
+    rearm: dict | None = None,
+) -> dict:
+    result = monitor_module._cooldown_decision(
+        ticker="BE",
+        monitor={
+            "distance_atr": distance,
+            "threshold_atr": 1.5,
+            "threshold_crossed": distance is not None and distance >= 1.5,
+            "current_price": 97.0,
+            "reference": "previous_close",
+            "reference_price": 100.0,
+            "live_quote_at": (quote_at or now).isoformat(),
         },
+        ticker_state={"BE": copy.deepcopy(state)},
+        trade_day=monitor_module._monitor_trade_day(now),
+        now=now,
+        reset_at=monitor_module._next_monitor_reset(now),
+        monitor_settings={**(prefs or settings()), "atr_rearm_requests": rearm or {}},
     )
-    monkeypatch.setattr(monitor_module, "get_app_settings", lambda: settings)
+    return result
+
+
+def first_atr(**atr_preferences) -> dict:
+    return atr_tick({}, 1.6, prefs=settings(atr=atr_preferences))["state_update"]
+
+
+def test_scheduler_disabled_does_not_read_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    app_settings = SimpleNamespace(position_monitor_enabled=False, model_dump=lambda: {})
+    monkeypatch.setattr(monitor_module, "get_app_settings", lambda: app_settings)
+    monkeypatch.setattr(
+        monitor_module, "monitor_open_position_atr", lambda **kw: pytest.fail("must skip")
+    )
+    job = job_repository.create_job("position_atr_monitor", {"source": "scheduler"})
+    assert monitor_module.position_atr_monitor.run(job.job_id, job.payload)["skipped"] is True
+
+
+def test_worker_dispatches_stop_atr_and_signals_together(monkeypatch: pytest.MonkeyPatch) -> None:
+    app_settings = SimpleNamespace(position_monitor_enabled=True, model_dump=lambda: settings())
+    monkeypatch.setattr(monitor_module, "get_app_settings", lambda: app_settings)
     monkeypatch.setattr(
         monitor_module,
         "monitor_open_position_atr",
-        lambda *args, **kwargs: pytest.fail("scheduler run should be skipped"),
+        lambda **kw: {"items": [{"stop_observation": {"ticker": "BE"}}]},
     )
-    job = job_repository.create_job("position_atr_monitor", {"source": "scheduler"})
-
-    result = monitor_module.position_atr_monitor.run(job.job_id, job.payload)
-    updated = job_repository.get_job(job.job_id)
-
-    assert result["skipped"] is True
-    assert updated is not None
-    assert updated.status == "skipped"
-
-
-def test_position_atr_monitor_allows_manual_run_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = SimpleNamespace(
-        position_monitor_enabled=False,
-        model_dump=lambda: {
-            "position_monitor_enabled": False,
-            "position_monitor_reference": "entry_price",
-            "position_monitor_threshold_atr": 2.0,
-            "position_monitor_atr_period": 14,
-            "position_monitor_lookback_days": 90,
-            "position_monitor_cooldown_hours": 24,
-        },
-    )
-    captured: dict = {}
-
-    def fake_monitor(*, tickers, monitor_settings):
-        captured["tickers"] = tickers
-        captured["settings"] = monitor_settings
-        return {"ok": True, "records_seen": 1, "records_written": 1, "items": []}
-
-    monkeypatch.setattr(monitor_module, "get_app_settings", lambda: settings)
-    monkeypatch.setattr(monitor_module, "monitor_open_position_atr", fake_monitor)
-    job = job_repository.create_job(
-        "position_atr_monitor",
-        {"tickers": ["NVDA"], "monitor_settings": {"position_monitor_threshold_atr": 1.25}},
-    )
-
-    result = monitor_module.position_atr_monitor.run(job.job_id, job.payload)
-    updated = job_repository.get_job(job.job_id)
-
-    assert result["ok"] is True
-    assert captured["tickers"] == ["NVDA"]
-    assert captured["settings"]["position_monitor_threshold_atr"] == 1.25
-    assert updated is not None
-    assert updated.status == "done"
-
-
-def test_monitor_trade_day_resets_at_0730_berlin() -> None:
-    before_reset = datetime(2026, 6, 18, 5, 29, tzinfo=UTC)
-    at_reset = datetime(2026, 6, 18, 5, 30, tzinfo=UTC)
-
-    assert monitor_module._monitor_trade_day(before_reset) == "2026-06-17"
-    assert monitor_module._monitor_trade_day(at_reset) == "2026-06-18"
-
-
-def test_position_monitor_cooldown_suppresses_same_trade_day(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored_state = {
-        "tickers": {
-            "AAPL": {
-                "trade_day": "2026-06-18",
-                "last_alert_at": "2026-06-18T07:35:00+02:00",
-                "last_distance_atr": 1.8,
-                "threshold_atr": 1.5,
-                "escalated_2x": False,
-            }
-        }
-    }
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: written.update(values) or values)
-
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 2.2,
-                        "threshold_atr": 1.5,
-                        "reference": "previous_close",
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-    )
-
-    monitor = result["items"][0]["monitor"]
-    assert result["alerts"] == []
-    assert result["alerts_suppressed"][0]["ticker"] == "AAPL"
-    assert monitor["alert_allowed"] is False
-    assert monitor["alert_reason"] == "cooldown_same_trade_day"
-    assert written["last_summary"]["suppressed"] == 1
-
-
-def test_position_monitor_allows_2x_atr_escalation_same_trade_day(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored_state = {
-        "tickers": {
-            "AAPL": {
-                "trade_day": "2026-06-18",
-                "last_alert_at": "2026-06-18T07:35:00+02:00",
-                "last_distance_atr": 1.8,
-                "threshold_atr": 1.5,
-                "escalated_2x": False,
-            }
-        }
-    }
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: written.update(values) or values)
-
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 3.1,
-                        "threshold_atr": 1.5,
-                        "reference": "previous_close",
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-    )
-
-    monitor = result["items"][0]["monitor"]
-    assert result["alerts"][0]["ticker"] == "AAPL"
-    assert monitor["alert_allowed"] is True
-    assert monitor["alert_reason"] == "2x_atr_escalation"
-    assert written["tickers"]["AAPL"]["escalated_2x"] is True
-
-
-def test_position_monitor_does_not_repeat_prior_day_loss_after_reset(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored_state = {
-        "tickers": {
-            "AAPL": {
-                "trade_day": "2026-06-17",
-                "last_alert_at": "2026-06-17T18:00:00+02:00",
-                "last_distance_atr": 1.8,
-                "threshold_atr": 1.5,
-                "reference": "previous_close",
-                "reference_price": 100.0,
-                "current_price": 96.4,
-                "escalated_2x": False,
-            }
-        }
-    }
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: written.update(values) or values)
-
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 1.8,
-                        "threshold_atr": 1.5,
-                        "reference": "previous_close",
-                        "reference_price": 100.0,
-                        "current_price": 96.4,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-    )
-
-    monitor = result["items"][0]["monitor"]
-    assert result["alerts"] == []
-    assert result["alerts_suppressed"][0]["reason"] == "new_trade_day_no_new_loss"
-    assert monitor["alert_allowed"] is False
-    assert monitor["alert_reason"] == "new_trade_day_no_new_loss"
-    assert written["tickers"]["AAPL"]["trade_day"] == "2026-06-18"
-
-
-def test_position_monitor_allows_new_trade_day_when_reference_changes(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored_state = {
-        "tickers": {
-            "AAPL": {
-                "trade_day": "2026-06-17",
-                "last_alert_at": "2026-06-17T18:00:00+02:00",
-                "last_distance_atr": 1.8,
-                "threshold_atr": 1.5,
-                "reference": "previous_close",
-                "reference_price": 100.0,
-                "current_price": 96.4,
-                "escalated_2x": False,
-            }
-        }
-    }
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: written.update(values) or values)
-
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 1.6,
-                        "threshold_atr": 1.5,
-                        "reference": "previous_close",
-                        "reference_price": 96.0,
-                        "current_price": 92.8,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-    )
-
-    assert result["alerts"][0]["ticker"] == "AAPL"
-    assert result["alerts"][0]["reason"] == "new_trade_day"
-    assert written["tickers"]["AAPL"]["reference_price"] == 96.0
-
-
-def test_position_monitor_allows_changed_reference_mode_same_trade_day(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored_state = {
-        "tickers": {
-            "AAPL": {
-                "trade_day": "2026-06-18",
-                "last_distance_atr": 1.8,
-                "threshold_atr": 1.5,
-                "reference": "previous_close",
-                "reference_price": 100.0,
-                "threshold_crossed": True,
-                "escalated_2x": False,
-            }
-        }
-    }
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", lambda values: values)
-
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 1.7,
-                        "threshold_atr": 1.5,
-                        "reference": "entry_price",
-                        "reference_label": "Vom Einstand",
-                        "reference_price": 100.0,
-                        "current_price": 96.6,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-    )
-
-    assert result["alerts"][0]["reason"] == "monitor_configuration_changed"
-    assert result["items"][0]["monitor"]["alert_allowed"] is True
-
-
-def test_position_monitor_rearms_after_real_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored_state = {
-        "tickers": {
-            "AAPL": {
-                "trade_day": "2026-06-18",
-                "last_distance_atr": 1.8,
-                "threshold_atr": 1.5,
-                "reference": "entry_price",
-                "reference_price": 100.0,
-                "threshold_crossed": True,
-                "escalated_2x": False,
-            }
-        }
-    }
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored_state)
-    monkeypatch.setattr(
-        monitor_module.settings_repository,
-        "write_position_monitor_state",
-        lambda values: written.update(values) or values,
-    )
-
-    recovery = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": False,
-                        "distance_atr": 1.2,
-                        "threshold_atr": 1.5,
-                        "reference": "entry_price",
-                        "reference_price": 100.0,
-                        "current_price": 97.6,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-    )
-
-    assert recovery["alerts"] == []
-    assert written["tickers"]["AAPL"]["threshold_crossed"] is False
-
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: written)
-    recross = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 1.6,
-                        "threshold_atr": 1.5,
-                        "reference": "entry_price",
-                        "reference_label": "Vom Einstand",
-                        "reference_price": 100.0,
-                        "current_price": 96.8,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 5, tzinfo=UTC),
-    )
-
-    assert recross["alerts"][0]["reason"] == "threshold_recrossed"
-    assert recross["items"][0]["monitor"]["alert_allowed"] is True
-
-
-def test_failed_delivery_does_not_consume_atr_alert(monkeypatch: pytest.MonkeyPatch) -> None:
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})
-    monkeypatch.setattr(
-        monitor_module.settings_repository,
-        "write_position_monitor_state",
-        lambda values: written.update(values) or values,
-    )
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 1.8,
-                        "threshold_atr": 1.5,
-                        "reference": "previous_close",
-                        "reference_price": 100.0,
-                        "current_price": 96.4,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-        persist_state=False,
-    )
-
-    monitor_module._finalize_monitor_state(
-        result,
-        alert_delivery={"sent": 0, "failed": 1, "skipped": 0, "sent_tickers": []},
-    )
-
-    assert "_pending_monitor_state" not in result
-    assert "AAPL" not in written["tickers"]
-    assert written["last_summary"]["delivery_failed"] == 1
-
-
-def test_confirmed_delivery_consumes_atr_alert(monkeypatch: pytest.MonkeyPatch) -> None:
-    written: dict = {}
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: {})
-    monkeypatch.setattr(
-        monitor_module.settings_repository,
-        "write_position_monitor_state",
-        lambda values: written.update(values) or values,
-    )
-    result = monitor_module._apply_cooldown_state(
-        {
-            "ok": True,
-            "records_seen": 1,
-            "items": [
-                {
-                    "ticker": "AAPL",
-                    "monitor": {
-                        "threshold_crossed": True,
-                        "distance_atr": 1.8,
-                        "threshold_atr": 1.5,
-                        "reference": "previous_close",
-                        "reference_price": 100.0,
-                        "current_price": 96.4,
-                    },
-                }
-            ],
-        },
-        monitor_settings={"position_monitor_threshold_atr": 1.5},
-        now=datetime(2026, 6, 18, 6, 0, tzinfo=UTC),
-        persist_state=False,
-    )
-
-    monitor_module._finalize_monitor_state(
-        result,
-        alert_delivery={"sent": 1, "failed": 0, "skipped": 0, "sent_tickers": ["AAPL"]},
-    )
-
-    assert written["tickers"]["AAPL"]["trade_day"] == "2026-06-18"
-    assert written["last_summary"]["sent"] == 1
-
-
-def test_pushover_delivery_uses_high_priority(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict = {}
-    app_settings = SimpleNamespace(pushover_enabled=True)
     monkeypatch.setattr(
         monitor_module,
-        "get_runtime_config_value",
-        lambda key: "user" if "USER" in key else "token",
+        "_apply_cooldown_state",
+        lambda result, **kw: {**result, "alerts": [{"kind": "atr", "alert_id": "atr1"}]},
     )
-    monkeypatch.setattr(monitor_module, "get_runtime_config_bool", lambda *args: False)
-
-    def fake_send(**kwargs):
-        captured.update(kwargs)
-        return {"status": 1, "request": "test"}
-
-    monkeypatch.setattr(monitor_module, "_send_pushover_message", fake_send)
-    delivery = monitor_module._deliver_monitor_alerts(
-        [
-            {
-                "ticker": "AAPL",
-                "distance_atr": 1.6,
-                "threshold_atr": 1.5,
-                "reference": "previous_close",
-                "current_price": 96.8,
-                "reference_price": 100.0,
-                "reason": "new_trade_day",
-            }
-        ],
-        app_settings=app_settings,
-    )
-
-    assert delivery["sent"] == 1
-    assert delivery["sent_tickers"] == ["AAPL"]
-    assert captured["priority"] == 1
-    assert captured["title"] == "ATR-Alarm AAPL"
-
-
-def test_daily_signal_summary_uses_normal_priority(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict = {}
-    app_settings = SimpleNamespace(pushover_enabled=True)
     monkeypatch.setattr(
         monitor_module,
-        "get_runtime_config_value",
-        lambda key: "user" if "USER" in key else "token",
+        "_apply_portfolio_signal_state",
+        lambda *a, **kw: [{"kind": "stock_signal", "alert_id": "ma1"}],
     )
-    monkeypatch.setattr(monitor_module, "get_runtime_config_bool", lambda *args: False)
+    captured = {}
+    delivery = {"sent": 1, "accepted_alert_ids": ["stop1", "atr1", "ma1"]}
 
-    def fake_send(**kwargs):
+    def deliver(items, sender, **kwargs):
         captured.update(kwargs)
-        return {"status": 1, "request": "test"}
+        assert items == [{"ticker": "BE"}]
+        return {"delivery": delivery}
 
-    monkeypatch.setattr(monitor_module, "_send_pushover_message", fake_send)
-    delivery = monitor_module._deliver_monitor_alerts(
-        [
-            {
-                "kind": "stock_signal_summary",
-                "alert_id": "stock-signal-summary:2026-08-13",
-                "ticker": "DEPOT",
-                "summary_date": "2026-08-13",
-                "entries": ["- NVDA · WARNUNG · leicht unter 21-EMA"],
-            }
-        ],
-        app_settings=app_settings,
-    )
-
-    assert delivery["sent"] == 1
-    assert captured["priority"] == 0
-    assert captured["title"] == "Depot-Tagesübersicht"
-
-
-def test_fresh_live_ema_break_creates_portfolio_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored: dict = {
-        "signal_tickers": {
-            "NVDA": {
-                "moving_averages": {
-                    "ema21": {"label": "21-EMA", "value": 181.0, "above": True, "distance_pct": 0.2}
-                },
-                "ma_alert_state": {
-                    "ema21": {
-                        "initialized": True,
-                        "stable_zone": "above",
-                        "candidate_zone": "",
-                        "candidate_since": "",
-                        "candidate_count": 0,
-                    }
-                },
-            }
-        }
-    }
-
-    def write_state(values: dict) -> dict:
-        stored.clear()
-        stored.update(copy.deepcopy(values))
-        return values
-
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
+    monkeypatch.setattr(stop_alerts, "deliver_stop_alerts", deliver)
     monkeypatch.setattr(
-        monitor_module.settings_repository,
-        "write_position_monitor_state",
-        write_state,
+        monitor_module,
+        "_finalize_monitor_state",
+        lambda result, **kw: captured.update(atr_delivery=kw["alert_delivery"]),
     )
-    result = {
-        "items": [
-            {
-                "ticker": "NVDA",
-                "as_of": "2026-08-13",
-                "monitor": {"atr_value": 4.0, "current_price": 180.0},
-                "trend_monitor": {
-                    "available": True,
-                    "as_of": "2026-08-13",
-                    "current_price": 180.0,
-                    "currency": "USD",
-                    "moving_averages": {
-                        "ema21": {
-                            "label": "21-EMA",
-                            "value": 181.5,
-                            "above": False,
-                            "previous_above": True,
-                            "distance_pct": -0.826,
-                        }
-                    },
-                },
-            }
-        ]
-    }
+    monkeypatch.setattr(
+        monitor_module,
+        "_finalize_portfolio_signal_state",
+        lambda result, **kw: captured.update(ma_delivery=kw["alert_delivery"]),
+    )
+    job = job_repository.create_job("position_atr_monitor", {})
+    monitor_module.position_atr_monitor.run(job.job_id, {})
+    assert [a["alert_id"] for a in captured["additional_alerts"]] == ["atr1", "ma1"]
+    assert captured["atr_delivery"] is captured["ma_delivery"] is delivery
 
-    settings = {
-        "position_monitor_ma_alerts_enabled": True,
-        "position_monitor_assessment_alerts_enabled": False,
-    }
-    started_at = datetime(2026, 8, 13, 15, 0, tzinfo=UTC)
-    for offset in (0, 1):
-        alerts = monitor_module._apply_portfolio_signal_state(
-            result,
-            monitor_settings=settings,
-            now=started_at + timedelta(minutes=offset),
+
+def test_atr_threshold_chatter_never_rearms() -> None:
+    state = first_atr(repeat="recovery")
+    for minute in range(1, 20):
+        outcome = atr_tick(
+            state,
+            1.49 if minute % 2 else 1.51,
+            NOW + timedelta(minutes=minute),
+            prefs=settings(atr={"repeat": "recovery"}),
         )
-        assert alerts == []
-        monitor_module._finalize_portfolio_signal_state(result, alert_delivery={"sent_alert_ids": []})
+        assert not outcome["allowed"]
+        state = outcome["state_update"] or state
+    assert state["threshold_crossed"] is True
 
-    alerts = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings=settings,
-        now=started_at + timedelta(minutes=3),
+
+@pytest.mark.parametrize("distance", [None, float("nan"), float("inf")])
+def test_atr_missing_data_preserves_latch(distance: float | None) -> None:
+    previous = first_atr()
+    result = atr_tick(previous, distance, NOW + timedelta(minutes=1))
+    assert result["state_update"] is None
+    assert not result["allowed"]
+    assert previous["threshold_crossed"] is True
+
+
+@pytest.mark.parametrize("offset", [-21, 1])
+def test_atr_stale_or_future_quote_cannot_recover_or_warn(offset: int) -> None:
+    result = atr_tick(
+        first_atr(), 0.1, NOW + timedelta(minutes=1), quote_at=NOW + timedelta(minutes=1 + offset)
     )
+    assert result["state_update"] is None
+    assert result["monitor_update"]["alert_reason"] == "no_fresh_quote"
 
-    assert alerts[0]["kind"] == "stock_signal"
-    assert alerts[0]["events"][0]["label"] == "Bruch der 21-EMA"
-    assert "3 Minuten bestätigt" in alerts[0]["events"][0]["detail"]
-    assert "Abstand -0.83%" in alerts[0]["events"][0]["detail"]
-    assert "Mindestabstand 0.22%" in alerts[0]["events"][0]["detail"]
-    monitor_module._finalize_portfolio_signal_state(
-        result,
-        alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
+
+def test_atr_recovery_requires_ten_minutes_of_distinct_quotes() -> None:
+    prefs = settings(atr={"repeat": "recovery", "recovery_atr": 1, "recovery_minutes": 10})
+    state = first_atr()
+    for minute in range(1, 12):
+        tick = atr_tick(state, 0.9, NOW + timedelta(minutes=minute), prefs=prefs)
+        assert not tick["allowed"]
+        state = tick["state_update"]
+        assert state["threshold_crossed"] is (minute < 11)
+    result = atr_tick(state, 1.55, NOW + timedelta(minutes=12), prefs=prefs)
+    assert result["allowed"]
+    assert result["alert"]["reason"] == "confirmed_recovery"
+
+
+def test_repeated_same_quote_does_not_count_toward_recovery() -> None:
+    state = first_atr()
+    state = atr_tick(state, 0.8, NOW + timedelta(minutes=1))["state_update"]
+    for minute in range(2, 12):
+        result = atr_tick(
+            state, 0.8, NOW + timedelta(minutes=minute), quote_at=NOW + timedelta(minutes=1)
+        )
+        assert result["state_update"] is None
+    assert state["recovery_count"] == 1
+    assert state["threshold_crossed"] is True
+
+
+def test_gap_breaks_recovery_confirmation() -> None:
+    state = first_atr()
+    state = atr_tick(state, 0.8, NOW + timedelta(minutes=1))["state_update"]
+    state = atr_tick(state, 0.8, NOW + timedelta(minutes=12))["state_update"]
+    assert state["threshold_crossed"] is True
+    assert state["recovery_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "repeat,minutes,expected",
+    [
+        ("manual", 1500, False),
+        ("daily", 1500, True),
+        ("daily", 60, False),
+        ("interval", 59, False),
+        ("interval", 60, True),
+    ],
+)
+def test_atr_repeat_policy(repeat: str, minutes: int, expected: bool) -> None:
+    result = atr_tick(
+        first_atr(),
+        1.6,
+        NOW + timedelta(minutes=minutes),
+        prefs=settings(atr={"repeat": repeat, "repeat_minutes": 60}),
     )
-    assert stored["signal_tickers"]["NVDA"]["moving_averages"]["ema21"]["above"] is False
-    assert stored["signal_tickers"]["NVDA"]["ma_alert_state"]["ema21"]["stable_zone"] == "below"
+    assert result["allowed"] is expected
 
 
-def test_unchanged_ma_break_is_not_repeated(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored = {
-        "signal_tickers": {
-            "NVDA": {
-                "moving_averages": {
-                    "ema21": {"label": "21-EMA", "value": 181.5, "above": False, "distance_pct": -0.8}
-                }
-            }
-        }
-    }
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
+def test_manual_atr_rearm_is_consumed_after_acceptance() -> None:
+    prefs = settings(atr={"repeat": "manual"})
+    marker = {"BE": (NOW + timedelta(minutes=2)).isoformat()}
+    tick = atr_tick(first_atr(), 1.6, NOW + timedelta(minutes=3), prefs=prefs, rearm=marker)
+    assert tick["alert"]["reason"] == "manual_rearm"
+    assert not atr_tick(
+        tick["state_update"], 1.6, NOW + timedelta(minutes=4), prefs=prefs, rearm=marker
+    )["allowed"]
+
+
+def test_atr_escalation_is_configurable_and_once_per_episode() -> None:
+    prefs = settings(atr={"repeat": "manual", "escalation_atr": 4})
+    state = first_atr()
+    assert not atr_tick(state, 3.1, NOW + timedelta(minutes=1), prefs=prefs)["allowed"]
+    tick = atr_tick(state, 4.1, NOW + timedelta(minutes=2), prefs=prefs)
+    assert tick["alert"]["event_type"] == "atr_escalation"
+    assert not atr_tick(tick["state_update"], 5.0, NOW + timedelta(minutes=3), prefs=prefs)[
+        "allowed"
+    ]
+    assert not atr_tick(
+        state,
+        5,
+        NOW + timedelta(minutes=4),
+        prefs=settings(atr={"repeat": "manual", "escalation_enabled": False}),
+    )["allowed"]
+
+
+def test_failed_atr_does_not_erase_previous_latch_or_accept_by_other_ticker_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous = first_atr()
+    written = {}
     result = {
-        "items": [
-            {
-                "ticker": "NVDA",
-                "as_of": "2026-08-13",
-                "trend_monitor": {
-                    "available": True,
-                    "as_of": "2026-08-13",
-                    "current_price": 179.0,
-                    "currency": "USD",
-                    "moving_averages": {
-                        "ema21": {
-                            "label": "21-EMA",
-                            "value": 181.4,
-                            "above": False,
-                            "previous_above": True,
-                            "distance_pct": -1.323,
-                        }
-                    },
-                },
-            }
-        ]
+        "_pending_monitor_state": {"tickers": {"BE": {"changed": True}}},
+        "_previous_monitor_tickers": {"BE": previous},
+        "alerts": [{"ticker": "BE", "alert_id": "atr1"}],
     }
-
-    alerts = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings={
-            "position_monitor_ma_alerts_enabled": True,
-            "position_monitor_assessment_alerts_enabled": False,
-        },
-        now=datetime(2026, 8, 13, 15, 1, tzinfo=UTC),
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda value: written.update(value),
     )
+    monitor_module._finalize_monitor_state(
+        result, alert_delivery={"accepted_alert_ids": ["ma1"], "accepted_tickers": ["BE"]}
+    )
+    assert written["tickers"]["BE"] == previous
 
-    assert alerts == []
 
-
-def test_light_ema21_break_waits_for_end_of_day_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    stored = {
-        "signal_tickers": {
-            "NVDA": {
-                "moving_averages": {
-                    "ema21": {"label": "21-EMA", "value": 180.0, "above": True, "distance_pct": 0.2},
-                    "sma10": {"label": "10-SMA", "value": 179.0, "above": True, "distance_pct": 0.5},
-                },
-                "ma_alert_state": {
-                    "ema21": {"initialized": True, "stable_zone": "above"},
-                },
-            }
-        }
-    }
-    def write_state(values: dict) -> dict:
-        stored.clear()
-        stored.update(copy.deepcopy(values))
-        return values
-
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", write_state)
+def test_digest_acceptance_commits_atr_and_preserves_it_for_signal_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    written = {}
     result = {
-        "items": [
-            {
-                "ticker": "NVDA",
-                "as_of": "2026-08-13",
-                "monitor": {"atr_value": 5.4, "current_price": 180.0},
-                "trend_monitor": {
-                    "current_price": 180.0,
-                    "currency": "USD",
-                    "moving_averages": {
-                        "ema21": {
-                            "label": "21-EMA",
-                            "value": 180.18,
-                            "above": False,
-                            "distance_pct": -0.10,
-                        },
-                        "sma10": {
-                            "label": "10-SMA",
-                            "value": 180.09,
-                            "above": False,
-                            "distance_pct": -0.05,
-                        },
-                    },
-                },
-            }
-        ]
+        "_pending_monitor_state": {"tickers": {"BE": {"changed": True}}},
+        "_previous_monitor_tickers": {},
+        "alerts": [{"ticker": "BE", "alert_id": "atr1"}],
+        "_pending_signal_state": {"base_state": {}, "tickers": {}},
     }
-
-    alerts = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings={
-            "position_monitor_ma_alerts_enabled": True,
-            "position_monitor_assessment_alerts_enabled": False,
-        },
-        now=datetime(2026, 8, 13, 20, 35, tzinfo=UTC),
+    monkeypatch.setattr(
+        monitor_module.settings_repository,
+        "write_position_monitor_state",
+        lambda value: written.update(value),
     )
-
-    assert len(alerts) == 1
-    assert alerts[0]["kind"] == "stock_signal_summary"
-    assert any("leicht unter 21-EMA" in entry for entry in alerts[0]["entries"])
-    assert any("leicht unter 10-SMA" in entry for entry in alerts[0]["entries"])
+    monitor_module._finalize_monitor_state(
+        result, alert_delivery={"accepted_alert_ids": ["atr1"], "accepted_tickers": ["BE"]}
+    )
     monitor_module._finalize_portfolio_signal_state(
-        result,
-        alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
+        result, alert_delivery={"accepted_alert_ids": []}
     )
-    assert stored["signal_summary_date"] == "2026-08-13"
-    assert stored["signal_tickers"]["NVDA"]["daily_signal_digest"]["events"] == {}
-
-    repeated = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings={
-            "position_monitor_ma_alerts_enabled": True,
-            "position_monitor_assessment_alerts_enabled": False,
-        },
-        now=datetime(2026, 8, 13, 20, 36, tzinfo=UTC),
-    )
-    assert not any(alert["kind"] == "stock_signal_summary" for alert in repeated)
+    assert written["tickers"]["BE"] == {"changed": True}
 
 
-def test_confirmed_sma10_break_uses_same_hysteresis_as_ema21() -> None:
-    previous = {
+def ma_tick(
+    state: dict,
+    distance: float,
+    now: datetime,
+    *,
+    rule: dict | None = None,
+    quote_at: datetime | None = None,
+    closed: dict | None = None,
+) -> tuple[dict, list]:
+    current = copy.deepcopy(state)
+    trend = {
+        "current_price": 100,
+        "currency": "USD",
+        "quote_at": (quote_at or now).isoformat(),
         "moving_averages": {
-            "sma10": {"label": "10-SMA", "value": 180.0, "above": True, "distance_pct": 0.4}
-        },
-        "ma_alert_state": {
-            "sma10": {
-                "initialized": True,
-                "stable_zone": "above",
-                "candidate_zone": "below",
-                "candidate_since": "2026-08-13T15:00:00+00:00",
-                "candidate_count": 3,
-            }
-        },
-    }
-    current = copy.deepcopy(previous)
-
-    events = monitor_module._update_moving_average_signal_state(
-        previous=previous,
-        current=current,
-        trend={
-            "current_price": 178.6,
-            "currency": "USD",
-            "moving_averages": {
-                "sma10": {"label": "10-SMA", "value": 180.0, "above": False, "distance_pct": -0.78}
-            },
-        },
-        monitor={"atr_value": 3.6, "current_price": 180.0},
-        now=datetime(2026, 8, 13, 15, 3, tzinfo=UTC),
-        digest=monitor_module._new_daily_signal_digest("2026-08-13"),
-    )
-
-    assert events[0]["tone"] == "warning"
-    assert events[0]["label"] == "Bruch der 10-SMA"
-    assert "3 Minuten bestätigt" in events[0]["detail"]
-    assert "Mindestabstand 0.20%" in events[0]["detail"]
-
-
-def test_confirmed_ema21_recovery_requires_positive_hysteresis() -> None:
-    previous = {
-        "moving_averages": {
-            "ema21": {"label": "21-EMA", "value": 180.0, "above": False, "distance_pct": -0.5}
-        },
-        "ma_alert_state": {
             "ema21": {
-                "initialized": True,
-                "stable_zone": "below",
-                "candidate_zone": "above",
-                "candidate_since": "2026-08-13T15:00:00+00:00",
-                "candidate_count": 3,
-                "last_warning_distance_atr": 0.4,
+                "label": "21-EMA",
+                "above": distance >= 0,
+                "distance_pct": distance,
+                "value": 101,
             }
         },
     }
-    current = copy.deepcopy(previous)
-    digest = monitor_module._new_daily_signal_digest("2026-08-13")
-
+    rules = merge_preferences(NotificationPreferences().model_dump()["ma"], {"ema21": rule or {}})
     events = monitor_module._update_moving_average_signal_state(
-        previous=previous,
+        previous=state,
         current=current,
-        trend={
-            "current_price": 181.0,
-            "currency": "USD",
-            "moving_averages": {
-                "ema21": {"label": "21-EMA", "value": 180.0, "above": True, "distance_pct": 0.56}
-            },
-        },
-        monitor={"atr_value": 3.6, "current_price": 180.0},
-        now=datetime(2026, 8, 13, 15, 3, tzinfo=UTC),
-        digest=digest,
+        trend=trend,
+        monitor={"atr_value": 2, "current_price": 100},
+        now=now,
+        preferences=rules,
+        closed_trend=closed,
     )
-
-    assert events[0]["tone"] == "good"
-    assert events[0]["label"] == "21-EMA zurückerobert"
-    assert current["ma_alert_state"]["ema21"]["stable_zone"] == "above"
-    assert current["ma_alert_state"]["ema21"]["last_warning_distance_atr"] is None
+    return current, events
 
 
-def test_ema21_warns_again_after_additional_half_atr_decline() -> None:
-    previous = {
-        "moving_averages": {
-            "ema21": {"label": "21-EMA", "value": 180.0, "above": False, "distance_pct": -0.6}
-        },
-        "ma_alert_state": {
-            "ema21": {
-                "initialized": True,
-                "stable_zone": "below",
-                "last_warning_distance_atr": 0.3,
-            }
-        },
+def baseline_ma() -> dict:
+    return ma_tick({}, 1, NOW)[0]
+
+
+def test_ma_confirmation_and_per_event_routing_are_independent() -> None:
+    state = baseline_ma()
+    rule = {
+        "confirmation_minutes": 3,
+        "break_mode": "off",
+        "recovery_mode": "digest",
+        "priority": -1,
+        "session": "custom",
+        "min_distance": 0.3,
+        "distance_unit": "pct",
     }
-    current = copy.deepcopy(previous)
-
-    events = monitor_module._update_moving_average_signal_state(
-        previous=previous,
-        current=current,
-        trend={
-            "current_price": 176.8,
-            "currency": "USD",
-            "moving_averages": {
-                "ema21": {"label": "21-EMA", "value": 180.0, "above": False, "distance_pct": -1.78}
-            },
-        },
-        monitor={"atr_value": 3.6, "current_price": 180.0},
-        now=datetime(2026, 8, 13, 15, 5, tzinfo=UTC),
-        digest=monitor_module._new_daily_signal_digest("2026-08-13"),
+    for minute in range(1, 5):
+        state, events = ma_tick(state, -0.8, NOW + timedelta(minutes=minute), rule=rule)
+        if minute < 4:
+            assert not events
+    event = events[0]
+    assert (event["event_type"], event["mode"], event["priority"], event["session"]) == (
+        "ma_break",
+        "off",
+        -1,
+        "custom",
     )
+    assert "3 Minuten" in event["detail"]
+    for minute in range(5, 9):
+        state, events = ma_tick(state, 0.8, NOW + timedelta(minutes=minute), rule=rule)
+    assert events[0]["event_type"] == "ma_recovery"
+    assert events[0]["mode"] == "digest"
 
-    assert events[0]["tone"] == "warning"
-    assert events[0]["label"] == "21-EMA: weitere Verschlechterung"
-    assert "Seit letzter Warnung +0.59 ATR tiefer" in events[0]["detail"]
+
+def test_ma_same_stale_or_future_quote_never_confirms() -> None:
+    state = baseline_ma()
+    state, _ = ma_tick(state, -1, NOW + timedelta(minutes=1))
+    for minute in range(2, 14):
+        unchanged, events = ma_tick(
+            state, -1, NOW + timedelta(minutes=minute), quote_at=NOW + timedelta(minutes=1)
+        )
+        assert not events
+        assert unchanged == state
+    unchanged, events = ma_tick(
+        state, -1, NOW + timedelta(minutes=30), quote_at=NOW + timedelta(minutes=1)
+    )
+    assert not events
+    assert unchanged == state
 
 
-def test_score_anchor_accumulates_across_checks_and_resets_after_five_points(
+def test_ma_min_distance_in_atr_and_percent() -> None:
+    state = baseline_ma()
+    for minute in range(1, 15):
+        state, events = ma_tick(
+            state,
+            -0.3,
+            NOW + timedelta(minutes=minute),
+            rule={"distance_unit": "atr", "min_distance": 0.2},
+        )
+        assert not events  # ATR=2%, threshold 0.4%.
+    assert state["ma_alert_state"]["ema21"]["stable_zone"] == "above"
+
+
+def test_ma_worsening_waits_for_configured_distance_and_confirmation() -> None:
+    state = ma_tick({}, -1, NOW)[0]
+    rule = {"confirmation_minutes": 2, "worsening_atr": 1, "worsening_mode": "immediate"}
+    state, events = ma_tick(state, -2.9, NOW + timedelta(minutes=1), rule=rule)
+    assert not events
+    for minute in range(2, 5):
+        state, events = ma_tick(state, -3.1, NOW + timedelta(minutes=minute), rule=rule)
+    assert events[0]["event_type"] == "ma_worsening"
+    assert events[0]["mode"] == "immediate"
+    assert not ma_tick(state, -3.2, NOW + timedelta(minutes=5), rule=rule)[1]
+
+
+def test_close_confirmation_uses_verified_final_close_once() -> None:
+    state = baseline_ma()
+    rule = {"confirmation": "close", "break_mode": "immediate"}
+    closed = {
+        "as_of": "2026-10-23",
+        "current_price": 100,
+        "currency": "USD",
+        "is_final": True,
+        "moving_averages": {"ema21": {"above": False, "value": 101, "distance_pct": -1}},
+    }
+    # An intraday quote below the line is insufficient without a verified close.
+    assert not ma_tick(
+        state, -1, NOW + timedelta(minutes=1), rule=rule, closed={**closed, "is_final": False}
+    )[1]
+    state, events = ma_tick(state, 1, NOW + timedelta(minutes=2), rule=rule, closed=closed)
+    assert events[0]["event_type"] == "ma_break"
+    assert "Schlusskurs" in events[0]["detail"]
+    assert not ma_tick(state, 1, NOW + timedelta(minutes=3), rule=rule, closed=closed)[1]
+
+
+def test_score_threshold_direction_and_digest_state_are_independent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stored = {
         "signal_tickers": {
-            "NVDA": {
+            "BE": {
                 "assessment": {
                     "source": "database",
-                    "as_of": "2026-08-13",
+                    "as_of": "2026-10-26",
                     "overall_score": 60,
-                    "verdict_label": "Stark",
-                    "verdict_tone": "good",
+                    "verdict_label": "Beobachten",
+                    "verdict_tone": "warning",
                     "checks": {},
                     "signals": {},
                     "signal_states": {},
                 },
-                "assessment_checked_at": "2026-08-13T14:00:00+00:00",
                 "score_notification_anchor": 60,
             }
         }
     }
-    score = {"value": 64}
+    monkeypatch.setattr(
+        monitor_module.settings_repository, "read_position_monitor_state", lambda: stored
+    )
 
-    def write_state(values: dict) -> dict:
+    def write(value):
         stored.clear()
-        stored.update(copy.deepcopy(values))
-        return values
+        stored.update(copy.deepcopy(value))
 
-    def assessment(_ticker: str) -> SimpleNamespace:
-        return SimpleNamespace(
-            model_dump=lambda mode: {
+    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", write)
+    score = {"value": 69}
+    monkeypatch.setattr(
+        monitor_module,
+        "get_stock_assessment",
+        lambda ticker: SimpleNamespace(
+            model_dump=lambda **kw: {
                 "source": "database",
-                "as_of": "2026-08-13",
-                "verdict_label": "Stark",
-                "verdict_tone": "good",
+                "as_of": "2026-10-26",
                 "scores": {"overall": score["value"]},
+                "verdict_label": "Beobachten",
+                "verdict_tone": "warning",
                 "checks": [],
                 "chart_signals": [],
-                "chart_signal_states": {},
             }
-        )
-
-    monkeypatch.setattr(monitor_module.settings_repository, "read_position_monitor_state", lambda: stored)
-    monkeypatch.setattr(monitor_module.settings_repository, "write_position_monitor_state", write_state)
-    monkeypatch.setattr(monitor_module, "get_stock_assessment", assessment)
-    settings = {
-        "position_monitor_ma_alerts_enabled": False,
-        "position_monitor_assessment_alerts_enabled": True,
-        "position_monitor_assessment_interval_minutes": 15,
-    }
-    result = {"items": [{"ticker": "NVDA", "as_of": "2026-08-13"}]}
-
-    alerts = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings=settings,
-        now=datetime(2026, 8, 13, 15, 0, tzinfo=UTC),
+        ),
     )
-    assert alerts == []
-    monitor_module._finalize_portfolio_signal_state(result, alert_delivery={"sent_alert_ids": []})
-    assert stored["signal_tickers"]["NVDA"]["score_notification_anchor"] == 60
-
-    score["value"] = 65
-    alerts = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings=settings,
-        now=datetime(2026, 8, 13, 15, 16, tzinfo=UTC),
+    prefs = settings(
+        assessment={"score_min_change": 10, "score_mode": "immediate", "notify_improvements": False}
     )
-    assert alerts[0]["events"][0]["label"] == "Gesamtscore 60 → 65"
+    result = {"items": [{"ticker": "BE", "as_of": "2026-10-26"}]}
+    assert (
+        monitor_module._apply_portfolio_signal_state(result, monitor_settings=prefs, now=NOW) == []
+    )
     monitor_module._finalize_portfolio_signal_state(
-        result,
-        alert_delivery={"sent_alert_ids": [alerts[0]["alert_id"]]},
+        result, alert_delivery={"accepted_alert_ids": []}
     )
-    assert stored["signal_tickers"]["NVDA"]["score_notification_anchor"] == 65
-
     score["value"] = 70
     alerts = monitor_module._apply_portfolio_signal_state(
-        result,
-        monitor_settings=settings,
-        now=datetime(2026, 8, 14, 15, 32, tzinfo=UTC),
+        result, monitor_settings=prefs, now=NOW + timedelta(minutes=16)
     )
-    assert alerts[0]["events"][0]["label"] == "Gesamtscore 65 → 70"
+    assert alerts[0]["events"][0]["event_type"] == "score"
+    assert alerts[0]["events"][0]["mode"] == "off"
+    assert "von 60 auf 70 gestiegen" in alerts[0]["events"][0]["label"]
+    monitor_module._finalize_portfolio_signal_state(
+        result, alert_delivery={"accepted_alert_ids": [alerts[0]["alert_id"]]}
+    )
+    assert stored["signal_tickers"]["BE"]["score_notification_anchor"] == 70
+
+
+@pytest.mark.parametrize(
+    "old,new,expected",
+    [
+        ("Unter 200 Tage", "Zu schwach", "good"),
+        ("Zu schwach", "Beobachten", "good"),
+        ("Beobachten", "Unter 200 Tage", "warning"),
+        ("Überdehnt", "Beobachten", "neutral"),
+    ],
+)
+def test_verdict_direction_compares_old_and_new(old: str, new: str, expected: str) -> None:
+    events = monitor_module._assessment_events({"verdict_label": old}, {"verdict_label": new})
+    assert events[0]["tone"] == expected
+    assert events[0]["event_type"] == "verdict"
+
+
+def test_detector_does_not_build_legacy_daily_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        monitor_module.settings_repository, "read_position_monitor_state", lambda: {}
+    )
+    result = {"items": []}
+    assert (
+        monitor_module._apply_portfolio_signal_state(
+            result, monitor_settings=settings(), now=NOW.replace(hour=23)
+        )
+        == []
+    )
+
+
+def test_formatted_notifications_use_german_prose() -> None:
+    alert = atr_tick({}, 1.6)["alert"]
+    message = monitor_module._format_monitor_alert_message(alert)
+    assert "1,60 ATR" in message
+    assert "Verlustschwelle" in message
+    message = monitor_module._format_stock_signal_alert_message(
+        {
+            "ticker": "BE",
+            "current_price": 123.45,
+            "events": [
+                {
+                    "tone": "warning",
+                    "label": "Kurs >= 15",
+                    "detail": "Abstand <= 3.5%; vorher < 2.0%.",
+                }
+            ],
+        }
+    )
+    assert "123,45" in message and "höchstens 3,5" in message
+    assert not any(symbol in message for symbol in ("<", ">", "→", "≥", "≤"))
 
 
 def test_assessment_changes_report_new_and_resolved_warnings() -> None:
@@ -960,7 +527,11 @@ def test_assessment_changes_report_new_and_resolved_warnings() -> None:
             "MA-Ordnung (21>50>200)": {"passed": False, "detail": "nicht korrekt"},
         },
         "signals": {
-            "negative:Stau-Tage": {"category": "negative", "label": "Stau-Tage", "detail": "3 in 10T"}
+            "negative:Stau-Tage": {
+                "category": "negative",
+                "label": "Stau-Tage",
+                "detail": "3 in 10T",
+            }
         },
     }
     current = {
@@ -999,8 +570,8 @@ def test_assessment_changes_report_new_and_resolved_warnings() -> None:
     assert "Kriterium wieder erfüllt: MA-Ordnung (21>50>200)" in labels
     assert "Neues Warnzeichen: Bearish Engulfing" in labels
     assert "Warnzeichen beendet: Stau-Tage" in labels
-    assert "Gesamtscore 76 → 69" in labels
-    assert "Bewertung: Stark → Beobachten" in labels
+    assert "Gesamtscore von 76 auf 69 gefallen" in labels
+    assert "Bewertung von „Stark“ auf „Beobachten“ geändert" in labels
     resolved = next(event for event in events if event["label"] == "Warnzeichen beendet: Stau-Tage")
     assert resolved["detail"] == "Vorher: 3 in 10T · Aktuell: 1/10 Tage · Warnung ab 2"
 
@@ -1141,8 +712,8 @@ def test_stock_signal_message_uses_clear_status_without_duplicate_wording() -> N
         }
     )
 
-    assert "ENTWARNUNG: Preisrückgänge bei hohem Vol." in message
-    assert "DATENHINWEIS: Schwaches RS-Rating" in message
+    assert "Preisrückgänge bei hohem Vol." in message
+    assert "Schwaches RS-Rating" in message
     assert "ENTWARNUNG: Warnzeichen beendet" not in message
 
 
@@ -1174,3 +745,32 @@ def test_failed_signal_delivery_keeps_previous_state(monkeypatch: pytest.MonkeyP
     )
 
     assert written["signal_tickers"]["AAPL"] == previous
+
+
+def test_legacy_daily_latch_uses_last_alert_day_after_a_non_crossing_observation() -> None:
+    yesterday = NOW - timedelta(days=1)
+    legacy = {
+        "last_alert_at": yesterday.isoformat(),
+        "trade_day": monitor_module._monitor_trade_day(yesterday),
+        "threshold_crossed": True,
+    }
+    state = atr_tick(legacy, 1.3)["state_update"]
+    assert atr_tick(state, 1.6, NOW + timedelta(minutes=1))["allowed"] is True
+
+
+def test_ma_atr_threshold_uses_matching_currencies() -> None:
+    current = {}
+    # Same instrument: 100 EUR / 120 USD, daily ATR 2 EUR / 2.4 USD.
+    monitor_module._update_moving_average_signal_state(
+        previous={},
+        current=current,
+        trend={
+            "current_price": 100,
+            "currency": "EUR",
+            "quote_at": NOW.isoformat(),
+            "moving_averages": {"ema21": {"above": True, "distance_pct": 1, "value": 99}},
+        },
+        monitor={"atr_value": 2.4, "current_price": 120},
+        now=NOW,
+    )
+    assert current["ma_alert_state"]["ema21"]["threshold_pct"] == pytest.approx(0.4)

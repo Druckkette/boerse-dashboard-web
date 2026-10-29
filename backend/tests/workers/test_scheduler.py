@@ -13,6 +13,14 @@ def test_celery_beat_uses_german_market_update_timezone() -> None:
     assert celery_app.conf.timezone == "Europe/Berlin"
 
 
+def test_notification_flush_runs_independently_of_price_fetch_hours():
+    entry = get_beat_schedule()["position-notification-delivery"]
+    assert entry["task"] == "flush_position_notifications"
+    assert entry["schedule"] == 60.0
+    assert entry["options"] == {"expires": 50, "queue": "monitor"}
+    assert "app.workers.tasks.flush_position_notifications" in celery_app.conf.imports
+
+
 def test_daily_portfolio_capture_is_independent_and_rechecks_friday_on_saturday():
     schedule = get_beat_schedule()
     close = schedule["archive-portfolio-prices-after-close"]

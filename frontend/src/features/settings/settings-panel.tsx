@@ -23,6 +23,8 @@ import { SellRuleSetupEditor } from "@/features/sell/sell-rule-setup-editor";
 import { PositionSellSettings } from "@/features/sell/sell-setup-panel";
 import { qualityLabel } from "@/lib/format";
 import { MarketauxSettingsPanel } from "./marketaux-settings-panel";
+import { NotificationDeliveryPanel, NotificationSettingsPanel } from "./notification-settings-panel";
+import { defaultNotificationPreferences } from "./notification-preferences";
 import type { AppSettings, AssessmentScoreWeights } from "@/lib/types/api";
 
 const defaultAssessmentScoreWeights: AssessmentScoreWeights = {
@@ -70,6 +72,7 @@ const fallbackSettings: AppSettings = {
   position_monitor_assessment_interval_minutes: 15,
   pushover_enabled: false,
   pushover_configured: false,
+  notification_preferences: defaultNotificationPreferences(),
   rs_rating_source: "computed",
   data_jobs_enabled: true,
   market_ampel_logic: "current",
@@ -168,7 +171,7 @@ export function SettingsPanel() {
   const [stockRulesDirty, setStockRulesDirty] = useState(false);
   const [tab, setTab] = useState("investment");
   useEffect(() => {
-    const routeHash = () => { if (window.location.hash === "#sell-strategy") setTab("alerts"); };
+    const routeHash = () => { if (["#sell-strategy", "#notifications"].includes(window.location.hash)) setTab("alerts"); };
     routeHash();
     window.addEventListener("hashchange", routeHash);
     return () => window.removeEventListener("hashchange", routeHash);
@@ -549,36 +552,6 @@ export function SettingsPanel() {
                     )
                   }
                 />
-                <label className="flex items-center justify-between gap-3 rounded-[9px] border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2 text-sm text-[#172033]">
-                  <span>MA-Brüche sofort melden</span>
-                  <input
-                    checked={settings.position_monitor_ma_alerts_enabled}
-                    className="size-4 accent-[#0f766e]"
-                    type="checkbox"
-                    onChange={(event) =>
-                      update(
-                        "position_monitor_ma_alerts_enabled",
-                        event.target.checked,
-                      )
-                    }
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 rounded-[9px] border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2 text-sm text-[#172033]">
-                  <span>Bewertungsänderungen melden</span>
-                  <input
-                    checked={
-                      settings.position_monitor_assessment_alerts_enabled
-                    }
-                    className="size-4 accent-[#0f766e]"
-                    type="checkbox"
-                    onChange={(event) =>
-                      update(
-                        "position_monitor_assessment_alerts_enabled",
-                        event.target.checked,
-                      )
-                    }
-                  />
-                </label>
                 <details className="md:col-span-2">
                   <summary className="cursor-pointer text-sm font-semibold text-[#0f766e]">
                     Erweiterte Monitor-Einstellungen
@@ -638,10 +611,10 @@ export function SettingsPanel() {
                     <p className="rounded-[9px] border border-[#d8e1ea] bg-[#f6f8fb] px-3 py-2 text-xs leading-5 text-[#687386] md:col-span-2">
                       Brüche und Rückeroberungen von 10-SMA, 21-EMA, 50-SMA und
                       200-SMA werden mit dem Live-Kurs jede Minute geprüft. Die
-                      vollständige Aktienbewertung wird ressourcenschonend alle{" "}
+                      vollständige Aktienbewertung wird alle{" "}
                       {settings.position_monitor_assessment_interval_minutes}{" "}
-                      Minuten verglichen. Nur Zustandsänderungen lösen eine
-                      Nachricht aus.
+                      Minuten verglichen. Welche Anlässe eine Nachricht auslösen,
+                      stellst du unten getrennt ein.
                     </p>
                     <p className="rounded border border-[#e3e8ef] bg-[#f9fbfd] px-3 py-2 text-xs leading-5 text-[#687386] md:col-span-2">
                       {
@@ -651,19 +624,21 @@ export function SettingsPanel() {
                       }{" "}
                       Alle Kurswerte und der ATR werden vor dem Vergleich auf
                       USD normalisiert. Für jede Referenz gilt derselbe
-                      Pushover-Pfad: Prüfung jede Minute, erneuter Alarm nach
-                      einer echten Erholung und erneutem Bruch sowie Eskalation
-                      bei 2x ATR-Schwelle. Ein Alarm gilt erst nach bestätigter
-                      Zustellung als versendet. Der Tages-Cooldown wechselt um
-                      07:30 Uhr deutscher Zeit, ohne den unveränderten Verlust
-                      des Vortags erneut zu melden.
+                      Prüfungsrhythmus von einer Minute. Wiederholungen,
+                      Eskalationen und Versandzeiten wählst du unten. Ein Alarm
+                      gilt erst nach bestätigter Zustellung als versendet. Ein
+                      neuer Überwachungstag beginnt um 07:30 Uhr deutscher Zeit.
                     </p>
                   </div>
                 </details>
               </div>
             </SettingCard>{" "}
+            <div id="notifications"><NotificationSettingsPanel
+              value={settings.notification_preferences ?? defaultNotificationPreferences()}
+              onChange={next => update("notification_preferences", next)}
+            /></div>
             <SettingCard
-              description="Secrets bleiben in der Container-Umgebung. Die Oberfläche speichert nur, ob Alerts genutzt werden sollen."
+              description="Aktiviere den Versand und prüfe den hinterlegten Pushover-Zugang mit einer Testnachricht."
               title="Pushover"
               value={
                 settings.pushover_configured ? "konfiguriert" : "Secrets fehlen"
@@ -715,6 +690,7 @@ export function SettingsPanel() {
                 </div>
               )}
             </SettingCard>
+            <NotificationDeliveryPanel settingsDirty={dirty} />
           </section>
         )}
         {tab === "system" && (

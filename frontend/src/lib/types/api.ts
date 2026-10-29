@@ -1913,11 +1913,89 @@ export type AppSettings = {
   position_monitor_assessment_interval_minutes: number;
   pushover_enabled: boolean;
   pushover_configured: boolean;
+  notification_preferences: NotificationPreferences;
   rs_rating_source: "csv_latest" | "computed";
   data_jobs_enabled: boolean;
   market_ampel_logic: "current" | "ibd";
   assessment_score_weights: AssessmentScoreWeights;
   sell_rule_setup: Record<string, unknown>;
+};
+
+export type NotificationMode = "off" | "digest" | "immediate";
+export type NotificationSession = "regular" | "all" | "custom";
+export type NotificationPriority = -1 | 0 | 1;
+export type NotificationRepeat = "daily" | "manual" | "recovery" | "interval";
+export type NotificationMaKey = "sma10" | "ema21" | "sma50" | "sma200";
+export type NotificationMaPreferences = {
+  break_mode: NotificationMode;
+  recovery_mode: NotificationMode;
+  worsening_mode: NotificationMode;
+  confirmation: "intraday" | "close";
+  confirmation_minutes: number;
+  distance_unit: "atr" | "pct";
+  min_distance: number;
+  worsening_atr: number;
+  max_per_day: number;
+  session: NotificationSession;
+  priority: NotificationPriority;
+};
+export type NotificationPreferences = {
+  version: 1;
+  timezone: string;
+  ma: Record<NotificationMaKey, NotificationMaPreferences>;
+  stop: {
+    mode: NotificationMode;
+    repeat: NotificationRepeat;
+    repeat_minutes: number;
+    recovery_pct: number;
+    recovery_minutes: number;
+    priority: NotificationPriority;
+    session: NotificationSession;
+  };
+  atr: {
+    mode: NotificationMode;
+    escalation_enabled: boolean;
+    escalation_atr: number;
+    repeat: NotificationRepeat;
+    repeat_minutes: number;
+    recovery_atr: number;
+    recovery_minutes: number;
+    priority: NotificationPriority;
+    session: NotificationSession;
+  };
+  assessment: {
+    score_mode: NotificationMode;
+    verdict_mode: NotificationMode;
+    score_min_change: number;
+    notify_improvements: boolean;
+    notify_deteriorations: boolean;
+    priority: NotificationPriority;
+    session: NotificationSession;
+  };
+  grouping: {
+    enabled: boolean;
+    window_minutes: number;
+    max_immediate_per_ticker_day: number;
+    stop_bypass: boolean;
+    atr_escalation_bypass: boolean;
+  };
+  summary: {
+    enabled: boolean;
+    time: string;
+    categories: Array<"ma" | "score" | "verdict" | "stop" | "atr">;
+    include_sent: boolean;
+    only_changes: boolean;
+    max_tickers: number;
+    priority: NotificationPriority;
+  };
+  quiet: {
+    enabled: boolean;
+    start: string;
+    end: string;
+    stop_bypass: boolean;
+    atr_escalation_bypass: boolean;
+  };
+  custom_session: { start: string; end: string };
 };
 
 export type AssessmentScoreWeights = {
@@ -2042,11 +2120,16 @@ export type DataDiagnostics = {
 export type PushoverDeliveryLogItem = {
   timestamp: string;
   ticker: string;
-  status: "sent" | "failed" | "skipped";
+  status: "sent" | "failed" | "skipped" | "queued" | "digest" | "suppressed" | "disabled";
   detail: string;
   distance_atr?: number | null;
   threshold_atr?: number | null;
   reference_label: string;
+  kind?: string;
+  alert_id?: string;
+  title?: string;
+  message?: string;
+  priority?: NotificationPriority;
 };
 
 export type PushoverDeliveryLog = {

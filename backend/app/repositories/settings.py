@@ -11,6 +11,7 @@ SETTINGS_KEY = "runtime"
 RUNTIME_CONFIG_KEY = "runtime_config"
 POSITION_MONITOR_STATE_KEY = "position_monitor_state"
 PUSHOVER_DELIVERY_LOG_KEY = "pushover_delivery_log"
+ATR_REARM_KEY = "notification_atr_rearm"
 
 
 class SettingsRepositoryUnavailable(RuntimeError):
@@ -94,6 +95,30 @@ def read_pushover_delivery_log() -> list[dict]:
     payload = _read_json_setting(PUSHOVER_DELIVERY_LOG_KEY)
     entries = payload.get("entries")
     return [dict(item) for item in entries if isinstance(item, dict)] if isinstance(entries, list) else []
+
+
+def read_atr_rearm_requests() -> dict:
+    return _read_json_setting(ATR_REARM_KEY)
+
+
+def request_atr_rearm(ticker: str) -> dict:
+    from datetime import UTC, datetime
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": ATR_REARM_KEY})
+            row = db.get(AppSetting, ATR_REARM_KEY)
+            values = dict(row.value_json or {}) if row is not None else {}
+            values[ticker] = datetime.now(UTC).isoformat()
+            # Requests are monotonic markers and need no destructive consumption.
+            values = dict(sorted(values.items(), key=lambda item: item[1], reverse=True)[:500])
+            if row is None:
+                row = AppSetting(key=ATR_REARM_KEY, description="Explicit manual ATR notification rearm")
+                db.add(row)
+            row.value_json = values
+            db.commit()
+            return {"ok": True, "ticker": ticker, "count": 1}
+    except SQLAlchemyError as exc:
+        raise SettingsRepositoryUnavailable(str(exc)) from exc
 
 
 def append_pushover_delivery_log(entries: list[dict], *, limit: int = 100) -> list[dict]:

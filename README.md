@@ -252,8 +252,10 @@ yet, they return explicit missing-data states rather than blocking the UI.
 The dedicated ATR monitor loads all open position quotes in one Yahoo intraday batch every minute
 on trading days from 08:00 through 02:00 Europe/Berlin, including the US after-hours session. It compares the live quote with the configured
 reference and cached ATR without running the full Sell Engine. The separate `monitor` queue remains
-responsive while price, fundamentals or 13F jobs occupy the main NAS worker. An alert only enters
-cooldown after Pushover confirms delivery; failed or skipped deliveries are retried on the next tick.
+responsive while price, fundamentals or 13F jobs occupy the main NAS worker. Per-MA routing,
+confirmed recoveries, repeat limits, grouped delivery and scheduled summaries are configurable in
+Settings. Durable queued alerts advance detector state; failed provider calls are retried with
+backoff. See [notification settings and delivery behavior](docs/notifications.md).
 Completed scheduler checks are hidden from the normal job history and pruned to the latest runs so
 the one-minute cadence neither obscures manual jobs nor grows the NAS database without bounds.
 After a monitor run, `/sell-monitor` reads the precomputed ranking snapshot from Postgres and only

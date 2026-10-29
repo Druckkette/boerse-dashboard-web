@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
-from datetime import UTC, datetime
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.core_config import get_settings
 from app.repositories import jobs as job_repository
@@ -58,7 +59,11 @@ def pushover_test(self, job_id: str | None = None, payload: dict | None = None) 
         response = _send_pushover_message(
             user_key=user_key,
             app_token=app_token,
-            message=f"boerse-dashboard-web Pushover-Test {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            title="Börsendashboard: Verbindungstest",
+            message=(
+                "Die Verbindung funktioniert. Dein Dashboard kann dir Benachrichtigungen senden.\n"
+                f"Gesendet am {datetime.now(ZoneInfo('Europe/Berlin')).strftime('%d.%m.%Y um %H:%M Uhr')}."
+            ),
         )
         result.update(ok=True, sent=True, response=response)
         job_repository.mark_done(job.job_id, result=result, message="Pushover-Test gesendet.")
