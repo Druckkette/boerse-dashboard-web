@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import math
+import re
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.core_config import get_settings as get_runtime_settings
 from app.domain.sell.service import monitor_open_position_atr
 from app.repositories import jobs as job_repository
 from app.repositories import settings as settings_repository
 from app.repositories.settings import SettingsRepositoryUnavailable
+from app.notification_preferences import NotificationPreferences, merge_preferences
 from app.schemas import AppSettings
-from app.services.settings import get_app_settings, get_runtime_config_bool, get_runtime_config_value
+from app.services.settings import get_app_settings
 from app.services.stocks import get_stock_assessment
 from app.workers.celery_app import celery_app
 from app.workers.tasks.common import JobCancelled, raise_if_cancelled
@@ -21,12 +24,6 @@ from app.workers.tasks.pushover_test import _send_pushover_message
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 MONITOR_RESET_TIME = time(7, 30)
-MA_MIN_DISTANCE_PCT = 0.15
-MA_MIN_DISTANCE_ATR = 0.10
-MA_CONFIRMATION_MINUTES = 3
-MA_ESCALATION_ATR = 0.50
-SCORE_NOTIFICATION_STEP = 5
-SIGNAL_SUMMARY_TIME = time(22, 35)
 IMMEDIATE_MA_KEYS = ("sma10", "ema21", "sma50", "sma200")
 
 
@@ -66,6 +63,10 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
             job_repository.mark_skipped(job.job_id, message=result["reason"], result=result)
             return result
 
+        try:
+            monitor_settings["atr_rearm_requests"] = settings_repository.read_atr_rearm_requests()
+        except SettingsRepositoryUnavailable:
+            monitor_settings["atr_rearm_requests"] = {}
         raise_if_cancelled(job.job_id)
         job_repository.update_progress(
             job.job_id,
@@ -81,30 +82,40 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
             step="Live-ATR prüfen",
             message="Yahoo-Live-Kurse werden gesammelt geladen und gegen den Cache-ATR geprüft.",
         )
-        result = monitor_open_position_atr(tickers=tickers or None, monitor_settings=monitor_settings)
+        result = monitor_open_position_atr(
+            tickers=tickers or None, monitor_settings=monitor_settings
+        )
         if result.get("skipped"):
-            job_repository.mark_skipped(job.job_id, message=str(result.get("reason") or "Keine Positionen."), result=result)
+            job_repository.mark_skipped(
+                job.job_id, message=str(result.get("reason") or "Keine Positionen."), result=result
+            )
             return result
         from app.services.stop_alerts import deliver_stop_alerts
-        result["stop_delivery"] = deliver_stop_alerts(
-            [item["stop_observation"] for item in result.get("items", []) if item.get("stop_observation")],
-            lambda alerts: _deliver_monitor_alerts(alerts, app_settings=settings),
-        )
-        result = _apply_cooldown_state(result, monitor_settings=monitor_settings, persist_state=False)
-        alert_delivery = _deliver_monitor_alerts(result.get("alerts", []), app_settings=settings)
-        _finalize_monitor_state(result, alert_delivery=alert_delivery)
-        result["alert_delivery"] = alert_delivery
-        if isinstance(result.get("last_summary"), dict):
-            result["last_summary"]["sent"] = alert_delivery.get("sent", 0)
 
-        signal_alerts = _apply_portfolio_signal_state(
-            result,
-            monitor_settings=monitor_settings,
+        result = _apply_cooldown_state(
+            result, monitor_settings=monitor_settings, persist_state=False
         )
-        signal_alert_delivery = _deliver_monitor_alerts(signal_alerts, app_settings=settings)
-        _finalize_portfolio_signal_state(result, alert_delivery=signal_alert_delivery)
+        signal_alerts = _apply_portfolio_signal_state(result, monitor_settings=monitor_settings)
+        result["stop_delivery"] = deliver_stop_alerts(
+            [
+                item["stop_observation"]
+                for item in result.get("items", [])
+                if item.get("stop_observation")
+            ],
+            lambda alerts: _deliver_monitor_alerts(
+                alerts, app_settings=settings, observations=result.get("items", [])
+            ),
+            preferences=_preferences(monitor_settings)["stop"],
+            additional_alerts=[*result.get("alerts", []), *signal_alerts],
+        )
+        delivery = result["stop_delivery"].get("delivery", {"accepted_alert_ids": [], "failed": 1})
+        _finalize_monitor_state(result, alert_delivery=delivery)
+        _finalize_portfolio_signal_state(result, alert_delivery=delivery)
+        result["alert_delivery"] = delivery
         result["signal_alerts"] = signal_alerts
-        result["signal_alert_delivery"] = signal_alert_delivery
+        result["signal_alert_delivery"] = delivery
+        if isinstance(result.get("last_summary"), dict):
+            result["last_summary"]["sent"] = delivery.get("sent", 0)
 
         raise_if_cancelled(job.job_id)
         job_repository.update_progress(
@@ -114,14 +125,20 @@ def position_atr_monitor(self, job_id: str | None = None, payload: dict | None =
             message=f"{result.get('records_written', 0)} Positionen live geprüft.",
             result=result,
         )
-        job_repository.mark_done(job.job_id, result=result, message="Positionsmonitor aktualisiert.")
+        job_repository.mark_done(
+            job.job_id, result=result, message="Positionsmonitor aktualisiert."
+        )
         return result
     except JobCancelled:
         job_repository.mark_cancelled(job.job_id)
         return {"ok": False, "cancelled": True, "job_type": "position_atr_monitor"}
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
-        job_repository.mark_failed(job.job_id, error_message=error, result={"ok": False, "job_type": "position_atr_monitor"})
+        job_repository.mark_failed(
+            job.job_id,
+            error_message=error,
+            result={"ok": False, "job_type": "position_atr_monitor"},
+        )
         raise
 
 
@@ -145,7 +162,8 @@ def _apply_cooldown_state(
     now = now or datetime.now(UTC)
     trade_day = _monitor_trade_day(now)
     reset_at = _next_monitor_reset(now)
-    state = _read_monitor_state()
+    state = copy.deepcopy(_read_monitor_state())
+    previous_tickers = copy.deepcopy(state.get("tickers", {}))
     ticker_state = state.get("tickers") if isinstance(state.get("tickers"), dict) else {}
     alerts: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
@@ -195,6 +213,7 @@ def _apply_cooldown_state(
         _write_monitor_state(result, state)
     else:
         result["_pending_monitor_state"] = state
+        result["_previous_monitor_tickers"] = previous_tickers
 
     result["alerts"] = alerts
     result["alerts_suppressed"] = suppressed
@@ -211,14 +230,24 @@ def _finalize_monitor_state(result: dict[str, Any], *, alert_delivery: dict[str,
 
     sent_tickers = {
         str(ticker).strip().upper()
-        for ticker in alert_delivery.get("sent_tickers", [])
+        for ticker in alert_delivery.get("accepted_tickers", alert_delivery.get("sent_tickers", []))
         if str(ticker).strip()
     }
     ticker_state = state.get("tickers") if isinstance(state.get("tickers"), dict) else {}
+    previous_tickers = result.pop("_previous_monitor_tickers", {})
+    accepted_ids = set(alert_delivery.get("accepted_alert_ids") or [])
     for alert in result.get("alerts", []):
         ticker = str(alert.get("ticker") or "").strip().upper() if isinstance(alert, dict) else ""
-        if ticker and ticker not in sent_tickers:
-            ticker_state.pop(ticker, None)
+        accepted = (
+            alert.get("alert_id") in accepted_ids
+            if "accepted_alert_ids" in alert_delivery
+            else ticker in sent_tickers
+        )
+        if ticker and not accepted:
+            if ticker in previous_tickers:
+                ticker_state[ticker] = previous_tickers[ticker]
+            else:
+                ticker_state.pop(ticker, None)
     state["tickers"] = ticker_state
 
     summary = state.get("last_summary") if isinstance(state.get("last_summary"), dict) else {}
@@ -230,6 +259,8 @@ def _finalize_monitor_state(result: dict[str, Any], *, alert_delivery: dict[str,
         }
     )
     state["last_summary"] = summary
+    if isinstance(result.get("_pending_signal_state"), dict):
+        result["_pending_signal_state"]["base_state"] = copy.deepcopy(state)
     _write_monitor_state(result, state)
 
 
@@ -237,184 +268,168 @@ def _write_monitor_state(result: dict[str, Any], state: dict[str, Any]) -> None:
     try:
         settings_repository.write_position_monitor_state(state)
     except SettingsRepositoryUnavailable as exc:
-        result.setdefault("warnings", []).append(f"Positionsmonitor-State konnte nicht gespeichert werden: {exc}")
+        result.setdefault("warnings", []).append(
+            f"Positionsmonitor-State konnte nicht gespeichert werden: {exc}"
+        )
 
 
-def _deliver_monitor_alerts(alerts: list[dict[str, Any]], *, app_settings: AppSettings) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "ok": True,
-        "enabled": bool(getattr(app_settings, "pushover_enabled", False)),
-        "configured": False,
-        "dry_run": False,
-        "sent": 0,
-        "failed": 0,
-        "skipped": 0,
-        "sent_tickers": [],
-        "sent_alert_ids": [],
-        "errors": [],
-    }
-    if not alerts:
-        result["reason"] = "Keine neuen Positionssignale."
-        return result
-    if not getattr(app_settings, "pushover_enabled", False):
-        result.update(skipped=len(alerts), reason="Pushover ist in den Settings deaktiviert.")
-        _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
-        return result
+def _deliver_monitor_alerts(
+    alerts: list[dict[str, Any]],
+    *,
+    app_settings: AppSettings,
+    observations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    from app.services.notification_delivery import deliver_notifications
 
-    runtime = get_runtime_settings()
-    user_key = get_runtime_config_value("PUSHOVER_USER_KEY") or runtime.pushover_user_key
-    app_token = get_runtime_config_value("PUSHOVER_APP_TOKEN") or runtime.pushover_app_token
-    dry_run = get_runtime_config_bool("PUSHOVER_DRY_RUN", runtime.pushover_dry_run)
-    result.update(configured=bool(user_key and app_token), dry_run=dry_run)
-    if not user_key or not app_token:
-        result.update(skipped=len(alerts), reason="PUSHOVER_USER_KEY oder PUSHOVER_APP_TOKEN fehlt.")
-        _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
-        return result
-    if dry_run:
-        result.update(skipped=len(alerts), reason="PUSHOVER_DRY_RUN ist aktiv.")
-        _record_delivery_logs(alerts, status="skipped", detail=result["reason"])
-        return result
-
-    delivery_logs: list[dict[str, Any]] = []
-    for alert in alerts:
-        try:
-            response = _send_pushover_message(
-                user_key=user_key,
-                app_token=app_token,
-                message=_format_monitor_alert_message(alert),
-                title=_monitor_alert_title(alert),
-                priority=0 if str(alert.get("kind") or "") == "stock_signal_summary" else 1,
-            )
-            if int(response.get("status") or 0) != 1:
-                raise RuntimeError(f"Pushover hat den Alarm nicht bestätigt: {response}")
-            result["sent"] += 1
-            result["sent_tickers"].append(str(alert.get("ticker") or "").strip().upper())
-            result["sent_alert_ids"].append(str(alert.get("alert_id") or ""))
-            delivery_logs.append(_delivery_log_item(alert, status="sent", detail="Pushover hat den Alarm bestätigt."))
-        except Exception as exc:  # noqa: BLE001 - alert delivery must not crash the monitor job
-            result["failed"] += 1
-            detail = f"{type(exc).__name__}: {exc}"
-            result["errors"].append(f"{alert.get('ticker', 'UNKNOWN')}: {detail}")
-            delivery_logs.append(_delivery_log_item(alert, status="failed", detail=detail))
-    _append_delivery_logs(delivery_logs)
-    result["ok"] = result["failed"] == 0
-    return result
+    return deliver_notifications(
+        alerts,
+        app_settings=app_settings,
+        send_message=_send_pushover_message,
+        observations=observations,
+    )
 
 
-def _record_delivery_logs(alerts: list[dict[str, Any]], *, status: str, detail: str) -> None:
-    _append_delivery_logs([_delivery_log_item(alert, status=status, detail=detail) for alert in alerts])
+def _preferences(settings: dict[str, Any]) -> dict[str, Any]:
+    defaults = NotificationPreferences().model_dump()
+    raw = settings.get("notification_preferences")
+    if hasattr(raw, "model_dump"):
+        raw = raw.model_dump()
+    return merge_preferences(defaults, raw) if isinstance(raw, dict) else defaults
 
 
-def _delivery_log_item(alert: dict[str, Any], *, status: str, detail: str) -> dict[str, Any]:
-    return {
-        "timestamp": datetime.now(UTC).isoformat(),
-        "ticker": str(alert.get("ticker") or "").strip().upper(),
-        "status": status,
-        "detail": detail,
-        "distance_atr": _float_or_none(alert.get("distance_atr")),
-        "threshold_atr": _float_or_none(alert.get("threshold_atr")),
-        "reference_label": str(alert.get("reference_label") or alert.get("reference") or ""),
-        "kind": str(alert.get("kind") or "atr"),
-        "alert_id": str(alert.get("alert_id") or ""),
-    }
+def _event_identity(ticker: str, event: dict[str, Any], observation: str) -> str:
+    content = json.dumps(
+        [ticker, event.get("event_type"), event.get("ma_key"), event.get("label"), observation],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return "signal:" + hashlib.sha256(content.encode()).hexdigest()[:28]
 
 
-def _append_delivery_logs(entries: list[dict[str, Any]]) -> None:
-    if not entries:
-        return
-    try:
-        settings_repository.append_pushover_delivery_log(entries)
-    except SettingsRepositoryUnavailable:
-        return
+def _fresh_quote_at(monitor: dict[str, Any], now: datetime) -> datetime | None:
+    quote_at = _parse_datetime(monitor.get("quote_at") or monitor.get("live_quote_at"))
+    if quote_at is None or not timedelta(0) <= now - quote_at <= timedelta(minutes=20):
+        return None
+    return quote_at
+
+
+def _german_number(value: Any, digits: int = 2) -> str:
+    number = _float_or_none(value)
+    if number is None:
+        return "unbekannt"
+    return f"{number:,.{digits}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def _prose(value: Any) -> str:
+    text = str(value or "")
+    for old, new in (
+        (">=", "mindestens "),
+        ("<=", "höchstens "),
+        ("≥", "mindestens "),
+        ("≤", "höchstens "),
+        ("→", " auf "),
+        (">", "über "),
+        ("<", "unter "),
+        ("=", " beträgt "),
+    ):
+        text = text.replace(old, new)
+    text = re.sub(r"(?<=\d)\.(?=\d)", ",", text)
+    return re.sub(r" {2,}", " ", text).strip()
+
+
+def _signal_label_prose(event: dict[str, Any]) -> str:
+    raw = str(event.get("label") or "")
+    subject = _prose(_notification_event_label(raw))
+    if raw.startswith("Warnzeichen beendet:"):
+        return f"Das Warnzeichen „{subject}“ ist entfallen"
+    if raw.startswith("Kriterium wieder erfüllt:"):
+        return f"Das Kriterium „{subject}“ ist wieder erfüllt"
+    if raw.startswith("Kriterium jetzt bewertbar:"):
+        return f"Das Kriterium „{subject}“ lässt sich wieder bewerten"
+    if "derzeit nicht bewertbar:" in raw:
+        return f"„{subject}“ lässt sich derzeit nicht bewerten"
+    if raw.startswith("Neues Warnzeichen:"):
+        return f"Neues Warnzeichen: {subject}"
+    return _prose(raw)
 
 
 def _format_monitor_alert_message(alert: dict[str, Any]) -> str:
+    ticker = str(alert.get("ticker") or "Deine Position")
     if alert.get("kind") == "stop":
-        return (f"STOP erreicht: {alert['name']} ({alert['ticker']}) - "
-                f"Kurs {alert['current_price']:.2f} {alert['currency']}, "
-                f"Stop {alert['stop_price']:.2f} {alert['currency']}. "
-                f"Kurszeit: {alert['quote_at']}")
-    if str(alert.get("kind") or "") == "stock_signal_summary":
+        return (
+            f"{alert.get('name') or ticker} hat deinen Stopp erreicht.\n"
+            f"Der Kurs liegt bei {_german_number(alert.get('current_price'))} {alert.get('currency', 'USD')}. "
+            f"Dein Stopp liegt bei {_german_number(alert.get('stop_price'))} {alert.get('currency', 'USD')}."
+        )
+    if alert.get("kind") == "stock_signal_summary":
         return _format_stock_signal_summary_message(alert)
-    if str(alert.get("kind") or "atr") == "stock_signal":
+    if alert.get("kind") == "stock_signal":
         return _format_stock_signal_alert_message(alert)
-    ticker = str(alert.get("ticker") or "UNKNOWN")
-    distance = _float_or_none(alert.get("distance_atr")) or 0.0
-    threshold = _float_or_none(alert.get("threshold_atr")) or 0.0
-    reference = str(alert.get("reference_label") or alert.get("reference") or "Referenz")
-    current_price = alert.get("current_price")
-    reference_price = alert.get("reference_price")
+    reference = {
+        "previous_close": "dem Vortagesschluss",
+        "entry_price": "deinem Einstand",
+        "high_since_buy": "dem Höchstkurs seit deinem Kauf",
+        "close_since_buy": "dem höchsten Schlusskurs seit deinem Kauf",
+    }.get(str(alert.get("reference") or ""), "deinem Referenzkurs")
     reason = str(alert.get("reason") or "")
-    reason_labels = {
-        "2x_atr_escalation": "2x ATR Eskalation",
-        "monitor_configuration_changed": "Referenz oder ATR-Schwelle geändert",
-        "threshold_recrossed": "ATR-Schwelle nach Erholung erneut unterschritten",
-    }
-    reason_text = reason_labels.get(reason, "ATR-Schwelle neu überschritten")
+    lead = (
+        f"Der Kursrückgang bei {ticker} hat sich deutlich verstärkt."
+        if reason == "atr_escalation"
+        else f"{ticker} hat deine Verlustschwelle erreicht."
+    )
     return (
-        f"{ticker}: ATR-Abstand {distance:.2f} >= {threshold:.2f}\n"
-        f"Referenz: {reference}\n"
-        f"Aktueller Kurs: {current_price}; Referenzkurs: {reference_price}\n"
-        f"Auslöser: {reason_text}"
+        f"{lead}\nDer Kurs liegt {_german_number(alert.get('distance_atr'))} ATR unter {reference}. "
+        f"Deine Warnschwelle liegt bei {_german_number(alert.get('threshold_atr'))} ATR.\n"
+        f"Aktueller Kurs: {_german_number(alert.get('current_price'))} USD. "
+        f"Referenzkurs: {_german_number(alert.get('reference_price'))} USD.\n"
+        "ATR beschreibt die übliche tägliche Kursschwankung."
     )
 
 
 def _monitor_alert_title(alert: dict[str, Any]) -> str:
+    ticker = str(alert.get("ticker") or "Depot")
     if alert.get("kind") == "stop":
-        return f"STOP erreicht: {alert['ticker']}"
-    if str(alert.get("kind") or "") == "stock_signal_summary":
-        return "Depot-Tagesübersicht"
-    ticker = str(alert.get("ticker") or "Position")
-    if str(alert.get("kind") or "atr") != "stock_signal":
-        return f"ATR-Alarm {ticker}"
-    events = alert.get("events") if isinstance(alert.get("events"), list) else []
-    has_warning = any(str(event.get("tone") or "") == "warning" for event in events if isinstance(event, dict))
-    return f"Depot-Warnung {ticker}" if has_warning else f"Depot-Update {ticker}"
+        return f"{ticker} · Dein Stopp ist erreicht"
+    if alert.get("kind") == "stock_signal_summary":
+        return "Dein Depot · Die wichtigsten Veränderungen"
+    if alert.get("kind") != "stock_signal":
+        return (
+            f"{ticker} · Kursrückgang verstärkt"
+            if alert.get("reason") == "atr_escalation"
+            else f"{ticker} · Verlustschwelle erreicht"
+        )
+    events = [event for event in alert.get("events", []) if isinstance(event, dict)]
+    if len(events) == 1:
+        return f"{ticker} · {_signal_label_prose(events[0])}"[:120]
+    warning = any(event.get("tone") == "warning" for event in events)
+    return f"{ticker} · Neue Warnzeichen" if warning else f"{ticker} · Neue Entwicklung"
 
 
 def _format_stock_signal_alert_message(alert: dict[str, Any]) -> str:
-    ticker = str(alert.get("ticker") or "UNKNOWN")
-    events = alert.get("events") if isinstance(alert.get("events"), list) else []
-    lines = [f"{ticker}: Aktienbewertung hat sich geändert"]
-    current_price = _float_or_none(alert.get("current_price"))
-    currency = str(alert.get("currency") or "USD")
-    if current_price is not None:
-        lines.append(f"Kurs: {current_price:.2f} {currency}")
-    for event in events[:8]:
+    ticker = str(alert.get("ticker") or "Deine Position")
+    lines: list[str] = []
+    price = _float_or_none(alert.get("current_price"))
+    if price is not None:
+        lines.append(
+            f"{ticker} steht bei {_german_number(price)} {alert.get('currency') or 'USD'}."
+        )
+    for event in alert.get("events", [])[:8]:
         if not isinstance(event, dict):
             continue
-        tone = str(event.get("tone") or "")
-        prefix = (
-            "WARNUNG"
-            if tone == "warning"
-            else "ENTWARNUNG"
-            if tone == "good"
-            else "DATENHINWEIS"
-            if tone == "neutral"
-            else "BEWERTUNG"
-        )
-        label = _notification_event_label(str(event.get("label") or ""))
-        lines.append(f"{prefix}: {label}")
-        detail = str(event.get("detail") or "").strip()
-        if detail:
-            lines.append(detail)
-    as_of = str(alert.get("as_of") or "").strip()
-    if as_of:
-        lines.append(f"Datenstand: {as_of}")
-    return "\n".join(lines)[:1000]
+        label = _signal_label_prose(event)
+        detail = _prose(event.get("detail"))
+        lines.append(label.rstrip(".") + "." + (f" {detail}" if detail else ""))
+    return "\n\n".join(lines)[:1000]
 
 
 def _format_stock_signal_summary_message(alert: dict[str, Any]) -> str:
-    summary_date = str(alert.get("summary_date") or "").strip()
-    lines = [f"Depot-Tagesübersicht {summary_date}".strip()]
-    entries = alert.get("entries") if isinstance(alert.get("entries"), list) else []
-    if not entries:
-        lines.append("Keine neuen relevanten Signaländerungen.")
-    else:
-        lines.extend(str(entry).strip() for entry in entries if str(entry).strip())
+    lines = ["Die wichtigsten Veränderungen in deinem Depot:"]
+    lines.extend(_prose(entry) for entry in alert.get("entries", []) if str(entry).strip())
+    if len(lines) == 1:
+        lines.append("Heute gibt es keine neuen relevanten Veränderungen.")
     omitted = int(_float_or_none(alert.get("omitted_entries")) or 0)
     if omitted:
-        lines.append(f"+ {omitted} weitere Hinweise im Dashboard")
+        lines.append(f"Weitere {omitted} Hinweise findest du im Dashboard.")
     return "\n".join(lines)[:1000]
 
 
@@ -424,20 +439,25 @@ def _apply_portfolio_signal_state(
     monitor_settings: dict[str, Any],
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Compare portfolio signals with hysteresis and persistent notification anchors."""
-
+    """Detect changes independently of whether their route is immediate, digest or off."""
     now = now or datetime.now(UTC)
-    local_now = now.astimezone(BERLIN_TZ)
-    summary_date = local_now.date().isoformat()
     state = copy.deepcopy(_read_monitor_state())
-    stored_tickers = state.get("signal_tickers") if isinstance(state.get("signal_tickers"), dict) else {}
+    stored_tickers = (
+        state.get("signal_tickers") if isinstance(state.get("signal_tickers"), dict) else {}
+    )
     pending: dict[str, dict[str, Any]] = {}
     alerts: list[dict[str, Any]] = []
-    ma_enabled = bool(monitor_settings.get("position_monitor_ma_alerts_enabled", True))
-    assessment_enabled = bool(monitor_settings.get("position_monitor_assessment_alerts_enabled", True))
+    preferences = _preferences(monitor_settings)
+    assessment_rule = preferences["assessment"]
     interval_minutes = max(
         5,
-        min(120, int(_float_or_none(monitor_settings.get("position_monitor_assessment_interval_minutes")) or 15)),
+        min(
+            120,
+            int(
+                _float_or_none(monitor_settings.get("position_monitor_assessment_interval_minutes"))
+                or 15
+            ),
+        ),
     )
 
     for item in result.get("items", []):
@@ -446,157 +466,157 @@ def _apply_portfolio_signal_state(
         ticker = str(item.get("ticker") or "").strip().upper()
         if not ticker:
             continue
-        previous = stored_tickers.get(ticker) if isinstance(stored_tickers.get(ticker), dict) else {}
+        previous = (
+            stored_tickers.get(ticker) if isinstance(stored_tickers.get(ticker), dict) else {}
+        )
         current = copy.deepcopy(previous)
-        digest = _daily_signal_digest(current, summary_date=summary_date)
-        events: list[dict[str, str]] = []
-
         trend = item.get("trend_monitor") if isinstance(item.get("trend_monitor"), dict) else {}
+        monitor = item.get("monitor") if isinstance(item.get("monitor"), dict) else {}
+        events = _update_moving_average_signal_state(
+            previous=previous,
+            current=current,
+            trend=trend,
+            monitor=monitor,
+            now=now,
+            closed_trend=item.get("closed_trend_monitor"),
+            preferences=preferences["ma"],
+        )
         current_ma = _normalized_ma_state(trend)
         if current_ma:
-            if ma_enabled:
-                ma_events = _update_moving_average_signal_state(
-                    previous=previous,
-                    current=current,
-                    trend=trend,
-                    monitor=item.get("monitor") if isinstance(item.get("monitor"), dict) else {},
-                    now=now,
-                    digest=digest,
-                )
-                events.extend(ma_events)
-                for event in ma_events:
-                    _record_digest_event(digest, event, key=f"ma:{_event_subject(event)}")
             current["moving_averages"] = current_ma
             current["trend_as_of"] = str(trend.get("as_of") or "")
             current["current_price"] = _float_or_none(trend.get("current_price"))
             current["currency"] = str(trend.get("currency") or "USD")
 
-        prior_assessment = previous.get("assessment") if isinstance(previous.get("assessment"), dict) else {}
-        if assessment_enabled and _assessment_check_due(
+        prior = previous.get("assessment") if isinstance(previous.get("assessment"), dict) else {}
+        if _assessment_check_due(
             previous,
             price_as_of=str(item.get("as_of") or ""),
             now=now,
             interval_minutes=interval_minutes,
         ):
             try:
-                assessment = get_stock_assessment(ticker)
-                summary = _assessment_state(assessment.model_dump(mode="json"))
+                summary = _assessment_state(get_stock_assessment(ticker).model_dump(mode="json"))
                 if summary.get("source") == "database":
-                    if prior_assessment:
-                        for event in _assessment_events(prior_assessment, summary, include_score=False):
-                            if str(event.get("label") or "").startswith("Bewertung:"):
-                                events.append(event)
-                            else:
-                                _record_digest_event(digest, event)
+                    if prior:
+                        for event in _assessment_events(prior, summary, include_score=False):
+                            is_verdict = event.get("event_type") == "verdict"
+                            event.update(
+                                category="verdict",
+                                event_type="verdict" if is_verdict else "assessment_detail",
+                                mode=assessment_rule["verdict_mode"]
+                                if is_verdict
+                                else (
+                                    "off" if assessment_rule["verdict_mode"] == "off" else "digest"
+                                ),
+                                priority=assessment_rule["priority"],
+                                session=assessment_rule["session"],
+                                observation=str(summary.get("as_of") or ""),
+                            )
+                            _apply_assessment_direction(event, assessment_rule)
+                            events.append(event)
                     score = int(_float_or_none(summary.get("overall_score")) or 0)
                     anchor_value = _float_or_none(current.get("score_notification_anchor"))
                     if anchor_value is None:
-                        anchor_value = _float_or_none(prior_assessment.get("overall_score"))
-                    if anchor_value is None:
-                        anchor_value = float(score)
-                    anchor = int(anchor_value)
-                    score_delta = score - anchor
-                    if abs(score_delta) >= SCORE_NOTIFICATION_STEP:
+                        anchor_value = _float_or_none(prior.get("overall_score"))
+                    anchor = int(score if anchor_value is None else anchor_value)
+                    delta = score - anchor
+                    if abs(delta) >= assessment_rule["score_min_change"]:
                         score_event = {
-                            "tone": "warning" if score_delta < 0 else "good",
-                            "label": f"Gesamtscore {anchor} → {score}",
-                            "detail": f"Seit der letzten Score-Benachrichtigung {score_delta:+d} Punkte.",
+                            "tone": "warning" if delta < 0 else "good",
+                            "category": "score",
+                            "event_type": "score",
+                            "label": f"Gesamtscore von {anchor} auf {score} {'gefallen' if delta < 0 else 'gestiegen'}",
+                            "detail": f"Der Score hat sich seit der letzten erfassten Änderung um {abs(delta)} Punkte {'verschlechtert' if delta < 0 else 'verbessert'}.",
+                            "mode": assessment_rule["score_mode"],
+                            "priority": assessment_rule["priority"],
+                            "session": assessment_rule["session"],
+                            "observation": str(summary.get("as_of") or ""),
                         }
+                        _apply_assessment_direction(score_event, assessment_rule)
                         events.append(score_event)
-                        _record_digest_event(digest, score_event, key="score:last_notification")
                         current["score_notification_anchor"] = score
                     else:
                         current["score_notification_anchor"] = anchor
-                    digest["score"] = {
-                        "anchor": int(current["score_notification_anchor"]),
-                        "current": score,
-                    }
                     current["assessment"] = summary
                     current["assessment_checked_at"] = now.isoformat()
-            except Exception as exc:  # noqa: BLE001 - one assessment must not stop live monitoring
+                    item["notification_assessment"] = summary
+            except Exception as exc:  # noqa: BLE001 - one unavailable assessment must not stop monitoring
                 item.setdefault("warnings", []).append(
                     f"Aktienbewertung konnte nicht verglichen werden: {type(exc).__name__}: {exc}"
                 )
 
         current["last_seen_at"] = now.isoformat()
+        for event in events:
+            event["event_id"] = _event_identity(ticker, event, str(event.pop("observation", "")))
+            if event.get("category") == "ma":
+                event["limit_key"] = f"ma:{ticker}:{event.get('ma_key')}"
         alert_id = ""
         if events:
-            alert_id = f"stock-signal:{ticker}:{int(now.timestamp())}"
+            identities = ":".join(event["event_id"] for event in events)
+            alert_id = (
+                f"stock-signal:{ticker}:" + hashlib.sha256(identities.encode()).hexdigest()[:24]
+            )
             alerts.append(
                 {
                     "kind": "stock_signal",
                     "alert_id": alert_id,
                     "ticker": ticker,
+                    "name": item.get("name") or ticker,
                     "current_price": current.get("current_price"),
                     "currency": current.get("currency") or "USD",
                     "as_of": current.get("trend_as_of") or item.get("as_of") or "",
-                    "events": events[:12],
+                    "events": events,
                 }
             )
-        pending[ticker] = {
-            "previous": previous,
-            "current": current,
-            "alert_id": alert_id,
-        }
-
-    summary_alert = _build_signal_summary_alert(
-        pending,
-        state=state,
-        local_now=local_now,
-    )
-    if summary_alert is not None:
-        alerts.append(summary_alert)
+        pending[ticker] = {"previous": previous, "current": current, "alert_id": alert_id}
 
     result["_pending_signal_state"] = {
         "base_state": state,
         "tickers": pending,
         "finished_at": now.isoformat(),
-        "summary_alert_id": str(summary_alert.get("alert_id") or "") if summary_alert else "",
-        "summary_date": str(summary_alert.get("summary_date") or "") if summary_alert else "",
     }
     return alerts
 
 
+def _apply_assessment_direction(event: dict[str, Any], rule: dict[str, Any]) -> None:
+    if (event.get("tone") == "good" and not rule["notify_improvements"]) or (
+        event.get("tone") == "warning" and not rule["notify_deteriorations"]
+    ):
+        event["mode"] = "off"
+        event["suppression_reason"] = "direction_disabled"
+
+
 def _finalize_portfolio_signal_state(
-    result: dict[str, Any],
-    *,
-    alert_delivery: dict[str, Any],
+    result: dict[str, Any], *, alert_delivery: dict[str, Any]
 ) -> None:
     pending = result.pop("_pending_signal_state", None)
     if not isinstance(pending, dict):
         return
     state = pending.get("base_state") if isinstance(pending.get("base_state"), dict) else {}
-    pending_tickers = pending.get("tickers") if isinstance(pending.get("tickers"), dict) else {}
-    sent_ids = {
-        str(value)
-        for value in alert_delivery.get("sent_alert_ids", [])
-        if str(value)
-    }
-    summary_alert_id = str(pending.get("summary_alert_id") or "")
-    summary_date = str(pending.get("summary_date") or "")
-    summary_sent = bool(summary_alert_id and summary_alert_id in sent_ids)
-    next_tickers: dict[str, Any] = {}
-    for ticker, transition in pending_tickers.items():
+    accepted_ids = set(
+        alert_delivery.get("accepted_alert_ids", alert_delivery.get("sent_alert_ids", []))
+    )
+    next_tickers = dict(state.get("signal_tickers") or {})
+    for ticker, transition in pending.get("tickers", {}).items():
         if not isinstance(transition, dict):
             continue
         alert_id = str(transition.get("alert_id") or "")
-        previous = transition.get("previous") if isinstance(transition.get("previous"), dict) else {}
-        current = transition.get("current") if isinstance(transition.get("current"), dict) else {}
-        if not alert_id or alert_id in sent_ids:
-            next_tickers[str(ticker)] = current
+        previous = (
+            transition.get("previous") if isinstance(transition.get("previous"), dict) else {}
+        )
+        if not alert_id or alert_id in accepted_ids:
+            next_tickers[ticker] = transition["current"]
         elif previous:
-            next_tickers[str(ticker)] = previous
-    if summary_sent:
-        for ticker_state in next_tickers.values():
-            if isinstance(ticker_state, dict):
-                ticker_state["daily_signal_digest"] = _new_daily_signal_digest(summary_date)
-        state["signal_summary_date"] = summary_date
+            next_tickers[ticker] = previous
     state["signal_tickers"] = next_tickers
     state["last_signal_finished_at"] = str(pending.get("finished_at") or "")
     try:
         settings_repository.write_position_monitor_state(state)
     except SettingsRepositoryUnavailable as exc:
-        result.setdefault("warnings", []).append(f"Warnzeichen-State konnte nicht gespeichert werden: {exc}")
+        result.setdefault("warnings", []).append(
+            f"Warnzeichen-State konnte nicht gespeichert werden: {exc}"
+        )
 
 
 def _normalized_ma_state(trend: dict[str, Any]) -> dict[str, Any]:
@@ -614,44 +634,45 @@ def _normalized_ma_state(trend: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _new_daily_signal_digest(summary_date: str) -> dict[str, Any]:
-    return {
-        "date": summary_date,
-        "events": {},
-        "score": {},
-    }
+MA_LABELS = {
+    "sma10": "10-Tage-Linie",
+    "ema21": "21-Tage-Linie (EMA)",
+    "sma50": "50-Tage-Linie",
+    "sma200": "200-Tage-Linie",
+}
 
 
-def _daily_signal_digest(current: dict[str, Any], *, summary_date: str) -> dict[str, Any]:
-    digest = current.get("daily_signal_digest")
-    if not isinstance(digest, dict) or str(digest.get("date") or "") != summary_date:
-        digest = _new_daily_signal_digest(summary_date)
-        current["daily_signal_digest"] = digest
-    return digest
-
-
-def _record_digest_event(
-    digest: dict[str, Any],
-    event: dict[str, str],
+def _confirm_observation(
+    state: dict[str, Any],
     *,
-    key: str | None = None,
-) -> None:
-    events = digest.get("events") if isinstance(digest.get("events"), dict) else {}
-    event_key = key or _event_subject(event)
-    events[event_key] = {
-        "tone": str(event.get("tone") or "neutral"),
-        "label": str(event.get("label") or event_key),
-        "detail": str(event.get("detail") or ""),
-    }
-    digest["events"] = events
+    prefix: str,
+    target: str,
+    observed_at: datetime,
+    minutes: int,
+    close: bool = False,
+) -> bool:
+    if close:
+        return True
+    since = _parse_datetime(state.get(f"{prefix}_since"))
+    last = _parse_datetime(state.get("last_observation_at"))
+    contiguous = last is None or observed_at - last <= timedelta(minutes=3)
+    if (
+        state.get(f"{prefix}_zone") != target
+        or since is None
+        or since > observed_at
+        or not contiguous
+    ):
+        since, count = observed_at, 1
+    else:
+        count = int(state.get(f"{prefix}_count") or 0) + 1
+    state.update(
+        {f"{prefix}_zone": target, f"{prefix}_since": since.isoformat(), f"{prefix}_count": count}
+    )
+    return count >= 2 and observed_at - since >= timedelta(minutes=minutes)
 
 
-def _event_subject(event: dict[str, str]) -> str:
-    label = _notification_event_label(str(event.get("label") or "")).strip()
-    for subject in ("10-SMA", "21-EMA", "50-SMA", "200-SMA"):
-        if subject in label:
-            return subject
-    return label or "Signal"
+def _clear_confirmation(state: dict[str, Any], prefix: str) -> None:
+    state.update({f"{prefix}_zone": "", f"{prefix}_since": "", f"{prefix}_count": 0})
 
 
 def _update_moving_average_signal_state(
@@ -661,95 +682,148 @@ def _update_moving_average_signal_state(
     trend: dict[str, Any],
     monitor: dict[str, Any],
     now: datetime,
-    digest: dict[str, Any],
-) -> list[dict[str, str]]:
-    raw = trend.get("moving_averages") if isinstance(trend.get("moving_averages"), dict) else {}
-    atr_pct = _monitor_atr_pct(monitor)
-    threshold_pct = max(MA_MIN_DISTANCE_PCT, (atr_pct or 0.0) * MA_MIN_DISTANCE_ATR)
-    state_by_ma = current.get("ma_alert_state") if isinstance(current.get("ma_alert_state"), dict) else {}
-    state_by_ma = copy.deepcopy(state_by_ma)
-    events: list[dict[str, str]] = []
-
+    digest: dict[str, Any] | None = None,
+    closed_trend: dict[str, Any] | None = None,
+    preferences: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    rules = preferences or NotificationPreferences().model_dump()["ma"]
+    state_by_ma = copy.deepcopy(current.get("ma_alert_state") or {})
+    events: list[dict[str, Any]] = []
     for key in IMMEDIATE_MA_KEYS:
-        current_value = raw.get(key) if isinstance(raw.get(key), dict) else {}
-        if not isinstance(current_value.get("above"), bool):
+        rule = rules[key]
+        is_close = rule["confirmation"] == "close"
+        selected = closed_trend if is_close else trend
+        if not isinstance(selected, dict) or (is_close and not selected.get("is_final")):
             continue
-        distance_pct = _float_or_none(current_value.get("distance_pct"))
-        if distance_pct is None:
+        raw = selected.get("moving_averages") or {}
+        value = raw.get(key) if isinstance(raw.get(key), dict) else {}
+        distance_pct = _float_or_none(value.get("distance_pct"))
+        if distance_pct is None or not isinstance(value.get("above"), bool):
             continue
-        zone = "below" if distance_pct <= -threshold_pct else "above" if distance_pct >= threshold_pct else "neutral"
-        distance_atr = abs(distance_pct) / atr_pct if atr_pct and atr_pct > 0 else None
-        ma_state = state_by_ma.get(key) if isinstance(state_by_ma.get(key), dict) else {}
-        ma_state = copy.deepcopy(ma_state)
+        price = _float_or_none(selected.get("current_price"))
+        if price is None or price <= 0:
+            continue
+        if is_close:
+            observation = str(selected.get("as_of") or "")
+            try:
+                observed_at = datetime.combine(date.fromisoformat(observation), time(), UTC)
+            except ValueError:
+                continue
+        else:
+            observed_at = _fresh_quote_at(
+                {"quote_at": selected.get("quote_at") or monitor.get("live_quote_at")}, now
+            )
+            if observed_at is None:
+                continue
+            observation = observed_at.isoformat()
+        ma_state = copy.deepcopy(state_by_ma.get(key) or {})
+        previous_observation = str(ma_state.get("last_observation") or "")
+        last_at = _parse_datetime(ma_state.get("last_observation_at"))
+        if ma_state.get("confirmation_kind") == rule["confirmation"] and (
+            previous_observation == observation or (last_at is not None and observed_at <= last_at)
+        ):
+            continue
+        if ma_state.get("confirmation_kind") != rule["confirmation"]:
+            _clear_confirmation(ma_state, "candidate")
+            _clear_confirmation(ma_state, "worsening")
+        atr_value = _float_or_none(monitor.get("atr_value"))
+        atr_pct = _float_or_none(selected.get("atr_pct"))
+        normalized_price = _float_or_none(monitor.get("current_price"))
+        if atr_pct is None and atr_value is not None and atr_value > 0 and normalized_price:
+            # Both monitor values are normalized to USD; the trend price may
+            # instead be quoted in EUR, GBP or another listing currency.
+            atr_pct = atr_value / normalized_price * 100
+        if atr_pct is not None and atr_pct <= 0:
+            atr_pct = None
+        if rule["distance_unit"] == "atr" and atr_pct is None:
+            continue
+        threshold_pct = (
+            rule["min_distance"] * atr_pct
+            if rule["distance_unit"] == "atr"
+            else rule["min_distance"]
+        )
+        distance_atr = abs(distance_pct) / atr_pct if atr_pct else None
+        zone = (
+            "below"
+            if distance_pct <= -threshold_pct
+            else "above"
+            if distance_pct >= threshold_pct
+            else "neutral"
+        )
         if not ma_state.get("initialized"):
+            # Establish a baseline without sending every pre-existing condition.
             ma_state.update(
-                {
-                    "initialized": True,
-                    "stable_zone": zone if zone != "neutral" else ("above" if current_value["above"] else "below"),
-                    "candidate_zone": "",
-                    "candidate_since": "",
-                    "candidate_count": 0,
-                    "last_warning_distance_atr": distance_atr if zone == "below" else None,
-                }
+                initialized=True,
+                stable_zone=zone if zone != "neutral" else ("above" if value["above"] else "below"),
+                last_warning_distance_atr=distance_atr if zone == "below" else None,
             )
         else:
             stable_zone = str(ma_state.get("stable_zone") or "neutral")
-            if zone == "below" and stable_zone == "below":
-                last_warning_distance = _float_or_none(ma_state.get("last_warning_distance_atr"))
-                if (
-                    distance_atr is not None
-                    and last_warning_distance is not None
-                    and distance_atr >= last_warning_distance + MA_ESCALATION_ATR
+            if zone not in {"neutral", stable_zone}:
+                if _confirm_observation(
+                    ma_state,
+                    prefix="candidate",
+                    target=zone,
+                    observed_at=observed_at,
+                    minutes=rule["confirmation_minutes"],
+                    close=is_close,
                 ):
+                    recovering = zone == "above"
                     events.append(
-                        _ma_escalation_event(
-                            key=key,
-                            current=current_value,
-                            trend=trend,
-                            threshold_pct=threshold_pct,
-                            distance_atr=distance_atr,
-                            previous_distance_atr=last_warning_distance,
-                        )
-                    )
-                    ma_state["last_warning_distance_atr"] = distance_atr
-
-            if zone == "neutral" or zone == stable_zone:
-                ma_state.update(candidate_zone="", candidate_since="", candidate_count=0)
-            else:
-                candidate_zone = str(ma_state.get("candidate_zone") or "")
-                candidate_since = _parse_datetime(ma_state.get("candidate_since"))
-                if candidate_zone != zone or candidate_since is None or candidate_since > now:
-                    candidate_zone = zone
-                    candidate_since = now
-                    candidate_count = 1
-                else:
-                    candidate_count = int(_float_or_none(ma_state.get("candidate_count")) or 0) + 1
-                ma_state.update(
-                    candidate_zone=candidate_zone,
-                    candidate_since=candidate_since.isoformat(),
-                    candidate_count=candidate_count,
-                )
-                held_long_enough = now - candidate_since >= timedelta(minutes=MA_CONFIRMATION_MINUTES)
-                if held_long_enough and candidate_count >= MA_CONFIRMATION_MINUTES:
-                    events.append(
-                        _ma_transition_event(
-                            key=key,
-                            zone=zone,
-                            current=current_value,
-                            trend=trend,
-                            threshold_pct=threshold_pct,
-                            distance_atr=distance_atr,
+                        _ma_event(
+                            key,
+                            "ma_recovery" if recovering else "ma_break",
+                            rule,
+                            value,
+                            selected,
+                            distance_pct,
+                            distance_atr,
+                            observation,
                         )
                     )
                     ma_state.update(
                         stable_zone=zone,
-                        candidate_zone="",
-                        candidate_since="",
-                        candidate_count=0,
                         last_warning_distance_atr=distance_atr if zone == "below" else None,
                     )
-
+                    _clear_confirmation(ma_state, "candidate")
+                    _clear_confirmation(ma_state, "worsening")
+            else:
+                _clear_confirmation(ma_state, "candidate")
+                anchor = _float_or_none(ma_state.get("last_warning_distance_atr"))
+                worsening = (
+                    zone == "below"
+                    and distance_atr is not None
+                    and anchor is not None
+                    and distance_atr >= anchor + rule["worsening_atr"]
+                )
+                if worsening and _confirm_observation(
+                    ma_state,
+                    prefix="worsening",
+                    target="below",
+                    observed_at=observed_at,
+                    minutes=rule["confirmation_minutes"],
+                    close=is_close,
+                ):
+                    events.append(
+                        _ma_event(
+                            key,
+                            "ma_worsening",
+                            rule,
+                            value,
+                            selected,
+                            distance_pct,
+                            distance_atr,
+                            observation,
+                        )
+                    )
+                    ma_state["last_warning_distance_atr"] = distance_atr
+                    _clear_confirmation(ma_state, "worsening")
+                elif not worsening:
+                    _clear_confirmation(ma_state, "worsening")
         ma_state.update(
+            last_observation=observation,
+            last_observation_at=observed_at.isoformat(),
+            confirmation_kind=rule["confirmation"],
             current_zone=zone,
             current_distance_pct=distance_pct,
             current_distance_atr=distance_atr,
@@ -762,167 +836,56 @@ def _update_moving_average_signal_state(
     return events
 
 
-def _monitor_atr_pct(monitor: dict[str, Any]) -> float | None:
-    atr_value = _float_or_none(monitor.get("atr_value"))
-    current_price = _float_or_none(monitor.get("current_price"))
-    if atr_value is None or current_price is None or atr_value <= 0 or current_price <= 0:
-        return None
-    return atr_value / current_price * 100
-
-
-def _ma_transition_event(
-    *,
+def _ma_event(
     key: str,
-    zone: str,
-    current: dict[str, Any],
+    event_type: str,
+    rule: dict[str, Any],
+    value: dict[str, Any],
     trend: dict[str, Any],
-    threshold_pct: float,
+    distance_pct: float,
     distance_atr: float | None,
-) -> dict[str, str]:
-    label = str(current.get("label") or key)
-    detail = _ma_event_detail(
-        current=current,
-        trend=trend,
-        threshold_pct=threshold_pct,
-        distance_atr=distance_atr,
+    observation: str,
+) -> dict[str, Any]:
+    label = MA_LABELS[key]
+    recovering = event_type == "ma_recovery"
+    suffix = (
+        "zurückerobert"
+        if recovering
+        else "weiter unterschritten"
+        if event_type == "ma_worsening"
+        else "unterschritten"
     )
-    return {
-        "tone": "good" if zone == "above" else "warning",
-        "label": f"{label} zurückerobert" if zone == "above" else f"Bruch der {label}",
-        "detail": f"{MA_CONFIRMATION_MINUTES} Minuten bestätigt · {detail}",
-    }
-
-
-def _ma_escalation_event(
-    *,
-    key: str,
-    current: dict[str, Any],
-    trend: dict[str, Any],
-    threshold_pct: float,
-    distance_atr: float,
-    previous_distance_atr: float,
-) -> dict[str, str]:
-    label = str(current.get("label") or key)
-    detail = _ma_event_detail(
-        current=current,
-        trend=trend,
-        threshold_pct=threshold_pct,
-        distance_atr=distance_atr,
+    mode_key = (
+        "recovery_mode"
+        if recovering
+        else "worsening_mode"
+        if event_type == "ma_worsening"
+        else "break_mode"
     )
-    return {
-        "tone": "warning",
-        "label": f"{label}: weitere Verschlechterung",
-        "detail": (
-            f"Seit letzter Warnung {distance_atr - previous_distance_atr:+.2f} ATR tiefer · {detail}"
-        ),
-    }
-
-
-def _ma_event_detail(
-    *,
-    current: dict[str, Any],
-    trend: dict[str, Any],
-    threshold_pct: float,
-    distance_atr: float | None,
-) -> str:
-    label = str(current.get("label") or "Durchschnitt")
-    price = _float_or_none(trend.get("current_price"))
-    average = _float_or_none(current.get("value"))
-    distance = _float_or_none(current.get("distance_pct"))
-    currency = str(trend.get("currency") or "USD")
-    values: list[str] = []
-    if price is not None:
-        values.append(f"Kurs {price:.2f} {currency}")
-    if average is not None:
-        values.append(f"{label} {average:.2f}")
-    if distance is not None:
-        values.append(f"Abstand {distance:+.2f}%")
+    confirmation = (
+        "Der Schlusskurs bestätigt das Signal"
+        if rule["confirmation"] == "close"
+        else f"Das Signal wurde über {rule['confirmation_minutes']} Minuten bestätigt"
+    )
+    detail = (
+        f"{confirmation}. Der Kurs liegt {_german_number(abs(distance_pct))} Prozent "
+        f"{'über' if recovering else 'unter'} der Linie bei {_german_number(value.get('value'))} {trend.get('currency') or 'USD'}."
+    )
     if distance_atr is not None:
-        values.append(f"{distance_atr:.2f} ATR")
-    values.append(f"Mindestabstand {threshold_pct:.2f}%")
-    return " · ".join(values)
-
-
-def _build_signal_summary_alert(
-    pending: dict[str, dict[str, Any]],
-    *,
-    state: dict[str, Any],
-    local_now: datetime,
-) -> dict[str, Any] | None:
-    summary_date = local_now.date().isoformat()
-    if (
-        local_now.weekday() >= 5
-        or local_now.time() < SIGNAL_SUMMARY_TIME
-        or str(state.get("signal_summary_date") or "") == summary_date
-    ):
-        return None
-
-    prioritized: list[tuple[int, str]] = []
-    for ticker, transition in sorted(pending.items()):
-        current = transition.get("current") if isinstance(transition.get("current"), dict) else {}
-        digest = current.get("daily_signal_digest") if isinstance(current.get("daily_signal_digest"), dict) else {}
-        recorded_subjects: set[str] = set()
-        digest_events = digest.get("events") if isinstance(digest.get("events"), dict) else {}
-        for event in digest_events.values():
-            if not isinstance(event, dict):
-                continue
-            tone = str(event.get("tone") or "neutral")
-            label = _notification_event_label(str(event.get("label") or "Signal"))
-            subject = _event_subject({"label": label})
-            recorded_subjects.add(subject)
-            status = "WARNUNG" if tone == "warning" else "ERHOLT" if tone == "good" else "HINWEIS"
-            priority = 0 if tone == "warning" else 2 if tone == "good" else 3
-            prioritized.append((priority, f"{ticker} · {status} · {label}"))
-
-        ma_state = current.get("ma_alert_state") if isinstance(current.get("ma_alert_state"), dict) else {}
-        current_ma = current.get("moving_averages") if isinstance(current.get("moving_averages"), dict) else {}
-        for key, label in (
-            ("sma10", "10-SMA"),
-            ("ema21", "21-EMA"),
-            ("sma50", "50-SMA"),
-            ("sma200", "200-SMA"),
-        ):
-            alert_state = ma_state.get(key) if isinstance(ma_state.get(key), dict) else {}
-            ma_value = current_ma.get(key) if isinstance(current_ma.get(key), dict) else {}
-            distance = _float_or_none(ma_value.get("distance_pct"))
-            threshold = _float_or_none(alert_state.get("threshold_pct")) or MA_MIN_DISTANCE_PCT
-            if distance is None or distance >= 0 or label in recorded_subjects:
-                continue
-            if abs(distance) < threshold:
-                prioritized.append(
-                    (0, f"{ticker} · WARNUNG · leicht unter {label} ({distance:+.2f}%; Schwelle {threshold:.2f}%)")
-                )
-            elif str(alert_state.get("stable_zone") or "") == "below":
-                prioritized.append((1, f"{ticker} · AKTIV · unter {label} ({distance:+.2f}%)"))
-
-        score = digest.get("score") if isinstance(digest.get("score"), dict) else {}
-        anchor = _float_or_none(score.get("anchor"))
-        current_score = _float_or_none(score.get("current"))
-        if anchor is not None and current_score is not None and int(current_score) != int(anchor):
-            prioritized.append(
-                (3, f"{ticker} · Score {int(current_score)} · seit letzter Push {int(current_score - anchor):+d}")
-            )
-
-    entries: list[str] = []
-    used_chars = 0
-    unique_lines: set[str] = set()
-    for _, line in sorted(prioritized, key=lambda item: (item[0], item[1])):
-        if line in unique_lines:
-            continue
-        projected = used_chars + len(line) + 2
-        if projected > 850:
-            continue
-        entries.append(f"- {line}")
-        unique_lines.add(line)
-        used_chars = projected
-    omitted = max(0, len({line for _, line in prioritized}) - len(entries))
+        detail += f" Das entspricht {_german_number(distance_atr)} ATR."
     return {
-        "kind": "stock_signal_summary",
-        "alert_id": f"stock-signal-summary:{summary_date}",
-        "ticker": "DEPOT",
-        "summary_date": summary_date,
-        "entries": entries,
-        "omitted_entries": omitted,
+        "category": "ma",
+        "event_type": event_type,
+        "ma_key": key,
+        "tone": "good" if recovering else "warning",
+        "label": f"{label} {suffix}",
+        "detail": detail,
+        "mode": rule[mode_key],
+        "priority": rule["priority"],
+        "session": rule["session"],
+        "max_per_day": rule["max_per_day"],
+        "confirmation": rule["confirmation"],
+        "observation": observation,
     }
 
 
@@ -967,7 +930,9 @@ def _assessment_state(raw: dict[str, Any]) -> dict[str, Any]:
                 "detail": str(item.get("detail") or ""),
             }
     signal_states: dict[str, Any] = {}
-    raw_states = raw.get("chart_signal_states") if isinstance(raw.get("chart_signal_states"), dict) else {}
+    raw_states = (
+        raw.get("chart_signal_states") if isinstance(raw.get("chart_signal_states"), dict) else {}
+    )
     for label, item in raw_states.items():
         if not isinstance(item, dict):
             continue
@@ -1040,14 +1005,30 @@ def _assessment_events(
 
     previous_signals = previous.get("signals") if isinstance(previous.get("signals"), dict) else {}
     current_signals = current.get("signals") if isinstance(current.get("signals"), dict) else {}
-    previous_signal_states = previous.get("signal_states") if isinstance(previous.get("signal_states"), dict) else {}
-    current_signal_states = current.get("signal_states") if isinstance(current.get("signal_states"), dict) else {}
+    previous_signal_states = (
+        previous.get("signal_states") if isinstance(previous.get("signal_states"), dict) else {}
+    )
+    current_signal_states = (
+        current.get("signal_states") if isinstance(current.get("signal_states"), dict) else {}
+    )
     for key, signal in current_signals.items():
-        if not isinstance(signal, dict) or signal.get("category") != "negative" or key in previous_signals:
+        if (
+            not isinstance(signal, dict)
+            or signal.get("category") != "negative"
+            or key in previous_signals
+        ):
             continue
         label = str(signal.get("label") or "")
-        previous_state = previous_signal_states.get(label) if isinstance(previous_signal_states.get(label), dict) else {}
-        current_state = current_signal_states.get(label) if isinstance(current_signal_states.get(label), dict) else {}
+        previous_state = (
+            previous_signal_states.get(label)
+            if isinstance(previous_signal_states.get(label), dict)
+            else {}
+        )
+        current_state = (
+            current_signal_states.get(label)
+            if isinstance(current_signal_states.get(label), dict)
+            else {}
+        )
         previous_detail = str(previous_state.get("detail") or "")
         current_detail = str(current_state.get("detail") or signal.get("detail") or "")
         events.append(
@@ -1062,11 +1043,23 @@ def _assessment_events(
             }
         )
     for key, signal in previous_signals.items():
-        if not isinstance(signal, dict) or signal.get("category") != "negative" or key in current_signals:
+        if (
+            not isinstance(signal, dict)
+            or signal.get("category") != "negative"
+            or key in current_signals
+        ):
             continue
         label = str(signal.get("label") or "")
-        current_state = current_signal_states.get(label) if isinstance(current_signal_states.get(label), dict) else {}
-        previous_state = previous_signal_states.get(label) if isinstance(previous_signal_states.get(label), dict) else {}
+        current_state = (
+            current_signal_states.get(label)
+            if isinstance(current_signal_states.get(label), dict)
+            else {}
+        )
+        previous_state = (
+            previous_signal_states.get(label)
+            if isinstance(previous_signal_states.get(label), dict)
+            else {}
+        )
         previous_detail = str(previous_state.get("detail") or signal.get("detail") or "")
         current_detail = str(current_state.get("detail") or "")
         if not current_state or not bool(current_state.get("available")):
@@ -1074,7 +1067,9 @@ def _assessment_events(
                 {
                     "tone": "neutral",
                     "label": f"Warnzeichen derzeit nicht bewertbar: {label}",
-                    "detail": _transition_detail(previous_detail, current_detail or "Aktuelle Daten fehlen."),
+                    "detail": _transition_detail(
+                        previous_detail, current_detail or "Aktuelle Daten fehlen."
+                    ),
                 }
             )
             continue
@@ -1097,21 +1092,50 @@ def _assessment_events(
         events.append(
             {
                 "tone": "warning" if new_score < old_score else "good",
-                "label": f"Gesamtscore {old_score} → {new_score}",
-                "detail": f"Veränderung {new_score - old_score:+d} Punkte.",
+                "event_type": "score",
+                "label": f"Gesamtscore von {old_score} auf {new_score} {'gefallen' if new_score < old_score else 'gestiegen'}",
+                "detail": f"Der Score hat sich um {abs(new_score - old_score)} Punkte verändert.",
             }
         )
     old_verdict = str(previous.get("verdict_label") or "")
     new_verdict = str(current.get("verdict_label") or "")
     if old_verdict and new_verdict and old_verdict != new_verdict:
+        tone = _verdict_change_tone(previous, current)
         events.append(
             {
-                "tone": "warning" if str(current.get("verdict_tone") or "") in {"warning", "bad"} else "good",
-                "label": f"Bewertung: {old_verdict} → {new_verdict}",
-                "detail": "Das zusammengefasste Aktienurteil hat sich geändert.",
+                "tone": tone,
+                "event_type": "verdict",
+                "label": f"Bewertung von „{old_verdict}“ auf „{new_verdict}“ geändert",
+                "detail": "Die Gesamtbewertung hat sich verbessert."
+                if tone == "good"
+                else "Die Gesamtbewertung hat sich verschlechtert."
+                if tone == "warning"
+                else "Die Gesamtbewertung hat sich verändert; daraus ergibt sich keine eindeutige Richtung.",
             }
         )
-    return events[:12]
+    return events
+
+
+def _verdict_change_tone(previous: dict[str, Any], current: dict[str, Any]) -> str:
+    # Compare the transition rather than labelling every still-imperfect result
+    # a new warning. In particular, leaving the 200-day blocker is an improvement.
+    ranks = {
+        "Mindestpreis nicht erreicht": 0,
+        "Volumen nicht erreicht": 0,
+        "Unter 200 Tage": 0,
+        "Zu schwach": 1,
+        "Überdehnt": 2,
+        "Beobachten": 2,
+        "Attraktiv": 3,
+        "Stark": 3,
+    }
+    old_rank = ranks.get(str(previous.get("verdict_label") or ""))
+    new_rank = ranks.get(str(current.get("verdict_label") or ""))
+    if old_rank is None or new_rank is None:
+        tones = {"bad": 0, "warning": 1, "neutral": 1, "good": 2}
+        old_rank = tones.get(str(previous.get("verdict_tone") or ""), 1)
+        new_rank = tones.get(str(current.get("verdict_tone") or ""), 1)
+    return "good" if new_rank > old_rank else "warning" if new_rank < old_rank else "neutral"
 
 
 def _transition_detail(previous: str, current: str) -> str:
@@ -1181,130 +1205,168 @@ def _cooldown_decision(
     reset_at: datetime,
     monitor_settings: dict[str, Any],
 ) -> dict[str, Any]:
-    distance_atr = _float_or_none(monitor.get("distance_atr"))
-    threshold_atr = _float_or_none(monitor.get("threshold_atr")) or _float_or_none(
-        monitor_settings.get("position_monitor_threshold_atr")
-    ) or 1.5
-    crossed = bool(monitor.get("threshold_crossed")) and distance_atr is not None
-    monitor_update: dict[str, Any] = {
+    rule = _preferences(monitor_settings)["atr"]
+    threshold = (
+        _float_or_none(monitor.get("threshold_atr"))
+        or _float_or_none(monitor_settings.get("position_monitor_threshold_atr"))
+        or 1.5
+    )
+    distance = _float_or_none(monitor.get("distance_atr"))
+    quote_at = _fresh_quote_at(monitor, now)
+    previous = ticker_state.get(ticker) if isinstance(ticker_state.get(ticker), dict) else {}
+    update = {
         "cooldown_trade_day": trade_day,
         "cooldown_reset_at": reset_at.isoformat(),
         "alert_allowed": False,
-        "alert_reason": "threshold_not_crossed",
+        "alert_reason": "no_fresh_quote",
     }
-    previous = ticker_state.get(ticker) if isinstance(ticker_state.get(ticker), dict) else {}
-    current_reference = str(monitor.get("reference") or "")
-    current_reference_price = _float_or_none(monitor.get("reference_price"))
-    if not crossed:
-        state_update = None
-        if previous:
-            state_update = {
-                **previous,
-                "trade_day": trade_day,
-                "threshold_atr": threshold_atr,
-                "reference": current_reference,
-                "reference_price": current_reference_price,
-                "current_price": _float_or_none(monitor.get("current_price")),
-                "threshold_crossed": False,
-                "escalated_2x": False,
-            }
-        return {
-            "allowed": False,
-            "monitor_update": monitor_update,
-            "state_update": state_update,
-            "alert": None,
-            "suppression": None,
-        }
-
-    previous_trade_day = str(previous.get("trade_day") or "")
-    previous_distance = _float_or_none(previous.get("last_distance_atr"))
-    previous_reference_price = _float_or_none(previous.get("reference_price"))
-    previous_reference = str(previous.get("reference") or "")
-    previous_threshold = _float_or_none(previous.get("threshold_atr"))
-    two_x_threshold = threshold_atr * 2
-    is_two_x = distance_atr >= two_x_threshold
-    previous_two_x = bool(previous.get("escalated_2x"))
-    is_new_trade_day = previous_trade_day != trade_day
-    reference_mode_changed = bool(previous_reference and previous_reference != current_reference)
-    threshold_changed = bool(
-        previous_threshold is not None
-        and not math.isclose(previous_threshold, threshold_atr, rel_tol=1e-9, abs_tol=1e-9)
-    )
-    rearmed_after_recovery = bool(previous and previous.get("threshold_crossed") is False)
-    reference_changed = (
-        previous_reference_price is not None
-        and current_reference_price is not None
-        and abs(previous_reference_price - current_reference_price)
-        > max(0.01, abs(previous_reference_price) * 0.0001)
-    )
-    distance_deeper = previous_distance is None or distance_atr > previous_distance + 0.25
-    fresh_new_trade_day = is_new_trade_day and (not previous_trade_day or reference_changed or distance_deeper)
-    configuration_changed = reference_mode_changed or threshold_changed
-    allowed = configuration_changed or rearmed_after_recovery or fresh_new_trade_day or (is_two_x and not previous_two_x)
-    reason = (
-        "monitor_configuration_changed"
-        if configuration_changed
-        else "threshold_recrossed"
-        if rearmed_after_recovery
-        else "new_trade_day"
-        if fresh_new_trade_day
-        else "2x_atr_escalation"
-        if allowed
-        else "new_trade_day_no_new_loss"
-        if is_new_trade_day
-        else "cooldown_same_trade_day"
-    )
-
-    state_update = {
-        "trade_day": trade_day,
-        "last_alert_at": now.isoformat() if allowed else str(previous.get("last_alert_at") or ""),
-        "last_distance_atr": distance_atr,
-        "threshold_atr": threshold_atr,
-        "reference": current_reference,
-        "reference_price": current_reference_price,
-        "current_price": _float_or_none(monitor.get("current_price")),
-        "threshold_crossed": True,
-        "escalated_2x": is_two_x or previous_two_x,
-    }
-    monitor_update.update(
-        {
-            "alert_allowed": allowed,
-            "alert_reason": reason,
-            "alert_escalation_2x": is_two_x,
-            "last_alert_trade_day": previous_trade_day,
-        }
-    )
-    alert_payload = {
-        "ticker": ticker,
-        "distance_atr": round(distance_atr, 4),
-        "threshold_atr": round(threshold_atr, 4),
-        "reference": str(monitor.get("reference") or ""),
-        "reference_label": str(monitor.get("reference_label") or ""),
-        "current_price": monitor.get("current_price"),
-        "reference_price": monitor.get("reference_price"),
-        "atr_value": monitor.get("atr_value"),
-        "trade_day": trade_day,
-        "reason": reason,
-    }
-    if allowed:
-        return {
-            "allowed": True,
-            "monitor_update": monitor_update,
-            "state_update": state_update,
-            "alert": alert_payload,
-            "suppression": None,
-        }
-    return {
+    decision = {
         "allowed": False,
-        "monitor_update": monitor_update,
-        "state_update": state_update if is_new_trade_day else None,
+        "monitor_update": update,
+        "state_update": None,
         "alert": None,
-        "suppression": {
-            **alert_payload,
-            "reason": reason,
-            "next_reset_at": reset_at.isoformat(),
-        },
+        "suppression": None,
     }
+    if (
+        distance is None
+        or quote_at is None
+        or (_float_or_none(monitor.get("current_price")) or 0) <= 0
+    ):
+        # A missing observation is never evidence of a recovery.
+        return decision
+    last_observation = _parse_datetime(previous.get("last_observation_at"))
+    if last_observation is not None and quote_at <= last_observation:
+        update["alert_reason"] = "quote_already_observed"
+        return decision
+    current = copy.deepcopy(previous)
+    current.update(
+        trade_day=trade_day,
+        threshold_atr=threshold,
+        reference=str(monitor.get("reference") or ""),
+        reference_price=_float_or_none(monitor.get("reference_price")),
+        current_price=_float_or_none(monitor.get("current_price")),
+    )
+    last_alert_at = _parse_datetime(previous.get("last_alert_at"))
+    crossed = distance >= threshold
+    active = bool(previous.get("threshold_crossed", last_alert_at is not None))
+    # Recovery must be separated from the trigger threshold. This also guards
+    # configurations where a user accidentally puts recovery above the trigger.
+    recovery_level = min(rule["recovery_atr"], max(0.0, threshold - 0.05))
+    if distance <= recovery_level:
+        if active and _confirm_observation(
+            current,
+            prefix="recovery",
+            target="recovered",
+            observed_at=quote_at,
+            minutes=rule["recovery_minutes"],
+        ):
+            current.update(
+                threshold_crossed=False, escalated_2x=False, recovered_at=quote_at.isoformat()
+            )
+            _clear_confirmation(current, "recovery")
+        update["alert_reason"] = (
+            "recovery_pending" if current.get("threshold_crossed") else "threshold_not_crossed"
+        )
+    else:
+        _clear_confirmation(current, "recovery")
+        update["alert_reason"] = "threshold_not_crossed" if not crossed else "repeat_suppressed"
+    current["last_observation_at"] = quote_at.isoformat()
+    decision["state_update"] = current
+    if not crossed:
+        return decision
+
+    rearm_requests = monitor_settings.get("atr_rearm_requests") or {}
+    rearm_at = (
+        _parse_datetime(rearm_requests.get(ticker)) if isinstance(rearm_requests, dict) else None
+    )
+    manually_rearmed = rearm_at is not None and (last_alert_at is None or rearm_at > last_alert_at)
+    last_day = str(
+        previous.get("last_alert_trade_day")
+        or (_monitor_trade_day(last_alert_at) if last_alert_at is not None else "")
+        or previous.get("trade_day")
+        or ""
+    )
+    repeat = rule["repeat"]
+    interval_due = last_alert_at is not None and now - last_alert_at >= timedelta(
+        minutes=rule["repeat_minutes"]
+    )
+    recovered = _parse_datetime(previous.get("recovered_at"))
+    after_recovery = (
+        previous.get("threshold_crossed") is False
+        and recovered is not None
+        and (last_alert_at is None or recovered > last_alert_at)
+    )
+    escalation = (
+        rule["escalation_enabled"]
+        and distance >= max(threshold, rule["escalation_atr"])
+        and not bool(previous.get("escalated_2x"))
+    )
+    allowed = (
+        last_alert_at is None
+        or manually_rearmed
+        or escalation
+        or (repeat == "daily" and last_day != trade_day)
+        or (repeat == "interval" and interval_due)
+        or (repeat == "recovery" and after_recovery)
+    )
+    reason = (
+        "atr_escalation"
+        if escalation
+        else "manual_rearm"
+        if manually_rearmed
+        else "initial_breach"
+        if last_alert_at is None
+        else "confirmed_recovery"
+        if after_recovery
+        else "interval_repeat"
+        if repeat == "interval"
+        else "daily_repeat"
+    )
+    update.update(
+        alert_allowed=allowed,
+        alert_reason=reason if allowed else "repeat_suppressed",
+        alert_escalation_2x=escalation,
+    )
+    if allowed:
+        current.update(
+            last_alert_at=now.isoformat(),
+            last_alert_trade_day=trade_day,
+            last_distance_atr=distance,
+            threshold_crossed=True,
+            escalated_2x=escalation or bool(current.get("escalated_2x")),
+        )
+        alert = {
+            "kind": "atr",
+            "ticker": ticker,
+            "distance_atr": round(distance, 4),
+            "threshold_atr": threshold,
+            "reference": monitor.get("reference"),
+            "reference_label": monitor.get("reference_label"),
+            "current_price": monitor.get("current_price"),
+            "reference_price": monitor.get("reference_price"),
+            "atr_value": monitor.get("atr_value"),
+            "trade_day": trade_day,
+            "reason": reason,
+            "category": "atr",
+            "event_type": "atr_escalation" if escalation else "atr",
+            "mode": rule["mode"],
+            "priority": rule["priority"],
+            "session": rule["session"],
+            "quote_at": quote_at.isoformat(),
+        }
+        identity = json.dumps(
+            [ticker, reason, quote_at.isoformat(), threshold, monitor.get("reference")]
+        )
+        alert["alert_id"] = "atr:" + hashlib.sha256(identity.encode()).hexdigest()[:28]
+        decision.update(allowed=True, alert=alert)
+    else:
+        decision["suppression"] = {
+            "ticker": ticker,
+            "distance_atr": distance,
+            "reason": "repeat_suppressed",
+            "next_reset_at": reset_at.isoformat(),
+        }
+    return decision
 
 
 def _monitor_trade_day(now: datetime | None = None) -> str:

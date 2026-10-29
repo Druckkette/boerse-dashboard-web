@@ -258,6 +258,12 @@ def update_app_settings(payload: SettingsPatch) -> AppSettings:
     saved = _settings_from_values(settings_repository.read_settings())
     current = saved.model_dump()
     updates = payload.model_dump(exclude_none=True)
+    if payload.notification_preferences is not None:
+        from app.notification_preferences import merge_preferences
+        updates["notification_preferences"] = merge_preferences(
+            current["notification_preferences"],
+            payload.notification_preferences.model_dump(exclude_unset=True),
+        )
     current.update(updates)
     next_settings = _settings_from_values(current)
     try:
@@ -884,6 +890,23 @@ def get_data_quality_summary() -> dict:
 def _settings_from_values(values: dict) -> AppSettings:
     merged = DEFAULT_SETTINGS.model_dump()
     merged.update({key: value for key, value in values.items() if key in merged})
+    from app.notification_preferences import NotificationPreferences, merge_preferences
+    preferences = merge_preferences(
+        NotificationPreferences().model_dump(),
+        values.get("notification_preferences") or {},
+    )
+    if "notification_preferences" not in values:
+        # Legacy users may already have selected a higher first ATR threshold.
+        preferences["atr"]["escalation_atr"] = min(
+            20, max(3, float(merged["position_monitor_threshold_atr"]) * 2)
+        )
+        # Respect explicit legacy opt-outs while introducing the quieter profile.
+        if values.get("position_monitor_ma_alerts_enabled") is False:
+            for rule in preferences["ma"].values():
+                rule.update(break_mode="off", recovery_mode="off", worsening_mode="off")
+        if values.get("position_monitor_assessment_alerts_enabled") is False:
+            preferences["assessment"].update(score_mode="off", verdict_mode="off")
+    merged["notification_preferences"] = preferences
     # The dedicated monitor queue has a fixed one-minute cadence. Keep the
     # compatibility field truthful even for databases that still store ``5``.
     merged["position_monitor_interval_minutes"] = 1

@@ -50,3 +50,19 @@ def test_pushover_test_dry_run_with_secrets(monkeypatch: pytest.MonkeyPatch) -> 
     assert result["sent"] is False
     assert updated is not None
     assert updated.status == "done"
+
+
+def test_explicit_connection_test_uses_readable_german_message(monkeypatch):
+    sent = []
+    monkeypatch.setattr(pushover_module, "get_settings", lambda: SimpleNamespace(
+        pushover_user_key="test-user", pushover_app_token="test-token", pushover_dry_run=False,
+    ))
+    monkeypatch.setattr(pushover_module, "get_runtime_config_value", lambda key: "")
+    monkeypatch.setattr(pushover_module, "get_runtime_config_bool", lambda key, fallback: fallback)
+    monkeypatch.setattr(pushover_module, "_send_pushover_message", lambda **kwargs: sent.append(kwargs) or {"status": 1})
+    job = job_repository.create_job("pushover_test", {"source": "test"})
+    result = pushover_module.pushover_test.run(job.job_id, job.payload)
+    assert result["sent"] and len(sent) == 1
+    assert sent[0]["title"] == "Börsendashboard: Verbindungstest"
+    assert "Die Verbindung funktioniert." in sent[0]["message"]
+    assert "Gesendet am" in sent[0]["message"]

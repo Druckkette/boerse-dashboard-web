@@ -601,6 +601,7 @@ def test_lightweight_atr_monitor_avoids_full_sell_engine(monkeypatch: pytest.Mon
             "Low": closes - 1.0,
             "Close": closes,
             "Volume": 1_000_000,
+            "IsFinal": [True] * 39 + [False],
         },
         index=dates,
     )
@@ -643,6 +644,11 @@ def test_lightweight_atr_monitor_avoids_full_sell_engine(monkeypatch: pytest.Mon
     assert monitor["current_price_source"] == "test_live_batch"
     assert monitor["reference_price"] == round(float(closes.iloc[-1]), 2)
     assert monitor["threshold_crossed"] is True
+    item = result["items"][0]
+    assert item["trend_monitor"]["quote_at"] == monitor["live_quote_at"]
+    assert item["closed_trend_monitor"]["is_final"] is True
+    assert item["closed_trend_monitor"]["as_of"] == dates[-2].date().isoformat()
+    assert item["closed_trend_monitor"]["current_price"] == round(float(closes.iloc[-2]), 4)
 
 
 def test_monitor_reference_price_uses_previous_close() -> None:

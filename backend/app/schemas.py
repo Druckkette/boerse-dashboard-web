@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.notification_preferences import NotificationPreferences
+
 
 class FinancialInput(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
@@ -1872,8 +1874,13 @@ class DataDiagnosticsResponse(BaseModel):
 class PushoverDeliveryLogItem(BaseModel):
     timestamp: datetime
     ticker: str = ""
-    status: Literal["sent", "failed", "skipped"]
+    status: Literal["sent", "failed", "skipped", "queued", "digest", "suppressed", "disabled"]
     detail: str = ""
+    kind: str = ""
+    alert_id: str = ""
+    message: str = ""
+    title: str = ""
+    priority: int = 0
     distance_atr: float | None = None
     threshold_atr: float | None = None
     reference_label: str = ""
@@ -2004,6 +2011,7 @@ class AppSettings(BaseModel):
     position_monitor_ma_alerts_enabled: bool = True
     position_monitor_assessment_alerts_enabled: bool = True
     position_monitor_assessment_interval_minutes: int = 15
+    notification_preferences: NotificationPreferences = Field(default_factory=NotificationPreferences)
     pushover_enabled: bool = False
     pushover_configured: bool = False
     rs_rating_source: Literal["csv_latest", "computed"]
@@ -2011,6 +2019,15 @@ class AppSettings(BaseModel):
     market_ampel_logic: Literal["current", "ibd"] = "current"
     assessment_score_weights: AssessmentScoreWeights
     sell_rule_setup: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def valid_notification_thresholds(self):
+        rule = self.notification_preferences.atr
+        if rule.escalation_enabled and rule.escalation_atr <= self.position_monitor_threshold_atr:
+            raise ValueError("Die ATR-Eskalation muss über der ersten Warnschwelle liegen.")
+        if rule.repeat == "recovery" and rule.recovery_atr >= self.position_monitor_threshold_atr:
+            raise ValueError("Die ATR-Erholungsschwelle muss unter der Warnschwelle liegen.")
+        return self
 
     @field_validator("sell_rule_setup")
     @classmethod
@@ -2035,6 +2052,7 @@ class SettingsPatch(BaseModel):
     position_monitor_ma_alerts_enabled: bool | None = None
     position_monitor_assessment_alerts_enabled: bool | None = None
     position_monitor_assessment_interval_minutes: int | None = None
+    notification_preferences: NotificationPreferences | None = None
     pushover_enabled: bool | None = None
     rs_rating_source: Literal["csv_latest", "computed"] | None = None
     data_jobs_enabled: bool | None = None

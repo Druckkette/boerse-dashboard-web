@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+import re
 
 from app.repositories import settings as settings_repository
 from app.repositories.settings import SettingsRepositoryUnavailable
@@ -30,3 +31,27 @@ def notifications() -> PushoverDeliveryLogResponse:
         except ValueError:
             continue
     return PushoverDeliveryLogResponse(entries=entries)
+
+
+def _notification_ticker(value: str) -> str:
+    ticker = value.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9^][A-Z0-9.^=_-]{0,31}", ticker):
+        raise HTTPException(status_code=422, detail="Bitte ein gültiges Aktiensymbol auswählen.")
+    return ticker
+
+
+@router.post("/notifications/stops/{ticker}/rearm")
+def rearm_stop_notifications(ticker: str) -> dict:
+    from app.services.stop_alerts import rearm_stop_alerts
+    try:
+        return rearm_stop_alerts(_notification_ticker(ticker))
+    except SettingsRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Stoppalarm konnte nicht erneut freigegeben werden.") from exc
+
+
+@router.post("/notifications/atr/{ticker}/rearm")
+def rearm_atr_notifications(ticker: str) -> dict:
+    try:
+        return settings_repository.request_atr_rearm(_notification_ticker(ticker))
+    except SettingsRepositoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail="ATR-Alarm konnte nicht erneut freigegeben werden.") from exc

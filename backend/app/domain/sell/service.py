@@ -509,6 +509,28 @@ def monitor_open_position_atr(
             current_trade_date=quote.trade_date if quote and live_price is not None else None,
             currency=yahoo_quote_currency(row.ticker),
         )
+        trend_monitor["quote_at"] = monitor_state["live_quote_at"]
+        monitor_atr = _finite_float(monitor_state.get("atr_value"))
+        monitor_price = _finite_float(monitor_state.get("current_price"))
+        trend_monitor["atr_pct"] = monitor_atr / monitor_price * 100 if monitor_atr and monitor_price else None
+        closed_trend_monitor: dict[str, Any] = {}
+        # A daily close may only confirm a signal after its exchange session
+        # finished and the cache verified a post-close fetch. Intraday cache
+        # rows must never silently become closing confirmations.
+        if "isfinal" in daily_frame:
+            final_frame = daily_frame[daily_frame["isfinal"].fillna(False).astype(bool)]
+            if not final_frame.empty:
+                final_date = final_frame.index[-1].date()
+                final_price = _finite_float(final_frame.iloc[-1].get("close"))
+                closed_trend_monitor = _position_trend_monitor_state(
+                    final_frame,
+                    current_price=final_price,
+                    current_trade_date=final_date,
+                    currency=yahoo_quote_currency(row.ticker),
+                )
+                closed_trend_monitor["is_final"] = True
+                closed_atr = _monitor_atr(final_frame, int(settings.get("position_monitor_atr_period") or 14))
+                closed_trend_monitor["atr_pct"] = closed_atr / final_price * 100 if closed_atr and final_price else None
         items.append(
             {
                 "ticker": row.ticker,
@@ -520,6 +542,7 @@ def monitor_open_position_atr(
                 ),
                 "monitor": monitor_state,
                 "trend_monitor": trend_monitor,
+                "closed_trend_monitor": closed_trend_monitor,
                 "stop_observation": _stop_observation(row, quote),
             }
         )

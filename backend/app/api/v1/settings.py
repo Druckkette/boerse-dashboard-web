@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
 
 from app.schemas import (
     AppSettings,
@@ -52,6 +53,11 @@ def patch_settings(payload: SettingsPatch) -> AppSettings:
         return update_app_settings(payload)
     except SettingsRepositoryUnavailable as exc:
         raise HTTPException(status_code=503, detail="Einstellungen konnten nicht gespeichert werden. Der Entwurf bleibt erhalten.") from exc
+    except ValidationError as exc:
+        messages = [error["msg"].removeprefix("Value error, ") for error in exc.errors()]
+        raise HTTPException(status_code=422, detail=" ".join(messages[:3])) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/runtime-config", response_model=RuntimeConfigResponse)

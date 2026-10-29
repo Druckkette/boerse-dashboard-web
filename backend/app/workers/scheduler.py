@@ -42,6 +42,11 @@ def get_beat_schedule() -> dict:
     in Smart Refresh and also run monthly as a backup because SEC artefacts are large.
     """
     return {
+        "position-notification-delivery": {
+            "task": "flush_position_notifications",
+            "schedule": 60.0,
+            "options": {"expires": 50, "queue": "monitor"},
+        },
         "market-indices-five-minutes": {
             "task": "refresh_market_indices",
             "schedule": 300.0,
