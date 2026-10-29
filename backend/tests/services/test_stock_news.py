@@ -17,9 +17,10 @@ from app.services import stock_news as service
 NOW = datetime(2026, 10, 28, 12, tzinfo=UTC)
 
 
-def article(symbol="NVDA", *, title="NVIDIA raises quarterly dividend", uuid="one", minutes=10, score=25):
+def article(symbol="NVDA", *, title=None, uuid="one", minutes=10, score=25):
+    company = {"NVDA": "NVIDIA", "AAPL": "Apple", "TSLA": "Tesla"}.get(symbol, symbol)
     return {
-        "uuid": uuid, "title": title, "description": "Provider description.",
+        "uuid": uuid, "title": title or f"{company} raises quarterly dividend", "description": "Provider description.",
         "url": f"https://example.org/{uuid}", "source": "example.org",
         "published_at": (NOW - timedelta(minutes=minutes)).isoformat(),
         "entities": [{"symbol": symbol, "name": "NVIDIA Corporation", "exchange": "NASDAQ",
@@ -231,8 +232,8 @@ def test_article_projection_sorting_deduplication_and_three_item_limit():
         article(uuid="old", title="NVIDIA opens new research laboratory", minutes=80),
         article(uuid="latest", title="NVIDIA announces chip supply agreement", minutes=1),
         article(uuid="duplicate-title", title="NVIDIA announces chip supply agreement!", minutes=2),
-        article(uuid="earnings", title="Quarterly earnings beat expectations", minutes=3),
-        article(uuid="dividend", title="Board approves quarterly dividend", minutes=4),
+        article(uuid="earnings", title="NVIDIA quarterly earnings beat expectations", minutes=3),
+        article(uuid="dividend", title="NVIDIA board approves quarterly dividend", minutes=4),
         article("AAPL", uuid="wrong-company", title="Apple releases new phone", minutes=0),
         {**article(uuid="bad-date"), "published_at": "not-a-date"},
         {**article(uuid="bad-url"), "url": "javascript:alert(1)"},
@@ -297,8 +298,9 @@ def test_duplicates_by_uuid_and_tracking_urls_are_removed():
     identity = SymbolIdentity("NVDA", "NVDA", "NVIDIA", "NASDAQ", True)
     first = article(uuid="same", title="NVIDIA expands its research center", minutes=1)
     duplicate_id = article(uuid="same", title="Chip supplier builds another factory", minutes=2)
+    duplicate_id["description"] = "NVIDIA describes its expansion plan."
     duplicate_url = {**article(uuid="different", title="New data center architecture unveiled", minutes=3),
-                     "url": first["url"] + "?utm_source=newsletter"}
+                     "url": first["url"] + "?utm_source=newsletter", "description": "NVIDIA presents its architecture."}
     result = service.parse_articles([duplicate_id, duplicate_url, first], identity, min_match_score=10, now=NOW)
     assert [item.uuid for item in result] == ["same"]
 
@@ -328,3 +330,51 @@ def test_removed_ui_key_stops_new_fetches_but_keeps_fresh_cached_articles(setup,
     assert service.get_stock_news("AAPL").status == "not_configured"
     assert service.get_stock_news("NVDA").status == "ok"
     assert len(calls) == len(durable.calls) == 1
+
+
+def test_other_company_press_release_is_rejected_despite_strong_body_match_score():
+    identity = SymbolIdentity("NVDA", "NVDA", "NVIDIA Corporation", "NASDAQ", True)
+    incidental = article(uuid="pasqal", title="Pasqal Announces Third-Quarter 2026 Business Update and Participation in Upcoming Investor Conferences", score=80)
+    incidental["description"] = "Pasqal announced its third-quarter business update and investor conferences."
+    incidental["entities"][0]["highlights"] = [{"highlighted_in": "main_text", "highlight": "Pasqal uses NVIDIA components."}]
+    assert service.parse_articles([incidental], identity, min_match_score=10, now=NOW) == []
+
+
+def test_direct_title_description_and_entity_title_highlight_are_accepted():
+    identity = SymbolIdentity("NVDA", "NVDA", "NVIDIA Corporation", "NASDAQ", True)
+    title = article(uuid="title", title="NVIDIA sets conference call for financial results", score=1, minutes=1)
+    description = article(uuid="description", title="Quarterly chip outlook improves", minutes=2)
+    description["description"] = "NVIDIA announces an expanded production outlook."
+    highlight = article(uuid="highlight", title="Graphics leader introduces new product line", score=1, minutes=3)
+    highlight["entities"][0]["highlights"] = [{"highlighted_in": "title", "highlight": "Graphics leader"}]
+    wrong = article("AAPL", uuid="wrong", title="NVIDIA participates in industry event", minutes=0)
+    result = service.parse_articles([wrong, highlight, description, title], identity, min_match_score=10, now=NOW)
+    assert [row.uuid for row in result] == ["title", "description", "highlight"]
+
+
+def test_near_company_names_and_generic_leading_words_do_not_qualify():
+    apple = SymbolIdentity("AAPL", "AAPL", "Apple Inc.", "NASDAQ", True)
+    lookalike = article("AAPL", title="Appleton company announces new facility", score=90)
+    assert service.parse_articles([lookalike], apple, min_match_score=10, now=NOW) == []
+    trade = SymbolIdentity("TTD", "TTD", "The Trade Desk, Inc.", "NASDAQ", True)
+    generic = article("TTD", title="Trade policy changes affect global supply chains", score=90)
+    assert service.parse_articles([generic], trade, min_match_score=10, now=NOW) == []
+    direct = article("TTD", title="The Trade Desk announces quarterly revenue", score=90)
+    assert len(service.parse_articles([direct], trade, min_match_score=10, now=NOW)) == 1
+
+
+def test_news_quality_version_separates_previous_weak_cache_variants():
+    import hashlib
+    import json
+    identity = SymbolIdentity("NVDA", "NVDA", "NVIDIA", "NASDAQ", True)
+    settings = Settings()
+    old_variant = json.dumps(["NVDA", settings.marketaux_languages, settings.marketaux_min_match_score, "NVIDIA", True])
+    previous = "marketaux:news:v1:" + hashlib.sha256(old_variant.encode()).hexdigest()
+    assert service.news_cache_key(identity, settings) != previous
+    assert service.NEWS_QUALITY_VERSION == "company-intro-v2"
+
+
+def test_provider_timeout_default_allows_observed_cold_queries_and_cache_never_exceeds_one_hour():
+    assert Settings().marketaux_request_timeout_seconds == 15
+    with pytest.raises(ValueError):
+        Settings(marketaux_cache_ttl_seconds=3601)

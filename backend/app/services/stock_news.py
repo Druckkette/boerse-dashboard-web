@@ -23,6 +23,7 @@ MESSAGES = {
     "unavailable": "Nachrichten sind derzeit nicht erreichbar. Bitte später erneut versuchen.",
     "unsupported": "Für dieses Symbol ist keine eindeutige Unternehmenszuordnung verfügbar.",
 }
+NEWS_QUALITY_VERSION = "company-intro-v2"
 
 
 def utc_now() -> datetime:
@@ -77,8 +78,27 @@ def _title_mentions_company(title: str, identity) -> bool:
                   "corporation", "company", "limited", "common", "stock", "shares", "class",
                   "ordinary", "inc", "corp", "ltd", "holdings", "holding", "plc", "the",
               }]
-    title_words = set(re.findall(r"[\w]+", title.lower()))
-    return bool(tokens and tokens[0] in title_words) or provider_symbol(identity).lower() in title_words
+    words = re.findall(r"[\w]+", title.casefold())
+    # Match whole words, never a substring such as Apple in Appleton. For generic
+    # leading words, require the company phrase rather than e.g. "Trade" alone.
+    generic = {"advanced", "american", "bank", "capital", "central", "financial", "first",
+               "global", "international", "micro", "national", "new", "trade", "united"}
+    company = bool(tokens and (
+        (tokens[0] not in generic and tokens[0] in words)
+        or re.search(r"(?<!\w)" + re.escape(" ".join(tokens)) + r"(?!\w)", " ".join(words))
+    ))
+    symbols = any(re.search(
+        (r"(?:\$" + re.escape(symbol) + r"(?!\w)|\(" + re.escape(symbol) + r"\))")
+        if len(symbol) <= 2 else r"(?<![\w.])" + re.escape(symbol) + r"(?![\w.])",
+        title, re.IGNORECASE,
+    ) for symbol in _aliases(identity))
+    return company or symbols
+
+
+def news_cache_key(identity, settings) -> str:
+    variant = json.dumps([NEWS_QUALITY_VERSION, provider_symbol(identity), settings.marketaux_languages,
+                          settings.marketaux_min_match_score, identity.name, identity.us_listing])
+    return "marketaux:news:v1:" + hashlib.sha256(variant.encode()).hexdigest()
 
 
 def _article_url(value) -> str | None:
@@ -113,6 +133,7 @@ def parse_articles(rows, identity, *, min_match_score: float, now: datetime, api
         if api_key and api_key in json.dumps(raw, ensure_ascii=False):
             continue
         title = _text(raw.get("title"))
+        description = _text(raw.get("description"), 1500)
         url = _article_url(raw.get("url"))
         published = parse_date(raw.get("published_at"))
         uuid = _text(raw.get("uuid"), 128)
@@ -126,14 +147,21 @@ def parse_articles(rows, identity, *, min_match_score: float, now: datetime, api
         if not matches:
             continue
         entities = []
+        direct_title = _title_mentions_company(title, identity)
+        direct_description = _title_mentions_company(description, identity)
         for entity in matches:
             score = _number(entity.get("match_score"))
             highlights = entity.get("highlights")
             title_highlight = isinstance(highlights, list) and any(
                 isinstance(highlight, dict) and highlight.get("highlighted_in") == "title"
+                and _text(highlight.get("highlight"))
                 for highlight in highlights)
+            # A strong body-only entity score can still be incidental. In
+            # particular, another company's press release must not fill a slot.
+            if not (direct_title or direct_description or title_highlight):
+                continue
             if (score is not None and score < min_match_score
-                    and not title_highlight and not _title_mentions_company(title, identity)):
+                    and not title_highlight and not direct_title):
                 continue
             entities.append(NewsEntity(
                 symbol=str(entity["symbol"]).upper(), name=_text(entity.get("name"), 255),
@@ -144,7 +172,7 @@ def parse_articles(rows, identity, *, min_match_score: float, now: datetime, api
             continue
         best = max(entities, key=lambda item: item.match_score if item.match_score is not None else -math.inf)
         candidates.append(NewsArticle(
-            uuid=uuid, title=title, description=_text(raw.get("description"), 1500) or None,
+            uuid=uuid, title=title, description=description or None,
             url=url, source=_text(raw.get("source"), 255) or urlsplit(url).hostname or "",
             published_at=published, entities=entities, match_score=best.match_score,
             sentiment_score=best.sentiment_score,
@@ -190,9 +218,7 @@ def get_stock_news(ticker: str) -> StockNewsResponse:
         identity = repository.resolve_symbol(clean)
         if identity is None or not re.fullmatch(r"[A-Z0-9][A-Z0-9.=_^\-]{0,31}", identity.symbol):
             return _response(clean, {}, reason="unsupported")
-        variant = json.dumps([provider_symbol(identity), settings.marketaux_languages,
-                              settings.marketaux_min_match_score, identity.name, identity.us_listing])
-        cache_key = "marketaux:news:v1:" + hashlib.sha256(variant.encode()).hexdigest()
+        cache_key = news_cache_key(identity, settings)
         with repository.locked_store(cache_key) as store:
             state = store.read(cache_key)
             now = utc_now()

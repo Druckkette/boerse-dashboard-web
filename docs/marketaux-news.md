@@ -39,7 +39,7 @@ hinterlegt keinen temporären Schlüssel auf dem NAS.
 | `MARKETAUX_CACHE_TTL_SECONDS` | `3600` | Gültigkeit erfolgreicher nichtleerer Nachrichtenlisten. |
 | `MARKETAUX_EMPTY_TTL_SECONDS` | `600` | Kürzere Gültigkeit gültiger leerer Antworten. |
 | `MARKETAUX_FAILURE_BACKOFF_SECONDS` | `300` | Mindestwartefrist nach fehlgeschlagenen Abrufen. |
-| `MARKETAUX_REQUEST_TIMEOUT_SECONDS` | `8` | Lese-Timeout; Verbindungsaufbau höchstens 3,05 Sekunden. |
+| `MARKETAUX_REQUEST_TIMEOUT_SECONDS` | `15` | Lese-Timeout; Verbindungsaufbau höchstens 3,05 Sekunden. |
 | `MARKETAUX_MIN_MATCH_SCORE` | `10` | Relevanzfilter für beiläufige Unternehmenszuordnungen. |
 
 ## Cache, Zusammenfassung und Kontingent
@@ -82,10 +82,20 @@ festen HTTPS-Endpunkt übergeben. Der Client projiziert keine rohen Providerfehl
 urllib3-Debugpfade redigieren `api_token`-Querywerte.
 
 Artikel benötigen eine passende Unternehmensentität, gültige Original-URL und einen tatsächlichen,
-parsebaren Veröffentlichungszeitpunkt. Match-Scores sind die Providerwerte, keine Prozentsätze oder
-Werte von 0 bis 1. Werte unter dem konfigurierten Minimum werden verworfen, außer eine passende
-Entität wurde im Titel erkannt oder die Überschrift nennt das zugeordnete Unternehmen ausdrücklich.
-Fehlende Scores werden nicht erfunden. Gleiche UUIDs, kanonische URLs und nahezu gleiche Titel
+parsebaren Veröffentlichungszeitpunkt. Zusätzlich muss das Unternehmen oder sein Ticker direkt in
+Überschrift oder Anbieter-Kurzbeschreibung vorkommen, oder der Anbieter muss eine passende Entität
+ausdrücklich im Titel erkannt haben. Eine hohe Zuordnungszahl zu einer beiläufigen Erwähnung im
+Artikeltext genügt nicht. Dadurch können beispielsweise fremde Unternehmens-Pressemitteilungen aus
+der Liste entfernt werden, auch wenn sie NVIDIA im Haupttext erwähnen. Es werden dann entsprechend
+weniger Nachrichten angezeigt. Ganze Wörter und vollständige Namen bei generischen Namensanfängen
+verhindern Verwechslungen wie Apple/Appleton oder „Trade“/„The Trade Desk“.
+
+Match-Scores sind die Providerwerte, keine Prozentsätze oder Werte von 0 bis 1. Werte unter dem
+konfigurierten Minimum werden zusätzlich verworfen, außer eine passende Entität wurde im Titel
+erkannt oder die Überschrift nennt das zugeordnete Unternehmen ausdrücklich. Fehlende Scores werden
+nicht erfunden. Die Qualitätsversion `company-intro-v2` ist Teil des Cache-Schlüssels; bereits unter
+der schwächeren Prüfung gespeicherte Listen werden nicht wiederverwendet.
+Gleiche UUIDs, kanonische URLs und nahezu gleiche Titel
 werden zusammengefasst. Verbleibende Artikel werden nach UTC-Veröffentlichungszeit absteigend
 sortiert und auf drei begrenzt. Überschriften und Beschreibungen stammen vom Anbieter; es werden
 keine KI-Zusammenfassungen oder fehlende Nachrichten ergänzt.
