@@ -1,5 +1,6 @@
 import { withApiSlot } from "@/lib/beta/request-limiter";
 import type { PatternConfig, PatternParameters, PatternResults, PatternChart } from "@/lib/types/chart-analysis";
+import type { StockNews } from "@/lib/types/news";
 import type { PortfolioAnalysis, SavedView, ResearchResults, StockProvenance, ScoreHistory } from "@/lib/types/analysis";
 import type {
   AppSettings,
@@ -201,6 +202,7 @@ async function errorMessage(response: Response) {
 }
 
 export const api = {
+  stockNews: (ticker: string) => getJson<StockNews>(`/stocks/${encodeURIComponent(ticker)}/news`),
   chartPatternConfig: () => getJson<PatternConfig>("/chart-analysis/config"),
   chartPatternResults: (params = "") => getJson<PatternResults>(`/chart-analysis/results?${params}`),
   chartPatternChart: (ticker: string, asOf = "") => getJson<PatternChart>(`/chart-analysis/${encodeURIComponent(ticker)}${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""}`),

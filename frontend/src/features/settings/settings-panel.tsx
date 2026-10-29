@@ -22,6 +22,7 @@ import { AssessmentCriterionNote } from "@/features/stocks/assessment-criterion-
 import { SellRuleSetupEditor } from "@/features/sell/sell-rule-setup-editor";
 import { PositionSellSettings } from "@/features/sell/sell-setup-panel";
 import { qualityLabel } from "@/lib/format";
+import { MarketauxSettingsPanel } from "./marketaux-settings-panel";
 import type { AppSettings, AssessmentScoreWeights } from "@/lib/types/api";
 
 const defaultAssessmentScoreWeights: AssessmentScoreWeights = {
@@ -718,6 +719,7 @@ export function SettingsPanel() {
         )}
         {tab === "system" && (
           <section aria-label="Daten & System" className="space-y-4">
+            <MarketauxSettingsPanel />
             <SettingCard
               title="System"
               description="Aktueller Zustand der geprüften Systemdienste."

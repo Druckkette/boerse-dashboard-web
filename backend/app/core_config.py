@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     pushover_app_token: str = ""
     pushover_dry_run: bool = False
     fmp_api_key: str = ""
+    marketaux_api_key: SecretStr = SecretStr("")
+    marketaux_languages: str = "de,en"
+    marketaux_daily_limit: int = Field(default=90, ge=1, le=90)
+    marketaux_cache_ttl_seconds: int = Field(default=3600, ge=60, le=3600)
+    marketaux_empty_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+    marketaux_failure_backoff_seconds: int = Field(default=300, ge=60, le=3600)
+    marketaux_request_timeout_seconds: float = Field(default=15, ge=1, le=15)
+    marketaux_min_match_score: float = Field(default=10, ge=0, le=100)
     sec_user_agent: str = ""
     api_rate_limit_enabled: bool = False
     api_rate_limit_requests: int = 120
@@ -51,6 +59,15 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    @field_validator("marketaux_languages")
+    @classmethod
+    def validate_news_languages(cls, value: str) -> str:
+        import re
+        languages = sorted(set(part.strip().lower() for part in value.split(",") if part.strip()))
+        if len(languages) > 10 or any(not re.fullmatch(r"[a-z]{2,3}", part) for part in languages):
+            raise ValueError("Marketaux languages must be comma-separated language codes or empty.")
+        return ",".join(languages)
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.repositories.fundamentals import FundamentalsRepositoryUnavailable
+from app.schemas_news import StockNewsResponse
 from app.schemas import (
     PriceHistoryResponse,
     PriceRefreshResponse,
@@ -45,6 +46,12 @@ from app.services.stocks import (
 
 
 router = APIRouter()
+
+
+@router.get("/{ticker}/news", response_model=StockNewsResponse)
+def stock_news(ticker: str) -> StockNewsResponse:
+    from app.services.stock_news import get_stock_news
+    return get_stock_news(ticker)
 
 
 

@@ -1,6 +1,11 @@
 [
   {
     "method": "GET",
+    "path": "stocks/{ticker}/news",
+    "query": []
+  },
+  {
+    "method": "GET",
     "path": "chart-analysis/config",
     "query": []
   },
