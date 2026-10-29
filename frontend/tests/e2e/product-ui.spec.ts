@@ -343,7 +343,7 @@ test("mobile beta More menu and classic fallback contain no private destinations
       await menu
         .locator("a")
         .evaluateAll((links) => links.map((link) => link.getAttribute("href"))),
-    ).toEqual(["/sectors", "/industry-groups"]);
+    ).toEqual(["/sectors", "/industry-groups", "/chart-analysis"]);
     await page.keyboard.press("Escape");
     await expect(menu).not.toBeVisible();
     await showDisplaySettings(page);
