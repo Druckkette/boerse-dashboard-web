@@ -27,10 +27,10 @@ class Settings(BaseSettings):
     marketaux_api_key: SecretStr = SecretStr("")
     marketaux_languages: str = "de,en"
     marketaux_daily_limit: int = Field(default=90, ge=1, le=90)
-    marketaux_cache_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    marketaux_cache_ttl_seconds: int = Field(default=3600, ge=60, le=3600)
     marketaux_empty_ttl_seconds: int = Field(default=600, ge=60, le=1800)
     marketaux_failure_backoff_seconds: int = Field(default=300, ge=60, le=3600)
-    marketaux_request_timeout_seconds: float = Field(default=8, ge=1, le=15)
+    marketaux_request_timeout_seconds: float = Field(default=15, ge=1, le=15)
     marketaux_min_match_score: float = Field(default=10, ge=0, le=100)
     sec_user_agent: str = ""
     api_rate_limit_enabled: bool = False

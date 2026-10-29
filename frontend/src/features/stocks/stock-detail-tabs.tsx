@@ -3,6 +3,7 @@
 import { useProductUi } from "@/components/ui/ui-mode-provider";
 import { ProductDetails } from "@/components/ui/product-details";
 import { StockIdentity } from "./stock-identity";
+import { StockNewsPanel } from "./stock-news-panel";
 import { useBetaMode } from "@/components/beta-mode-provider";
 import { BetaStockDetailActions } from "./beta-stock-detail-actions";
 import { BarChart3, Building2, ChartCandlestick, Gauge, TrendingUp } from "lucide-react";
@@ -42,6 +43,7 @@ export function StockDetailTabs({ ticker }: { ticker: string }) {
       {tabs.map((tab) => { const Icon = tab.icon; const selected = active === tab.key; return <button key={tab.key} aria-current={selected ? "page" : undefined} className={`inline-flex h-9 min-w-fit items-center gap-2 rounded-[9px] px-3 text-sm font-semibold transition ${selected ? "bg-[#0f766e] text-white" : "text-[#687386] hover:bg-[#f3f6f8] hover:text-[#172033]"}`} type="button" onClick={() => setActive(tab.key)}><Icon size={15} />{tab.label}</button>; })}
     </nav>
     {!beta && !product && <StockDetailActions key={ticker} ticker={ticker} />}
+    <StockNewsPanel key={ticker} ticker={ticker} />
     {active === "overview" ? <>{!product && <IndustryGroupPanel ticker={ticker} />}<StockAssessmentPanel ticker={ticker} mode="overview" />{product && <><StockPricePanel ticker={ticker} title="Kurs und Relative Stärke" /><ProductDetails title="Branche & Einordnung"><IndustryGroupPanel ticker={ticker} /></ProductDetails></>}<StockSignalChangesPanel ticker={ticker} /></> : null}
     {active === "technical" ? <><StockAssessmentPanel ticker={ticker} mode="technical" /><StockRsPanel ticker={ticker} /></> : null}
     {active === "fundamental" ? <StockFundamentalsPanel ticker={ticker} /> : null}
