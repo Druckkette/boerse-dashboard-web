@@ -36,6 +36,18 @@ class SymbolIdentity:
     us_listing: bool = False
 
 
+def foreign_listing_country(symbol: str) -> str | None:
+    """Recognized qualified provider symbols, not a blanket suffix removal."""
+    suffix = symbol.rsplit(".", 1)[1].upper() if "." in symbol else ""
+    return {
+        "DE": "de", "HK": "hk", "L": "gb", "TO": "ca", "V": "ca", "AX": "au",
+        "PA": "fr", "MI": "it", "MC": "es", "AS": "nl", "BR": "be", "ST": "se",
+        "OL": "no", "CO": "dk", "HE": "fi", "SW": "ch", "T": "jp", "TW": "tw",
+        "TWO": "tw", "KS": "kr", "KQ": "kr", "SI": "sg", "NS": "in", "BO": "in",
+        "SA": "br", "MX": "mx", "JO": "za",
+    }.get(suffix)
+
+
 def resolve_symbol(ticker: str) -> SymbolIdentity | None:
     try:
         with SessionLocal() as db:
@@ -55,10 +67,11 @@ def resolve_symbol(ticker: str) -> SymbolIdentity | None:
                       or instrument.yahoo_symbol or ticker)
             listing = metadata.get("nasdaq_listing") or {}
             exchange = str(instrument.exchange or listing.get("exchange") or "")
-            return SymbolIdentity(ticker, str(symbol).strip().upper(), instrument.name or ticker,
-                                  exchange, bool(listing) or exchange.upper() in {
+            symbol = str(symbol).strip().upper()
+            us_listing = (bool(listing) or exchange.upper() in {
                                       "NASDAQ", "NYSE", "NYSE ARCA", "AMEX", "BATS", "NMS", "NYQ",
-                                  })
+                                  }) and foreign_listing_country(symbol) is None
+            return SymbolIdentity(ticker, symbol, instrument.name or ticker, exchange, us_listing)
     except SQLAlchemyError:
         raise NewsRepositoryUnavailable() from None
 

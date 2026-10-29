@@ -23,7 +23,8 @@ def article(symbol="NVDA", *, title=None, uuid="one", minutes=10, score=25):
         "uuid": uuid, "title": title or f"{company} raises quarterly dividend", "description": "Provider description.",
         "url": f"https://example.org/{uuid}", "source": "example.org",
         "published_at": (NOW - timedelta(minutes=minutes)).isoformat(),
-        "entities": [{"symbol": symbol, "name": "NVIDIA Corporation", "exchange": "NASDAQ",
+        "entities": [{"symbol": symbol, "name": "NVIDIA Corporation",
+                      "exchange": {"RHM.DE": "XETRA", "2318.HK": "HKEX"}.get(symbol, "NASDAQ"),
                       "match_score": score, "sentiment_score": .3}],
     }
 
@@ -371,10 +372,57 @@ def test_news_quality_version_separates_previous_weak_cache_variants():
     old_variant = json.dumps(["NVDA", settings.marketaux_languages, settings.marketaux_min_match_score, "NVIDIA", True])
     previous = "marketaux:news:v1:" + hashlib.sha256(old_variant.encode()).hexdigest()
     assert service.news_cache_key(identity, settings) != previous
-    assert service.NEWS_QUALITY_VERSION == "company-intro-v2"
+    assert service.NEWS_QUALITY_VERSION == "company-intro-v3"
 
 
 def test_provider_timeout_default_allows_observed_cold_queries_and_cache_never_exceeds_one_hour():
     assert Settings().marketaux_request_timeout_seconds == 15
     with pytest.raises(ValueError):
         Settings(marketaux_cache_ttl_seconds=3601)
+
+
+@pytest.mark.parametrize("country,exchange,accepted", [
+    ("ca", "TSX", False), (None, "TSX", False), ("us", "NASDAQ", True),
+    (None, "NASDAQ", True), (None, None, True), ("unknown", "UNKNOWN", True),
+])
+def test_ambiguous_na_symbol_rejects_explicit_foreign_listing(country, exchange, accepted):
+    identity = SymbolIdentity("NA", "NA", "Nano Labs Ltd", "NASDAQ", True)
+    row = article("NA", title="Nano Labs announces new product")
+    row["entities"][0].update(country=country, exchange=exchange)
+    result = service.parse_articles([row], identity, min_match_score=10, now=NOW)
+    assert bool(result) is accepted
+
+
+def test_foreign_qualified_mapping_checks_country_and_cache_tracks_exchange():
+    identity = SymbolIdentity("BABA", "9988.HK", "Alibaba Group", "NASDAQ", False)
+    row = article("9988.HK", title="Alibaba announces quarterly results")
+    row["entities"][0].update(country="hk", exchange="HKEX")
+    assert service.parse_articles([row], identity, min_match_score=10, now=NOW)
+    row["entities"][0]["country"] = "us"
+    assert not service.parse_articles([row], identity, min_match_score=10, now=NOW)
+    settings = Settings()
+    other_venue = SymbolIdentity("BABA", "9988.HK", "Alibaba Group", "HKEX", False)
+    assert service.news_cache_key(identity, settings) != service.news_cache_key(other_venue, settings)
+
+
+@pytest.mark.parametrize("source,symbol,is_us", [("BABA", "9988.HK", False), ("BRK-B", "BRK-B", True)])
+def test_resolver_foreign_override_wins_over_us_source_but_class_share_stays_us(monkeypatch, source, symbol, is_us):
+    from types import SimpleNamespace
+
+    class Session:
+        def __enter__(self):
+            self.rows = iter([SimpleNamespace(name="Company", yahoo_symbol=source, exchange="NYSE",
+                                              metadata_json={"nasdaq_listing": {"exchange": "NYSE"}}),
+                              SimpleNamespace(yahoo_symbol=symbol)])
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def scalars(self, statement):
+            return SimpleNamespace(first=lambda: next(self.rows))
+
+    monkeypatch.setattr(repository, "SessionLocal", Session)
+    identity = repository.resolve_symbol(source)
+    assert identity.us_listing is is_us and identity.symbol == symbol
+    assert service.provider_symbol(identity) == ("BRK.B" if is_us else "9988.HK")

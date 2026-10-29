@@ -75,6 +75,10 @@ dann `yahoo_symbol` und zuletzt den vorhandenen Ticker. Ausländische Suffixe we
 beispielsweise wird `RHM.DE` nicht blind auf das möglicherweise andere Unternehmen `RHM` verkürzt.
 Bei bekannten US-Listings werden Klassenaktien wie `BRK-B` auf `BRK.B` normalisiert. Ein fehlendes
 oder vom Anbieter nicht unterstütztes Listing kann deshalb korrekt zu null Meldungen führen.
+Explizit widersprechende Börsenländer werden verworfen: `NA` an der NASDAQ wird beispielsweise
+nicht mit `NA` an der kanadischen TSX gleichgesetzt. Fehlt die Länderangabe, werden nur eindeutig
+widersprechende bekannte Börsenplätze ausgeschlossen. Unbekannte Metadaten bleiben zulässig.
+Eine ausdrücklich auf `9988.HK` aufgelöste US-Ausgangsaktie wird als Hongkong-Listing behandelt.
 
 Die Anfrage setzt `symbols`, `filter_entities=true`, `must_have_entities=true`, `group_similar=true`,
 `limit=3`, `sort=published_at` und optional `language`. Der Schlüssel wird nur serverseitig an den
@@ -93,7 +97,7 @@ verhindern Verwechslungen wie Apple/Appleton oder „Trade“/„The Trade Desk�
 Match-Scores sind die Providerwerte, keine Prozentsätze oder Werte von 0 bis 1. Werte unter dem
 konfigurierten Minimum werden zusätzlich verworfen, außer eine passende Entität wurde im Titel
 erkannt oder die Überschrift nennt das zugeordnete Unternehmen ausdrücklich. Fehlende Scores werden
-nicht erfunden. Die Qualitätsversion `company-intro-v2` ist Teil des Cache-Schlüssels; bereits unter
+nicht erfunden. Die Qualitätsversion `company-intro-v3` und der Börsenplatz sind Teil des Cache-Schlüssels; bereits unter
 der schwächeren Prüfung gespeicherte Listen werden nicht wiederverwendet.
 Gleiche UUIDs, kanonische URLs und nahezu gleiche Titel
 werden zusammengefasst. Verbleibende Artikel werden nach UTC-Veröffentlichungszeit absteigend

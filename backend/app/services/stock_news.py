@@ -23,7 +23,7 @@ MESSAGES = {
     "unavailable": "Nachrichten sind derzeit nicht erreichbar. Bitte später erneut versuchen.",
     "unsupported": "Für dieses Symbol ist keine eindeutige Unternehmenszuordnung verfügbar.",
 }
-NEWS_QUALITY_VERSION = "company-intro-v2"
+NEWS_QUALITY_VERSION = "company-intro-v3"
 
 
 def utc_now() -> datetime:
@@ -97,8 +97,30 @@ def _title_mentions_company(title: str, identity) -> bool:
 
 def news_cache_key(identity, settings) -> str:
     variant = json.dumps([NEWS_QUALITY_VERSION, provider_symbol(identity), settings.marketaux_languages,
-                          settings.marketaux_min_match_score, identity.name, identity.us_listing])
+                          settings.marketaux_min_match_score, identity.name, identity.us_listing,
+                          identity.exchange.upper()])
     return "marketaux:news:v1:" + hashlib.sha256(variant.encode()).hexdigest()
+
+
+def _listing_matches(entity: dict, identity) -> bool:
+    expected = repository.foreign_listing_country(identity.symbol) or ("us" if identity.us_listing else None)
+    if expected is None:
+        return True
+    country = str(entity.get("country") or "").strip().lower()
+    country = {"uk": "gb", "usa": "us", "united states": "us", "canada": "ca",
+               "germany": "de", "hong kong": "hk", "united kingdom": "gb"}.get(country, country)
+    if re.fullmatch(r"[a-z]{2}", country) and country not in {"xx", "zz"}:
+        return country == expected
+    # Unknown/missing metadata is not a rejection. Only unmistakable exchange
+    # contradictions are considered when no usable exchange-country is supplied.
+    exchange = re.sub(r"[^A-Z0-9]", "", str(entity.get("exchange") or "").upper())
+    venue_country = {
+        "NASDAQ": "us", "NYSE": "us", "NYSEARCA": "us", "AMEX": "us", "BATS": "us",
+        "TSX": "ca", "TSXV": "ca", "TORONTOSTOCKEXCHANGE": "ca",
+        "LSE": "gb", "LONDONSTOCKEXCHANGE": "gb", "HKEX": "hk", "HKG": "hk",
+        "XETRA": "de", "FRA": "de", "FRANKFURTSTOCKEXCHANGE": "de", "ASX": "au",
+    }.get(exchange)
+    return venue_country is None or venue_country == expected
 
 
 def _article_url(value) -> str | None:
@@ -143,7 +165,8 @@ def parse_articles(rows, identity, *, min_match_score: float, now: datetime, api
         if not isinstance(raw_entities, list):
             continue
         matches = [entity for entity in raw_entities
-                   if isinstance(entity, dict) and str(entity.get("symbol", "")).upper() in aliases]
+                   if isinstance(entity, dict) and str(entity.get("symbol", "")).upper() in aliases
+                   and _listing_matches(entity, identity)]
         if not matches:
             continue
         entities = []
