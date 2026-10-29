@@ -42,11 +42,23 @@ test("private paths, exports, jobs, direct preview, unknown endpoints and traver
   }
   assert.equal(betaApiAllowed("GET", "stocks/search", "?q=" + "a".repeat(401)), false);
   assert.equal(betaApiAllowed("POST", "jobs"), false);
+  assert.equal(betaApiAllowed("POST", "chart-analysis/scan"), false);
+  assert.equal(betaApiAllowed("PUT", "chart-analysis/config"), false);
+});
+
+test("chart analysis permits only cached reads and each endpoint's explicit query fields", () => {
+  assert.equal(betaApiAllowed("GET", "chart-analysis/config"), true);
+  assert.equal(betaApiAllowed("GET", "chart-analysis/results", "?kind=cup_with_handle&status=ready&search=IBKR&offset=100&limit=100"), true);
+  assert.equal(betaApiAllowed("GET", "chart-analysis/SAP.DE", "?as_of=2025-06-30"), true);
+  assert.equal(betaApiAllowed("GET", "chart-analysis/config", "?as_of=2025-06-30"), false);
+  assert.equal(betaApiAllowed("GET", "chart-analysis/results", "?as_of=2025-06-30"), false);
+  assert.equal(betaApiAllowed("GET", "chart-analysis/IBKR", "?repair_prices=true"), false);
+  assert.equal(betaApiAllowed("GET", "chart-analysis/%2Fportfolio"), false);
 });
 
 test("HTML and RSC page gate allows beta pages and denies all private pages including extension bypasses", () => {
-  for (const path of ["/", "/market", "/sectors", "/industry-groups", "/industry-groups/software", "/stocks", "/stocks/NVDA", "/sell-check"]) assert.equal(betaPageAllowed(path), true);
-  for (const path of ["/portfolio", "/portfolio.png", "/sell-monitor", "/sell-monitor/NVDA", "/settings", "/setup", "/jobs", "/workspace", "/trade-journal", "/api/other"]) assert.equal(betaPageAllowed(path), false);
+  for (const path of ["/", "/market", "/sectors", "/industry-groups", "/industry-groups/software", "/stocks", "/stocks/NVDA", "/sell-check", "/chart-analysis", "/chart-analysis/IBKR", "/chart-analysis/SAP.DE"]) assert.equal(betaPageAllowed(path), true);
+  for (const path of ["/portfolio", "/portfolio.png", "/sell-monitor", "/sell-monitor/NVDA", "/settings", "/setup", "/jobs", "/workspace", "/trade-journal", "/api/other", "/chart-analysis/IBKR/private", "/chart-analysis/%2Fportfolio", "/chart-analysis/../portfolio"]) assert.equal(betaPageAllowed(path), false);
 });
 
 test("missing and malformed beta authentication cannot become public access", () => {
@@ -104,6 +116,7 @@ test("current stocks do not auto-refresh and stale data triggers at most one att
   const keys = betaRefreshQueryKeys("NVDA");
   for (const key of [["stock-assessment", "NVDA"], ["stock-screening"], ["stock-fundamentals", "NVDA"], ["stock-assessment-ranking"], ["stock-assessment-compare"]]) assert.equal(keys.some(value => JSON.stringify(value) === JSON.stringify(key)), true);
   assert.equal(keys.some(value => value[0] === "jobs"), false);
+  assert.equal(keys.some(value => JSON.stringify(value) === JSON.stringify(["chart-pattern-chart", "NVDA"])), true);
 });
 
 

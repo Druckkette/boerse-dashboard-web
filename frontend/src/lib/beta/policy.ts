@@ -20,8 +20,9 @@ export function betaApiAllowed(method: string, path: string, search = "") {
   return [...params].every(([key, value]) => rule.query.includes(key) && value.length <= 400);
 }
 export function betaPageAllowed(path: string) {
-  return ["/", "/market", "/sectors", "/industry-groups", "/stocks", "/sell-check"].includes(path)
+  return ["/", "/market", "/sectors", "/industry-groups", "/stocks", "/sell-check", "/chart-analysis"].includes(path)
     || new RegExp("^/stocks/" + ticker + "$").test(path)
+    || new RegExp("^/chart-analysis/" + ticker + "$").test(path)
     || /^\/industry-groups\/[A-Za-z0-9_-]{1,80}$/.test(path);
 }
 export function betaWriteOriginAllowed(headers: Headers, origin: string) {

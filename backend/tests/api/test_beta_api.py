@@ -91,6 +91,57 @@ def test_shared_allowlist_covers_each_explicit_public_analysis():
     assert not beta_api_allowed("GET", "stocks/search", "q=" + "x" * 401)
 
 
+@pytest.mark.parametrize("path,operation,arguments", [
+    ("config", "get_config", {}),
+    ("results?kind=cup_with_handle&status=ready&search=NVDA&offset=0&limit=5", "get_results",
+     {"kind": "cup_with_handle", "status": "ready", "search": "NVDA", "offset": 0, "limit": 5}),
+    ("NVDA?as_of=2026-10-01", "analyse", None),
+])
+def test_beta_chart_reads_use_existing_analysis_without_jobs(setup, monkeypatch, path, operation, arguments):
+    from datetime import date
+    from app.services import chart_analysis
+
+    received = []
+
+    def read(*args, **kwargs):
+        received.append((args, kwargs))
+        return {"ticker": "NVDA", "patterns": [{"kind": "cup_with_handle"}],
+                "source_job_id": "private-job", "metadata": {"private": "sentinel"},
+                "quality": {"partial": False}, "points": [{"date": "2026-10-01", "close": 100}]}
+
+    monkeypatch.setattr(chart_analysis, operation, read)
+    response = setup.client.get("/api/v1/chart-analysis/" + path, headers=setup.headers)
+    assert response.status_code == 200
+    assert response.json()["patterns"] == [{"kind": "cup_with_handle"}]
+    assert response.json()["points"][0]["close"] == 100
+    assert "private" not in response.text
+    assert "source_job_id" not in response.json()
+    assert not setup.calls
+    expected = (("NVDA",), {"as_of": date(2026, 10, 1)}) if arguments is None else ((), arguments)
+    assert received == [expected]
+    # Repeated visitors share the existing bounded beta read cache.
+    assert setup.client.get("/api/v1/chart-analysis/" + path, headers=setup.headers).status_code == 200
+    assert len(received) == 1
+
+
+@pytest.mark.parametrize("method,path", [
+    ("PUT", "config"), ("POST", "scan"), ("DELETE", "NVDA"),
+    ("GET", "results?private=true"), ("GET", "NVDA?refresh=true"),
+    ("GET", "config?as_of=2026-10-01"),
+])
+def test_beta_chart_management_and_unlisted_queries_are_denied(setup, monkeypatch, method, path):
+    from app.services import chart_analysis
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Denied beta chart request reached a service")
+
+    for name in ("get_config", "save_config", "get_results", "analyse"):
+        monkeypatch.setattr(chart_analysis, name, forbidden)
+    response = setup.client.request(method, "/api/v1/chart-analysis/" + path, headers=setup.headers)
+    assert response.status_code == 403
+    assert not setup.calls
+
+
 def test_fresh_stock_auto_does_not_enqueue(setup):
     setup.state["fresh"] = True
     response = refresh(setup, mode="auto")

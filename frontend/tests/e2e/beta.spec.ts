@@ -1,16 +1,16 @@
 import { test, expect } from "@playwright/test";
 
-test("beta home and navigation contain only the six public destinations", async ({ page }) => {
+test("beta home and navigation contain only the seven public destinations", async ({ page }) => {
   const calls: string[] = [];
   page.on("request", request => { if (request.url().includes("/api/v1/")) calls.push(new URL(request.url()).pathname); });
   await page.goto("/");
   await expect(page.getByText("Top-3-Aktien des Tages")).toBeVisible();
-  await expect(page.locator("aside nav a")).toHaveCount(6);
+  await expect(page.locator("aside nav a")).toHaveCount(7);
   await expect(page.locator("aside")).not.toContainText("Portfolio");
   await expect(page.locator("aside")).not.toContainText("Settings");
   await expect(page.getByText("Mein Depot")).toHaveCount(0);
   expect(calls.every(path => path === "/api/v1/beta/home")).toBeTruthy();
-  for (const path of ["/market", "/sectors", "/industry-groups", "/stocks", "/sell-check"]) {
+  for (const path of ["/market", "/sectors", "/industry-groups", "/stocks", "/sell-check", "/chart-analysis"]) {
     const response = await page.goto(path);
     expect(response?.status()).toBe(200);
     await expect(page.locator("aside nav")).toBeVisible();

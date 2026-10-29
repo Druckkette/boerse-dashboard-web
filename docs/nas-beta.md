@@ -63,6 +63,84 @@ Der geteilte interne Docker-Netzwerkbereich ist eine Vertrauensgrenze: der beste
 Backend-Zugang setzt ein internes Netzwerk voraus. Der Beta-Zugang ist zusätzlich im Backend
 beschränkt. Dies ersetzt keine Isolation gegen einen kompromittierten Container oder NAS-Administrator.
 
+### Bestehende NAS: HTTP-Aufruf am Beta-HTTPS-Port korrigieren
+
+Auf der bestehenden NAS gilt eine andere, bereits eingerichtete Portbelegung als im obigen Beispiel:
+`https://fumificate.myds.me:3001` führt über Synology nginx zu `http://127.0.0.1:3002` und von dort
+zum Containerport 3000 von `frontend-beta`. `BETA_PUBLIC_ORIGIN` bleibt exakt
+`https://fumificate.myds.me:3001`; intern bleibt HTTP auf dem Loopback-Port 3002. Ein Aufruf mit
+`http://fumificate.myds.me:3001` erreicht dagegen den TLS-Listener und erhält bisher nginx-Fehler 400.
+Eine Weiterleitung in Next.js kann diesen Fehler nicht behandeln, weil die Anfrage die App nicht erreicht.
+
+Das NAS-spezifische [nas-beta-http-redirect.sh](../infra/nas-beta-http-redirect.sh) ergänzt ausschließlich
+für diese Beta-Regel eine Weiterleitung mit festem Zielhost, unverändertem Pfad und Query:
+
+```nginx
+error_page 497 =308 https://fumificate.myds.me:3001$request_uri;
+```
+
+nginx unterstützt dafür den [internen Fehlercode 497](https://nginx.org/en/docs/http/ngx_http_ssl_module.html#errors)
+und den [Redirectstatus 308](https://nginx.org/en/docs/http/ngx_http_core_module.html#error_page).
+Authentifizierung, Beta-Freigabeliste, TLS-Einstellungen und andere NAS-Hosts werden dadurch nicht
+geändert. Es wird kein zusätzlicher Port geöffnet und kein öffentlicher HTTP-Upstream angelegt.
+
+Das Skript prüft die feste Regel-ID `5edae515-2b91-4360-8f8a-cb42290ad2c3`, Quellhost/-port,
+beide TLS-Listener und das Ziel `127.0.0.1:3002`. Der gefundene Beta-Server muss genau einmal den
+regelbezogenen Include `ReverseProxy_5edae515-2b91-4360-8f8a-cb42290ad2c3.conf*` enthalten.
+Die Direktive wird als separate Datei mit Suffix `.boerse-http-redirect` in diesen Include eingebunden.
+Die generierte `server.ReverseProxy.conf`, die ursprüngliche TLS-Profildatei und `ReverseProxy.json`
+werden nicht verändert. Eine fremd veränderte verwaltete Begleitdatei und bereits vorhandene andere
+497-Regeln führen zum Abbruch.
+
+Vor jeder Änderung sichert das Skript den gezielt gefundenen Beta-Block und eine gegebenenfalls bereits
+vorhandene verwaltete Begleitdatei unter `infra/backups/beta-http-redirect/` mit Verzeichnisrechten 0700
+und Dateirechten 0600. Es prüft nginx vor und nach der Änderung, lädt nur eine gültige Konfiguration
+mit `nginx -s reload` und prüft anschließend den tatsächlichen HTTP-308-Redirect. Bei Fehlern wird
+die Begleitdatei auf ihren vorherigen Zustand zurückgesetzt; auch ein nötiger Rückladevorgang setzt
+eine erfolgreiche Syntaxprüfung voraus. Konfigurations- und Zertifikatsdiagnosen anderer Hosts werden
+nicht ausgegeben. Ein erzwungenes Beenden mit SIGKILL oder ein Stromausfall kann nicht abgefangen werden.
+
+Nach Prüfung des Skripts als root auf der NAS ausführen; der Standardaufruf und `check` lesen nur:
+
+```sh
+cd /volume1/docker/boerse-dashboard-web
+sh infra/nas-beta-http-redirect.sh check
+sh infra/nas-beta-http-redirect.sh apply
+sh infra/nas-beta-http-redirect.sh check
+```
+
+Ein erneutes `apply` ändert und lädt bei bereits aktivem Redirect nichts neu. `remove` entfernt nur
+die unverändert vorgefundene verwaltete Begleitdatei, nach denselben Prüf- und Rücksetzregeln:
+
+```sh
+sh infra/nas-beta-http-redirect.sh remove
+```
+
+**Persistenzgrenze und manueller DSM-Hook:** Solange DSM den bestehenden regelbezogenen Wildcard-Include
+wieder erzeugt und die Begleitdatei erhält, bleibt die Ergänzung bei einer Neuerzeugung der Proxydatei
+wirksam. Dieser TLS-Profil-Include ist jedoch keine von Synology dokumentierte allgemeine Custom-API.
+Das Skript beansprucht keine Garantie, dass Firmwareupdates oder Änderungen am TLS-Profil die Begleitdatei
+erhalten. Das Löschen und Neuanlegen der Reverse-Proxy-Regel kann ihre ID ändern; dann verweigert das
+Skript absichtlich Änderungen, bis die neue Zuordnung geprüft und im Skript angepasst wurde.
+Synologys dokumentierter [Web-Config-Mechanismus](https://help.synology.com/developer-guide/resource_acquisition/web_config.html)
+betrifft die Registrierung eigener Paketkonfigurationen; ein zusätzliches DSM-Paket wird hier nicht installiert.
+
+Für automatisches Wiederanwenden kann nach gesonderter Prüfung eine root-eigene Kopie installiert werden:
+
+```sh
+install -m 0700 infra/nas-beta-http-redirect.sh /usr/local/sbin/boerse-beta-http-redirect
+```
+
+Danach im DSM-[Aufgabenplaner](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_taskscheduler?version=7)
+manuell eine benutzerdefinierte root-Aufgabe beim Hochfahren und optional eine regelmäßige root-Aufgabe,
+beispielsweise alle fünf Minuten, mit `/usr/local/sbin/boerse-beta-http-redirect apply` anlegen.
+Das Skript installiert weder Aufgaben noch Cron-/Startdateien selbst. Eine Startaufgabe allein deckt
+Proxy-Neuerzeugungen während des Betriebs nicht ab; entfernt DSM die Begleitdatei, besteht bis zum
+nächsten erfolgreichen regelmäßigen Aufruf wieder das ursprüngliche HTTP-400-Verhalten. Es gibt hier
+keinen nachgewiesenen DSM-Hook unmittelbar nach jeder Proxy-Neuerzeugung. Nach DSM-/TLS-Änderungen
+deshalb `check` und beide Schemes prüfen. Bei Skriptänderungen muss auch die geprüfte root-Kopie ersetzt
+werden; zum dauerhaften Entfernen zuerst die DSM-Aufgaben deaktivieren und anschließend `remove` ausführen.
+
 ## Zugang nur über Link ausdrücklich einschalten
 
 Für einen begrenzten Testerkreis ist der Passwortmodus vorgesehen. Ein öffentlicher Link benötigt
