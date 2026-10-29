@@ -37,6 +37,6 @@ export function BetaStockDetailActions({ ticker }: { ticker: string }) {
     </div>
     {job?.job_id && <div role="status"><p className="text-sm">{job.joined || started?.joined ? "Diese Aktie wird bereits aktualisiert. " : ""}{job.finished ? job.status === "done" ? "Aktualisierung abgeschlossen." : "Aktualisierung beendet." : job.status === "queued" ? "Aktie wartet auf den Worker." : "Aktie wird aktualisiert."}</p><progress max={100} value={job.progress || 0} className="mt-2 h-2 w-full accent-teal-700" aria-label="Aktienrefresh-Fortschritt" /></div>}
     {(error || job?.error) && <p role="alert" className="text-sm text-[#c2413b]">{job?.error || (error instanceof Error ? error.message : "Bitte später erneut versuchen.")}</p>}
-    <Link className="text-sm font-semibold text-[#0f766e]" href="/sell-check">Aktie frei auf Verkaufssignale prüfen →</Link>
+    <Link prefetch={false} className="text-sm font-semibold text-[#0f766e]" href="/sell-check">Aktie frei auf Verkaufssignale prüfen →</Link>
   </section>;
 }

@@ -1,6 +1,21 @@
 [
   {
     "method": "GET",
+    "path": "chart-analysis/config",
+    "query": []
+  },
+  {
+    "method": "GET",
+    "path": "chart-analysis/results",
+    "query": ["kind", "status", "search", "offset", "limit"]
+  },
+  {
+    "method": "GET",
+    "path": "chart-analysis/{ticker}",
+    "query": ["as_of"]
+  },
+  {
+    "method": "GET",
     "path": "beta/home",
     "query": []
   },

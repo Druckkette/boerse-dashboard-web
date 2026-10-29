@@ -46,7 +46,7 @@ export function ProductSidebar() {
   const path = usePathname();
   const groups = [
     ["Überblick", [["/", "Übersicht"]]],
-    ["Markt & Analyse", beta ? analysis.filter(([href]) => href !== "/chart-analysis") : analysis],
+    ["Markt & Analyse", analysis],
     ...(beta
       ? [["Prüfen", [["/sell-check", "Aktie frei prüfen"]]]]
       : [
@@ -116,7 +116,7 @@ export function ProductBottomNav() {
         ["/stocks", "Aktien", Search],
       ] as const);
   const more = beta
-    ? analysis.filter(([href]) => href !== "/market" && href !== "/stocks" && href !== "/chart-analysis")
+    ? analysis.filter(([href]) => href !== "/market" && href !== "/stocks")
     : [
         ...portfolio.filter(([href]) => href !== "/portfolio"),
         ...analysis.filter(

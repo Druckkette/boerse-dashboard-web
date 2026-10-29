@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 import { useJob } from "@/lib/use-job";
 import { LineChartCard } from "@/components/ui/line-chart-card";
+import { useBetaMode } from "@/components/beta-mode-provider";
+import { BetaStockDetailActions } from "@/features/stocks/beta-stock-detail-actions";
 import { formatNumber } from "@/lib/format";
 import { patternLabels, patternStatuses } from "@/lib/types/chart-analysis";
 import type {
@@ -208,6 +210,7 @@ function StockEntry() {
 }
 
 export function ChartAnalysisOverview() {
+  const beta = useBetaMode();
   const [kind, setKind] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
@@ -230,9 +233,12 @@ export function ChartAnalysisOverview() {
         }).toString(),
       ),
   });
-  const job = useJob(jobId, ["chart-pattern-results"]);
+  const job = useJob(beta ? null : jobId, ["chart-pattern-results"]);
   const scan = useMutation({
-    mutationFn: () => api.startJob({ type: "scan_chart_patterns" }),
+    mutationFn: () => {
+      if (beta) throw new Error("Universumscans werden zentral verwaltet.");
+      return api.startJob({ type: "scan_chart_patterns" });
+    },
     onSuccess: (result) => setJobId(result.job_id),
   });
   return (
@@ -250,15 +256,21 @@ export function ChartAnalysisOverview() {
               waren.
             </p>
           </div>
-          <button
+          {!beta && <button
             className={button}
             disabled={scan.isPending || job.running}
             onClick={() => scan.mutate()}
           >
             Universum nach Mustern scannen
-          </button>
+          </button>}
         </div>
         <StockEntry />
+        {beta && (
+          <p className="mt-3 text-sm text-slate-600">
+            Die Beta zeigt den zuletzt gespeicherten Universumscan. Musterparameter
+            und Universumscans werden zentral verwaltet.
+          </p>
+        )}
         {job.running && (
           <p role="status" className="mt-3 text-sm">
             Scan läuft: {job.data?.current_step || "Job wird vorbereitet…"}
@@ -278,6 +290,7 @@ export function ChartAnalysisOverview() {
         <ParameterEditor
           key={config.data.parameter_hash}
           config={config.data}
+          readOnly={beta}
           onSaved={async () => {
             await queryClient.invalidateQueries({
               queryKey: ["chart-pattern-config"],
@@ -300,7 +313,7 @@ export function ChartAnalysisOverview() {
             <p className="mt-1 text-sm text-slate-600">
               {results.data?.available
                 ? `${results.data.scanned_count} Aktien im Scan · Scan vom ${new Date(results.data.generated_at!).toLocaleString("de-DE")}`
-                : "Den ersten Scan starten, um das gespeicherte Aktienuniversum zu prüfen."}
+                : beta ? "Noch kein zentraler Universumscan verfügbar." : "Den ersten Scan starten, um das gespeicherte Aktienuniversum zu prüfen."}
             </p>
           </div>
         </div>
@@ -332,7 +345,7 @@ export function ChartAnalysisOverview() {
             className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
           >
             Die Parameter wurden geändert oder die Erkennung wurde aktualisiert. Diese Treffer verwenden noch die
-            vorherigen Regeln. Bitte einen neuen Scan starten.
+            vorherigen Regeln. {beta ? "Für die Trefferliste ist ein neuer zentraler Scan erforderlich. Einzelcharts verwenden bereits die aktuellen Regeln." : "Bitte einen neuen Scan starten."}
           </p>
         )}
         <div className="my-4 grid gap-2 sm:grid-cols-3">
@@ -512,30 +525,34 @@ const parameterLabels: Record<string, string> = {
 function ParameterEditor({
   config,
   onSaved,
+  readOnly = false,
 }: {
   config: PatternConfig;
   onSaved: () => Promise<void>;
+  readOnly?: boolean;
 }) {
   const [draft, setDraft] = useState(config.parameters);
   const save = useMutation({
-    mutationFn: () => api.saveChartPatternConfig(draft),
+    mutationFn: () => {
+      if (readOnly) throw new Error("Musterparameter werden zentral verwaltet.");
+      return api.saveChartPatternConfig(draft);
+    },
     onSuccess: onSaved,
   });
   return (
     <details className={panel}>
       <summary className="cursor-pointer font-semibold">
-        Musterparameter anpassen
+        {readOnly ? "Musterparameter ansehen" : "Musterparameter anpassen"}
       </summary>
       <p className="my-3 text-sm text-slate-600">
-        Die Einstellungen gelten für Chart und Universumscan und werden zentral
-        gespeichert. Nach Änderungen den Scan erneut starten. Standardwerte
+        {readOnly ? "Diese zentral gespeicherten Regeln gelten für Chart und Universumscan. Die Ansicht ist schreibgeschützt. " : "Die Einstellungen gelten für Chart und Universumscan und werden zentral gespeichert. Nach Änderungen den Scan erneut starten. "}Standardwerte
         folgen Kapitel 4.2; Form- und Volumenfilter konkretisieren die
         qualitativen Regeln.
       </p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate();
+          if (!readOnly) save.mutate();
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -546,6 +563,7 @@ function ParameterEditor({
                 {parameterLabels[key] || key}
                 <input
                   required
+                  readOnly={readOnly}
                   type="number"
                   aria-label={parameterLabels[key] || key}
                   aria-describedby={
@@ -587,6 +605,7 @@ function ParameterEditor({
         <label className="my-4 flex gap-2 text-sm">
           <input
             type="checkbox"
+            disabled={readOnly}
             checked={draft.require_volume}
             onChange={(e) =>
               setDraft({ ...draft, require_volume: e.target.checked })
@@ -594,7 +613,7 @@ function ParameterEditor({
           />
           Austrocknendes Volumen als Pflichtkriterium
         </label>
-        <div className="flex flex-wrap gap-2">
+        {!readOnly && <div className="flex flex-wrap gap-2">
           <button
             className={button}
             disabled={
@@ -613,7 +632,7 @@ function ParameterEditor({
           >
             Buchstandard als Entwurf laden
           </button>
-        </div>
+        </div>}
         {save.isError && (
           <p role="alert" className="mt-3 text-sm text-red-700">
             {errorText(save.error)}
@@ -635,6 +654,7 @@ export function ChartAnalysisDetail({
   rules?: string;
   autoRefresh?: boolean;
 }) {
+  const beta = useBetaMode();
   const queryClient = useQueryClient();
   const config = useQuery({
     queryKey: ["chart-pattern-config"],
@@ -648,19 +668,22 @@ export function ChartAnalysisDetail({
     queryKey: ["chart-pattern-chart", ticker, asOf],
     queryFn: () => api.chartPatternChart(ticker, asOf),
   });
-  const job = useJob(jobId, ["chart-pattern-chart"]);
+  const job = useJob(beta ? null : jobId, ["chart-pattern-chart"]);
   const refresh = useMutation({
-    mutationFn: () =>
-      api.startJob({
+    mutationFn: () => {
+      if (beta) throw new Error("Bitte die begrenzte Aktienaktualisierung verwenden.");
+      return api.startJob({
         type: "refresh_stock_detail",
         payload: { tickers: [ticker] },
-      }),
+      });
+    },
     onSuccess: (result) => setJobId(result.job_id),
   });
   const automaticRequested = useRef(false);
   const requestRefresh = refresh.mutate;
   useEffect(() => {
     if (
+      !beta &&
       autoRefresh &&
       !asOf &&
       chart.data &&
@@ -670,7 +693,7 @@ export function ChartAnalysisDetail({
       automaticRequested.current = true;
       requestRefresh();
     }
-  }, [autoRefresh, asOf, chart.data, requestRefresh]);
+  }, [beta, autoRefresh, asOf, chart.data, requestRefresh]);
   const patterns = chart.data?.patterns || [];
   const selected = selectedId
     ? patterns.find((p) => p.id === selectedId)
@@ -705,13 +728,13 @@ export function ChartAnalysisDetail({
           <button className={control} onClick={() => setAsOf("")}>
             Aktueller Stand
           </button>
-          <button
+          {!beta && <button
             className={control}
             disabled={refresh.isPending || job.running}
             onClick={() => refresh.mutate()}
           >
             Kursdaten aktualisieren
-          </button>
+          </button>}
         </div>
         {job.running && (
           <p role="status" className="mt-2 text-sm">
@@ -749,8 +772,7 @@ export function ChartAnalysisDetail({
         {selectedId && chart.data && !selected && (
           <p role="status" className="mt-2 text-sm text-amber-800">
             Der ausgewählte Treffer ist mit diesem Datenstand und diesen
-            Parametern nicht mehr vorhanden. Bitte ein anderes Muster auswählen
-            oder den Scan erneuern.
+            Parametern nicht mehr vorhanden. {beta ? "Bitte ein anderes Muster auswählen." : "Bitte ein anderes Muster auswählen oder den Scan erneuern."}
           </p>
         )}
         {chart.data?.quality?.partial && (
@@ -775,10 +797,12 @@ export function ChartAnalysisDetail({
           </p>
         ))}
       </section>
+      {beta && <BetaStockDetailActions key={ticker} ticker={ticker} />}
       {config.data && (
         <ParameterEditor
           key={config.data.parameter_hash}
           config={config.data}
+          readOnly={beta}
           onSaved={async () => {
             await Promise.all([
               queryClient.invalidateQueries({

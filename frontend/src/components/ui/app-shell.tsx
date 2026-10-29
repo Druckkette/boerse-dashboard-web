@@ -42,7 +42,7 @@ const navItems = [
   { href: "/settings", label: "Einstellungen", icon: Settings }
 ];
 
-const betaNavItems = [...navItems.filter(item => ["/", "/market", "/sectors", "/industry-groups", "/stocks"].includes(item.href)), { href: "/sell-check", label: "Aktie frei prüfen", icon: ChartCandlestick }];
+const betaNavItems = [...navItems.filter(item => ["/", "/market", "/sectors", "/industry-groups", "/stocks", "/chart-analysis"].includes(item.href)), { href: "/sell-check", label: "Aktie frei prüfen", icon: ChartCandlestick }];
 const hiddenPageLabels = [
   { href: "/setup", label: "Setup" },
   { href: "/jobs", label: "Jobs" },
