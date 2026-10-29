@@ -8,13 +8,16 @@ oder eine Datenbankmigration. Die persistente Speicherung nutzt die bestehende P
 
 ## Konfiguration
 
-Den dauerhaften Schlüssel im **privaten Dashboard unter Einstellungen → Daten & System →
-Aktiennachrichten · Marketaux** eintragen und speichern. Das geschützte Formular sendet ihn an die eigene
+Den dauerhaften Schlüssel im **privaten Dashboard unter Setup → API-Zugänge im Setup pflegen →
+API & Datenquellen → Marketaux API Key** eintragen und oben „Speichern“ wählen. Das vorhandene
+Setup-Formular zeigt den neuen Zugang automatisch aus der Backend-Konfiguration an. Alternativ bleibt
+**Einstellungen → Daten & System → Aktiennachrichten · Marketaux** verfügbar. Das geschützte Formular sendet ihn an die eigene
 Backend-API, die ihn dauerhaft in PostgreSQL speichert. Antworten enthalten anschließend nur den
 Konfigurationsstatus und eine vollständige konstante Maskierung, niemals Präfix oder Endzeichen.
 Jeder Nachrichtenabruf liest den aktuellen gespeicherten Wert; ein Schlüsselwechsel benötigt keinen
 Container-Neustart und setzt weder Cache noch Abrufbudget zurück. Die Beta hat keinen Zugriff auf
-die Secret-Einstellungen.
+die Secret-Einstellungen. Nachrichten erscheinen dagegen im Bereich **Aktien → Aktie öffnen** sowohl
+im normalen Dashboard als auch in der Beta, unabhängig vom gewählten Analyse-Unterreiter.
 
 Alternativ bleibt die serverseitige Variable `MARKETAUX_API_KEY` im Backend möglich, auf Synology
 beispielsweise in der nicht versionierten `infra/.env.nas`. Ein im Dashboard gespeicherter Wert hat

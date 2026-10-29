@@ -33,6 +33,49 @@ function runtimeConfig(configured: boolean) {
   };
 }
 
+for (const width of [390, 1440]) {
+  test(`Setup exposes the Marketaux secret, saves it masked and applies it without restart at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.route("**/api/v1/setup/status", route => route.fulfill({ json: { status: "ready", steps: [], next_step_key: null, summary: "Isolierte Setup-Prüfung" } }));
+    await page.route("**/api/v1/settings/database-target", route => route.fulfill({ status: 503, json: { detail: "Isolierte Setup-Prüfung" } }));
+    const writes: unknown[] = [];
+    let configured = false;
+    await page.route("**/api/v1/settings/runtime-config", route => {
+      if (route.request().method() === "PATCH") {
+        writes.push(route.request().postDataJSON());
+        configured = true;
+      } else expect(route.request().method()).toBe("GET");
+      const response = runtimeConfig(configured);
+      // Match the real backend metadata consumed by the existing Setup form.
+      response.items[0].label = "Marketaux API Key";
+      response.items[0].placeholder = "Marketaux API Key";
+      response.items[0].value_preview = configured ? "********" : "";
+      return route.fulfill({ json: response });
+    });
+    const requests: string[] = [];
+    page.on("request", request => requests.push(request.url()));
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "API-Zugänge im Setup pflegen", exact: true })).toBeVisible();
+    const input = page.getByPlaceholder("Marketaux API Key", { exact: true });
+    await expect(input).toHaveCount(1);
+    await expect(input).toHaveAttribute("type", "password");
+    await input.fill(DUMMY_KEY);
+    const save = page.getByRole("button", { name: "Speichern", exact: true });
+    await save.click();
+    await expect(input).toHaveValue("");
+    await expect(save).toBeDisabled();
+    await expect(page.getByText("Aktuell: ********", { exact: true })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(DUMMY_KEY);
+    expect(writes).toEqual([{ values: { [KEY]: DUMMY_KEY }, clear_keys: [] }]);
+    expect(requests.some(url => url.includes(DUMMY_KEY) || url.includes("api.marketaux.com") || url.includes("api_token") || url.includes("restart"))).toBe(false);
+    await page.reload();
+    await expect(input).toHaveValue("");
+    await expect(page.getByText("Aktuell: ********", { exact: true })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(DUMMY_KEY);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+}
+
 for (const width of [390, 1440])
   test(`private Marketaux settings mask, save and clear the secret draft at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });

@@ -41,6 +41,21 @@ for (const width of [390, 1440]) {
   });
 }
 
+test("Beta displays company news when opening a stock without exposing private settings", async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: { username: "beta", password: "test-only-beta-password" } });
+  const page = await context.newPage();
+  await page.route("**/api/v1/stocks/NVDA/news", route => route.fulfill({ json: reply("NVDA") }));
+  await page.route("**/api/v1/industry-groups/stock-context/*", route => route.fulfill({ status: 503, json: { detail: "Isolierte Nachrichtenprüfung" } }));
+  const response = await page.goto("http://127.0.0.1:18301/stocks/NVDA");
+  expect(response?.status()).toBe(200);
+  const panel = page.getByRole("region", { name: "Aktuelle Nachrichten zu NVDA" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("article")).toHaveCount(3);
+  await expect(panel.getByRole("link").first()).toHaveAttribute("target", "_blank");
+  await expect(page.getByLabel("Marketaux API-Schlüssel", { exact: true })).toHaveCount(0);
+  await context.close();
+});
+
 test("stock change never displays the prior company's articles while the next response is loading", async ({ page }) => {
   const seen: string[] = [];
   let releaseApple!: () => void;
