@@ -51,6 +51,7 @@ test("fresh stock stays unchanged until manual update; score reloads even on ano
   await page.getByRole("button", { name: "Aktie aktualisieren", exact: true }).click();
   await expect(page.getByRole("progressbar", { name: "Aktienrefresh-Fortschritt" })).toBeVisible();
   await page.getByRole("button", { name: "Technik", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^(Aktie aktualisieren|Aktualisierung läuft)$/ })).toHaveCount(1);
   await expect(page.getByText("Aktualisierung abgeschlossen.")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("main")).toContainText("Technical91/100");
   await page.getByRole("button", { name: "Übersicht", exact: true }).click();
