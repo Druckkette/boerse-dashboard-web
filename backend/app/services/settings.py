@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 
 from app.core_config import get_settings
@@ -101,6 +102,17 @@ RUNTIME_CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "runtime_applied": True,
         "placeholder": "FMP API Key",
         "attr": "fmp_api_key",
+    },
+    "MARKETAUX_API_KEY": {
+        "label": "Marketaux API Key",
+        "category": "external_api",
+        "description": "Unternehmensnachrichten in der Aktienansicht. Speichern greift sofort; der Schlüssel wird anschließend vollständig maskiert.",
+        "secret": True,
+        "editable": True,
+        "restart_required": False,
+        "runtime_applied": True,
+        "placeholder": "Marketaux API Key",
+        "attr": "marketaux_api_key",
     },
     "PUSHOVER_USER_KEY": {
         "label": "Pushover User Key",
@@ -285,7 +297,8 @@ def _runtime_config_response(stored: dict) -> RuntimeConfigResponse:
         editable_keys=[item.key for item in items if item.editable],
         bootstrap_keys=[item.key for item in items if not item.editable and item.restart_required],
         note=(
-            "API- und Secret-Werte werden in Postgres gespeichert und in eine persistente Runtime-Env-Datei gespiegelt. "
+            "API- und Secret-Werte werden in Postgres gespeichert. Marketaux greift sofort und bleibt ausschließlich im Backend. "
+            "Andere dafür freigegebene Werte werden zusätzlich in die persistente Runtime-Env-Datei gespiegelt. "
             "Security-Werte und Neon/Postgres werden vorbereitet; sie greifen nach dem Neustart der betroffenen Container."
         ),
     )
@@ -300,7 +313,9 @@ def update_runtime_config(payload: RuntimeConfigPatch) -> RuntimeConfigResponse:
         values = {key: str(value).strip() for key, value in payload.values.items()
                   if key in editable and str(value).strip()}
         stored = settings_repository.patch_runtime_config(values, [key for key in payload.clear_keys if key in editable])
-        _write_runtime_env_file(stored)
+        changed = set(values) | {key for key in payload.clear_keys if key in editable}
+        if changed - {"MARKETAUX_API_KEY"}:
+            _write_runtime_env_file(stored)
         return _runtime_config_response(stored)
 
 
@@ -331,6 +346,19 @@ def test_runtime_config(payload: RuntimeConfigTestRequest) -> RuntimeConfigTestR
         return _test_database_url(key=key, value=value, checked_at=checked_at)
     if key == "FMP_API_KEY":
         return _test_fmp_api_key(key=key, value=value, checked_at=checked_at)
+    if key == "MARKETAUX_API_KEY":
+        # Local format check only: the generic setup test must never bypass the
+        # news service's durable request budget or burn quota on repeated clicks.
+        ok = bool(re.fullmatch(r"[A-Za-z0-9_-]{16,256}", value))
+        return RuntimeConfigTestResponse(
+            key=key, ok=ok, status="ok" if ok else ("missing" if not value else "invalid"),
+            detail=(
+                "Format lokal geprüft. Keine Anbieteranfrage und kein Kontingentverbrauch; "
+                "die Gültigkeit wird beim nächsten regulären Nachrichtenabruf geprüft."
+                if ok else "Bitte einen Marketaux API Key mit mindestens 16 Zeichen ohne Leerzeichen eintragen."
+            ),
+            checked_at=checked_at,
+        )
     if key in {"PUSHOVER_USER_KEY", "PUSHOVER_APP_TOKEN"}:
         return _test_pushover(key=key, candidate_key=payload.value, checked_at=checked_at)
     if key == "PUSHOVER_DRY_RUN":
@@ -603,6 +631,8 @@ class RuntimeEnvUnavailable(RuntimeError):
 def _write_runtime_env_file(stored: dict) -> None:
     import tempfile
     path = os.environ.get("APP_RUNTIME_ENV_FILE", "/app/runtime/runtime.env")
+    # MARKETAUX_API_KEY is deliberately excluded: backend_runtime is also mounted
+    # by the private frontend. News reads its DB override directly on each request.
     runtime_values = {
         key: str(stored.get(key) or "").strip()
         for key in (
@@ -898,7 +928,8 @@ def _runtime_config_item(key: str, definition: dict[str, Any], stored: dict) -> 
         restart_required=bool(definition.get("restart_required", False)),
         runtime_applied=bool(definition.get("runtime_applied", False)),
         placeholder=str(definition.get("placeholder") or ""),
-        value_preview=_preview_value(effective, secret=bool(definition.get("secret", True))),
+        value_preview=("********" if effective else "") if key == "MARKETAUX_API_KEY"
+        else _preview_value(effective, secret=bool(definition.get("secret", True))),
     )
 
 
@@ -916,6 +947,8 @@ def _environment_value(key: str, definition: dict[str, Any]) -> str:
         value = getattr(get_settings(), str(attr), "")
         if isinstance(value, bool):
             return "1" if value else "0"
+        if isinstance(value, SecretStr):
+            return value.get_secret_value()
         return str(value or "")
     return ""
 

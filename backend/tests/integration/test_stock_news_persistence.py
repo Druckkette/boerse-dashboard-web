@@ -32,6 +32,7 @@ def database(monkeypatch):
     sessions = sessionmaker(bind=engine)
     monkeypatch.setattr(repository, "engine", engine)
     monkeypatch.setattr(repository, "SessionLocal", sessions)
+    monkeypatch.setattr(service.runtime_settings.settings_repository, "SessionLocal", sessions)
 
     def clean():
         with sessions() as db:
@@ -46,6 +47,8 @@ def database(monkeypatch):
                                exchange="NASDAQ", currency="USD") for ticker in TEST_TICKERS])
         db.commit()
     monkeypatch.setattr(service, "get_settings", lambda: Settings(marketaux_api_key="test-only-secret"))
+    monkeypatch.setattr(service.runtime_settings, "get_settings", lambda: service.get_settings())
+    monkeypatch.delenv("MARKETAUX_API_KEY", raising=False)
     yield engine, sessions
     clean()
     engine.dispose()

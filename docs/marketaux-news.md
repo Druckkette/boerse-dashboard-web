@@ -8,17 +8,32 @@ oder eine Datenbankmigration. Die persistente Speicherung nutzt die bestehende P
 
 ## Konfiguration
 
-Den dauerhaften Schlüssel als serverseitige Variable `MARKETAUX_API_KEY` im Backend setzen, auf
-Synology beispielsweise in der nicht versionierten `infra/.env.nas`. Keinen `NEXT_PUBLIC_`-Namen
-verwenden und den Schlüssel weder in Browserformulare noch in Git, Testausgaben oder Logs kopieren.
-Die Frontend-Container benötigen den Schlüssel nicht; bei gemeinsamem `env_file` muss ihr
-`MARKETAUX_API_KEY` ausdrücklich leer überschrieben werden. Anschließend nur nach bewusster
-Produktionsfreigabe die geänderte Backend-Umgebung übernehmen. Der Implementierungstest hinterlegt
-keinen temporären Schlüssel auf dem NAS.
+Den dauerhaften Schlüssel im **privaten Dashboard unter Einstellungen → Daten & System →
+Aktiennachrichten · Marketaux** eintragen und speichern. Das geschützte Formular sendet ihn an die eigene
+Backend-API, die ihn dauerhaft in PostgreSQL speichert. Antworten enthalten anschließend nur den
+Konfigurationsstatus und eine vollständige konstante Maskierung, niemals Präfix oder Endzeichen.
+Jeder Nachrichtenabruf liest den aktuellen gespeicherten Wert; ein Schlüsselwechsel benötigt keinen
+Container-Neustart und setzt weder Cache noch Abrufbudget zurück. Die Beta hat keinen Zugriff auf
+die Secret-Einstellungen.
+
+Alternativ bleibt die serverseitige Variable `MARKETAUX_API_KEY` im Backend möglich, auf Synology
+beispielsweise in der nicht versionierten `infra/.env.nas`. Ein im Dashboard gespeicherter Wert hat
+Vorrang. „Entfernen“ löscht diesen Datenbankwert; eine weiterhin gesetzte Umgebungsvariable wird
+danach wieder als Quelle verwendet. Ohne beide Quellen werden keine neuen Provideranfragen
+gestellt; vorhandene Cache-Artikel bleiben verfügbar. Der Konfigurationstest prüft nur das Format
+lokal und benötigt keine API-Anfrage. Die tatsächliche Gültigkeit zeigt sich beim nächsten regulären,
+budgetgeschützten Nachrichtenabruf.
+
+Der Marketaux-Schlüssel wird ausdrücklich **nicht** in die zwischen Backend und privatem Frontend
+geteilte Runtime-Env-Datei gespiegelt. Die Frontend-Container benötigen ihn nicht; bei gemeinsamem
+Compose-`env_file` wird ihr `MARKETAUX_API_KEY` ausdrücklich leer überschrieben. Keinen
+`NEXT_PUBLIC_`-Namen verwenden und den Schlüssel nicht in Git, Testausgaben oder Logs kopieren.
+Eine Produktionsbereitstellung erfolgt nur nach bewusster Freigabe. Der Implementierungstest
+hinterlegt keinen temporären Schlüssel auf dem NAS.
 
 | Variable | Standard | Bedeutung |
 | --- | --- | --- |
-| `MARKETAUX_API_KEY` | leer | Backend-Schlüssel; ohne Schlüssel erscheint ein sicherer Hinweis. |
+| `MARKETAUX_API_KEY` | leer | Optionaler Backend-Fallback; der über Einstellungen gespeicherte Schlüssel hat Vorrang. |
 | `MARKETAUX_LANGUAGES` | `de,en` | Sprachfilter; eine leere Variable deaktiviert den Filter. |
 | `MARKETAUX_DAILY_LIMIT` | `90` | Schutzbudget, konfigurierbar von 1 bis 90 Versuchen in rollierenden 24 Stunden. |
 | `MARKETAUX_CACHE_TTL_SECONDS` | `3600` | Gültigkeit erfolgreicher nichtleerer Nachrichtenlisten. |

@@ -14,6 +14,7 @@ from app.core_config import get_settings
 from app.data_sources.marketaux import MarketauxFailure, fetch_news
 from app.repositories import stock_news as repository
 from app.schemas_news import NewsArticle, NewsEntity, StockNewsResponse
+from app.services import settings as runtime_settings
 
 
 MESSAGES = {
@@ -181,7 +182,9 @@ def get_stock_news(ticker: str) -> StockNewsResponse:
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9.=_^\-]{0,31}", clean):
         return _response(clean[:32], {}, reason="unsupported")
     settings = get_settings()
-    api_key = settings.marketaux_api_key.get_secret_value()
+    # Runtime UI edits are durable and effective immediately across processes.
+    # This key is never mirrored to the shared frontend runtime-env volume.
+    api_key = runtime_settings.get_runtime_config_value("MARKETAUX_API_KEY")
     state = {}
     try:
         identity = repository.resolve_symbol(clean)

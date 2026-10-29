@@ -79,6 +79,9 @@ def setup(monkeypatch):
                                        ("TSLA", "Tesla Inc.")]}
     monkeypatch.setattr(service, "utc_now", lambda: clock[0])
     monkeypatch.setattr(service, "get_settings", lambda: settings)
+    monkeypatch.setattr(service.runtime_settings, "_read_runtime_config", lambda: {})
+    monkeypatch.setattr(service.runtime_settings, "get_settings", lambda: service.get_settings())
+    monkeypatch.delenv("MARKETAUX_API_KEY", raising=False)
     monkeypatch.setattr(repository, "resolve_symbol", identities.get)
     monkeypatch.setattr(repository, "locked_store", durable.lock)
     calls = []
@@ -298,3 +301,30 @@ def test_duplicates_by_uuid_and_tracking_urls_are_removed():
                      "url": first["url"] + "?utm_source=newsletter"}
     result = service.parse_articles([duplicate_id, duplicate_url, first], identity, min_match_score=10, now=NOW)
     assert [item.uuid for item in result] == ["same"]
+
+
+def test_saved_ui_key_changes_are_used_immediately_and_do_not_reset_quota(setup, monkeypatch):
+    _, durable, _, calls = setup
+    stored = {"MARKETAUX_API_KEY": "test-only-first-ui-key"}
+    monkeypatch.setattr(service.runtime_settings, "_read_runtime_config", lambda: dict(stored))
+    assert service.get_stock_news("NVDA").status == "ok"
+    assert calls[-1]["api_key"] == "test-only-first-ui-key"
+    stored["MARKETAUX_API_KEY"] = "test-only-second-ui-key"
+    assert service.get_stock_news("AAPL").status == "ok"
+    assert calls[-1]["api_key"] == "test-only-second-ui-key"
+    stored.clear()
+    assert service.get_stock_news("TSLA").status == "limit_reached"
+    assert len(calls) == len(durable.calls) == 2
+    assert service.get_stock_news("NVDA").cached
+
+
+def test_removed_ui_key_stops_new_fetches_but_keeps_fresh_cached_articles(setup, monkeypatch):
+    _, durable, _, calls = setup
+    stored = {"MARKETAUX_API_KEY": "test-only-ui-key"}
+    monkeypatch.setattr(service.runtime_settings, "_read_runtime_config", lambda: dict(stored))
+    monkeypatch.setattr(service, "get_settings", lambda: Settings(marketaux_api_key=""))
+    assert service.get_stock_news("NVDA").status == "ok"
+    stored.clear()
+    assert service.get_stock_news("AAPL").status == "not_configured"
+    assert service.get_stock_news("NVDA").status == "ok"
+    assert len(calls) == len(durable.calls) == 1
