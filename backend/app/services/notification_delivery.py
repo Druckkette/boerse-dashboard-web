@@ -287,9 +287,18 @@ def _empty_result() -> dict:
 
 
 def _render_group(entries: list[dict]) -> tuple[str, str, int]:
+    # A combined message must keep a reached stop or escalation visible first.
+    entries = sorted(entries, key=lambda entry: (
+        0 if entry["alert"].get("kind") == "stop" else
+        1 if _is_escalation(entry["alert"]) else
+        2 if entry["alert"].get("kind") == "atr" else 3
+    ))
     formatted = [_format_alert(entry["alert"]) for entry in entries]
     ticker = entries[0].get("ticker") or "Depot"
     title = formatted[0][0] if len(entries) == 1 else f"{ticker}: {len(entries)} neue Hinweise"
+    if len(entries) > 1 and (entries[0]["alert"].get("kind") == "stop" or _is_escalation(entries[0]["alert"])):
+        count = len(entries) - 1
+        title = f"{formatted[0][0]} · {count} {'weiterer Hinweis' if count == 1 else 'weitere Hinweise'}"
     message = "\n\n".join(message for _, message in formatted)
     if len(message) > 1000:
         message = message[:930].rsplit("\n", 1)[0] + "\nWeitere Einzelheiten stehen im Dashboard."
@@ -452,7 +461,7 @@ def _dispatch_state(
             and event_counts.get(entry["limit_key"], 0) >= entry["max_per_day"]
         ):
             reason = "Tageslimit dieser Meldungsart erreicht; für die Tagesübersicht vorgemerkt."
-            entry["cap_held"] = monitor_day
+            entry.update(cap_held=monitor_day, digest_reason="daily_limit", mode="digest")
         ticker = entry.get("ticker") or "System"
         bypass = _bypass(entry["alert"], grouping)
         if not reason and grouping.get("enabled", True) and not bypass:
@@ -466,7 +475,7 @@ def _dispatch_state(
             and counts.get(ticker, 0) >= int(grouping.get("max_immediate_per_ticker_day", 3))
         ):
             reason = "Tageslimit erreicht; für die Tagesübersicht vorgemerkt."
-            entry["cap_held"] = monitor_day
+            entry.update(cap_held=monitor_day, digest_reason="daily_limit", mode="digest")
         if reason:
             if reason.startswith("Außerhalb") and entry["category"] in {"ma", "score", "verdict"}:
                 entry.update(mode="digest", digest_reason="session")
@@ -501,7 +510,7 @@ def _dispatch_state(
             and not any(_bypass(entry["alert"], grouping) for entry in entries)
         ):
             for entry in entries:
-                entry["cap_held"] = monitor_day
+                entry.update(cap_held=monitor_day, digest_reason="daily_limit", mode="digest")
                 logs.append(
                     _log(
                         entry,
@@ -522,7 +531,7 @@ def _dispatch_state(
         ]
         for entry in entries:
             if entry not in entries_to_send:
-                entry["cap_held"] = monitor_day
+                entry.update(cap_held=monitor_day, digest_reason="daily_limit", mode="digest")
                 logs.append(
                     _log(
                         entry,
@@ -598,6 +607,19 @@ def _dispatch_state(
             )
     pending = [entry for entry in pending if entry["id"] not in sent_entry_ids | off_ids]
     summary = prefs.get("summary", {})
+    # A disabled summary is a log-only choice, not an unbounded delivery queue.
+    summary_categories = set(summary.get("categories", ["ma", "score", "verdict", "stop", "atr"]))
+    log_only = {
+        entry["id"] for entry in pending
+        if entry["mode"] == "digest"
+        and (not summary_enabled or entry["category"] not in summary_categories)
+    }
+    for entry in pending:
+        if entry["id"] in log_only:
+            seen.append({"id": entry["id"], "at": now.isoformat()})
+            logs.append(_log(entry, status="suppressed", now=now,
+                             detail="Tagesübersicht oder Kategorie ausgeschaltet; der Hinweis bleibt nur im Protokoll."))
+    pending = [entry for entry in pending if entry["id"] not in log_only]
     scheduled = summary.get("time", "22:45")
     waiting = state.get("summary_waiting")
     if (

@@ -273,6 +273,12 @@ def test_monitor_day_cap_does_not_reset_at_midnight():
     state, result, _, messages = run(
         state, prefs=prefs, now=NOW.replace(hour=7) + timedelta(days=1), flush=True
     )
+    assert not messages and result["sent"] == 0
+    # The new day allows a genuinely new alert, never a delayed old cap event.
+    state, result, _, messages = run(
+        state, [alert("new-day")], prefs=prefs,
+        now=NOW.replace(hour=7, minute=1) + timedelta(days=1),
+    )
     assert len(messages) == 1 and result["sent"] == 1
 
 

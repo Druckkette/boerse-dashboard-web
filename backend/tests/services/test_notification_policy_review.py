@@ -9,6 +9,41 @@ from app.services.stop_alerts import stop_transition
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
 
 
+def test_daily_cap_never_releases_old_alert_as_fresh_push_the_next_day():
+    preferences = NotificationPreferences().model_dump()
+    preferences["summary"]["enabled"] = False
+    preferences["grouping"].update(enabled=False, max_immediate_per_ticker_day=1)
+    first = {"kind": "atr", "ticker": "BE", "alert_id": "first", "distance_atr": 1.6, "threshold_atr": 1.5}
+    second = {**first, "alert_id": "second"}
+    state, _, _, messages = dispatch({}, [first], preferences=preferences)
+    assert len(messages) == 1
+    state, _, _, messages = dispatch(state, [second], preferences=preferences, now=NOW + timedelta(minutes=1))
+    assert messages == []
+    state, _, _, messages = dispatch(state, [], preferences=preferences, now=NOW + timedelta(days=1), flush=True)
+    assert messages == []
+    assert not state["pending"]
+
+
+def test_disabled_digest_category_is_logged_without_building_an_unbounded_queue():
+    preferences = prefs()
+    preferences["summary"]["categories"] = ["ma"]
+    state, result, logs, messages = dispatch({}, [signal("verdict")], preferences=preferences)
+    assert not state["pending"] and not messages
+    assert result["accepted_alert_ids"] == ["verdict"]
+    assert "nur im Protokoll" in logs[-1]["detail"]
+
+
+def test_combined_message_keeps_reached_stop_in_title_and_first_paragraph():
+    entries = [
+        {"ticker": "BE", "priority": 1, "alert": {"kind": "atr", "ticker": "BE", "distance_atr": 2, "threshold_atr": 1.5}},
+        {"ticker": "BE", "priority": 1, "alert": {"kind": "stop", "ticker": "BE", "name": "Bloom Energy", "current_price": 99, "stop_price": 100, "currency": "USD"}},
+    ]
+    title, message, priority = delivery._render_group(entries)
+    assert "Stopp" in title and "weiterer Hinweis" in title
+    assert message.startswith("Bloom Energy hat deinen Stopp erreicht.")
+    assert priority == 1
+
+
 def test_latest_verified_close_is_delivered_after_regular_session_but_respects_quiet_hours():
     preferences = NotificationPreferences().model_dump()
     after_close = datetime(2026, 10, 29, 20, 1, tzinfo=UTC)
