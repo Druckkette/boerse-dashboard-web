@@ -313,13 +313,14 @@ def test_loss_gain_warning_activates_when_loss_days_outnumber_gain_days() -> Non
     assert check.tone == "warning"
 
 
-def test_under_50sma_is_counted_once_as_trend_break() -> None:
+@pytest.mark.parametrize("below", [True, False])
+def test_50sma_label_matches_actual_side_and_break_is_counted_once(below: bool) -> None:
     points = compute_trend_ampel(_rising_bars(220, start=100.0, step=0.2))
     latest = replace(
         points[-1],
-        close=139.0,
+        close=139.0 if below else 141.0,
         sma50=140.0,
-        dist_50sma_pct=-0.7,
+        dist_50sma_pct=-0.7 if below else 0.7,
         neg_reversals_10d=0,
         low_cr_5d=0,
         dist_count_25=0,
@@ -341,9 +342,14 @@ def test_under_50sma_is_counted_once_as_trend_break() -> None:
     )
     active = [check.label for check in checks if check.active_warning]
 
-    assert "Kurs über 50-SMA" in active
+    label = "Kurs unter 50-SMA" if below else "Kurs über 50-SMA"
+    check = next(item for item in checks if item.label == label)
+    assert check.active_warning is below
+    assert check.passed is not below
+    assert check.detail == ("Unter 50-SMA" if below else "OK")
+    assert "Kurs über 50-SMA" not in active
     assert "Überdehnt über 50-SMA" not in active
-    assert active.count("Kurs über 50-SMA") == 1
+    assert active.count("Kurs unter 50-SMA") == int(below)
 
 
 @pytest.mark.parametrize(

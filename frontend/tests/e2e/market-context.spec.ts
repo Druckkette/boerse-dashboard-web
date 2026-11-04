@@ -1,18 +1,29 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 const asOf = "2026-10-08";
 const ampel = (ticker: string) => ({
   ticker, name: ticker === "^IXIC" ? "Nasdaq Composite" : "S&P 500", as_of: asOf, confirmed_as_of: asOf, quote_as_of: asOf, as_of_time: "2026-10-08T22:00:00Z",
-  intraday: false, logic: "ibd", source: "database", data_status: "fresh", message: "", component_errors: [], warning_count: 1,
+  intraday: false, logic: "ibd", source: "database", data_status: "fresh", message: "", component_errors: [], warning_count: 2,
   breadth_mode: "schutz", volatility_regime: "Risk Off bestätigt", vix_regime: "Stress",
   // A stale/old backend hero must never override the actual phase in the UI.
   hero: { mode: "Defensiv", tone: "bad", action: "Alter Override", reasons: ["Trendwende-Ampel: GRÜN – Bestätigung"] },
   phase_info: { phase: "gruen", label: "GRÜN - Bestätigung", tone: "good", reason: "Startschuss bestätigt", action: "Frühe Bestätigungsphase. Exponierung vorsichtig aufbauen.", next_step: "Vollständige Trendbestätigung abwarten." },
-  lights: [],
+  lights: [
+    { key: "rot", label: "ROT", rule: "ROT beobachtet in der IBD Logik einen Rallyversuch bereits ab 8% Drawdown oder bei früherer Schwäche unter der 50-SMA.", active: false, tone: "bad" },
+    { key: "gelb_startschuss", label: "GELB - STARTSCHUSS", rule: "Startschuss ab Rally Day 4.", active: false, tone: "warning" },
+    { key: "gruen", label: "GRÜN", rule: "Vollständige Handelstage nach dem Startschuss.", active: true, tone: "good" },
+    { key: "aufwaertstrend", label: "AUFWÄRTSTREND", rule: "Höhere Swing-Hochs und -Tiefs.", active: false, tone: "good" },
+    { key: "gelb_trend_unter_druck", label: "GELB - TRENDDRUCK", rule: "Reine Warnhäufung ändert die Phase nicht.", active: false, tone: "warning" },
+    { key: "gelb_rally_unter_druck", label: "GELB - RALLY UNTER DRUCK", rule: "FTD per Schlusskurs negiert, Rallytief intakt; neuer FTD erforderlich.", active: false, tone: "warning" }
+  ],
   cycle: { anchor_date: "2026-09-21", anchor_current: true, floor_mark: 100, floor_current: true, startschuss_low: 103, startschuss_current: true, ftd_negated: false, startschuss_bonus: false, ma_order: true, market_structure: "up", diagnostics: [] },
   change_cards: [], distance_tiles: [], chart_markers: [],
   chart_points: [ { date: "2026-10-07", open: 110, high: 113, low: 109, close: 112, volume: 1000, phase: "gruen" }, { date: asOf, open: 112, high: 115, low: 111, close: 114, volume: 1100, phase: "gruen" } ],
-  warning_checks: [{ code: "W04", label: "Distributionstage (25T)", passed: false, detail: "4 Distributionstage", active_warning: true, tone: "warning" }],
+  warning_checks: [
+    { code: "W04", label: "Distributionstage (25T)", passed: false, detail: "4 Distributionstage", active_warning: true, tone: "warning" },
+    { label: "Kurs unter 50-SMA", passed: false, detail: "Unter 50-SMA", active_warning: true, tone: "warning" }
+  ],
   powertrend: { enabled: true, state: "on", formal_active: true, start_date: "2026-09-25", reason: "Alle Bedingungen erfüllt", low_above_21_streak: 10, ema21_over_50_streak: 5, sma50_rising_1d: true, positive_or_flat_day: true }
 });
 
@@ -28,7 +39,7 @@ const scores = (ticker: string) => ({
   }))
 });
 
-for (const width of [1440, 390]) {
+for (const width of [1440, 390, 320]) {
   test(`market context stays below the binding ampel, preserves old panels and fits ${width}px`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width, height: 1000 }, httpCredentials: { username: "owner", password: "test-only-private-password" } });
     const page = await context.newPage();
@@ -67,12 +78,34 @@ for (const width of [1440, 390]) {
     const phaseBox = await phase.first().boundingBox();
     expect(contextBox!.y).toBeGreaterThan(phaseBox!.y);
     const index = page.getByRole("article", { name: "Index Informationsscore" });
-    await index.getByText("Beiträge & Regeln", { exact: true }).click();
+    await expect(index.getByText("Explizite Regel", { exact: true })).toBeHidden();
+    await index.locator("summary").click();
     await expect(index).toContainText("W04");
     await expect(index).toContainText("Gewicht 0,5");
     await expect(index).toContainText("Anteil am Unterscore: 0 Punkte");
     await expect(index).toContainText("Nicht bewertbar");
+    await expect(index.getByText("Explizite Regel", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Regeldefinition ROT", exact: true }).click();
+    await expect(page.getByText("ROT beobachtet in der IBD Logik einen Rallyversuch bereits ab 8% Drawdown oder bei früherer Schwäche unter der 50-SMA.", { exact: true }).first()).toBeVisible();
+    await page.getByText("Regeldefinitionen · 6 Ampelzustände", { exact: true }).click();
+    await expect(page.getByText("FTD per Schlusskurs negiert, Rallytief intakt; neuer FTD erforderlich.", { exact: true })).toBeVisible();
+    await expect(page.locator("#trend").getByText("+14 %", { exact: true })).toBeVisible();
+    await page.locator("#trend").getByText("2 aktive Warnzeichen", { exact: true }).click();
+    await expect(page.locator("#trend").getByText("Kurs unter 50-SMA", { exact: true })).toBeVisible();
+    await expect(page.locator("#trend").getByText("Kurs über 50-SMA", { exact: true })).toHaveCount(0);
+    await expect(page.locator("#warnings").getByText("Kurs unter 50-SMA", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    if (width === 1440) {
+      const chart = page.getByRole("region", { name: "Marktampel Indexchart" });
+      await chart.getByText("Chartwerkzeuge · Marken, Vorlagen & Export", { exact: true }).click();
+      const downloadPromise = page.waitForEvent("download");
+      await chart.getByRole("button", { name: "Chart als SVG speichern", exact: true }).click();
+      const download = await downloadPromise;
+      const content = await readFile((await download.path())!, "utf8");
+      expect(content).toContain("<svg");
+      expect(content).not.toContain("var(");
+      expect(content).not.toContain("light-dark(");
+    }
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: `/tmp/boerse-market-context-${width}.png`, fullPage: true });
     await page.locator("#context-scores").screenshot({ path: `/tmp/boerse-market-context-cards-${width}.png` });

@@ -47,6 +47,9 @@ export type ChartOverlay = {
 };
 
 type LineChartCardProps = {
+  className?: string;
+  candleColors?: { up: string; down: string };
+  readoutMode?: "always" | "hover";
   title: string;
   storageKey?: string;
   caption: string;
@@ -110,6 +113,9 @@ type TimeTick = {
 };
 
 export function LineChartCard({
+  className = "",
+  candleColors,
+  readoutMode = "always",
   title,
   storageKey,
   caption,
@@ -133,6 +139,8 @@ export function LineChartCard({
   hideTextHeader = false,
   showPreviousCloseChange = false
 }: LineChartCardProps) {
+  const upColor = candleColors?.up || UP_COLOR;
+  const downColor = candleColors?.down || DOWN_COLOR;
   const overlayClip = useId().replaceAll(":", "");
   const product = useProductUi();
   const preferences=useChartPreferences(storageKey||title);
@@ -238,7 +246,7 @@ export function LineChartCard({
   const latestClose = chartMode === "candlestick" ? toNumber(latestPoint?.close) : null;
   const latestIsVisible = normalizedRange.end === points.length - 1;
   const latestUp = (toNumber(latestPoint?.close) ?? 0) >= (toNumber(latestPoint?.open) ?? 0);
-  const currentPriceColor = latestUp ? UP_COLOR : DOWN_COLOR;
+  const currentPriceColor = latestUp ? upColor : downColor;
   const hasError = Boolean(error);
   const empty = !isLoading && (!visiblePoints.length || (!numericValues.length && !candleValues.length && !subValues.length));
   const currentWindow = normalizedRange.end - normalizedRange.start + 1;
@@ -385,9 +393,9 @@ export function LineChartCard({
   const card = (
     <section
       ref={cardRef}
-      className={isFullscreen
+      className={[className, isFullscreen
         ? "flex h-full min-h-0 w-full flex-col overflow-y-auto bg-[var(--background)] p-3"
-        : "rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadow-card)] sm:p-4"}
+        : "rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadow-card)] sm:p-4"].join(" ")}
       style={isFullscreen ? {
         paddingTop: "max(0.75rem, env(safe-area-inset-top))",
         paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
@@ -395,7 +403,7 @@ export function LineChartCard({
         paddingRight: "max(0.75rem, env(safe-area-inset-right))",
       } : undefined}
     >
-      <div className={[
+      <div data-chart-toolbar="true" className={[
         hideTextHeader ? "mb-2 flex justify-end" : "mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between",
         isFullscreen ? "sticky top-0 z-20 shrink-0 bg-[var(--background)]" : "",
       ].join(" ")}>
@@ -437,7 +445,7 @@ export function LineChartCard({
         onPointerUp={handlePointerEnd}
         onDoubleClick={resetZoom}
       >
-        {!isLoading && !hasError && !empty && activePoint && (
+        {!isLoading && !hasError && !empty && activePoint && (readoutMode === "always" || hoveredPoint) && (
           <ChartHoverReadout chartMode={chartMode} point={activePoint} series={visibleSeries} volumeKey={volumeKey} isHovered={Boolean(hoveredPoint)} isLatest={activePoint === latestPoint} previousClose={previousClose} showPreviousCloseChange={showPreviousCloseChange} />
         )}
         {isLoading && <ChartMessage>Daten werden geladen...</ChartMessage>}
@@ -475,7 +483,7 @@ export function LineChartCard({
                   const x = xForIndex(index, visiblePoints.length, plotRight) - barWidth / 2;
                   const close = toNumber(point.close);
                   const open = toNumber(point.open);
-                  const fill = close !== null && open !== null && close < open ? DOWN_COLOR : UP_COLOR;
+                  const fill = close !== null && open !== null && close < open ? downColor : upColor;
                   return <rect key={`${point.date}-${index}-volume`} fill={fill} height={barHeight} opacity="0.36" width={barWidth} x={x} y={volumeBottom - barHeight} />;
                 })}
                 {visibleVolumeSeries.map((item) => {
@@ -500,7 +508,7 @@ export function LineChartCard({
                   const yLow = yForValue(low, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
                   const yOpen = yForValue(open, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
                   const yClose = yForValue(close, priceScale.min, priceScale.max, PAD_TOP, priceBottom, logarithmic);
-                  const color = close >= open ? UP_COLOR : DOWN_COLOR;
+                  const color = close >= open ? upColor : downColor;
                   return (
                     <g key={`${point.date}-candle`} opacity={hover && hover.index !== index ? "0.82" : "1"}>
                       <line stroke={color} strokeWidth="1" vectorEffect="non-scaling-stroke" x1={x} x2={x} y1={yHigh} y2={yLow} />
@@ -698,7 +706,7 @@ function ChartHoverReadout({ chartMode, point, series, volumeKey, isHovered, isL
   const volume = volumeKey ? toNumber(point[volumeKey]) : null;
 
   return (
-    <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-8rem)] rounded-md border border-[var(--border)] bg-white/94 px-2.5 py-1.5 shadow-sm backdrop-blur sm:left-3 sm:top-3">
+    <div data-chart-readout="true" className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%-8rem)] rounded-md border border-[var(--border)] bg-white/94 px-2.5 py-1.5 shadow-sm backdrop-blur sm:left-3 sm:top-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] tabular-nums sm:text-[11px]">
         <span className="font-semibold text-[var(--text)]">{formatLongDate(point.date)}</span>
         {chartMode === "candlestick" && (

@@ -2896,7 +2896,12 @@ def _build_ampel_warning_checks(
                 under_200,
             )
         )
-    checks.append(_ampel_warning_check("Kurs über 50-SMA", not under_50, "Unter 50-SMA" if under_50 else "OK", under_50))
+    checks.append(_ampel_warning_check(
+        "Kurs unter 50-SMA" if under_50 else "Kurs über 50-SMA",
+        not under_50,
+        "Unter 50-SMA" if under_50 else "OK",
+        under_50,
+    ))
     declining_up_volume = bool(latest.up_vol_declining)
     checks.append(
         _ampel_warning_check(

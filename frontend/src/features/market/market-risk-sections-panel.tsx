@@ -214,7 +214,7 @@ function EarlyWarnings({
 function WarningSigns({ data, intermarket }: { data: MarketAmpel; intermarket: MarketIntermarketItem[] }) {
   const latest = data.chart_points[data.chart_points.length - 1];
   const movingAverageChecks = data.warning_checks.filter((check) =>
-    ["Kurs über 200-SMA", "Kurs über 50-SMA", "Kurs unter 21-EMA"].includes(check.label)
+    ["Kurs über 200-SMA", "Kurs über 50-SMA", "Kurs unter 50-SMA", "Kurs unter 21-EMA"].includes(check.label)
   );
   const distribution = findCheck(data.warning_checks, "Distributionstage");
   const stalls = findCheck(data.warning_checks, "Stau-Tage");

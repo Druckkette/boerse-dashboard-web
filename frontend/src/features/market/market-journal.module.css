@@ -1,0 +1,222 @@
+@font-face { font-family: "Market Journal Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/market-journal/dm-sans-400.ttf") format("truetype"); }
+@font-face { font-family: "Market Journal Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/market-journal/dm-sans-500.ttf") format("truetype"); }
+@font-face { font-family: "Market Journal Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/market-journal/dm-sans-600.ttf") format("truetype"); }
+@font-face { font-family: "Market Journal Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/market-journal/ibm-plex-mono-400.ttf") format("truetype"); }
+@font-face { font-family: "Market Journal Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/market-journal/ibm-plex-mono-500.ttf") format("truetype"); }
+@font-face { font-family: "Market Journal Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/market-journal/instrument-serif-400.ttf") format("truetype"); }
+
+.journal {
+  color-scheme: light dark;
+  --mj-paper: light-dark(#f5f3ec, #141c23);
+  --mj-ink: light-dark(#172f3e, #ece7d9);
+  --mj-soft: light-dark(#59676d, #a6b1b5);
+  --mj-rule: light-dark(#cbd0cc, #39464d);
+  --mj-band: light-dark(#e9ede6, #1b292e);
+  --mj-red: light-dark(#ad402e, #e48b70);
+  --mj-green: light-dark(#346d59, #a4c3a0);
+  --mj-amber: light-dark(#8d6526, #d2b77b);
+  --mj-brand: light-dark(#2c6763, #9bbeb1);
+  --mj-ma21: light-dark(#426f8c, #9db6c5);
+  --mj-ma50: light-dark(#9b722c, #d2b77b);
+  --mj-ma200: light-dark(#7b6b8e, #b9a8bd);
+  --background: var(--mj-paper); --panel: var(--mj-paper); --panel-soft: var(--mj-band);
+  --text: var(--mj-ink); --text-strong: var(--mj-ink); --muted: var(--mj-soft); --muted-soft: var(--mj-soft);
+  --border: var(--mj-rule); --green: var(--mj-green); --red: var(--mj-red); --teal: var(--mj-brand);
+  container: market-journal / inline-size;
+  min-width: 0;
+  border: 1px solid var(--mj-rule);
+  background: var(--mj-paper);
+  color: var(--mj-ink);
+  font: 400 14px/1.55 "Market Journal Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.journal h1, .journal h2, .journal h3, .journal h4, .journal p, .journal dl, .journal dd { margin: 0; }
+.journal button, .journal summary { font-family: inherit; }
+.journal button:focus-visible, .journal summary:focus-visible { outline: 2px solid var(--mj-brand); outline-offset: 4px; }
+.journal button:not(:disabled), .journal summary { cursor: pointer; }
+.journal button:disabled { opacity: .55; }
+.journal [data-tone="good"] { --mj-tone: var(--mj-green); }
+.journal [data-tone="bad"] { --mj-tone: var(--mj-red); }
+.journal [data-tone="warning"] { --mj-tone: var(--mj-amber); }
+.journal [data-tone="neutral"] { --mj-tone: var(--mj-soft); }
+.mono { font-family: "Market Journal Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.muted { color: var(--mj-soft); }
+.eyebrow { color: var(--mj-soft); font-size: 11px; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px; padding: 20px 28px; border-bottom: 1px solid var(--mj-rule); }
+.heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+.heading h1 { font-size: 18px; font-weight: 500; letter-spacing: -.4px; }
+.heading > span { font-size: 11px; color: var(--mj-soft); }
+.indexPicker { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.indexPicker button { border: 0; border-bottom: 2px solid transparent; padding: 4px 0; color: var(--mj-soft); background: transparent; font-size: 12px; }
+.indexPicker button[aria-pressed="true"] { color: var(--mj-ink); border-bottom-color: var(--mj-ink); font-weight: 600; }
+.notices { padding: 12px 28px; border-bottom: 1px solid var(--mj-rule); color: var(--mj-amber); font-size: 12px; }
+.power { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px 24px; padding: 20px 28px; background: var(--mj-band); border-bottom: 1px solid var(--mj-rule); }
+.powerName { display: flex; align-items: center; gap: 7px; }
+.powerName h2 { font-size: 13px; font-weight: 500; }
+.powerState { color: var(--mj-tone); font-size: 25px; font-weight: 500; letter-spacing: -.8px; margin-top: 3px; }
+.powerDate { margin-top: 3px !important; color: var(--mj-soft); font-size: 11px; }
+.powerChecks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.powerCheck { min-width: 0; }
+.powerCheck > span { display: block; font-size: 11px; color: var(--mj-soft); }
+.powerCheck strong { display: block; margin-top: 5px; font-family: "Market Journal Mono", monospace; font-size: 17px; font-weight: 400; }
+.streak { display: flex; gap: 3px; height: 3px; margin-top: 9px; }
+.streak i { flex: 1; background: var(--mj-rule); }
+.streak i[data-filled="true"] { background: var(--mj-brand); }
+.powerProgress { grid-column: 1/-1; border-top: 1px solid var(--mj-rule); padding-top: 12px; font-size: 12px; }
+.powerProgress > p + p { margin-top: 5px; }
+.powerProgress strong { font-weight: 500; }
+.powerProgress ul { margin: 7px 0; padding-left: 18px; color: var(--mj-soft); }
+.powerRules { margin-top: 8px; color: var(--mj-soft); font-size: 11px; }
+.powerRules summary { width: fit-content; }
+.powerRules p { margin-top: 6px; }
+.content { padding: 0 28px; }
+.hero { display: grid; grid-template-columns: minmax(0, .78fr) minmax(0, 1.22fr); align-items: start; gap: 28px; padding: 28px 0; }
+.position { min-width: 0; }
+.phaseLabel { display: flex; align-items: center; gap: 7px; color: var(--mj-tone); font-size: 11px; font-weight: 500; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--mj-tone); flex-shrink: 0; }
+.headline { margin: 10px 0 14px !important; font: 400 clamp(46px, 6.2cqi, 78px)/1.03 "Market Journal Serif", Georgia, serif; letter-spacing: -1.5px; overflow-wrap: break-word; }
+.action { font-size: 16px; line-height: 1.5; max-width: 34ch; }
+.confirmed { margin-top: 9px !important; color: var(--mj-soft); font-size: 11px; }
+.next { border-top: 1px solid var(--mj-rule); margin-top: 20px; padding-top: 13px; }
+.next p { margin-top: 6px; font-size: 13px; }
+.warnings { margin-top: 16px; border-top: 1px solid var(--mj-rule); padding-top: 12px; font-size: 12px; }
+.warnings summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; color: var(--mj-amber); }
+.warnings summary::-webkit-details-marker { display: none; }
+.warnings summary > span { display: flex; gap: 7px; align-items: center; }
+.warnings ul { margin: 10px 0 0; padding: 0; list-style: none; }
+.warnings li { padding: 8px 0; border-top: 1px solid var(--mj-rule); }
+.warnings li strong { font-size: 12px; font-weight: 500; }
+.warnings li p { font-size: 11px; color: var(--mj-soft); margin-top: 3px; }
+.quote { min-width: 0; }
+.quoteHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+.quoteHead h2 { font-size: 13px; font-weight: 500; }
+.periods { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.periods button { border: 0; border-bottom: 1px solid transparent; padding: 3px 0; background: transparent; color: var(--mj-soft); font-size: 11px; }
+.periods button[aria-pressed="true"] { color: var(--mj-ink); border-bottom-color: var(--mj-ink); }
+.periods button:last-child { display: grid; place-items: center; padding-inline: 3px; }
+.price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; margin-top: 7px; }
+.price strong { font-size: 27px; font-weight: 500; letter-spacing: -.9px; }
+.price > span { color: var(--mj-tone); font-size: 13px; }
+.quoteDate { margin-top: 3px !important; font-size: 11px; color: var(--mj-soft); }
+.journal .chart { border: 0; padding: 12px 0 0; border-radius: 0; box-shadow: none; background: var(--mj-paper); }
+.chart :global([data-chart-surface="true"]) { height: 360px; border: 0; border-radius: 0; background: var(--mj-paper); }
+.chart :global([data-chart-readout="true"]) { color: var(--mj-ink); background: var(--mj-paper); border-color: var(--mj-rule); box-shadow: none; border-radius: 0; }
+.chart :global([data-chart-toolbar="true"]) { flex-wrap: wrap; }
+.chart button { color: var(--mj-soft); }
+.markers { padding: 18px 0 20px; border-block: 1px solid var(--mj-rule); }
+.sectionHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 18px; }
+.sectionHead h2 { font-size: 15px; font-weight: 500; letter-spacing: -.2px; }
+.sectionHead > span { font-size: 11px; color: var(--mj-soft); }
+.markerGrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; margin-top: 14px !important; }
+.markerGrid > div { min-width: 0; }
+.markerGrid dt { color: var(--mj-soft); font-size: 11px; margin-bottom: 6px; }
+.markerGrid dd { font-family: "Market Journal Mono", monospace; font-size: 15px; font-weight: 400; letter-spacing: -.45px; overflow-wrap: anywhere; }
+.markerGrid dd[data-empty="true"] { color: var(--mj-soft); font: 400 12px/1.5 "Market Journal Sans", sans-serif; }
+.markerNote { display: block; margin-top: 5px; color: var(--mj-soft); font-size: 10px; line-height: 1.5; }
+.distance { display: block; margin-top: 5px; color: var(--mj-tone); font: 400 12px/1.5 "Market Journal Mono", monospace; }
+.phases { padding: 22px 0; border-bottom: 1px solid var(--mj-rule); }
+.route { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 17px; }
+.phase { display: flex; flex-direction: column; align-items: flex-start; border: 0; padding: 0 14px 12px 0; color: var(--mj-ink); background: transparent; text-align: left; min-width: 0; }
+.rail { position: relative; width: 100%; height: 12px; margin-bottom: 10px; }
+.rail::before { content: ""; position: absolute; top: 4px; left: 10px; right: -14px; height: 1px; background: var(--mj-rule); }
+.phase:last-child .rail::before { right: 0; }
+.rail i { display: block; position: relative; width: 9px; height: 9px; border: 1px solid var(--mj-tone); border-radius: 50%; background: var(--mj-paper); }
+.phase[aria-current="step"] .rail i { background: var(--mj-tone); }
+.phase strong { display: block; font-size: 16px; font-weight: 500; letter-spacing: -.2px; margin-top: 3px; }
+.phase small { display: block; color: var(--mj-soft); font-size: 11px; margin-top: 5px; }
+.phase[aria-current="step"] small { color: var(--mj-tone); }
+.phase[aria-pressed="true"] strong, .branch[aria-pressed="true"] strong { text-decoration: underline; text-underline-offset: 4px; }
+.branches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 8px; }
+.branch { display: flex; gap: 9px; align-items: flex-start; border: 0; padding: 0; color: var(--mj-ink); background: transparent; text-align: left; }
+.branch > span { color: var(--mj-amber); font-size: 21px; line-height: 1; }
+.branch strong { font-size: 12px; font-weight: 500; }
+.branch small { display: block; font-size: 11px; color: var(--mj-soft); margin-top: 3px; }
+.phaseDetail { border-left: 2px solid var(--mj-brand); padding: 12px 15px; margin-top: 15px; background: var(--mj-band); font-size: 13px; }
+.phaseDetail strong { display: block; margin-bottom: 5px; font-weight: 500; }
+.phaseNote { margin-top: 13px !important; color: var(--mj-soft); font-size: 11px; }
+.rules { border-bottom: 1px solid var(--mj-rule); font-size: 13px; }
+.rules > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 0; list-style: none; }
+.rules > summary::-webkit-details-marker { display: none; }
+.rules[open] > summary svg, .warnings[open] > summary svg:last-child { transform: rotate(180deg); }
+.ruleGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 28px; padding-bottom: 20px; }
+.ruleGrid h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.ruleGrid h3 > span { color: var(--mj-tone); font-size: 11px; }
+.ruleGrid p { color: var(--mj-soft); font-size: 12px; }
+.cycleDetails { padding: 0 0 17px; font-size: 12px; color: var(--mj-soft); }
+.cycleDetails p + p { margin-top: 8px; }
+.distanceTable { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.distanceTable strong { color: var(--mj-ink); font: 400 15px "Market Journal Mono", monospace; display: block; margin-top: 4px; }
+.distanceTable small { display: block; font-size: 11px; margin-top: 4px; }
+.context { display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.7fr); gap: 28px; padding: 23px 0 25px; scroll-margin-top: 9rem; }
+.contextIntro h2 { font: 400 34px/1.1 "Market Journal Serif", Georgia, serif; letter-spacing: -.5px; }
+.contextIntro p { color: var(--mj-soft); font-size: 12px; margin-top: 10px; }
+.contextScores { min-width: 0; }
+.score { min-width: 0; border-bottom: 1px solid var(--mj-rule); }
+.score:last-child { border-bottom: 0; }
+.scoreSummary { display: grid; grid-template-columns: 88px minmax(16px, 1fr) 66px 86px 16px; gap: 10px; align-items: center; padding: 11px 0; list-style: none; }
+.scoreSummary::-webkit-details-marker { display: none; }
+.scoreName { font-size: 12px; font-weight: 500; }
+.scoreNumber { font: 400 13px "Market Journal Mono", monospace; text-align: right; }
+.scoreStatus { font-size: 11px; color: var(--mj-soft); }
+.scoreTrack { height: 3px; overflow: hidden; background: var(--mj-rule); }
+.scoreTrack > span { display: block; height: 3px; background: var(--mj-brand); }
+.score details[open] > .scoreSummary > svg { transform: rotate(180deg); }
+.scoreDetails { padding: 2px 0 18px; font-size: 12px; }
+.scoreDetails > p { color: var(--mj-soft); margin-bottom: 9px; }
+.subscore { margin: 14px 0; }
+.subscoreHead { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 5px 15px; font-size: 12px; }
+.subscoreHead strong { font-weight: 500; }
+.subscoreHead span { color: var(--mj-soft); }
+.subscore > .scoreTrack { margin-top: 6px; }
+.criterion { margin-top: 9px; border-left: 1px solid var(--mj-rule); padding-left: 12px; font-size: 11px; line-height: 1.65; }
+.criterion strong { font-weight: 500; }
+.criterion p { color: var(--mj-soft); margin-top: 3px; }
+.criterionMeta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px; }
+.contextNotes { grid-column: 1/-1; font-size: 11px; color: var(--mj-soft); }
+.contextNotes p { margin-top: 5px; }
+.contextNotes ul { margin: 8px 0 0; padding-left: 18px; }
+.footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; border-top: 1px solid var(--mj-rule); padding: 12px 0 18px; font-size: 11px; color: var(--mj-soft); }
+
+@container market-journal (max-width: 900px) {
+  .markerGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .context { grid-template-columns: 1fr; gap: 15px; }
+  .contextIntro h2 { font-size: 29px; }
+  .contextIntro p { margin-top: 6px; }
+  .power { grid-template-columns: 140px minmax(0, 1fr); gap: 16px; }
+  .powerChecks { gap: 12px; }
+}
+@container market-journal (max-width: 680px) {
+  .toolbar, .power, .notices { padding-inline: 20px; }
+  .content { padding-inline: 20px; }
+  .power { grid-template-columns: 1fr; }
+  .powerIdentity { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 14px; }
+  .powerState { font-size: 23px; }
+  .powerDate { flex-basis: 100%; }
+  .hero { grid-template-columns: 1fr; gap: 24px; }
+  .headline { font-size: clamp(48px, 10cqi, 72px); }
+  .action { max-width: none; }
+  .markerGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .route { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 0; }
+  .phase:nth-child(2) .rail::before { right: 0; }
+  .ruleGrid { grid-template-columns: 1fr; gap: 17px; }
+  .distanceTable { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container market-journal (max-width: 400px) {
+  .toolbar, .power, .notices { padding-inline: 16px; }
+  .content { padding-inline: 16px; }
+  .indexPicker { gap: 12px; }
+  .indexPicker button { font-size: 11px; }
+  .powerChecks { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .markerGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
+  .markerGrid dd { font-size: 14px; }
+  .branches { grid-template-columns: 1fr; gap: 14px; }
+  .scoreSummary { grid-template-columns: minmax(65px, 1fr) 51px 67px 14px; gap: 7px; }
+  .scoreSummary > .scoreTrack { display: none; }
+  .scoreName { font-size: 11px; }
+  .scoreNumber { font-size: 12px; }
+  .scoreStatus { font-size: 10px; }
+}
+@media (pointer: coarse) {
+  .indexPicker button, .periods button { min-height: 44px; }
+  .periods button { min-width: 36px; }
+  .scoreSummary, .rules > summary, .warnings summary { min-height: 44px; }
+}

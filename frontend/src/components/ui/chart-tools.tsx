@@ -279,6 +279,17 @@ export async function exportChart(
   const original = element?.querySelector('svg[role="img"]');
   if (!(original instanceof SVGSVGElement)) throw new Error("Chart fehlt");
   const svg = original.cloneNode(true) as SVGSVGElement;
+  // An exported SVG has no access to the surrounding chart's scoped theme.
+  const originals = [original, ...original.querySelectorAll("*")];
+  const copies = [svg, ...svg.querySelectorAll("*")];
+  originals.forEach((node, index) => {
+    for (const property of ["fill", "stroke", "color"]) {
+      const value = node.getAttribute(property);
+      if (value?.includes("var(") || value === "currentColor") {
+        copies[index].setAttribute(property, getComputedStyle(node).getPropertyValue(property));
+      }
+    }
+  });
   svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   const viewBox = original.viewBox.baseVal;
   svg.setAttribute("width", String(Math.round(viewBox.width)));
@@ -289,7 +300,7 @@ export async function exportChart(
   );
   description.textContent = `${title} · ${caption}`;
   svg.prepend(description);
-  const styles = getComputedStyle(document.documentElement);
+  const styles = getComputedStyle(original);
   const source = new XMLSerializer()
     .serializeToString(svg)
     .replace(
